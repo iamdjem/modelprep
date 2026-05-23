@@ -1,0 +1,19 @@
+# Repo-wide ignores. Per-package extras live in deploy/.gitignore,
+# backend/.gitignore, cdn/.gitignore.
+
+.DS_Store
+*.log
+
+# Editor cruft
+.vscode/
+.idea/
+*.swp
+
+# Node — caught per-package but listed here too as a belt-and-braces
+node_modules/
+
+# Cloudflare local state
+.wrangler/
+
+# Build output (deploy/dist)
+dist/

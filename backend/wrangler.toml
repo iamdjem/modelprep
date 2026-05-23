@@ -1,0 +1,24 @@
+name = "modelprep-backend"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+
+# Secrets (CULTS_USERNAME, CULTS_API_KEY) come from .dev.vars locally and
+# `wrangler secret put` in production. Don't put them in [vars].
+
+# R2 bucket for staging upload files (Cults pulls files from URLs we host).
+# Bucket must be created first: `wrangler r2 bucket create modelprep-staging`.
+# In `wrangler dev` (local mode), R2 is emulated under .wrangler/state/ — fine
+# for testing upload logic, but Cults can't fetch from local URLs. For a real
+# end-to-end publish, deploy the Worker.
+[[r2_buckets]]
+binding = "STAGING"
+bucket_name = "modelprep-staging"
+
+# KV namespace for short-lived tokens (bio-verification, etc.). Uncomment when needed:
+# `wrangler kv namespace create TOKENS`
+# [[kv_namespaces]]
+# binding = "TOKENS"
+# id = "..."
+
+[observability]
+enabled = true

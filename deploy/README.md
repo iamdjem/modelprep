@@ -1,19 +1,31 @@
-# ModelPrep prototype, deploy guide
+# modelprep / deploy (frontend)
+
+React + Vite single-page app. The "ModelPrep" UI users see in the browser.
+
+> **For the full system overview** — how this fits with the backend Worker, R2, CDN, and Cults3D — read [`../ARCHITECTURE.md`](../ARCHITECTURE.md) first. This README is just how to develop + deploy *this piece*.
 
 ## Live demo
 
-[https://iamdjem.github.io/modelprep-prototype/](https://iamdjem.github.io/modelprep-prototype/)
+https://iamdjem.github.io/modelprep/
 
-Every push to `main` auto-deploys via GitHub Actions. To work locally:
+Pushes to `main` that touch `deploy/**` auto-deploy via [`../.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (GitHub Actions → GitHub Pages).
+
+## Local dev
 
 ```bash
-git clone https://github.com/iamdjem/modelprep-prototype.git
-cd modelprep-prototype
+git clone https://github.com/iamdjem/modelprep.git
+cd modelprep/deploy
 npm install
-npm run dev
+npm run dev   # http://localhost:5173
 ```
 
-This is a ready-to-deploy Vite + React project. Pick one of three paths below depending on how fast you want a public URL.
+Point at a Worker via `deploy/.env.local` (NOT committed):
+```
+VITE_WORKER_URL=http://localhost:8787                          # if running ../backend locally
+VITE_WORKER_URL=https://modelprep-backend.iamdjem.workers.dev  # to hit prod Worker from local UI
+```
+
+`.env.production` is committed — used by GH Actions build, points at the deployed Worker.
 
 ## What you'll need
 

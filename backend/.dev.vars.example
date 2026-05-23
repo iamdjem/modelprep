@@ -1,0 +1,6 @@
+# Copy this file to `.dev.vars` and fill in real values.
+# `.dev.vars` is gitignored — never commit it.
+# Get your API key at https://cults3d.com/en/api/keys
+
+CULTS_USERNAME=your_cults_nickname
+CULTS_API_KEY=your_cults_api_key

@@ -1,8 +1,19 @@
-name: Deploy to GitHub Pages
+# GitHub Pages deploy for the React frontend in deploy/.
+# Builds only that subdirectory; backend/ and cdn/ deploy separately to
+# Cloudflare (see ARCHITECTURE.md "Deploy & commit map").
+#
+# Note for future changes: GitHub only reads workflows from .github/ at the
+# REPO ROOT, so this file must live here even though all its actions target
+# the deploy/ subdir.
+name: Deploy frontend to GitHub Pages
 
 on:
   push:
     branches: [main]
+    # Skip when only backend/ or cdn/ changed — nothing for Pages to rebuild.
+    paths:
+      - 'deploy/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +28,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,6 +40,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: deploy/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -35,12 +50,14 @@ jobs:
           npm run build
           cp dist/index.html dist/404.html
         env:
-          VITE_BASE: /modelprep-prototype/
+          # Must match the GitHub Pages repo path (iamdjem.github.io/modelprep/).
+          # If the repo is renamed, change here AND on Worker CORS allow-list.
+          VITE_BASE: /modelprep/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: deploy/dist
 
   deploy:
     needs: build

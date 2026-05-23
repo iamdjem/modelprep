@@ -1,0 +1,15 @@
+# NEVER commit local secrets
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Wrangler / Node
+.wrangler/
+node_modules/
+dist/
+*.log
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

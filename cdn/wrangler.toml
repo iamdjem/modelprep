@@ -1,0 +1,10 @@
+# Pages project config — read by `wrangler pages deploy`. The R2 binding here
+# is what makes the catch-all Function able to read from the shared staging
+# bucket (the same one the modelprep-backend Worker writes to).
+name = "modelprep-cdn"
+pages_build_output_dir = "public"
+compatibility_date = "2025-05-01"
+
+[[r2_buckets]]
+binding = "STAGING"
+bucket_name = "modelprep-staging"
