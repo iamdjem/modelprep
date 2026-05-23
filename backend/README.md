@@ -58,8 +58,9 @@ npx wrangler secret put CULTS_API_KEY
 | `GET\|HEAD /api/v1/files/:key` | Serves an R2 object (mostly superseded by the CDN at `cdn.makerstats.io`, kept for debug) |
 | `POST /api/v1/cults3d/publish` | **GraphQL flow** — resolves frontend fields → Cults IDs → calls `createCreation`; returns `{ok, payload, substituted, response}` |
 | `POST /api/v1/cults3d/publish-test` | Hardcoded GraphQL payload publish for wiring sanity |
-| `POST /api/v1/cults3d/web/publish` | **Web flow** (reverse-engineered) — multipart files + form fields; orchestrates login → S3 upload → create → publish; returns `{ok, slug, designUrl, substituted}`. See [`docs/cults3d-web-flow.md`](docs/cults3d-web-flow.md). |
-| `POST /api/v1/cults3d/web/unpublish` | **Web flow** — JSON `{slug}`, deactivates a listing (Cults's closest thing to delete) |
+| `POST /api/v1/cults3d/web/publish` | **Web flow** (reverse-engineered) — multipart files + form fields; orchestrates login → S3 upload → create → publish; returns `{ok, slug, designUrl, substituted}`. Auto-deactivates orphan drafts on publish failure. See [`docs/cults3d-web-flow.md`](docs/cults3d-web-flow.md). |
+| `POST /api/v1/cults3d/web/unpublish` | **Web flow** — JSON `{slug}`, soft-deactivate (listing stays as OFFLINE on owner's My Designs, re-activatable) |
+| `POST /api/v1/cults3d/web/delete` | **Web flow** — JSON `{slug}`, **permanent delete** (irreversible — listing gone from My Designs entirely) |
 
 Auth:
 - **GraphQL routes** read `X-Cults-Username` + `X-Cults-Api-Key` headers (revocable API key, scoped). Falls back to env vars for curl tests.

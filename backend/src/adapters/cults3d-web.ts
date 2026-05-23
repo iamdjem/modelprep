@@ -478,10 +478,43 @@ export async function cultsWebPublishPrice(
 
 // -------------------- Unpublish (deactivate) ----------------------------
 
-/** POST /en/creations/<slug>/unpublish — deactivates the listing. Despite
- *  being labeled "Deactivate" in the author UI, the listing remains
- *  reachable at its old URL (just unlisted from search + their profile).
- *  Cults appears to have no true permanent-delete endpoint exposed. */
+/** Permanently DELETE a listing. Discovered via probing 2026-05-23 —
+ *  `DELETE /en/creations/<slug>` works, returns 302, and the listing
+ *  vanishes from My Designs completely (verified: 0 references in the
+ *  HTML after the call). This is the real permanent-delete, NOT the
+ *  same as unpublish. Rails routing also accepts the method-override
+ *  form (`POST /en/creations/<slug>` with `_method=delete`) — we use
+ *  the cleaner DELETE method here.
+ *
+ *  Use with care: there's no undo on Cults's side. For "I want to hide
+ *  this but might re-publish later," use cultsWebUnpublish instead. */
+export async function cultsWebDelete(
+  session: CultsWebSession,
+  slug: string,
+): Promise<{ redirectedTo: string }> {
+  const res = await fetch(`${CULTS_BASE}/en/creations/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': 'text/html, application/xhtml+xml, text/vnd.turbo-stream.html',
+      'X-CSRF-Token': session.csrfToken,
+      'Cookie': session.cookies,
+      'Referer': `${CULTS_BASE}/en/creations/mine`,
+    },
+    redirect: 'manual',
+  });
+  if (res.status !== 302 && res.status !== 303 && res.status !== 200) {
+    throw new Error(`cults web delete: expected 302/303/200, got ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  return { redirectedTo: res.headers.get('Location') || '' };
+}
+
+/** POST /en/creations/<slug>/unpublish — DEACTIVATES the listing (a softer
+ *  state than delete). Unpublished listings stay on the owner's My Designs
+ *  as "OFFLINE" — re-activatable by re-publishing. Anonymous visitors get
+ *  404 on the listing URL.
+ *
+ *  Compare to {@link cultsWebDelete} which truly removes the listing. */
 export async function cultsWebUnpublish(
   session: CultsWebSession,
   slug: string,

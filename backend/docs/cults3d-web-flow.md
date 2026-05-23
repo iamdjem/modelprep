@@ -292,7 +292,11 @@ Response: **302/303** to `Location: https://cults3d.com/en/3d-model/<category>/<
 
 Response on validation failure: 422 with form re-render. Common cause: pricing value not in the allow-list (gotcha #7).
 
-### 6. Unpublish / deactivate
+### 6. Unpublish / deactivate (soft) vs. Delete (hard)
+
+Two different endpoints with two different effects. Pick deliberately.
+
+#### 6a. Soft: unpublish
 
 **`POST /en/creations/<slug>/unpublish`**
 
@@ -314,7 +318,32 @@ Response: 302 to the canonical design URL. After this:
 - Anonymous users get HTTP 404 visiting the listing
 - The listing appears as **"OFFLINE"** in `/en/creations/mine` for the owner
 - Owner can re-activate by re-publishing (POST /en/creations/<slug>/price again)
-- **There is NO true permanent-delete endpoint exposed by Cults**. Manual deletion is via the "..." menu in My Designs on cults3d.com — and even that may just permanently-deactivate, not destroy. Don't rely on being able to remove orphans programmatically.
+- Use when you want to hide-but-keep-recoverable
+
+#### 6b. Hard: permanent delete
+
+**`DELETE /en/creations/<slug>`** *(or equivalently: POST + `_method=delete`)*
+
+Discovered via probing 2026-05-23 after we'd documented "no permanent delete exists" — that was wrong. Cults's web UI uses the standard Rails REST `DELETE` verb on the resource URL, just like `update`/`destroy` actions in any Rails app.
+
+Headers:
+```
+Accept: text/html, application/xhtml+xml, text/vnd.turbo-stream.html
+X-CSRF-Token: <CSRF>
+Cookie: <session>
+Referer: https://cults3d.com/en/creations/mine
+```
+
+No body required.
+
+Response: 302 to `Location: https://cults3d.com/en/creations/mine`. After this:
+- The slug is **completely gone** from My Designs (verified: 0 references in the HTML)
+- The listing URL 404s for everyone, including the owner
+- **Irreversible** — no undo. Don't call this unless you mean it.
+
+Use when you want to truly remove (e.g. cleaning up orphan drafts from failed publishes).
+
+Our adapter exposes both as `cultsWebUnpublish` and `cultsWebDelete`; the Worker routes are `/api/v1/cults3d/web/unpublish` and `/api/v1/cults3d/web/delete`.
 
 ---
 
@@ -377,11 +406,13 @@ Every time the frontend starts sending a new header (e.g. `X-Cults-Email`, `X-Cu
 
 Search `backend/src/index.ts` for `Access-Control-Allow-Headers` and add the header name there.
 
-### 10. Failed publish/price = orphan draft
+### 10. Failed publish/price used to leave orphan drafts — now auto-cleaned
 
-If create succeeds but publish/price fails (e.g. validation error on pricing/license/visibility), the created draft is left on the user's account as `OFFLINE`. **It does NOT auto-clean.** Recovery: either call `unpublish` on the orphan immediately after the publish/price failure (TODO in our orchestrator), or have the user delete via Cults web UI.
+If create succeeds but publish/price fails (e.g. validation error on pricing/license/visibility), the just-created draft would be left on the user's account as `OFFLINE`. Bit us during Phase B testing — the user ended up with 3 orphan "Articulating Desk Dragon" drafts before we caught the pricing-enum issue.
 
-This bit us during Phase B testing — the user ended up with 3 orphan "Articulating Desk Dragon" drafts in `/en/creations/mine` before we caught the pricing-enum issue.
+**Fixed**: the orchestrator (`/api/v1/cults3d/web/publish` in `index.ts`) now wraps the `cultsWebPublishPrice` call in try/catch. On failure, it calls `cultsWebUnpublish` on the just-created slug (best-effort — failures don't mask the original error), then re-throws the original publish error with a hint suffix `[auto-deactivated the draft …]`.
+
+The user can still permanently nuke deactivated orphans via `cultsWebDelete` (route `/api/v1/cults3d/web/delete`) — see endpoint 6b.
 
 ### 11. `metaTags` is Cults's internal classification, NOT user tags
 
@@ -429,15 +460,19 @@ The cleanest reproduction account to use is the existing throwaway: `u05l7e8tls@
 backend/src/adapters/
 ├── cults3d.ts              ← GraphQL adapter (Phase 3, still alive)
 ├── cults3d-mappings.ts     ← category/license/relay-to-int helpers (used by both adapters)
-└── cults3d-web.ts          ← This flow. ~500 LOC, 5 exported functions:
+└── cults3d-web.ts          ← This flow. ~550 LOC, 6 exported functions:
                               cultsWebLogin
                               cultsWebUploadFile     (called per file in step 2 + 3)
                               cultsWebCreateCreation (step 4)
                               cultsWebPublishPrice   (step 5)
-                              cultsWebUnpublish      (step 6)
+                              cultsWebUnpublish      (step 6a — soft, reversible)
+                              cultsWebDelete         (step 6b — hard, irreversible)
 ```
 
-Routes that use them: `POST /api/v1/cults3d/web/publish` and `POST /api/v1/cults3d/web/unpublish` in `backend/src/index.ts`.
+Routes in `backend/src/index.ts`:
+- `POST /api/v1/cults3d/web/publish` — full orchestration; auto-cleans orphan drafts on publish/price failure (gotcha #10)
+- `POST /api/v1/cults3d/web/unpublish` — soft deactivate
+- `POST /api/v1/cults3d/web/delete` — permanent removal (irreversible)
 
 ---
 

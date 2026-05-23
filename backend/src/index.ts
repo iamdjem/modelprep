@@ -23,6 +23,7 @@ import {
   cultsWebCreateCreation,
   cultsWebPublishPrice,
   cultsWebUnpublish,
+  cultsWebDelete,
 } from './adapters/cults3d-web';
 import { stageFile, serveFile } from './r2';
 import type { PublishPayload } from './types';
@@ -510,11 +511,34 @@ export default {
         });
 
         // ---- Step 4: publish (set price + visibility) ----
+        // From here on, if anything throws, the just-created draft is an
+        // orphan. We catch + auto-deactivate so it doesn't accumulate on the
+        // user's My Designs page. (Cults has no real DELETE, but unpublish
+        // at least marks it OFFLINE so it doesn't pretend to be live.)
         console.log('[web-publish] publish slug=', slug);
-        const { designUrl } = await cultsWebPublishPrice(session, slug, {
-          currency, pricing, downloadPrice, downloadOpenPrice,
-          licenseType, visibility, inStore: true,
-        });
+        let designUrl: string;
+        try {
+          const r = await cultsWebPublishPrice(session, slug, {
+            currency, pricing, downloadPrice, downloadOpenPrice,
+            licenseType, visibility, inStore: true,
+          });
+          designUrl = r.designUrl;
+        } catch (publishErr) {
+          const publishMsg = publishErr instanceof Error ? publishErr.message : String(publishErr);
+          console.log('[web-publish] publish failed, auto-deactivating draft slug=', slug, ':', publishMsg);
+          // Best-effort cleanup — don't let an unpublish failure mask the
+          // real publish error. If this also fails, the user still sees the
+          // primary error; the orphan just stays around.
+          try {
+            await cultsWebUnpublish(session, slug);
+            console.log('[web-publish] auto-deactivate succeeded');
+          } catch (unpubErr) {
+            const unpubMsg = unpubErr instanceof Error ? unpubErr.message : String(unpubErr);
+            console.log('[web-publish] auto-deactivate ALSO failed (orphan left in My Designs):', unpubMsg);
+          }
+          // Re-throw the original publish error with a hint about the cleanup attempt.
+          throw new Error(`${publishMsg} [auto-deactivated the draft so it won't show as live; check My Designs to permanently delete]`);
+        }
 
         console.log('[web-publish] done →', designUrl, 'substituted:', substituted);
         return json({
@@ -533,9 +557,39 @@ export default {
       }
     }
 
+    // -------------------- Cults3D WEB-flow DELETE -------------------------
+    // POST /api/v1/cults3d/web/delete with JSON body: { slug: "..." }
+    // Permanently removes the listing from Cults (irreversible). For "hide
+    // but might re-publish later", use /web/unpublish instead.
+    if (path === '/api/v1/cults3d/web/delete' && req.method === 'POST') {
+      const email = req.headers.get('X-Cults-Email') || env.CULTS_EMAIL;
+      const password = req.headers.get('X-Cults-Password') || env.CULTS_PASSWORD;
+      if (!email || !password) {
+        return json({ error: 'missing_credentials', hint: 'Need X-Cults-Email + X-Cults-Password.' }, { status: 401 });
+      }
+      let slug = '';
+      try {
+        const body = await req.json() as { slug?: string };
+        slug = body.slug ?? '';
+      } catch { /* allow empty body */ }
+      if (!slug) {
+        return json({ error: 'missing_slug', hint: 'Body must be JSON with a `slug` string.' }, { status: 400 });
+      }
+      try {
+        const session = await cultsWebLogin(email, password);
+        const result = await cultsWebDelete(session, slug);
+        return json({ ok: true, slug, deleted: true, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json({ error: 'web_flow_failed', message }, { status: 502 });
+      }
+    }
+
     // -------------------- Cults3D WEB-flow unpublish ----------------------
     // POST /api/v1/cults3d/web/unpublish with JSON body: { slug: "..." }
-    // Calls the deactivate endpoint Cults's "My designs" page uses.
+    // Deactivates the listing (softer than delete — listing stays on the
+    // owner's My Designs as OFFLINE, can be re-activated). For permanent
+    // removal use /web/delete.
     if (path === '/api/v1/cults3d/web/unpublish' && req.method === 'POST') {
       const email = req.headers.get('X-Cults-Email') || env.CULTS_EMAIL;
       const password = req.headers.get('X-Cults-Password') || env.CULTS_PASSWORD;
