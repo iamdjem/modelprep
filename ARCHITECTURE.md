@@ -142,6 +142,10 @@ Any swap (license incompatibility, unmapped category, dropped tags) is reported 
 
 **Deep reference: [`backend/docs/cults3d-web-flow.md`](backend/docs/cults3d-web-flow.md)** — full request-sequence diagram, per-endpoint field documentation, 12 documented gotchas, and how to re-capture when Cults breaks something. Read that BEFORE editing the adapter.
 
+**GraphQL/CDN backup**: the older URL-based GraphQL flow + the `cdn.makerstats.io` Pages project + R2 staging are **all still deployed as a fallback** in case the web flow ever breaks irreparably. See [`backend/docs/graphql-flow-and-cdn-backup.md`](backend/docs/graphql-flow-and-cdn-backup.md) for what's there, how to switch back, and how to verify it still works.
+
+**Distribution planning**: thoughts on what to add before sharing this widely live in [`docs/distribution-plan.md`](docs/distribution-plan.md).
+
 Reverse-engineered from the cults3d.com upload form (HAR capture from `/Users/alex/MakerStats-Android/output/cults-capture/`). Strictly more capable than GraphQL — but uses email + password, and depends on undocumented internal endpoints that Cults can change without notice.
 
 What the web flow unlocks that GraphQL can't:

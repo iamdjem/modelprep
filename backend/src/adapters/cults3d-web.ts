@@ -478,6 +478,126 @@ export async function cultsWebPublishPrice(
 
 // -------------------- Unpublish (deactivate) ----------------------------
 
+// -------------------- List my creations (scrape) ------------------------
+
+/** One row from /en/creations/mine. `status` mirrors the badge Cults renders
+ *  on the row: `public` (no badge = live + public), `secret` (Secret badge),
+ *  or `offline` (Offline badge). `priceLabel` is the price as Cults shows it
+ *  (e.g. "US$ 4.50", "Kč 0", or "" if free). */
+export interface CultsWebMyCreation {
+  slug: string;
+  title: string;
+  url: string;                // canonical /en/3d-model/... URL, derived
+  editUrl: string;            // /en/creations/<slug>/edit on cults3d.com
+  thumbnailUrl: string | null;
+  status: 'public' | 'secret' | 'offline';
+  priceLabel: string;
+}
+
+/** Decode HTML entities so titles render correctly in the UI (Cults uses
+ *  `&amp;`, `&#39;`, etc. liberally in `<a title="...">`). Minimal — just
+ *  the entities seen in practice on cults3d.com. */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
+/** Scrape /en/creations/mine for the logged-in user's design list, including
+ *  OFFLINE drafts (which the GraphQL `myCreations` query doesn't return).
+ *
+ *  Brittle to layout changes — when this breaks, fetch the page in DevTools
+ *  and compare. Look at the .tabular table inside the "creations-my-creations-*"
+ *  container; each <tr> in <tbody> is one listing. */
+export async function cultsWebListMyCreations(
+  session: CultsWebSession,
+): Promise<CultsWebMyCreation[]> {
+  const res = await fetch(`${CULTS_BASE}/en/creations/mine`, {
+    method: 'GET',
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': 'text/html',
+      'Cookie': session.cookies,
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`cults web list: GET creations/mine returned ${res.status}`);
+  }
+  const html = await res.text();
+
+  // Narrow to the My Designs table body so we don't pick up "Other designs
+  // you may like" sidebar links and similar noise. The table sits inside
+  // `<div ... id="creations-my-creations-<userId>"> <table class="tabular...">
+  // <tbody> ... </tbody> </table>`.
+  const tableMatch = html.match(/<div[^>]*id="creations-my-creations-\d+"[^>]*>([\s\S]*?)<\/table>/i);
+  if (!tableMatch) {
+    // No designs at all — return empty.
+    return [];
+  }
+  const tableHtml = tableMatch[1];
+  const tbodyMatch = tableHtml.match(/<tbody[^>]*>([\s\S]*)$/i);
+  if (!tbodyMatch) return [];
+  const tbodyHtml = tbodyMatch[1];
+
+  // Each listing is a <tr> at the top level of <tbody>. Use a coarse split
+  // (nested <tr> doesn't happen here) rather than a real HTML parser.
+  const rows: CultsWebMyCreation[] = [];
+  const rowRe = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gi;
+  let rowMatch: RegExpExecArray | null;
+  while ((rowMatch = rowRe.exec(tbodyHtml)) !== null) {
+    const rowHtml = rowMatch[1];
+
+    // Slug + canonical URL — first `<a ... href="/en/creations/<slug>">`.
+    const linkMatch = rowHtml.match(/<a[^>]*\btitle="([^"]+)"[^>]*\bhref="\/en\/creations\/([a-z0-9_-]+)"/i)
+      ?? rowHtml.match(/<a[^>]*\bhref="\/en\/creations\/([a-z0-9_-]+)"[^>]*\btitle="([^"]+)"/i);
+    if (!linkMatch) continue;
+    // Two regex shapes above — pick the one that matched and normalize order.
+    const [title, slug] = linkMatch[2].startsWith('/') || /^[a-z0-9_-]+$/i.test(linkMatch[2])
+      ? [linkMatch[1], linkMatch[2]]
+      : [linkMatch[2], linkMatch[1]];
+
+    // Status badge — the Secret/Offline marker span.
+    const badgeMatch = rowHtml.match(/<span[^>]*class="[^"]*text-marker[^"]*"[^>]*>\s*([^\s<][^<]*?)\s*<\/span>/i);
+    const badge = badgeMatch?.[1]?.trim().toLowerCase() ?? 'public';
+    const status: CultsWebMyCreation['status'] =
+      badge.startsWith('offline') ? 'offline' :
+      badge.startsWith('secret')  ? 'secret'  :
+      'public';
+
+    // Thumbnail — first <img ... src=""> in the row. Cults serves the
+    // resized variant from images.cults3d.com.
+    const imgMatch = rowHtml.match(/<img[^>]*\bsrc="([^"]+)"/i);
+    const thumbnailUrl = imgMatch?.[1] ?? null;
+
+    // Price label — first <td class="price-cell">; trim down to its visible text.
+    const priceTd = rowHtml.match(/<td[^>]*class="[^"]*price-cell[^"]*"[^>]*>([\s\S]*?)<\/td>/i);
+    const priceLabel = priceTd
+      ? priceTd[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      : '';
+
+    rows.push({
+      slug,
+      title: decodeHtmlEntities(title),
+      // Cults's canonical listing URL — we don't have category here, but the
+      // /en/creations/<slug> URL also resolves (it's the edit-side route);
+      // for sharing we'd want the /en/3d-model/<cat>/<slug> form but that
+      // requires the category. Leave the edit-side URL as `url` for now and
+      // surface the edit URL too so the UI can link both.
+      url: `${CULTS_BASE}/en/creations/${slug}`,
+      editUrl: `${CULTS_BASE}/en/creations/${slug}/edit`,
+      thumbnailUrl,
+      status,
+      priceLabel,
+    });
+  }
+  return rows;
+}
+
 /** Permanently DELETE a listing. Discovered via probing 2026-05-23 —
  *  `DELETE /en/creations/<slug>` works, returns 302, and the listing
  *  vanishes from My Designs completely (verified: 0 references in the

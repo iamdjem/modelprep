@@ -3424,6 +3424,15 @@ function CultsUploadFlow({ platform, project }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
 
+  // My Listings panel state — toggled open per-session. Listings load on open;
+  // refresh button re-fetches. Per-row pending state lets us disable buttons
+  // while a deactivate/delete is in flight without blocking the whole panel.
+  const [listingsOpen, setListingsOpen] = useState(false);
+  const [listings, setListings] = useState(null);             // CultsWebMyCreation[] | null
+  const [listingsError, setListingsError] = useState('');
+  const [listingsLoading, setListingsLoading] = useState(false);
+  const [pendingRow, setPendingRow] = useState({ slug: null, action: null }); // { slug, 'deactivate'|'delete' }
+
   // Load creds from localStorage on mount.
   useEffect(() => {
     try {
@@ -3580,6 +3589,73 @@ function CultsUploadFlow({ platform, project }) {
     }
   };
 
+  // ---- My Listings panel ------------------------------------------------
+  // Fetches /api/v1/cults3d/web/my-creations which scrapes /en/creations/mine
+  // and returns ALL listings including OFFLINE drafts (which the GraphQL API
+  // doesn't expose). Used to drive the per-row deactivate/delete buttons.
+
+  const loadListings = async () => {
+    if (!creds) return;
+    setListingsLoading(true);
+    setListingsError('');
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/my-creations`, {
+        method: 'GET',
+        headers: { 'X-Cults-Email': creds.email, 'X-Cults-Password': creds.password },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+      setListings(data.creations || []);
+    } catch (err) {
+      setListingsError(err instanceof Error ? err.message : String(err));
+      setListings([]);
+    } finally {
+      setListingsLoading(false);
+    }
+  };
+
+  const toggleListings = () => {
+    const next = !listingsOpen;
+    setListingsOpen(next);
+    // Auto-load on first open (don't re-fetch on close→re-open if we already
+    // have data — user can hit the Refresh button if they want fresh).
+    if (next && listings === null) loadListings();
+  };
+
+  // Per-row action — same shape for deactivate and delete; only the endpoint
+  // and the optimistic update differ. On success we refresh the list (cheap)
+  // rather than mutating in place, so server is source of truth.
+  const rowAction = async (slug, action) => {
+    if (!creds) return;
+    if (action === 'delete') {
+      // Hard delete is irreversible — a single confirm() is appropriate for
+      // a personal-tool stage; if this gets shared, swap for an in-UI modal.
+      // eslint-disable-next-line no-alert
+      if (!confirm(`Permanently delete "${slug}" from Cults?\nThis can't be undone.`)) return;
+    }
+    setPendingRow({ slug, action });
+    setListingsError('');
+    try {
+      const endpoint = action === 'delete' ? 'delete' : 'unpublish';
+      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Cults-Email': creds.email,
+          'X-Cults-Password': creds.password,
+        },
+        body: JSON.stringify({ slug }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+      await loadListings();
+    } catch (err) {
+      setListingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingRow({ slug: null, action: null });
+    }
+  };
+
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(255,87,34,0.06)', border: '1px solid rgba(255,87,34,0.45)' }}>
@@ -3655,7 +3731,86 @@ function CultsUploadFlow({ platform, project }) {
             <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.6)' }}>
               ⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{creds?.email}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return — you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}
             </p>
-            <button onClick={publish} className="mp-btn text-xs py-2 px-3"><Send size={13} /> Publish to {platform.name} (LIVE)</button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button onClick={publish} className="mp-btn text-xs py-2 px-3"><Send size={13} /> Publish to {platform.name} (LIVE)</button>
+              <button onClick={toggleListings} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition" style={{ color: 'rgba(21,23,28,0.7)' }}>
+                {listingsOpen ? '▾ Hide my listings' : '▸ My listings on Cults'}
+              </button>
+            </div>
+
+            {/* My Listings panel — collapsed by default; loads on first open.
+                Shows ALL listings on the user's Cults account (public, secret,
+                offline) with per-row Open / Deactivate / Delete actions hitting
+                the /web/* endpoints we built. Useful for cleaning up test
+                listings without bouncing to cults3d.com. */}
+            {listingsOpen && (
+              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(21,23,28,0.03)', border: '1px solid rgba(21,23,28,0.08)' }}>
+                <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                  <span className="mp-mono uppercase tracking-[0.15em] text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
+                    My listings on cults3d.com{listings !== null && !listingsLoading ? ` · ${listings.length}` : ''}
+                  </span>
+                  <button onClick={loadListings} disabled={listingsLoading} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition disabled:opacity-40" style={{ color: 'rgba(21,23,28,0.55)' }}>
+                    {listingsLoading ? '… refreshing' : '↻ refresh'}
+                  </button>
+                </div>
+
+                {listingsError && (
+                  <div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(200,63,16,0.06)', border: '1px solid rgba(200,63,16,0.3)', color: 'rgba(21,23,28,0.8)' }}>
+                    {listingsError}
+                  </div>
+                )}
+
+                {listingsLoading && listings === null && (
+                  <div className="flex items-center gap-2 text-xs py-2" style={{ color: 'rgba(21,23,28,0.6)' }}>
+                    <Loader size={13} className="mp-spin" /> Loading your listings…
+                  </div>
+                )}
+
+                {listings !== null && listings.length === 0 && !listingsLoading && (
+                  <p className="text-[12px] py-1" style={{ color: 'rgba(21,23,28,0.55)' }}>No listings yet — publish one above and they'll appear here.</p>
+                )}
+
+                {listings !== null && listings.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    {listings.map(l => {
+                      const isPending = pendingRow.slug === l.slug;
+                      const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(21,23,28,0.5)';
+                      return (
+                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ background: '#fff', border: '1px solid rgba(21,23,28,0.06)' }}>
+                          {l.thumbnailUrl && (
+                            <img src={l.thumbnailUrl} alt="" width={32} height={32} loading="lazy" style={{ objectFit: 'cover', flexShrink: 0 }} />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[12px] truncate" style={{ color: '#15171C' }} title={l.title}>{l.title}</div>
+                            <div className="flex items-center gap-1.5 text-[10px] mp-mono uppercase tracking-[0.1em]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+                              <span style={{ color: badgeColor }}>{l.status}</span>
+                              {l.priceLabel && <span>· {l.priceLabel}</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <a href={l.editUrl} target="_blank" rel="noopener noreferrer" className="mp-mono text-[10px] uppercase tracking-[0.1em] hover:text-[#FF5722] transition px-1" style={{ color: 'rgba(21,23,28,0.55)' }} title="Open on Cults">
+                              open
+                            </a>
+                            {l.status !== 'offline' && (
+                              <button onClick={() => rowAction(l.slug, 'deactivate')} disabled={isPending} className="mp-mono text-[10px] uppercase tracking-[0.1em] hover:text-[#FF5722] transition px-1 disabled:opacity-40" style={{ color: 'rgba(21,23,28,0.55)' }} title="Hide from search + profile (reversible)">
+                                {isPending && pendingRow.action === 'deactivate' ? '…' : 'deactivate'}
+                              </button>
+                            )}
+                            <button onClick={() => rowAction(l.slug, 'delete')} disabled={isPending} className="mp-mono text-[10px] uppercase tracking-[0.1em] hover:text-[#c83f10] transition px-1 disabled:opacity-40" style={{ color: 'rgba(200,63,16,0.7)' }} title="Permanently remove from Cults (irreversible)">
+                              {isPending && pendingRow.action === 'delete' ? '…' : 'delete'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <p className="text-[10px] mt-2 leading-snug" style={{ color: 'rgba(21,23,28,0.45)' }}>
+                  <strong>deactivate</strong> hides but keeps the listing (re-activate from Cults). <strong>delete</strong> permanently removes — no undo.
+                </p>
+              </div>
+            )}
           </>
         )}
 

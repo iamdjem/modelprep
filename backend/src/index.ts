@@ -24,6 +24,7 @@ import {
   cultsWebPublishPrice,
   cultsWebUnpublish,
   cultsWebDelete,
+  cultsWebListMyCreations,
 } from './adapters/cults3d-web';
 import { stageFile, serveFile } from './r2';
 import type { PublishPayload } from './types';
@@ -115,7 +116,11 @@ export default {
     }
 
     // -------------------- Cults3D read endpoints ------------------------
-    if (path.startsWith('/api/v1/cults3d/') && req.method === 'GET') {
+    // GraphQL-flow GET routes — auth is X-Cults-Username + X-Cults-Api-Key.
+    // The web-flow GET routes (/api/v1/cults3d/web/*) auth differently
+    // (email + password) and are handled later in their own blocks — skip
+    // this dispatcher for those so it doesn't reject them on the wrong creds.
+    if (path.startsWith('/api/v1/cults3d/') && !path.startsWith('/api/v1/cults3d/web/') && req.method === 'GET') {
       const creds = getCreds(req, env);
       if (!creds) {
         return json({ error: 'missing_credentials', hint: 'Send X-Cults-Username + X-Cults-Api-Key headers, or set them in .dev.vars.' }, { status: 401 });
@@ -553,6 +558,28 @@ export default {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.log('[web-publish] EXCEPTION:', message);
+        return json({ error: 'web_flow_failed', message }, { status: 502 });
+      }
+    }
+
+    // -------------------- Cults3D WEB-flow LIST MY CREATIONS --------------
+    // GET /api/v1/cults3d/web/my-creations — scrapes /en/creations/mine HTML
+    // and returns each listing with status (public/secret/offline), price,
+    // thumbnail, slug. Unlike the GraphQL my-creations query, this INCLUDES
+    // offline drafts (which is the whole point — needed for the My Listings
+    // panel in the frontend to deactivate or delete them).
+    if (path === '/api/v1/cults3d/web/my-creations' && req.method === 'GET') {
+      const email = req.headers.get('X-Cults-Email') || env.CULTS_EMAIL;
+      const password = req.headers.get('X-Cults-Password') || env.CULTS_PASSWORD;
+      if (!email || !password) {
+        return json({ error: 'missing_credentials', hint: 'Need X-Cults-Email + X-Cults-Password.' }, { status: 401 });
+      }
+      try {
+        const session = await cultsWebLogin(email, password);
+        const creations = await cultsWebListMyCreations(session);
+        return json({ ok: true, count: creations.length, creations });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         return json({ error: 'web_flow_failed', message }, { status: 502 });
       }
     }
