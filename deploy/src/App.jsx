@@ -3406,14 +3406,21 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
 // .env.production for prod builds (committed; points at the deployed Worker).
 const WORKER_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORKER_URL)
   || 'http://localhost:8787';
-const CULTS_CREDS_KEY = 'modelprep:cults-creds';
+// localStorage key — new schema (email/password). The previous key
+// `modelprep:cults-creds` held {username, apiKey} for the GraphQL flow;
+// anyone with that saved will just have to reconnect with email+password.
+const CULTS_CREDS_KEY = 'modelprep:cults-web-creds';
 
 function CultsUploadFlow({ platform, project }) {
-  const [creds, setCreds] = useState(null); // { username, apiKey } | null
-  const [status, setStatus] = useState('idle'); // idle | connecting | connected | publishing | done | error
-  const [draftUsername, setDraftUsername] = useState('');
-  const [draftKey, setDraftKey] = useState('');
-  const [result, setResult] = useState(null); // { url, substituted: [], uploadedFiles } | null
+  const [creds, setCreds] = useState(null); // { email, password } | null
+  const [status, setStatus] = useState('idle'); // idle | connecting | connected | publishing | done | error | deactivating
+  const [draftEmail, setDraftEmail] = useState('');
+  const [draftPassword, setDraftPassword] = useState('');
+  // Default to 'secret' so the first publish doesn't immediately surface on
+  // the user's profile — they can flip to 'public' once they've seen the
+  // listing render. Persisted in component state per session, not saved.
+  const [visibility, setVisibility] = useState('secret');
+  const [result, setResult] = useState(null); // { designUrl, slug, substituted, uploadedFiles } | null
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
 
@@ -3423,7 +3430,7 @@ function CultsUploadFlow({ platform, project }) {
       const raw = localStorage.getItem(CULTS_CREDS_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.username && parsed?.apiKey) {
+        if (parsed?.email && parsed?.password) {
           setCreds(parsed);
           setStatus('connected');
         }
@@ -3432,19 +3439,19 @@ function CultsUploadFlow({ platform, project }) {
   }, []);
 
   const startConnect = () => {
-    setDraftUsername(creds?.username || '');
-    setDraftKey('');
+    setDraftEmail(creds?.email || '');
+    setDraftPassword('');
     setStatus('connecting');
   };
 
   const saveCreds = () => {
-    const u = draftUsername.trim();
-    const k = draftKey.trim();
-    if (!u || !k) return;
-    const next = { username: u, apiKey: k };
+    const e = draftEmail.trim();
+    const p = draftPassword;
+    if (!e || !p) return;
+    const next = { email: e, password: p };
     try { localStorage.setItem(CULTS_CREDS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
     setCreds(next);
-    setDraftKey('');
+    setDraftPassword('');
     setStatus('connected');
   };
 
@@ -3455,98 +3462,86 @@ function CultsUploadFlow({ platform, project }) {
     setStatus('idle');
   };
 
-  // Upload a single File/Blob to the Worker's R2 staging endpoint and return
-  // the public URL the Worker assigned to it.
-  const uploadFile = async (file, label) => {
-    const fd = new FormData();
-    fd.append('file', file, label || file.name || 'upload');
-    const res = await fetch(`${WORKER_URL}/api/v1/upload`, {
-      method: 'POST',
-      headers: {
-        'X-Cults-Username': creds.username,
-        'X-Cults-Api-Key': creds.apiKey,
-      },
-      body: fd,
-    });
-    const data = await res.json();
-    if (!res.ok || !data?.url) {
-      throw new Error(data?.message || data?.error || `Upload failed (HTTP ${res.status})`);
-    }
-    return data.url;
+  // Convert a project image (data URL) to a real File so it can ride the
+  // multipart upload. Cover image alt is used as the filename hint.
+  const imgToFile = async (img, fallbackName) => {
+    const blob = await fetch(img.dataUrl).then(r => r.blob());
+    const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+    const name = `${slugify(img.alt || fallbackName)}.${ext}`;
+    return new File([blob], name, { type: blob.type || 'image/jpeg' });
   };
 
+  // The whole web-flow publish is ONE multipart POST. The Worker does
+  // login → S3 upload per file → create draft → set price + visibility,
+  // then returns { designUrl, slug, substituted, ... }. Per-file progress
+  // isn't streamable through a single fetch, so we just show a generic
+  // "publishing…" message; full timing shows up in `wrangler tail`.
   const publish = async () => {
     if (!creds) return;
     setStatus('publishing');
     setErrorMsg('');
     setResult(null);
     try {
-      // 1. Pick cover + gallery + model files from the React project state.
+      // 1. Pick files from project state.
       const coverImg = project.images.find(i => i.id === project.coverImageId) || project.images[0];
       const galleryImgs = project.images.filter(i => i.id !== coverImg?.id);
       const modelFiles = project.files.filter(f => f.isModel && f.blob);
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
       if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
 
-      // 2. Upload cover (dataUrl → blob → upload).
-      setProgressMsg('Uploading cover image…');
-      const coverBlob = await fetch(coverImg.dataUrl).then(r => r.blob());
-      const coverExt = (coverBlob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-      const coverFile = new File([coverBlob], `${slugify(coverImg.alt || 'cover')}.${coverExt}`, { type: coverBlob.type || 'image/jpeg' });
-      const coverImageUrl = await uploadFile(coverFile);
+      setProgressMsg('Packing files…');
 
-      // 3. Upload gallery (best-effort; ok if there are none).
-      const galleryImageUrls = [];
+      // 2. Build the multipart body. Field naming matches the Worker's
+      //    /api/v1/cults3d/web/publish route — `model` for each STL/3MF,
+      //    `illustration` for cover + gallery (cover is first).
+      const fd = new FormData();
+      fd.append('name', project.title || 'ModelPrep web-flow publish');
+      fd.append('description', project.description || 'Sent from ModelPrep.');
+      fd.append('category', project.category || '');
+      fd.append('license', project.license || '');
+      fd.append('free', String(project.platforms?.cults?.free ?? true));
+      fd.append('price', String(project.platforms?.cults?.price ?? 0));
+      fd.append('visibility', visibility);
+      // Tags — Worker joins these into space-separated `flat_keywords`.
+      fd.append('tags', JSON.stringify(project.tags ?? []));
+
+      // Cover image MUST be the first illustration so Cults uses it as the
+      // listing's primary; gallery follows.
+      const coverFile = await imgToFile(coverImg, 'cover');
+      fd.append('illustration', coverFile, coverFile.name);
       for (let i = 0; i < galleryImgs.length; i++) {
-        setProgressMsg(`Uploading gallery image ${i + 1}/${galleryImgs.length}…`);
-        const blob = await fetch(galleryImgs[i].dataUrl).then(r => r.blob());
-        const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-        const file = new File([blob], `${slugify(galleryImgs[i].alt || `image-${i + 2}`)}.${ext}`, { type: blob.type || 'image/jpeg' });
-        galleryImageUrls.push(await uploadFile(file));
+        const f = await imgToFile(galleryImgs[i], `image-${i + 2}`);
+        fd.append('illustration', f, f.name);
       }
-
-      // 4. Upload model files.
-      const modelFileUrls = [];
       for (let i = 0; i < modelFiles.length; i++) {
-        setProgressMsg(`Uploading ${modelFiles[i].name} (${i + 1}/${modelFiles.length})…`);
-        modelFileUrls.push(await uploadFile(modelFiles[i].blob, modelFiles[i].name));
+        fd.append('model', modelFiles[i].blob, modelFiles[i].name);
       }
 
-      // 5. Publish — Worker forwards these URLs to Cults's createCreation.
-      setProgressMsg('Publishing to Cults3D…');
-      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/publish`, {
+      setProgressMsg('Uploading + publishing to Cults3D…');
+
+      // 3. One POST does the whole pipeline server-side.
+      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/publish`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Cults-Username': creds.username,
-          'X-Cults-Api-Key': creds.apiKey,
+          'X-Cults-Email': creds.email,
+          'X-Cults-Password': creds.password,
         },
-        body: JSON.stringify({
-          title: project.title || 'ModelPrep test from frontend',
-          description: project.description || 'Sent from ModelPrep frontend.',
-          coverImageUrl,
-          galleryImageUrls,
-          modelFileUrls,
-          // Platform-neutral fields the Worker maps to Cults-specific IDs.
-          // The Worker enforces free/paid license compatibility and reports any
-          // user choice it had to substitute in the `substituted` array.
-          category: project.category,                         // CATEGORIES string e.g. 'Toys & Games'
-          license: project.license,                           // LICENSES id e.g. 'ccby'
-          free: project.platforms?.cults?.free ?? true,
-          price: project.platforms?.cults?.price ?? 0,
-          tags: project.tags ?? [],                           // passed for log/audit; Cults metaTags enum not yet wired
-        }),
+        body: fd,
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
       }
-      const cultsErrors = data?.response?.data?.createCreation?.errors || [];
-      if (cultsErrors.length) {
-        throw new Error(cultsErrors.join('; '));
+      if (!data.designUrl || !data.slug) {
+        throw new Error('Publish completed but response was missing designUrl / slug — check Worker logs.');
       }
-      const url = data?.response?.data?.createCreation?.creation?.url;
-      setResult({ url, substituted: data?.substituted || [], uploadedFiles: modelFileUrls.length + galleryImageUrls.length + 1 });
+      setResult({
+        designUrl: data.designUrl,
+        slug: data.slug,
+        substituted: data.substituted || [],
+        uploadedFiles: modelFiles.length + galleryImgs.length + 1,
+        visibility, // remember what we published with
+      });
       setStatus('done');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
@@ -3556,19 +3551,48 @@ function CultsUploadFlow({ platform, project }) {
     }
   };
 
+  // Deactivate the listing we just published. POST /web/unpublish with the
+  // slug returned from publish. Cults's "Deactivate" — not a permanent
+  // delete, but it hides the listing from search + profile (logged-in owner
+  // can still see it in /en/creations/mine and re-activate).
+  const deactivate = async () => {
+    if (!creds || !result?.slug) return;
+    setStatus('deactivating');
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/unpublish`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Cults-Email': creds.email,
+          'X-Cults-Password': creds.password,
+        },
+        body: JSON.stringify({ slug: result.slug }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+      // Mark the result deactivated so the UI shows it.
+      setResult(r => r ? { ...r, deactivated: true } : r);
+      setStatus('done');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+      setStatus('error');
+    }
+  };
+
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(255,87,34,0.06)', border: '1px solid rgba(255,87,34,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-[14px]" style={{ color: '#15171C' }}>LIVE PUBLISH</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#c83f10', color: '#fff' }}>Real</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>{platform.name} GraphQL API</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>web upload</span>
         </div>
 
         {status === 'idle' && (
           <>
             <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              Connect your {platform.name} account to publish for real. Your API key stays in this browser (localStorage) — it's never stored on our servers.
+              Connect your {platform.name} account to publish for real. We log in as you to use Cults's full upload (real tags, secret listings, deactivate). Email + password stay in this browser (localStorage) — never on our servers.
             </p>
             <button onClick={startConnect} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
           </>
@@ -3577,30 +3601,32 @@ function CultsUploadFlow({ platform, project }) {
         {status === 'connecting' && (
           <>
             <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              Get your API key at <a href="https://cults3d.com/en/api/keys" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>cults3d.com/en/api/keys</a>. Stays in your browser only.
+              Use your cults3d.com login. We use this to log in on your behalf via the same upload form you'd use on the site (so files go to Cults's own CDN, tags work, you can publish as secret/public, and you can deactivate later).
             </p>
             <div className="flex flex-col gap-2 mb-2.5" style={{ maxWidth: 380 }}>
               <input
-                type="text"
-                value={draftUsername}
-                onChange={(e) => setDraftUsername(e.target.value)}
-                placeholder="Cults nickname (e.g. minimal_studio_3d)"
+                type="email"
+                value={draftEmail}
+                onChange={(e) => setDraftEmail(e.target.value)}
+                placeholder="Cults email"
                 autoFocus
+                autoComplete="username"
                 className="mp-input-sm"
-                aria-label="Cults username"
+                aria-label="Cults email"
               />
               <input
                 type="password"
-                value={draftKey}
-                onChange={(e) => setDraftKey(e.target.value)}
-                placeholder="API key"
-                onKeyDown={(e) => { if (e.key === 'Enter' && draftUsername.trim() && draftKey.trim()) saveCreds(); }}
+                value={draftPassword}
+                onChange={(e) => setDraftPassword(e.target.value)}
+                placeholder="Cults password"
+                autoComplete="current-password"
+                onKeyDown={(e) => { if (e.key === 'Enter' && draftEmail.trim() && draftPassword) saveCreds(); }}
                 className="mp-input-sm"
-                aria-label="Cults API key"
+                aria-label="Cults password"
               />
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={saveCreds} disabled={!draftUsername.trim() || !draftKey.trim()} className="mp-btn text-xs py-2 px-3 disabled:opacity-40"><Check size={13} /> Save &amp; connect</button>
+              <button onClick={saveCreds} disabled={!draftEmail.trim() || !draftPassword} className="mp-btn text-xs py-2 px-3 disabled:opacity-40"><Check size={13} /> Save &amp; connect</button>
               <button onClick={() => setStatus(creds ? 'connected' : 'idle')} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition">Cancel</button>
             </div>
           </>
@@ -3609,11 +3635,25 @@ function CultsUploadFlow({ platform, project }) {
         {status === 'connected' && (
           <>
             <div className="flex items-center gap-2 text-xs mb-2.5 flex-wrap" style={{ color: '#3a8d68' }}>
-              <Check size={14} /> Connected as <span className="mp-mono">@{creds?.username}</span>
+              <Check size={14} /> Connected as <span className="mp-mono">{creds?.email}</span>
               <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition ml-2" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
             </div>
+            {/* Visibility picker — `secret` = unguessable URL, doesn't hit followers
+                or search. Safer default for first-time publishes; user can flip
+                to `public` once they've verified the listing renders correctly. */}
+            <div className="flex items-center gap-3 mb-2.5 text-[12px] flex-wrap" style={{ color: 'rgba(21,23,28,0.7)' }}>
+              <span className="mp-mono uppercase tracking-[0.15em] text-[11px]">visibility</span>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="radio" name="cults-vis" checked={visibility === 'secret'} onChange={() => setVisibility('secret')} />
+                <span>Secret <span style={{ color: 'rgba(21,23,28,0.5)' }}>(unguessable URL, not on profile)</span></span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input type="radio" name="cults-vis" checked={visibility === 'public'} onChange={() => setVisibility('public')} />
+                <span>Public <span style={{ color: 'rgba(21,23,28,0.5)' }}>(live on your profile + search)</span></span>
+              </label>
+            </div>
             <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.6)' }}>
-              ⚠️ This publishes a <strong>live, public listing</strong> on cults3d.com/@{creds?.username}. Files are staged via our Worker → R2. <strong>If the Worker is local (localhost:8787)</strong>, Cults can't reach it and will substitute placeholders for the image + model files (deploy the Worker to send real files).
+              ⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{creds?.email}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return — you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}
             </p>
             <button onClick={publish} className="mp-btn text-xs py-2 px-3"><Send size={13} /> Publish to {platform.name} (LIVE)</button>
           </>
@@ -3625,29 +3665,44 @@ function CultsUploadFlow({ platform, project }) {
           </div>
         )}
 
+        {status === 'deactivating' && (
+          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            <Loader size={14} className="mp-spin" /> Deactivating listing…
+          </div>
+        )}
+
         {status === 'done' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#3a8d68' }}>
-              <Check size={14} /> Published to {platform.name} {result?.uploadedFiles ? <span style={{ color: 'rgba(21,23,28,0.55)' }}>· {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'} staged</span> : null}
+            <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap" style={{ color: result?.deactivated ? 'rgba(21,23,28,0.55)' : '#3a8d68' }}>
+              <Check size={14} />
+              {result?.deactivated
+                ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
+                : <>Published to {platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'rgba(21,23,28,0.55)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
             </div>
-            {result?.url && (
-              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FF5722] transition" style={{ background: 'rgba(21,23,28,0.04)', color: 'rgba(21,23,28,0.85)' }}>
-                {result.url}
+            {result?.designUrl && (
+              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FF5722] transition" style={{ background: 'rgba(21,23,28,0.04)', color: 'rgba(21,23,28,0.85)' }}>
+                {result.designUrl}
               </a>
             )}
             {result?.substituted?.length > 0 && (
               <p className="text-[11px] mb-2 leading-snug" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                {/* The Worker reports back per-field substitutions so the user knows what didn't sync. Three cases handled below: license incompatibility, unmapped category, and tags (Cults's tag vocabulary is undocumented so we don't push user tags yet). */}
-                {result.substituted.includes('license') && 'License was swapped — Cults rules: free listings need a CC or cults_pu license; paid listings need a CULTS commercial license. '}
-                {result.substituted.includes('category') && 'Category was mapped to Various — your category didn\'t match any Cults bucket. '}
-                {result.substituted.includes('tags') && 'Tags are shown only in ModelPrep — Cults uses an internal tag vocabulary we don\'t yet support. '}
-                {(result.substituted.includes('coverImageUrl') || result.substituted.includes('modelFileUrls')) && 'Some media fell back to placeholders. '}
+                {/* Web flow surfaces per-field substitutions for license / category. Tags + media are handled inline (always work). */}
+                {result.substituted.includes('license') && 'License was swapped — Cults requires CC licenses on free listings and cults_cu on paid listings; the closest valid one was used. '}
+                {result.substituted.includes('category') && 'Category mapped to Various — your category wasn\'t in Cults\'s top-level list. Pick a sub-category inside Cults after publish if needed. '}
               </p>
             )}
             <div className="flex items-center gap-2 flex-wrap">
               <button onClick={() => { setStatus('connected'); setResult(null); }} className="mp-mono text-[12px] uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
                 <ArrowRight size={11} /> Publish another
               </button>
+              {result?.slug && !result?.deactivated && (
+                <>
+                  <span style={{ color: 'rgba(21,23,28,0.25)' }}>·</span>
+                  <button onClick={deactivate} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>
+                    Deactivate this listing
+                  </button>
+                </>
+              )}
               <span style={{ color: 'rgba(21,23,28,0.25)' }}>·</span>
               <button onClick={disconnect} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
             </div>
@@ -3670,7 +3725,7 @@ function CultsUploadFlow({ platform, project }) {
         )}
 
         <p className="text-[10px] mt-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.45)' }}>
-          Requires the ModelPrep backend running locally (<span className="mp-mono">cd modelprep-backend && npm run dev</span>) at {WORKER_URL}.
+          Uses the ModelPrep backend at {WORKER_URL}. To run a local backend: <span className="mp-mono">cd backend && npm run dev</span> in the modelprep monorepo.
         </p>
       </div>
     </div>

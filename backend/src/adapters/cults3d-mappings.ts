@@ -77,6 +77,28 @@ export function resolveCultsCategory(modelprepCategory?: string): {
   return { categoryId: CULTS_DEFAULT_CATEGORY_ID, substituted: true };
 }
 
+/** Web flow uses INTEGER category IDs (`category_id=25`) in its form POSTs,
+ *  not Relay base64 IDs. The Relay ID is just `Category/<int>` base64-encoded,
+ *  so we decode + strip to get the integer the web form wants. */
+export function relayCategoryToInt(relayId: string): number {
+  // atob is a global in Workers + browsers.
+  const decoded = atob(relayId);                  // e.g. "Category/25"
+  const n = Number(decoded.split('/').pop());
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new Error(`relayCategoryToInt: bad decoded id ${decoded}`);
+  }
+  return n;
+}
+
+/** Web-flow variant of resolveCultsCategory: returns the integer ID. */
+export function resolveCultsCategoryInt(modelprepCategory?: string): {
+  categoryId: number;
+  substituted: boolean;
+} {
+  const r = resolveCultsCategory(modelprepCategory);
+  return { categoryId: relayCategoryToInt(r.categoryId), substituted: r.substituted };
+}
+
 /** Pick a Cults license code, enforcing the free/paid compatibility rules.
  *  If the requested license isn't valid for the chosen price tier, falls back
  *  to:

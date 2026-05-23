@@ -16,7 +16,7 @@ import {
   cultsCreateCreation,
   cultsProbeField,
 } from './adapters/cults3d';
-import { resolveCultsCategory, resolveCultsLicense } from './adapters/cults3d-mappings';
+import { resolveCultsCategory, resolveCultsCategoryInt, resolveCultsLicense } from './adapters/cults3d-mappings';
 import {
   cultsWebLogin,
   cultsWebUploadFile,
@@ -397,6 +397,7 @@ export default {
 
       try {
         const form = await req.formData();
+        const substituted: string[] = [];
 
         // ---- Pull text fields with sensible defaults ----
         const str = (k: string) => {
@@ -406,13 +407,51 @@ export default {
         const name = str('name').trim() || 'ModelPrep web-flow publish';
         const description = str('description').trim() || 'Sent via ModelPrep web-flow pipeline.';
         const details = str('details');
-        const categoryId = Number(str('categoryId')) || 25; // Gadget fallback
-        const flatKeywords = str('flatKeywords') || str('tags');
-        const currency = str('currency') || 'USD';
-        const pricing = (str('pricing') || 'free') as 'free' | 'open' | 'paid';
-        const downloadPrice = Number(str('downloadPrice')) || 0;
+
+        // Category: accept either a raw `categoryId` (integer) OR a
+        // platform-neutral `category` string like 'Toys & Games' and map it
+        // via cults3d-mappings. Same fallback semantics as the GraphQL route.
+        let categoryId = Number(str('categoryId'));
+        if (!Number.isFinite(categoryId) || categoryId <= 0) {
+          const r = resolveCultsCategoryInt(str('category') || undefined);
+          categoryId = r.categoryId;
+          if (r.substituted && str('category')) substituted.push('category');
+        }
+
+        // Tags: accept either pre-joined `flatKeywords` OR a `tags` JSON array
+        // OR a single `tags` string. Cults's field is space-separated text.
+        let flatKeywords = str('flatKeywords');
+        if (!flatKeywords) {
+          // form.getAll('tags') handles repeated multipart parts; first value
+          // could be a JSON array too if the caller chose that shape.
+          const tagsAll = form.getAll('tags').filter(v => typeof v === 'string') as string[];
+          let parsed: string[] = [];
+          if (tagsAll.length === 1) {
+            try { parsed = JSON.parse(tagsAll[0]); } catch { parsed = [tagsAll[0]]; }
+          } else {
+            parsed = tagsAll;
+          }
+          flatKeywords = parsed.filter(Boolean).join(' ');
+        }
+
+        // Pricing: derive isPaid from `free`/`price`/`pricing` fields.
+        const explicitFree = str('free') === 'true' || str('pricing') === 'free' || str('price') === '0';
+        const priceNum = Number(str('downloadPrice') || str('price'));
+        const isPaid = !explicitFree && Number.isFinite(priceNum) && priceNum > 0;
+        const pricing = (str('pricing') || (isPaid ? 'paid' : 'free')) as 'free' | 'open' | 'paid';
+        const downloadPrice = isPaid ? priceNum : 0;
         const downloadOpenPrice = Number(str('downloadOpenPrice')) || 0;
-        const licenseType = str('licenseType') || (pricing === 'free' ? 'cc_pddc' : 'cults_cu');
+        const currency = str('currency') || 'USD';
+
+        // License: accept Cults-direct `licenseType` OR ModelPrep `license`
+        // ('ccby' etc.) and resolve via mappings, enforcing free/paid rules.
+        let licenseType = str('licenseType');
+        if (!licenseType) {
+          const r = resolveCultsLicense(str('license') || undefined, isPaid);
+          licenseType = r.licenseCode;
+          if (r.substituted && str('license')) substituted.push('license');
+        }
+
         const visibility = (str('visibility') || 'secret') as 'public' | 'secret';
 
         // ---- Collect files: 'model' (one or more) + 'illustration' (one or more) ----
@@ -466,13 +505,14 @@ export default {
           licenseType, visibility, inStore: true,
         });
 
-        console.log('[web-publish] done →', designUrl);
+        console.log('[web-publish] done →', designUrl, 'substituted:', substituted);
         return json({
           ok: true,
           slug,
           designUrl,
           blueprintIds,
           illustrationIds,
+          substituted,
           payload: { name, description, categoryId, currency, pricing, downloadPrice, licenseType, visibility, flatKeywords },
         });
       } catch (err) {
