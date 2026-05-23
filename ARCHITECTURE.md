@@ -27,16 +27,16 @@ A creator drops STL/3MF files + photos into a React UI, fills in title/descripti
 │ Stores files as blobs in       │       │   /api/v1/cults3d/licenses       │
 │ React state until publish.     │       │   /api/v1/cults3d/my-creations   │
 │                                │       │   /api/v1/cults3d/publish        │
-│ Repo: iamdjem/                 │       │   /api/v1/upload  (multipart→R2) │
-│   modelprep-prototype          │       │   /api/v1/files/* (R2→client)    │
-│ Local dir: modelprep-deploy/   │       │                                  │
+│                                │       │   /api/v1/upload  (multipart→R2) │
+│ Monorepo: iamdjem/modelprep    │       │   /api/v1/files/* (R2→client)    │
+│ Subdir: deploy/                │       │                                  │
 └────────────────────────────────┘       │ Maps frontend's category/license │
                                          │ /price to Cults's specific IDs;  │
                                          │ enforces free/paid license rules │
                                          │ via src/adapters/cults3d-        │
                                          │ mappings.ts.                     │
                                          │                                  │
-                                         │ Local dir: modelprep-backend/    │
+                                         │ Subdir: backend/                 │
                                          └──────────────────────────────────┘
                                                         │           │
                                           PUT/GET R2    │           │ POST GraphQL
@@ -75,8 +75,7 @@ A creator drops STL/3MF files + photos into a React UI, fills in title/descripti
                                  │ serves R2 objects.      │
                                  │ Public, no auth.        │
                                  │                         │
-                                 │ Local dir:              │
-                                 │ modelprep-cdn/          │
+                                 │ Subdir: cdn/            │
                                  └─────────────────────────┘
 ```
 
@@ -90,18 +89,19 @@ A creator drops STL/3MF files + photos into a React UI, fills in title/descripti
 
 ## Deploy & commit map — important, read this
 
-Each of the three pieces has a different commit/deploy story. **Only the frontend is under git.**
+All three pieces live in **one monorepo: `iamdjem/modelprep`**. Different parts have different deploy targets, but everything's under one `git push`.
 
-| Piece | Folder | Git? | How to deploy |
-|---|---|---|---|
-| Frontend | `modelprep-deploy/` | ✅ `iamdjem/modelprep-prototype` | `git push origin main` → GitHub Actions auto-builds + publishes to GitHub Pages |
-| Worker | `modelprep-backend/` | ❌ **No git** | `cd modelprep-backend && npx wrangler deploy` (uploads local files to Cloudflare; no history kept) |
-| CDN | `modelprep-cdn/` | ❌ **No git** | `cd modelprep-cdn && npx wrangler pages deploy public --project-name=modelprep-cdn --branch=main` (uploads local files to Cloudflare; no history kept) |
+| Piece | Subdir | How to deploy |
+|---|---|---|
+| Frontend | `deploy/` | `git push origin main` (touching `deploy/**`) → GitHub Actions builds + publishes to GitHub Pages at `iamdjem.github.io/modelprep/` |
+| Worker | `backend/` | `cd backend && npx wrangler deploy` — uploads local files to Cloudflare Workers, no auto-deploy from git |
+| CDN | `cdn/` | `cd cdn && npx wrangler pages deploy public --project-name=modelprep-cdn --branch=main` — uploads local files to Cloudflare Pages, no auto-deploy from git |
 
-**This means:**
-- When you "commit" something in this project, it's always to **`iamdjem/modelprep-prototype`** (the frontend). That's the only repo.
-- Changes to `modelprep-backend/` or `modelprep-cdn/` never get committed anywhere — they exist only on your laptop until you `wrangler deploy`, and after that only on Cloudflare's servers.
-- If your laptop dies, the Worker + CDN source code is **gone**. Cloudflare runs the compiled version forever but you can't download the source back. **Recommend putting both under git.**
+**Why backend + CDN aren't auto-deployed from git:** adding a GH Actions workflow for either requires storing a Cloudflare API token as a repo secret, which isn't worth the setup for a personal-scale tool. Worth doing later if manual `wrangler deploy` becomes annoying. For now: edit, test locally, run wrangler, done.
+
+**History:** the frontend's pre-monorepo commits (from when it was `iamdjem/modelprep-prototype`) are preserved under `deploy/` via `git filter-repo --to-subdirectory-filter`. Backend + CDN have no pre-monorepo history (they weren't tracked before).
+
+**Predecessor repo:** `iamdjem/modelprep-prototype` is archived; its README redirects here. The old GitHub Pages URL `iamdjem.github.io/modelprep-prototype/` still serves the last build for backwards compatibility.
 
 ---
 
@@ -141,8 +141,8 @@ Any swap (license incompatibility, unmapped category, dropped tags) is reported 
 
 Documented here so future you (or another agent) doesn't re-debug them:
 
-1. **`%2F` in URLs gets double-encoded by Cults's fetcher.** Cults's HTTP client treats the URL as a string and re-encodes `%` → `%25`, turning `%2F` into `%252F` and 404ing. Fix: encode each path segment individually, leave the `/` literal. See `modelprep-backend/src/r2.ts:stageFile`.
-2. **Cults validates URLs with `HEAD` before `GET`.** Initially our file route only matched `GET`, so HEAD returned 404 and Cults gave up. Fix: route accepts both. See `modelprep-backend/src/index.ts` `path.startsWith('/api/v1/files/')` block.
+1. **`%2F` in URLs gets double-encoded by Cults's fetcher.** Cults's HTTP client treats the URL as a string and re-encodes `%` → `%25`, turning `%2F` into `%252F` and 404ing. Fix: encode each path segment individually, leave the `/` literal. See `backend/src/r2.ts:stageFile`.
+2. **Cults validates URLs with `HEAD` before `GET`.** Initially our file route only matched `GET`, so HEAD returned 404 and Cults gave up. Fix: route accepts both. See `backend/src/index.ts` `path.startsWith('/api/v1/files/')` block.
 3. **Cults denies Cloudflare-owned shared subdomains for cover images.** `*.workers.dev`, `*.r2.dev`, `*.pages.dev` all silently rejected with "Could not download URL" — no inbound request to our origin. Custom domains work. This is why `cdn.makerstats.io` exists.
 4. **Cults rejects explicit `null` on optional GraphQL args.** Omit fields entirely; don't pass `null`.
 5. **GraphQL types are `LocaleEnum` / `CurrencyEnum`** (not `Locale` / `Currency` like the docs example suggests).
