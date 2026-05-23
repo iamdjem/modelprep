@@ -56,25 +56,37 @@ npx wrangler secret put CULTS_API_KEY
 | `GET /api/v1/cults3d/probe-fields` | Schema probing — sends deliberately invalid types to learn field shapes |
 | `POST /api/v1/upload` | Multipart upload → R2 → returns `cdn.makerstats.io` URL |
 | `GET\|HEAD /api/v1/files/:key` | Serves an R2 object (mostly superseded by the CDN at `cdn.makerstats.io`, kept for debug) |
-| `POST /api/v1/cults3d/publish` | Resolves frontend fields → Cults IDs → calls `createCreation`; returns `{ok, payload, substituted, response}` |
-| `POST /api/v1/cults3d/publish-test` | Hardcoded payload publish for wiring sanity |
+| `POST /api/v1/cults3d/publish` | **GraphQL flow** — resolves frontend fields → Cults IDs → calls `createCreation`; returns `{ok, payload, substituted, response}` |
+| `POST /api/v1/cults3d/publish-test` | Hardcoded GraphQL payload publish for wiring sanity |
+| `POST /api/v1/cults3d/web/publish` | **Web flow** (reverse-engineered) — multipart files + form fields; orchestrates login → S3 upload → create → publish; returns `{ok, slug, designUrl, substituted}`. See [`docs/cults3d-web-flow.md`](docs/cults3d-web-flow.md). |
+| `POST /api/v1/cults3d/web/unpublish` | **Web flow** — JSON `{slug}`, deactivates a listing (Cults's closest thing to delete) |
 
-Auth: every Cults route reads `X-Cults-Username` + `X-Cults-Api-Key` headers (falls back to env vars for curl tests). Cults uses HTTP Basic Auth on their GraphQL endpoint.
+Auth:
+- **GraphQL routes** read `X-Cults-Username` + `X-Cults-Api-Key` headers (revocable API key, scoped). Falls back to env vars for curl tests.
+- **Web-flow routes** read `X-Cults-Email` + `X-Cults-Password` headers (full account login, broader trust ask). Same env-var fallback.
 
 ## File layout
 
-```
-modelprep-backend/
-├── .dev.vars                ← secrets (GITIGNORED)
+```text
+backend/
+├── .dev.vars                ← secrets (GITIGNORED) — Cults API key + email/password
 ├── .dev.vars.example
 ├── wrangler.toml            ← Worker config + R2 binding
+├── docs/
+│   └── cults3d-web-flow.md  ← DEEP REFERENCE for the web flow — read before
+│                              editing cults3d-web.ts. Endpoint sequence,
+│                              every gotcha (login URL hyphen, 303 not 302,
+│                              pricing enum, CORS allow-list, etc.), HAR
+│                              capture origin, how to re-capture when Cults
+│                              breaks something.
 ├── src/
-│   ├── index.ts             ← routes, CORS, request handling
+│   ├── index.ts             ← routes, CORS, orchestration
 │   ├── types.ts             ← Env + PublishPayload
-│   ├── r2.ts                ← stageFile (upload) + serveFile (debug)
+│   ├── r2.ts                ← stageFile / serveFile (R2 — GraphQL flow only)
 │   └── adapters/
-│       ├── cults3d.ts            ← GraphQL client + mutations
-│       └── cults3d-mappings.ts   ← frontend vocab → Cults IDs (categories, licenses, license rules)
+│       ├── cults3d.ts            ← GraphQL adapter (Phase 3)
+│       ├── cults3d-mappings.ts   ← frontend vocab → Cults IDs (shared)
+│       └── cults3d-web.ts        ← Web-flow adapter (login, S3, create, publish, unpublish)
 └── README.md
 ```
 

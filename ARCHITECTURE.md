@@ -139,7 +139,10 @@ The public, documented API. Stable, sanctioned, simpler auth (API key). Limitati
 Any swap (license incompatibility, unmapped category, dropped tags) is reported back in the `substituted: []` array so the frontend can show a warning.
 
 ### Cults3D Web flow — `backend/src/adapters/cults3d-web.ts`
-Reverse-engineered from the cults3d.com upload form (HAR capture from `/Users/alex/MakerStats-Android/output/cults-capture/`). Strictly more capable — but uses email + password, and depends on undocumented internal endpoints that Cults can change without notice.
+
+**Deep reference: [`backend/docs/cults3d-web-flow.md`](backend/docs/cults3d-web-flow.md)** — full request-sequence diagram, per-endpoint field documentation, 12 documented gotchas, and how to re-capture when Cults breaks something. Read that BEFORE editing the adapter.
+
+Reverse-engineered from the cults3d.com upload form (HAR capture from `/Users/alex/MakerStats-Android/output/cults-capture/`). Strictly more capable than GraphQL — but uses email + password, and depends on undocumented internal endpoints that Cults can change without notice.
 
 What the web flow unlocks that GraphQL can't:
 - **Files upload to Cults's own S3** (`s3.eu-west-3.amazonaws.com/files.cults3d.com`) via signed POST policies. No CDN allow-list problem, no R2 staging needed.
