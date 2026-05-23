@@ -1,6 +1,15 @@
 # Copy this file to `.dev.vars` and fill in real values.
 # `.dev.vars` is gitignored — never commit it.
-# Get your API key at https://cults3d.com/en/api/keys
 
+# For the GraphQL flow (POST /api/v1/cults3d/publish).
+# Get your API key at https://cults3d.com/en/api/keys
 CULTS_USERNAME=your_cults_nickname
 CULTS_API_KEY=your_cults_api_key
+
+# For the WEB flow (POST /api/v1/cults3d/web/publish + /web/unpublish).
+# These are your actual cults3d.com login credentials. Web flow is more
+# capable (real tags, secret listings, deactivate) but more brittle —
+# Cults can change their internal endpoints without notice. See
+# adapters/cults3d-web.ts for what we depend on.
+CULTS_EMAIL=your_email@example.com
+CULTS_PASSWORD=your_cults_password

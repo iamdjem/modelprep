@@ -3,6 +3,14 @@
 export interface Env {
   CULTS_USERNAME: string;
   CULTS_API_KEY: string;
+  // Cults login email + password for the WEB upload flow (separate from the
+  // API key above, which only the GraphQL flow uses). Set via
+  // `wrangler secret put CULTS_EMAIL` / `CULTS_PASSWORD` in production,
+  // or .dev.vars locally. Optional — browser sends per-request via
+  // X-Cults-Email / X-Cults-Password headers; the env vars are the fallback
+  // for curl tests.
+  CULTS_EMAIL?: string;
+  CULTS_PASSWORD?: string;
   STAGING: R2Bucket;            // bound from [[r2_buckets]] in wrangler.toml
   // TOKENS?: KVNamespace;      // enable when KV namespace is bound
 }

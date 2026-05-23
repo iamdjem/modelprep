@@ -17,6 +17,13 @@ import {
   cultsProbeField,
 } from './adapters/cults3d';
 import { resolveCultsCategory, resolveCultsLicense } from './adapters/cults3d-mappings';
+import {
+  cultsWebLogin,
+  cultsWebUploadFile,
+  cultsWebCreateCreation,
+  cultsWebPublishPrice,
+  cultsWebUnpublish,
+} from './adapters/cults3d-web';
 import { stageFile, serveFile } from './r2';
 import type { PublishPayload } from './types';
 
@@ -354,6 +361,151 @@ export default {
         const message = err instanceof Error ? err.message : String(err);
         console.log('[publish] EXCEPTION:', message);
         return json({ error: 'upstream_error', message }, { status: 502 });
+      }
+    }
+
+    // -------------------- Cults3D WEB-flow publish ------------------------
+    // Drives the same multipart/HTML endpoints the cults3d.com upload form
+    // uses. STRICTLY MORE CAPABLE than the GraphQL flow above — files go
+    // straight to Cults's S3 (no CDN host-allowlist problem), real tags
+    // sync (flat_keywords), `secret` visibility works, and we can deactivate
+    // listings afterwards. See backend/src/adapters/cults3d-web.ts for the
+    // full reverse-engineered request shape.
+    //
+    // Accepts multipart/form-data — file parts named `model` (one or more)
+    // and `illustration` (one or more, first one becomes the cover), plus
+    // text parts for everything else (name, description, categoryId, etc.).
+    if (path === '/api/v1/cults3d/web/publish' && req.method === 'POST') {
+      // Auth: prefer per-request headers, fall back to env. UNLIKE the
+      // GraphQL flow, the web flow needs email + password (not API key).
+      const email = req.headers.get('X-Cults-Email') || env.CULTS_EMAIL;
+      const password = req.headers.get('X-Cults-Password') || env.CULTS_PASSWORD;
+      if (!email || !password) {
+        return json({
+          error: 'missing_credentials',
+          hint: 'Web flow needs X-Cults-Email + X-Cults-Password headers (NOT the API key — that\'s only for the GraphQL /publish endpoint).',
+        }, { status: 401 });
+      }
+
+      const contentType = req.headers.get('content-type') || '';
+      if (!contentType.includes('multipart/form-data')) {
+        return json({
+          error: 'expected_multipart',
+          hint: 'Send multipart/form-data with: name, description, categoryId, currency, pricing, licenseType, visibility text fields + `model` and `illustration` file fields.',
+        }, { status: 400 });
+      }
+
+      try {
+        const form = await req.formData();
+
+        // ---- Pull text fields with sensible defaults ----
+        const str = (k: string) => {
+          const v = form.get(k);
+          return typeof v === 'string' ? v : '';
+        };
+        const name = str('name').trim() || 'ModelPrep web-flow publish';
+        const description = str('description').trim() || 'Sent via ModelPrep web-flow pipeline.';
+        const details = str('details');
+        const categoryId = Number(str('categoryId')) || 25; // Gadget fallback
+        const flatKeywords = str('flatKeywords') || str('tags');
+        const currency = str('currency') || 'USD';
+        const pricing = (str('pricing') || 'free') as 'free' | 'open' | 'paid';
+        const downloadPrice = Number(str('downloadPrice')) || 0;
+        const downloadOpenPrice = Number(str('downloadOpenPrice')) || 0;
+        const licenseType = str('licenseType') || (pricing === 'free' ? 'cc_pddc' : 'cults_cu');
+        const visibility = (str('visibility') || 'secret') as 'public' | 'secret';
+
+        // ---- Collect files: 'model' (one or more) + 'illustration' (one or more) ----
+        // Workers' FormData typing claims entries are just string, but at
+        // runtime non-string entries are File-like with .name/.size/.type —
+        // same workaround as the /api/v1/upload route.
+        const models = form.getAll('model').filter(v => v != null && typeof v !== 'string') as unknown as File[];
+        const illustrations = form.getAll('illustration').filter(v => v != null && typeof v !== 'string') as unknown as File[];
+        if (models.length === 0) {
+          return json({ error: 'missing_files', hint: 'At least one `model` file part required (STL/3MF/etc).' }, { status: 400 });
+        }
+        if (illustrations.length === 0) {
+          return json({ error: 'missing_files', hint: 'At least one `illustration` file part required (cover image). First one becomes the cover.' }, { status: 400 });
+        }
+
+        // ---- Step 1: log in (gets session cookie + CSRF) ----
+        console.log('[web-publish] login');
+        const session = await cultsWebLogin(email, password);
+
+        // ---- Step 2: upload each model + illustration, collect their numeric IDs ----
+        console.log(`[web-publish] uploading ${models.length} model file(s)`);
+        const blueprintIds: number[] = [];
+        for (const m of models) {
+          const id = await cultsWebUploadFile(session, { blob: m, filename: m.name || 'model.stl' }, 'blueprint');
+          blueprintIds.push(id);
+        }
+        console.log(`[web-publish] uploading ${illustrations.length} illustration(s)`);
+        const illustrationIds: number[] = [];
+        for (const i of illustrations) {
+          const id = await cultsWebUploadFile(session, { blob: i, filename: i.name || 'cover.jpg' }, 'illustration');
+          illustrationIds.push(id);
+        }
+
+        // ---- Step 3: create the (draft) creation ----
+        console.log('[web-publish] create');
+        const { slug } = await cultsWebCreateCreation(session, {
+          name, description, details,
+          categoryId,
+          usages: ['3dp'],
+          flatKeywords,
+          blueprintIds,
+          illustrationIds,
+          madeWithAi: false,
+          showComments: true,
+        });
+
+        // ---- Step 4: publish (set price + visibility) ----
+        console.log('[web-publish] publish slug=', slug);
+        const { designUrl } = await cultsWebPublishPrice(session, slug, {
+          currency, pricing, downloadPrice, downloadOpenPrice,
+          licenseType, visibility, inStore: true,
+        });
+
+        console.log('[web-publish] done →', designUrl);
+        return json({
+          ok: true,
+          slug,
+          designUrl,
+          blueprintIds,
+          illustrationIds,
+          payload: { name, description, categoryId, currency, pricing, downloadPrice, licenseType, visibility, flatKeywords },
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log('[web-publish] EXCEPTION:', message);
+        return json({ error: 'web_flow_failed', message }, { status: 502 });
+      }
+    }
+
+    // -------------------- Cults3D WEB-flow unpublish ----------------------
+    // POST /api/v1/cults3d/web/unpublish with JSON body: { slug: "..." }
+    // Calls the deactivate endpoint Cults's "My designs" page uses.
+    if (path === '/api/v1/cults3d/web/unpublish' && req.method === 'POST') {
+      const email = req.headers.get('X-Cults-Email') || env.CULTS_EMAIL;
+      const password = req.headers.get('X-Cults-Password') || env.CULTS_PASSWORD;
+      if (!email || !password) {
+        return json({ error: 'missing_credentials', hint: 'Need X-Cults-Email + X-Cults-Password.' }, { status: 401 });
+      }
+      let slug = '';
+      try {
+        const body = await req.json() as { slug?: string };
+        slug = body.slug ?? '';
+      } catch { /* allow empty body */ }
+      if (!slug) {
+        return json({ error: 'missing_slug', hint: 'Body must be JSON with a `slug` string (the part after /en/3d-model/<category>/ in the URL).' }, { status: 400 });
+      }
+      try {
+        const session = await cultsWebLogin(email, password);
+        const result = await cultsWebUnpublish(session, slug);
+        return json({ ok: true, slug, ...result });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return json({ error: 'web_flow_failed', message }, { status: 502 });
       }
     }
 

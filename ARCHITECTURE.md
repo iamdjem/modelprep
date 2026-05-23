@@ -121,19 +121,40 @@ Free tiers are generous enough that public traffic won't break this. R2 lifecycl
 
 ---
 
-## Field translation: frontend vocab → Cults IDs
+## Two ways to publish — GraphQL vs Web flow
 
-The frontend speaks platform-neutral ("Toys & Games", "ccby", "$4.50"). The Worker translates to Cults's specific IDs in `src/adapters/cults3d-mappings.ts`:
+There are now **two parallel adapters** for Cults3D. The frontend can pick whichever fits the user's auth + feature needs.
+
+### Cults3D GraphQL flow — `backend/src/adapters/cults3d.ts`
+The public, documented API. Stable, sanctioned, simpler auth (API key). Limitations are real:
 
 | Frontend value | What Worker sends to Cults | Source of truth |
 |---|---|---|
-| `category: 'Toys & Games'` | `categoryId: 'Q2F0ZWdvcnkvMzE'` (Cults Relay ID for "Game") | `CULTS_CATEGORY_MAP` in mappings.ts; refresh by re-running `/api/v1/cults3d/categories` |
+| `category: 'Toys & Games'` | `categoryId: 'Q2F0ZWdvcnkvMzE'` (Cults Relay base64 ID for "Game") | `CULTS_CATEGORY_MAP` in `cults3d-mappings.ts`; refresh by `/api/v1/cults3d/categories` |
 | `license: 'ccby'` | `licenseCode: 'cc_by'` (or `cults_cu` if listing is paid — Cults forbids CC on paid) | `CULTS_LICENSE_MAP` + `resolveCultsLicense()` in mappings.ts; refresh by `/api/v1/cults3d/licenses` |
-| `price: 4.50, free: false` | `downloadPrice: 4.50, currency: 'USD'` | Hard-coded; only USD supported today |
-| `tags: ['dragon', ...]` | **Not forwarded** | Cults's `metaTags: [String!]` exists but rejects all common words ("Unknown meta tag"). Their tag dictionary is undocumented. Captured in HAR would unlock this. |
-| `coverImageUrl` (browser blob) | `https://cdn.makerstats.io/staging/.../cover.jpg` | Worker uploads to R2 first via `/api/v1/upload`, mints the CDN URL in `r2.ts:stageFile` |
+| `price: 4.50, free: false` | `downloadPrice: 4.50, currency: 'USD'` | Hard-coded; only USD wired in mappings |
+| `tags: ['dragon', ...]` | **Not forwarded** | Cults's `metaTags` rejects all common words ("Unknown meta tag") — internal vocab, not user keywords. Use web flow if you need real tags. |
+| `coverImageUrl` (browser blob) | `https://cdn.makerstats.io/staging/.../cover.jpg` | Worker stages to R2 first, mints CDN URL in `r2.ts:stageFile`. Custom domain required because Cults blocks `*.workers.dev`/`*.r2.dev`/`*.pages.dev` for cover images. |
 
-Any swap (license incompatibility, unmapped category, dropped tags) is reported back in the `substituted: []` array so the frontend can show a warning ("License was swapped because…").
+Any swap (license incompatibility, unmapped category, dropped tags) is reported back in the `substituted: []` array so the frontend can show a warning.
+
+### Cults3D Web flow — `backend/src/adapters/cults3d-web.ts`
+Reverse-engineered from the cults3d.com upload form (HAR capture from `/Users/alex/MakerStats-Android/output/cults-capture/`). Strictly more capable — but uses email + password, and depends on undocumented internal endpoints that Cults can change without notice.
+
+What the web flow unlocks that GraphQL can't:
+- **Files upload to Cults's own S3** (`s3.eu-west-3.amazonaws.com/files.cults3d.com`) via signed POST policies. No CDN allow-list problem, no R2 staging needed.
+- **Tags actually work** — `creation[flat_keywords]=dragon test calibration` is plain text. Confirmed on the live test listing (tags rendered as `<a href="/en/tags/dragon">` etc.).
+- **`creation[usages][]=3dp`** — found the magic value GraphQL couldn't reveal.
+- **`creation[meta_tags][]=no_support`** — at least one valid meta_tags value confirmed.
+- **`visibility=secret`** — listing is unguessable-URL-only, doesn't appear on profile or search. GraphQL only allowed PUBLIC.
+- **`POST /en/creations/<slug>/unpublish`** — deactivates a listing. Closest thing to delete Cults exposes.
+- **Category IDs are plain integers** (`category_id=25` for Gadget) — same underlying ID as the GraphQL Relay version, just unwrapped.
+
+Routes:
+- `POST /api/v1/cults3d/web/publish` — full flow: login → upload files → create draft → set price/visibility → return URL. Multipart body: `name`, `description`, `categoryId`, `currency`, `pricing`, `licenseType`, `visibility`, `flatKeywords` (text fields) + one or more `model` and `illustration` (file fields). Headers: `X-Cults-Email`, `X-Cults-Password`.
+- `POST /api/v1/cults3d/web/unpublish` — JSON `{slug}`, same headers, deactivates the listing.
+
+Trade-off vs GraphQL: brittle to Cults updates. When something breaks, re-capture the failing step in browser DevTools and patch the adapter. Login URL changed once already during integration (`sign_in` → `sign-in`), and Cults uses 303 not 302 for some redirects.
 
 ---
 
@@ -147,8 +168,15 @@ Documented here so future you (or another agent) doesn't re-debug them:
 4. **Cults rejects explicit `null` on optional GraphQL args.** Omit fields entirely; don't pass `null`.
 5. **GraphQL types are `LocaleEnum` / `CurrencyEnum`** (not `Locale` / `Currency` like the docs example suggests).
 6. **Free licenses (CC) only work on free listings; CULTS commercial licenses only on paid.** Mappings enforce this. See `LICENSE_RULES` in `cults3d-mappings.ts`.
-7. **`createCreation` is the only public mutation we use.** Cults has `updateCreation` (probed, exists) but NO `deleteCreation`/`destroyCreation`/etc. Deleting test listings is web-UI only.
+7. **`createCreation` is the only public mutation we use.** Cults has `updateCreation` (probed, exists) but NO `deleteCreation`/`destroyCreation`/etc. The web flow's `/en/creations/<slug>/unpublish` is the closest to delete (deactivates, doesn't permanently remove).
 8. **GraphQL introspection is disabled.** `__type(name: "Mutation")` returns null. We learn the schema by sending probes with deliberately invalid types and reading the error messages back. See `/api/v1/cults3d/probe-fields` in the Worker.
+9. **Web flow gotchas** (separate set, since these endpoints aren't documented):
+   - Login URL is `/en/users/sign-in` with a HYPHEN, not `_sign_in_` like Devise defaults.
+   - Login redirect is **303 See Other**, not 302. Accept both.
+   - Sign-in failure also redirects (back to `/en/users/sign-in`) — distinguish success from failure by the redirect Location, not just status code.
+   - `/en/file_uploaders/new?<kind>=true` returns the S3 form fields **flat** (no `{url, fields}` wrapper). The S3 URL itself is hardcoded — `https://s3.eu-west-3.amazonaws.com/files.cults3d.com` — and must match what the policy was signed for.
+   - Include `Content-Type` as a form field when POSTing to S3 (the policy requires it via `starts-with $Content-Type ""`).
+   - Rails strong_parameters expects array fields to start with an empty entry, hence the `creation[usages][]=&creation[usages][]=3dp` shape in the HAR.
 
 ---
 
