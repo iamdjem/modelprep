@@ -57,7 +57,9 @@ function corsHeadersFor(req: Request): Record<string, string> {
   const allowed = corsOriginFor(req);
   const base: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cults-Username, X-Cults-Api-Key',
+    // Per-request auth headers — add new ones here whenever a route accepts
+    // them (browsers strictly enforce this list on CORS preflight).
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cults-Username, X-Cults-Api-Key, X-Cults-Email, X-Cults-Password',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
@@ -434,11 +436,20 @@ export default {
           flatKeywords = parsed.filter(Boolean).join(' ');
         }
 
-        // Pricing: derive isPaid from `free`/`price`/`pricing` fields.
+        // Pricing: Cults's actual enum values are 'free' / 'priced' / 'open_priced'
+        // (NOT 'paid' / 'open' — those get "Pricing isn't included in the list").
+        // The frontend sends platform-neutral `{free, price}`; we derive.
         const explicitFree = str('free') === 'true' || str('pricing') === 'free' || str('price') === '0';
         const priceNum = Number(str('downloadPrice') || str('price'));
         const isPaid = !explicitFree && Number.isFinite(priceNum) && priceNum > 0;
-        const pricing = (str('pricing') || (isPaid ? 'paid' : 'free')) as 'free' | 'open' | 'paid';
+        // Allow caller to send Cults-direct `pricing` too (for power users /
+        // curl), but normalize legacy 'paid'/'open' aliases just in case.
+        const rawPricing = str('pricing');
+        const pricing = (
+          rawPricing === 'paid' ? 'priced'
+          : rawPricing === 'open' ? 'open_priced'
+          : rawPricing || (isPaid ? 'priced' : 'free')
+        ) as 'free' | 'priced' | 'open_priced';
         const downloadPrice = isPaid ? priceNum : 0;
         const downloadOpenPrice = Number(str('downloadOpenPrice')) || 0;
         const currency = str('currency') || 'USD';

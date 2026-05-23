@@ -396,11 +396,15 @@ export interface CultsWebPublishPayload {
   /** USD / EUR / GBP / etc — three-letter ISO 4217 code. Required by Cults
    *  even when pricing is 'free' (their form always submits one). */
   currency: string;
-  /** Either 'free', 'open' (pay-what-you-want), or 'paid'. */
-  pricing: 'free' | 'open' | 'paid';
-  /** Required when pricing === 'paid'. Ignored otherwise. */
+  /** Cults's actual radio values (NOT 'paid'/'open' — those get rejected
+   *  with "Pricing isn't included in the list"):
+   *    - 'priced'       — fixed price, `downloadPrice` required
+   *    - 'open_priced'  — pay-what-you-want, `downloadOpenPrice` is the minimum
+   *    - 'free'         — no price */
+  pricing: 'free' | 'priced' | 'open_priced';
+  /** Required when pricing === 'priced'. Ignored otherwise. */
   downloadPrice?: number;
-  /** Suggested price when pricing === 'open'. Ignored otherwise. */
+  /** Suggested minimum when pricing === 'open_priced'. Ignored otherwise. */
   downloadOpenPrice?: number;
   /** Cults license code — e.g. 'cc_pddc' (CC0), 'cc_by', 'cults_pu'.
    *  See cults3d-mappings.ts for the full set. Web flow uses the SAME
@@ -448,8 +452,22 @@ export async function cultsWebPublishPrice(
     body: body.toString(),
     redirect: 'manual',
   });
-  if (res.status !== 302) {
-    throw new Error(`cults web publish: expected 302, got ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  // Cults uses 303 See Other for some POST-success redirects (per login),
+  // and 302 in the original HAR. Accept both.
+  if (res.status !== 302 && res.status !== 303) {
+    const errHtml = await res.text();
+    // Try to pull out the actual validation errors Cults rendered. Common
+    // patterns: <div class="alert ..."> or <ul class="errors"> or inline
+    // .field-error spans next to each invalid input.
+    const alerts: string[] = [];
+    const alertRe = /<(?:div|ul)[^>]*class="[^"]*(?:alert|error|flash|field-error)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|ul)>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = alertRe.exec(errHtml)) !== null && alerts.length < 5) {
+      const text = m[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (text && text.length > 2) alerts.push(text);
+    }
+    const hint = alerts.length ? alerts.join(' | ') : '(no inline error markers found — first 400 chars of body: ' + errHtml.replace(/\s+/g, ' ').slice(0, 400) + ')';
+    throw new Error(`cults web publish: expected 302/303, got ${res.status}. Hint: ${hint.slice(0, 600)}`);
   }
   const location = res.headers.get('Location') || '';
   if (!/^https?:\/\/cults3d\.com\/en\/3d-model\//.test(location)) {

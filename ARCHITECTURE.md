@@ -170,13 +170,16 @@ Documented here so future you (or another agent) doesn't re-debug them:
 6. **Free licenses (CC) only work on free listings; CULTS commercial licenses only on paid.** Mappings enforce this. See `LICENSE_RULES` in `cults3d-mappings.ts`.
 7. **`createCreation` is the only public mutation we use.** Cults has `updateCreation` (probed, exists) but NO `deleteCreation`/`destroyCreation`/etc. The web flow's `/en/creations/<slug>/unpublish` is the closest to delete (deactivates, doesn't permanently remove).
 8. **GraphQL introspection is disabled.** `__type(name: "Mutation")` returns null. We learn the schema by sending probes with deliberately invalid types and reading the error messages back. See `/api/v1/cults3d/probe-fields` in the Worker.
-9. **Web flow gotchas** (separate set, since these endpoints aren't documented):
+9. **Adding a new request header from the browser? Update the Worker's `Access-Control-Allow-Headers` allow-list too.** Browsers enforce it strictly on the CORS preflight: an unlisted header causes the actual request to never reach the Worker — the fetch fails with "Failed to fetch" client-side, and `wrangler tail` shows nothing inbound. Search `index.ts` for `Access-Control-Allow-Headers` and append the new header name.
+10. **Web flow gotchas** (separate set, since these endpoints aren't documented):
    - Login URL is `/en/users/sign-in` with a HYPHEN, not `_sign_in_` like Devise defaults.
    - Login redirect is **303 See Other**, not 302. Accept both.
    - Sign-in failure also redirects (back to `/en/users/sign-in`) — distinguish success from failure by the redirect Location, not just status code.
    - `/en/file_uploaders/new?<kind>=true` returns the S3 form fields **flat** (no `{url, fields}` wrapper). The S3 URL itself is hardcoded — `https://s3.eu-west-3.amazonaws.com/files.cults3d.com` — and must match what the policy was signed for.
    - Include `Content-Type` as a form field when POSTing to S3 (the policy requires it via `starts-with $Content-Type ""`).
    - Rails strong_parameters expects array fields to start with an empty entry, hence the `creation[usages][]=&creation[usages][]=3dp` shape in the HAR.
+   - **`creation[pricing]` accepts `free` / `priced` / `open_priced`** — NOT `paid` / `open`. Sending the wrong value comes back as "Pricing isn't included in the list" (Rails `inclusion:` validator). Inspect the price/edit form's radio buttons to confirm — they're the authoritative list.
+   - **`creation[visibility]` accepts `public` / `secret` / `deactivated`** — three states, not two. `deactivated` is what the unpublish endpoint sets it to.
 
 ---
 
