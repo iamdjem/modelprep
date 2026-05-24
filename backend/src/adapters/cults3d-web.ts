@@ -142,15 +142,32 @@ export async function cultsWebLogin(email: string, password: string): Promise<Cu
 
   // Step 3: hit an authenticated page to grab the post-login CSRF token.
   // The /en/creations/new page is what the upload flow uses, so it's a
-  // perfect smoke test that the session is actually authenticated.
+  // perfect smoke test that the session is actually authenticated AND can
+  // publish. Multiple redirect destinations are possible:
+  //   - /users/confirmation/new  →  account exists but email NOT confirmed yet
+  //     (Devise's `confirmable` module redirects pre-confirmation users away
+  //     from gated actions). User needs to click the link in Cults's
+  //     "Confirmation instructions" email.
+  //   - /en/users/sign-in        →  session truly not authenticated (creds
+  //     rejected silently, or session cookie didn't stick).
+  //   - any other location       →  unexpected new flow Cults added; surface
+  //     it so we can investigate.
+  // Distinguish via the Location header.
   const newCreationRes = await fetch(`${CULTS_BASE}/en/creations/new`, {
     method: 'GET',
     headers: { 'User-Agent': USER_AGENT, 'Accept': 'text/html', 'Cookie': cookies },
     redirect: 'manual',
   });
   cookies = mergeCookies(cookies, newCreationRes);
-  if (newCreationRes.status === 302) {
-    throw new Error('cults web login: /en/creations/new redirected after login — session probably not authenticated');
+  if (newCreationRes.status === 302 || newCreationRes.status === 303) {
+    const dest = newCreationRes.headers.get('Location') || '';
+    if (/\/users\/confirmation/i.test(dest)) {
+      throw new Error('cults web login: account exists but the email address is not confirmed yet. Open your inbox, click the link in Cults\'s "Confirmation instructions" email, then retry.');
+    }
+    if (/\/users\/sign-in/i.test(dest)) {
+      throw new Error('cults web login: not authenticated after login POST — credentials may be rejected silently, or session cookie didn\'t stick.');
+    }
+    throw new Error(`cults web login: /en/creations/new redirected to unexpected destination ${dest} — Cults may have added a new onboarding step; investigate.`);
   }
   const newCreationHtml = await newCreationRes.text();
   const csrfToken = extractCsrfToken(newCreationHtml);
