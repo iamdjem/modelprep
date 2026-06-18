@@ -6,15 +6,17 @@ Cloudflare Worker that bridges the ModelPrep React frontend to Cults3D's GraphQL
 
 ## Status
 
-Production-deployed at `https://modelprep-backend.iamdjem.workers.dev`. Bound to R2 bucket `modelprep-staging`. CORS locked to `iamdjem.github.io` + `localhost:5173|4173`. **Not under git** — see ARCHITECTURE.md "Deploy & commit map".
+Production-deployed at `https://modelprep-backend.iamdjem.workers.dev`. Bound to R2 bucket `modelprep-staging`. CORS locked to `iamdjem.github.io` + `localhost:5173|4173`. Lives in the `iamdjem/modelprep` monorepo as the `backend/` subdir.
 
 ## First-time setup
 
 ```bash
-cd modelprep-backend
+cd backend
 npm install
 cp .dev.vars.example .dev.vars
-# Edit .dev.vars and paste Cults username + API key (gitignored, never commit).
+# Edit .dev.vars with Cults creds (gitignored, never commit).
+# For GraphQL flow: CULTS_USERNAME + CULTS_API_KEY
+# For web flow:    CULTS_EMAIL + CULTS_PASSWORD
 ```
 
 If you don't have wrangler:

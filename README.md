@@ -63,10 +63,10 @@ Backend + CDN deploys do NOT auto-trigger from git — you run them manually. (A
 
 ## Status
 
-✅ **Cults3D**: end-to-end one-click publish working (cover + gallery + STL/3MF + category + license + price). Real test listing: https://cults3d.com/en/3d-model/game/modelprep-final-end-to-end.
+✅ **Cults3D** (web flow): end-to-end one-click publish working with REAL tags (`flat_keywords`), secret/public visibility, deactivate, AND permanent delete. UI includes a "My listings on Cults" panel that scrapes your listings and surfaces per-row Deactivate + Delete buttons. The reverse-engineered web flow is the default — the older GraphQL flow is kept as backup at `backend/docs/graphql-flow-and-cdn-backup.md`.
 
-🟡 **Tags**: Cults's tag vocabulary is undocumented; user tags show locally only.
-🟡 **Cleanup**: no `deleteCreation` mutation on Cults; deletions are web-UI only.
-⏳ **MakerWorld, Thingiverse, Printables, MMF, Thangs**: deferred — each platform plugs in behind the same prep UI.
+✅ **Tags** (web flow): plain-text user keywords sync to Cults via `creation[flat_keywords]`. The GraphQL flow's `metaTags` field is for Cults's internal classification dictionary (different thing) — not user keywords.
 
-See `ARCHITECTURE.md` for the full "non-obvious things that broke during build-out" list — useful when adding new platforms.
+⏳ **MakerWorld, Thingiverse, Printables, MMF, Thangs**: deferred — each platform plugs in behind the same prep UI. Handoff for the MakerWorld HAR-capture work is at `HANDOFF.md`.
+
+See `ARCHITECTURE.md` for the full "non-obvious things that broke during build-out" list (12+ documented gotchas) — useful when adding new platforms or debugging when Cults changes something.

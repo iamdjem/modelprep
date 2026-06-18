@@ -138,7 +138,7 @@ Pin the message, gather screenshots and notes, iterate.
 ## What's in this project
 
 ```
-modelprep-deploy/
+deploy/                     # frontend subdir of the iamdjem/modelprep monorepo
 ├── index.html              # Page shell with SVG favicon
 ├── package.json            # Dependencies
 ├── vite.config.js          # Vite build config

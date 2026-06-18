@@ -13,7 +13,7 @@ The Worker uploads files to R2; this project reads them back. **Same R2 bucket, 
 ## File layout
 
 ```
-modelprep-cdn/
+cdn/                          # CDN subdir of the iamdjem/modelprep monorepo
 ├── wrangler.toml             ← Pages config + R2 binding (binds modelprep-staging)
 ├── functions/
 │   └── [[path]].ts           ← catch-all Function: any /<key> reads from STAGING
@@ -23,16 +23,18 @@ modelprep-cdn/
 └── README.md
 ```
 
+(`modelprep-cdn` is the Cloudflare Pages project name — used as `--project-name=modelprep-cdn` at deploy. The local directory is just `cdn/`.)
+
 ## Deploy
 
 ```bash
-cd modelprep-cdn
+cd cdn
 npx wrangler pages deploy public --project-name=modelprep-cdn --branch=main
 ```
 
 Production URL: `https://modelprep-cdn.pages.dev` (auto), `https://cdn.makerstats.io` (custom domain).
 
-**Not under git.** Same caveat as the Worker — see ARCHITECTURE.md.
+**Under git** as part of the monorepo at `iamdjem/modelprep`. The "not under git" caveat that used to be here was outdated — it applied during the pre-monorepo period.
 
 ## Custom domain
 
