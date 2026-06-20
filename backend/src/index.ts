@@ -26,6 +26,25 @@ import {
   cultsWebDelete,
   cultsWebListMyCreations,
 } from './adapters/cults3d-web';
+import {
+  mwCheckSession,
+  mwUploadFile,
+  mwCreateDraft,
+  mwPublish,
+  mwDelete,
+  mwListMyDesigns,
+  mwSuggestTags,
+  mwFetchCatalogStandalone,
+  mwSearchRelatedDesigns,
+  mwRefreshToken,
+  mwCreateLaserCutDraft,
+  mwPublishLaserCut,
+  mwDeleteLaserCut,
+  type MakerWorldSession,
+  type MakerWorldPublishInput,
+  type BomCatalog,
+  type LaserCutPublishInput,
+} from './adapters/makerworld-web';
 import { stageFile, serveFile } from './r2';
 import type { PublishPayload } from './types';
 
@@ -61,7 +80,7 @@ function corsHeadersFor(req: Request): Record<string, string> {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     // Per-request auth headers — add new ones here whenever a route accepts
     // them (browsers strictly enforce this list on CORS preflight).
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cults-Username, X-Cults-Api-Key, X-Cults-Email, X-Cults-Password',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cults-Username, X-Cults-Api-Key, X-Cults-Email, X-Cults-Password, X-MW-Cookie',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
@@ -639,6 +658,175 @@ export default {
         const message = err instanceof Error ? err.message : String(err);
         return json({ error: 'web_flow_failed', message }, { status: 502 });
       }
+    }
+
+    // ==================== MakerWorld WEB flow ============================
+    // Auth = the user's own MakerWorld session, forwarded as the full Cookie
+    // header value in `X-MW-Cookie` (minimally `token=…; cf_clearance=…`).
+    // We cannot log in server-side (Bambu SSO + Cloudflare), so the cookie is
+    // supplied by the browser (extension/paste). See backend/docs/makerworld-web-flow.md.
+    const getMwSession = (): MakerWorldSession | null => {
+      const cookie = req.headers.get('X-MW-Cookie');
+      return cookie ? { cookie } : null;
+    };
+    const mwAuthError = () =>
+      json({ error: 'missing_makerworld_session', hint: 'Send X-MW-Cookie with your MakerWorld session (token=…; cf_clearance=…).' }, { status: 401 });
+
+    // GET /api/v1/makerworld/web/check — is the supplied cookie a valid session?
+    if (path === '/api/v1/makerworld/web/check' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      try { return json({ ok: await mwCheckSession(s) }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/my-creations — list my published designs.
+    if (path === '/api/v1/makerworld/web/my-creations' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      try { return json({ ok: true, designs: await mwListMyDesigns(s) }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/bom-catalog — the Maker's Supply BOM catalog
+    // (kits/filaments/materials) for the picker. Served from an R2 cache.
+    // NOTE: the catalog lives only in the edit-page SSR data, and Cloudflare 403s
+    // SERVER-SIDE fetches of MakerWorld HTML/_next/data (only /api/v1/* passes
+    // server-side). So the server-side self-refresh below is BEST-EFFORT — it may
+    // succeed from the deployed Cloudflare edge (orange-to-orange) but is blocked
+    // from ordinary IPs. The RELIABLE refresh is the browser harvest
+    // (backend/scripts/harvest-bom-catalog.mjs) which writes the bundled seed; the
+    // frontend always has that seed as the offline fallback.
+    if (path === '/api/v1/makerworld/web/bom-catalog' && req.method === 'GET') {
+      const CATALOG_KEY = 'cache/mw-bom-catalog.json';
+      const CATALOG_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+      let cached: BomCatalog | null = null;
+      try { const obj = await env.STAGING.get(CATALOG_KEY); if (obj) cached = await obj.json() as BomCatalog; } catch { /* */ }
+      const fresh = cached?.fetchedAt && (Date.now() - Date.parse(cached.fetchedAt) < CATALOG_TTL_MS);
+      if (fresh) return json({ ok: true, source: 'cache', catalog: cached });
+      const s = getMwSession();
+      if (s) {
+        try {
+          const catalog = await mwFetchCatalogStandalone(s);
+          await env.STAGING.put(CATALOG_KEY, JSON.stringify(catalog), { httpMetadata: { contentType: 'application/json' } });
+          return json({ ok: true, source: 'refreshed', catalog });
+        } catch (err) { /* fall back to stale/none below */ }
+      }
+      if (cached) return json({ ok: true, source: 'stale', catalog: cached });
+      return json({ ok: false, error: 'no_catalog', hint: 'Send X-MW-Cookie once to populate the catalog (or use the bundled seed in the frontend).' }, { status: 404 });
+    }
+
+    // GET /api/v1/makerworld/web/suggest-tags?keyword=foo — tag autocomplete.
+    if (path === '/api/v1/makerworld/web/suggest-tags' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      const keyword = url.searchParams.get('keyword') || '';
+      try { return json({ ok: true, suggestions: await mwSuggestTags(s, keyword) }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // POST /api/v1/makerworld/web/upload — multipart `file` (+ optional `useType`,
+    // `fileName`). Presigns + PUTs to MakerWorld's S3, returns the CDN url to
+    // reference in a draft. The browser uploads each model/cover/3mf file this way.
+    if (path === '/api/v1/makerworld/web/upload' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      const contentType = req.headers.get('content-type') || '';
+      if (!contentType.includes('multipart/form-data')) {
+        return json({ error: 'expected_multipart', hint: 'POST multipart/form-data with a "file" field.' }, { status: 400 });
+      }
+      try {
+        const form = await req.formData();
+        const entry = form.get('file');
+        if (!entry || typeof entry === 'string') return json({ error: 'no_file' }, { status: 400 });
+        const file = entry as unknown as { name: string; size: number; arrayBuffer: () => Promise<ArrayBuffer> };
+        if (file.size > MAX_UPLOAD_BYTES) return json({ error: 'file_too_large', maxBytes: MAX_UPLOAD_BYTES }, { status: 413 });
+        const fileName = (form.get('fileName') as string) || file.name;
+        const useType = (form.get('useType') as string) || 'makerworld/model';
+        const uploaded = await mwUploadFile(s, fileName, await file.arrayBuffer(), useType);
+        return json({ ok: true, ...uploaded });
+      } catch (err) {
+        return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 });
+      }
+    }
+
+    // POST /api/v1/makerworld/web/publish — JSON MakerWorldPublishInput (with
+    // already-uploaded file urls). Creates a draft and publishes it. Body may set
+    // `draftOnly: true` to stop after create (save as draft, no submit).
+    if (path === '/api/v1/makerworld/web/publish' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      let input: MakerWorldPublishInput & { draftOnly?: boolean };
+      try { input = await req.json() as MakerWorldPublishInput & { draftOnly?: boolean }; }
+      catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!input?.title || !input?.coverUrl) {
+        return json({ error: 'missing_fields', hint: 'Need at least title + coverUrl. To publish (not draft): also categoryId, description, coverPortraitUrl; .3mf models need printProfile.' }, { status: 400 });
+      }
+      let createdId = 0;
+      try {
+        createdId = await mwCreateDraft(s, input);
+        if (input.draftOnly) return json({ ok: true, id: createdId, status: 'draft' });
+        await mwPublish(s, createdId, input);
+        return json({ ok: true, id: createdId, status: 'verifying', url: `https://makerworld.com/en/my/models/drafts/${createdId}/edit` });
+      } catch (err) {
+        // Submit/publish failed AFTER the draft was created → delete it so we never
+        // orphan a half-built draft on the user's account. Report whether cleanup ran.
+        let cleanedUp = false;
+        if (createdId) { try { await mwDelete(s, createdId); cleanedUp = true; } catch { /* best effort */ } }
+        return json({ error: 'mw_publish_failed', message: err instanceof Error ? err.message : String(err), draftId: createdId || undefined, cleanedUp }, { status: 502 });
+      }
+    }
+
+    // POST /api/v1/makerworld/web/delete — JSON { id }. Deletes a draft/model.
+    if (path === '/api/v1/makerworld/web/delete' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      let id = 0;
+      try { id = ((await req.json()) as { id?: number }).id ?? 0; } catch { /* */ }
+      if (!id) return json({ error: 'missing_id' }, { status: 400 });
+      try { await mwDelete(s, id); return json({ ok: true, id, deleted: true }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/related?type=0|1&keyword= — search the user's own designs
+    // to link (type 0 = 3D models, 1 = Laser & Cut) for remix / related-model fields.
+    if (path === '/api/v1/makerworld/web/related' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      const type = url.searchParams.get('type') === '1' ? 1 : 0;
+      const keyword = url.searchParams.get('keyword') || '';
+      try { return json({ ok: true, designs: await mwSearchRelatedDesigns(s, type, keyword) }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // POST /api/v1/makerworld/web/refresh — refresh the access token via the refreshToken
+    // in the supplied cookie (extends a ~24h session toward the ~90d refresh window).
+    if (path === '/api/v1/makerworld/web/refresh' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      try { const r = await mwRefreshToken(s); return r ? json({ ok: true, refreshed: true, token: r.token ? 'present' : 'absent' }) : json({ ok: false, error: 'no_refresh_token', hint: 'Include refreshToken in X-MW-Cookie.' }, { status: 400 }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // POST /api/v1/makerworld/web/laser-cut/publish — Laser & Cut models (separate product;
+    // draft2d endpoints). JSON LaserCutPublishInput (+ draftOnly). Files uploaded via /upload.
+    if (path === '/api/v1/makerworld/web/laser-cut/publish' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      let input: LaserCutPublishInput & { draftOnly?: boolean };
+      try { input = await req.json() as LaserCutPublishInput & { draftOnly?: boolean }; } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!input?.title || !input?.modelFiles?.length) return json({ error: 'missing_fields', hint: 'Need title + modelFiles[] (.lac/.svg/.dxf).' }, { status: 400 });
+      let lcId = 0;
+      try {
+        lcId = await mwCreateLaserCutDraft(s, input);
+        if (input.draftOnly) return json({ ok: true, id: lcId, status: 'draft', kind: 'laser-cut' });
+        await mwPublishLaserCut(s, lcId, input);
+        return json({ ok: true, id: lcId, status: 'verifying', kind: 'laser-cut' });
+      } catch (err) {
+        let cleanedUp = false;
+        if (lcId) { try { await mwDeleteLaserCut(s, lcId); cleanedUp = true; } catch { /* best effort */ } }
+        return json({ error: 'mw_publish_failed', message: err instanceof Error ? err.message : String(err), draftId: lcId || undefined, cleanedUp }, { status: 502 });
+      }
+    }
+
+    // POST /api/v1/makerworld/web/laser-cut/delete — JSON { id }.
+    if (path === '/api/v1/makerworld/web/laser-cut/delete' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      let id = 0; try { id = ((await req.json()) as { id?: number }).id ?? 0; } catch { /* */ }
+      if (!id) return json({ error: 'missing_id' }, { status: 400 });
+      try { await mwDeleteLaserCut(s, id); return json({ ok: true, id, deleted: true, kind: 'laser-cut' }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
     }
 
     // -------------------- R2: stage a file from the frontend --------------

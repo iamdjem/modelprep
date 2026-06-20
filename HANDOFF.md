@@ -88,11 +88,24 @@ If you find yourself re-debugging a Cults endpoint, **read those docs first** �
 
 **Detailed reasoning:** [`docs/distribution-plan.md`](docs/distribution-plan.md)
 
-### 2. MakerWorld integration (largest scope, biggest leverage)
+### 2. MakerWorld integration — NOW SUBSTANTIALLY BUILT (2026-06-20)
 
-**Scope:** 1-2 sessions. Same web-flow pattern as Cults — but MakerWorld has its own quirks (Bambu-owned, likely uses JWT/Bearer auth, possibly chunked uploads, may have hCaptcha/Turnstile on the login form).
+**Status update:** No longer "pending" — the MakerWorld web-flow was reverse-engineered,
+implemented, and largely live-validated. **See [`backend/docs/makerworld-HANDOFF.md`](backend/docs/makerworld-HANDOFF.md)**
+for the full handoff (what's built, learned, fixed, what remains) and
+[`backend/docs/makerworld-web-flow.md`](backend/docs/makerworld-web-flow.md) for the API reference.
 
-**Status:** the handoff for the HAR-capture agent was written and the user has access to `claude --chrome` for driving the browser capture. The capture itself has not been done as of this writing.
+Built: adapter `backend/src/adapters/makerworld-web.ts` (upload→create→update→submit→delete,
+both STL + .3mf paths, BOM, remix/related linking, CyberBrick, Laser&Cut `draft2d` flow, token
+refresh, catalog), Worker routes `/api/v1/makerworld/web/*`, a `MakerWorldUploadFlow` UI in
+`deploy/src/App.jsx`, a bundled BOM catalog `deploy/src/data/makerworld-bom-catalog.json`, and
+a refresh script `backend/scripts/harvest-bom-catalog.mjs`. Auth = user-supplied session cookie
+(HttpOnly → paste/extension). Capture kit lives at `/Users/alex/makerworld-capture/` (gitignored).
+
+Remaining (see the MakerWorld handoff): expand the UI (BOM picker etc.), deploy the Worker,
+production connect UX, and finish/verify niche flows (real 3mf publish, LC publish, CyberBrick).
+
+**(Original notes below, kept for context.)** Same web-flow pattern as Cults.
 
 **What's needed:**
 
