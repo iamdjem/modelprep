@@ -4104,19 +4104,35 @@ function MakerWorldUploadFlow({ platform, project }) {
     setCatalogErr(`No catalog item with Product ID "${skuInput.trim()}".`);
   };
 
+  // True when running inside the ModelPrep desktop (Electron) app, which can sign into
+  // MakerWorld in an embedded window and hand back the session — no paste, no extension.
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+
+  const validateAndStore = async (c) => {
+    const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': c } });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again (the session may have expired).');
+    try { localStorage.setItem(MW_COOKIE_KEY, c); } catch { /* ignore */ }
+    setCookie(c); setStatus('connected');
+  };
   const connect = async () => {
     const c = draftCookie.trim();
     if (!c) return;
     setStatus('connecting'); setErrorMsg('');
+    try { await validateAndStore(c); setDraftCookie(''); }
+    catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('idle'); }
+  };
+  // Desktop sign-in: open MakerWorld login in the app, capture the session, validate, store.
+  const connectDesktop = async () => {
+    if (!desktop) return;
+    setStatus('connecting'); setErrorMsg('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': c } });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error('Session not valid — paste a fresh MakerWorld cookie (must include token= and cf_clearance=).');
-      try { localStorage.setItem(MW_COOKIE_KEY, c); } catch { /* ignore */ }
-      setCookie(c); setDraftCookie(''); setStatus('connected');
+      const r = await desktop.connectMakerWorld();
+      if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in was cancelled.');
+      await validateAndStore(r.cookie);
     } catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('idle'); }
   };
-  const disconnect = () => { try { localStorage.removeItem(MW_COOKIE_KEY); } catch { /* */ } setCookie(''); setStatus('idle'); setResult(null); };
+  const disconnect = () => { try { localStorage.removeItem(MW_COOKIE_KEY); } catch { /* */ } try { desktop?.disconnectMakerWorld?.(); } catch { /* */ } setCookie(''); setStatus('idle'); setResult(null); };
 
   const imgToFile = async (img, fallback) => {
     const blob = await fetch(img.dataUrl).then(r => r.blob());
@@ -4242,17 +4258,35 @@ function MakerWorldUploadFlow({ platform, project }) {
       {!cookie ? (
         <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
           <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>{platform.name} session</div>
-          <div className="text-[12px] p-2 mp-card flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.08)', color: '#15171C' }}>
-            <Sparkles size={14} className="mt-0.5 flex-shrink-0" />
-            <span><strong>One-click:</strong> install the <span className="mp-mono">ModelPrep — MakerWorld Connect</span> browser extension, then click its toolbar icon → <strong>Connect</strong>. No cookie-paste needed. (Otherwise use the manual method below.)</span>
-          </div>
-          <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-            MakerWorld login is behind Bambu SSO + Cloudflare, so paste your session cookie. In a logged-in MakerWorld tab: DevTools → Application → Cookies → copy the <span className="mp-mono">token</span> and <span className="mp-mono">cf_clearance</span> values as <span className="mp-mono">token=…; cf_clearance=…</span>. Stored only in this browser.
-          </p>
-          <textarea className={inputCls} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={draftCookie} onChange={(e) => setDraftCookie(e.target.value)} />
-          <button onClick={connect} disabled={!draftCookie.trim() || status === 'connecting'} className="mp-btn text-xs py-2 px-3 disabled:opacity-40">
-            {status === 'connecting' ? 'Checking…' : 'Connect MakerWorld'}
-          </button>
+          {desktop ? (
+            <>
+              <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
+                Sign in to your MakerWorld account — a MakerWorld login window opens, and ModelPrep saves your session so you can publish. Stored only on this computer.
+              </p>
+              <button onClick={connectDesktop} disabled={status === 'connecting'} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">
+                {status === 'connecting' ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}
+              </button>
+              <details className="text-[12px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
+                <summary className="cursor-pointer">Paste a session cookie manually instead</summary>
+                <textarea className={inputCls + ' mt-2'} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={draftCookie} onChange={(e) => setDraftCookie(e.target.value)} />
+                <button onClick={connect} disabled={!draftCookie.trim() || status === 'connecting'} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 mt-1 disabled:opacity-40">Connect with cookie</button>
+              </details>
+            </>
+          ) : (
+            <>
+              <div className="text-[12px] p-2 mp-card flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.08)', color: '#15171C' }}>
+                <Sparkles size={14} className="mt-0.5 flex-shrink-0" />
+                <span><strong>One-click sign-in</strong> is available in the <strong>ModelPrep desktop app</strong> — it opens MakerWorld login in-app and saves your session automatically. On the website, use the manual method below.</span>
+              </div>
+              <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
+                MakerWorld login is behind Bambu SSO + Cloudflare, so paste your session cookie. In a logged-in MakerWorld tab: DevTools → Application → Cookies → copy the <span className="mp-mono">token</span> and <span className="mp-mono">cf_clearance</span> values as <span className="mp-mono">token=…; cf_clearance=…</span>. Stored only in this browser.
+              </p>
+              <textarea className={inputCls} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={draftCookie} onChange={(e) => setDraftCookie(e.target.value)} />
+              <button onClick={connect} disabled={!draftCookie.trim() || status === 'connecting'} className="mp-btn text-xs py-2 px-3 disabled:opacity-40">
+                {status === 'connecting' ? 'Checking…' : 'Connect MakerWorld'}
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <>

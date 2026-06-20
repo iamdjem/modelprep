@@ -1,0 +1,23 @@
+{
+  "name": "modelprep-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ModelPrep desktop app — wraps the web app and adds in-app MakerWorld sign-in (captures the session legitimately, no extension, no cookie paste).",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "io.makerstats.modelprep",
+    "productName": "ModelPrep",
+    "files": ["main.js", "preload.js", "icon.png"],
+    "mac": { "category": "public.app-category.graphics-design", "target": "dmg" },
+    "win": { "target": "nsis" },
+    "linux": { "target": "AppImage" }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
