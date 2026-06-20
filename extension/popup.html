@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { color-scheme: light; }
+    body {
+      width: 300px; margin: 0; padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f4f3ee; color: #15171c;
+    }
+    .title { font-size: 14px; font-weight: 700; letter-spacing: .02em; }
+    .sub { font-size: 12px; color: rgba(21,23,28,.6); margin: 4px 0 14px; line-height: 1.4; }
+    button {
+      width: 100%; padding: 10px 12px; font-size: 13px; font-weight: 600;
+      background: #15171c; color: #fff; border: 0; border-radius: 6px; cursor: pointer;
+    }
+    button:disabled { opacity: .45; cursor: default; }
+    button.secondary { background: transparent; color: #15171c; border: 1px solid rgba(21,23,28,.25); margin-top: 8px; }
+    #status { font-size: 12px; margin-top: 12px; line-height: 1.45; min-height: 16px; }
+    #status.ok { color: #1a7f37; }
+    #status.err { color: #b91c1c; }
+    #status.info { color: rgba(21,23,28,.6); }
+    .mw { font-size: 11px; margin-top: 10px; color: rgba(21,23,28,.5); }
+    .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align: middle; }
+    .dot.on { background:#1a7f37; } .dot.off { background:#b91c1c; }
+  </style>
+</head>
+<body>
+  <div class="title">Connect MakerWorld</div>
+  <div class="sub">Signs ModelPrep into your MakerWorld account in one click — no DevTools, no copy-paste.</div>
+  <div class="mw"><span id="mwDot" class="dot off"></span><span id="mwState">Checking MakerWorld login…</span></div>
+  <div style="height:12px"></div>
+  <button id="connect" disabled>Connect to ModelPrep</button>
+  <button id="openMw" class="secondary">Open MakerWorld to log in</button>
+  <div id="status" class="info"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

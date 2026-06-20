@@ -36,6 +36,7 @@ import {
   mwSuggestTags,
   mwFetchCatalogStandalone,
   mwSearchRelatedDesigns,
+  mwFetchOriginalRef,
   mwRefreshToken,
   mwCreateLaserCutDraft,
   mwPublishLaserCut,
@@ -756,6 +757,12 @@ export default {
       catch { return json({ error: 'bad_json' }, { status: 400 }); }
       if (!input?.title || !input?.coverUrl) {
         return json({ error: 'missing_fields', hint: 'Need at least title + coverUrl. To publish (not draft): also categoryId, description, coverPortraitUrl; .3mf models need printProfile.' }, { status: 400 });
+      }
+      // Resolve remix originals to their full {link,designId,meta} entries (a bare id
+      // fails MakerWorld's submit). Best-effort: if a lookup fails, fall back to the id.
+      if (input.modelSource === 'remix' && input.remixOriginalIds?.length && !input.resolvedOriginals) {
+        try { input.resolvedOriginals = await Promise.all(input.remixOriginalIds.map((id) => mwFetchOriginalRef(s, id))); }
+        catch { /* fall back to remixOriginalIds in buildDraftPayload */ }
       }
       let createdId = 0;
       try {

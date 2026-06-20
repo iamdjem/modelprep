@@ -135,17 +135,28 @@ Optional sections (all supported as passthrough in the adapter):
 - **Image uploads:** use the SAME `useType:"makerworld/model"` as models (NOT a separate image/cover type — those 400). `/my/process-files` + `/user/upload/picsearch` are internal/deprecated (400 when called directly) — the adapter does NOT use them.
 - **3:4 cover field = `coverPortrait`** (confirmed). `profileCover` is the *print-profile* cover (3mf step), not the model 3:4.
 - **Remix vs related-link:** remix → `original:[{id,designType:0}]` (`modelSource:"remix"`); a linked Laser&Cut model → `relateDesignInfo:{needRelate:true,id,designType:1,…}`. (Previously conflated.)
-- **⚠️ Remix linking does NOT work yet (live 2026-06-20).** Submit validates the original by URL: an empty `original[]` ⇒ `[-1] originals url is empty`; `original:[{id,designType:0}]` (with or without a derived `url:.../en/models/<id>`) ⇒ `[-1] Failed to establish a connection with the third-party website`. The internal-remix `original[]` shape is unresolved — **needs a real browser capture of a remix publish** (the entry likely carries the full source object and/or an external source URL). The non-remix paths are unaffected. `relateDesignInfo` (Laser&Cut link) was not hit by this.
+- **✅ Remix linking FIXED + live-validated (2026-06-20).** Each `original[]` entry needs
+  `link` (the source URL) + `designId` (NOT `id`) + `title/author/homepage/cover/license`
+  (`insideOriginalInfo:null`, `relatedUid:0`, `relatedUser:null`). A bare `{id,designType:0}`
+  ⇒ "originals url is empty" / third-party-fetch error. Shape captured from a real remix model
+  (`/design-service/design/<id>` → `originals[]`). For a MakerWorld-internal source: `designId`
+  = model id, `link` = `<MW_BASE>/models/<id>`; for an external source (Printables/Thingiverse):
+  `designId:0`, `link` = the external URL. The adapter resolves each `remixOriginalId` via
+  `mwFetchOriginalRef` (GET design detail → name/handle/cover/license) before building the draft;
+  the worker route does this when `modelSource:'remix'`. Validated: remix of model 25748 →
+  200 verifying → deleted.
 - **Related-model search:** `GET /api/v1/design-service/my/design/relate?relateDesignType=<0|1>&keyword=` → `{canUseDesign:[{id,title,cover,status,designType}]}` (0=3D, 1=Laser&Cut). Adapter: `mwSearchRelatedDesigns`. **Live-verified (35 results).**
 - **Token refresh:** current endpoint `POST /api/v1/user-service/user/refreshtoken` `{refreshToken}` (the apps' `/v1/...` 404s). refreshToken lives in an HttpOnly cookie. Adapter: `mwRefreshToken` (uses refreshToken from the supplied cookie).
 - **CyberBrick:** gated by `userInfo.rcUpload` (server-side eligibility; hidden otherwise). `.json` control configs upload via `/my/upload`. Adapter accepts a `cyberBrick` input → the `cyberBrick` block (controlConfig[] etc.). Not testable without an rcUpload account.
 - **BOM catalog item:** `parentIds[]` + `quantity` are NOT in the catalog tree — the picker adds them when selecting a leaf (quantity = user; parentIds = ancestor path).
+- **✅ Real .3mf publish WORKS (live 2026-06-20, private).** A sliced Bambu Studio `.3mf` published end-to-end **including the print profile** — MakerWorld **slices the `.3mf` server-side on submit** and auto-generates plates/print-time/printer-compatibility (we do NOT need to call `mwSlicerCompatibility` or send plate data; sending `model3mf` + a `printProfile{title,isPrinterTested}` is enough). The published model showed `Print Profile (1): "0.2mm layer, 2 walls, 15% infill" · 1 plate · 3.6h` with printer compatibility detected. Caveat: do NOT then open MakerWorld's draft "Add Print Profile" page for an already-published model — it throws a generic "Oops" (the step is already done by our submit).
+- **Delete endpoints differ by state:** drafts + "verifying" → `DELETE /design-service/my/draft/<draftId>`; a **fully-published design** (a PRIVATE model publishes instantly) → `DELETE /design-service/design/<designId>` (the draft endpoint 403s on it; design id ≠ draft id). `mwDelete` now tries draft first, then falls back to the published-design endpoint.
 - **UI-expansion fields live-validated (2026-06-20, via local Worker + capture-kit cookie, private→delete):**
   - ✅ **BOM** — the picker's `BomCatalogItem` shape (`{value,sku,title,label,image,pieces,handle,parentIds,quantity}` from a real `kits` catalog leaf) publishes + deletes cleanly.
   - ✅ **Documentation** — `designGuide`/`designOther` (`{name,url,size}`) accepted.
   - ✅ **Exclusive** — `exclusive:1` accepted.
   - ✅ **Related-model search** — `/related?type=0` returned 35 of the user's 3D designs.
-  - ❌ **Remix link** — fails (see remix note above); needs capture.
+  - ✅ **Remix link** — FIXED + validated (resolved `original[]` with link+designId+meta; see remix note above).
   - ❌ **Laser & Cut publish** — `…/draft2d/<id>/submit` returns a generic `[400]` with an `.svg`-only draft (no `.lac`). LC `instance.lacFile`/`lacInfo` are empty in our payload → **needs a real `.lac` (Bambu Suite file) to fill `lacFile`+`lacInfo` (plates/machineName/materialIds)** before submit will pass. Create still 200s; the route auto-deletes the draft on the failed submit.
 - **Laser & Cut models (separate product) — IMPLEMENTED + create live-verified:** endpoints `…/my/draft2d`, `…/my/draft2d/<id>` (PUT), `…/my/draft2d/<id>/submit`, `DELETE …/my/draft2d/<id>`; SSR `…/laser-and-cut-models/drafts/<id>/edit.json`. Files (.lac/.svg/.dxf/images) via `/my/upload`. Body is **`{draft:{design:{…}, designSetting:{submitAsPrivate,syncToMWGlobal,postNeeded,postContent}, instance:{lacFile,lacInfo,lacCustomInfo,pictures}, extra:{draftSetting:{createWithLac}}, uploading:{…}, tempDetails:[], mode:"uploadFile", clickWhich, model2DInfo:{}}}`** — note `design.boms`/`design.steps` are OBJECTS (`{needed,…}`), `design.pictures` (not designPictures), `docBom/docGuide/docOther` (not design*). Adapter: `mwCreateLaserCutDraft`/`mwUpdateLaserCutDraft`/`mwPublishLaserCut`/`mwDeleteLaserCut`; Worker: `POST /api/v1/makerworld/web/laser-cut/{publish,delete}`.
 

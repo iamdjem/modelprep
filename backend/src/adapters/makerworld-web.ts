@@ -176,6 +176,15 @@ export interface BomOtherPart { name: string; quantity: number; note?: string }
 export interface MwFileRef { uniKey?: string; name: string; size: number; url: string }
 /** A linked design (related Laser&Cut model, or remix original). designType 0=3D, 1=Laser&Cut. */
 export interface RelatedModelRef { id: number; designType: 0 | 1; title?: string; cover?: string; status?: number }
+/** A resolved remix/share original entry (the shape MakerWorld stores in `original[]`).
+ *  `link` (the source URL) + `designId` are REQUIRED — a missing/empty link makes submit
+ *  fail with "originals url is empty" / a third-party-fetch error. For a MakerWorld-internal
+ *  source, designId = the model id and link = its model URL; for an external source
+ *  (Printables/Thingiverse), designId = 0 and link = the external URL. */
+export interface OriginalRef {
+  link: string; designId: number; designType?: 0 | 1;
+  title?: string; author?: string; homepage?: string; cover?: string; license?: string;
+}
 /** CyberBrick (RC) config — only available when the account has userInfo.rcUpload. */
 export interface CyberBrickInput {
   controlConfig: MwFileRef[];           // ≥1 .json required when CyberBrick
@@ -216,6 +225,7 @@ export interface MakerWorldPublishInput {
 
   // optional sections (passthrough — see MAKERWORLD-FLOW.md field map)
   remixOriginalIds?: number[]; // when modelSource = 'remix'/'share' → original[] (3D, designType 0)
+  resolvedOriginals?: OriginalRef[]; // pre-resolved remix originals (link+designId+meta); takes precedence over remixOriginalIds
   relatedModel?: RelatedModelRef; // "Laser & Cut model = Yes" → relateDesignInfo (link a LC model)
   cyberBrick?: CyberBrickInput; // CyberBrick (RC) models — needs account userInfo.rcUpload
   exclusive?: number; // Exclusive Model Program (0 = off)
@@ -288,13 +298,18 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     designBom: [],
 
     // --- remix/share (original[]) vs. linked Laser&Cut model (relateDesignInfo) ---
-    // NOTE: remix linking is NOT yet working. Live tests (2026-06-20) show MakerWorld's
-    // submit validates the original by URL: an empty `original[]` ⇒ "[-1] originals url is
-    // empty"; an `original:[{id,designType:0}]` (with or without a derived model url) ⇒
-    // "[-1] Failed to establish a connection with the third-party website". The internal-remix
-    // payload shape is unresolved — needs a real browser capture of a remix publish (the
-    // `original[]` entry probably carries the full source object and/or an external source url).
-    original: (input.remixOriginalIds ?? []).map((id) => ({ id, designType: 0 })),
+    // Each original needs `link` (the source URL) + `designId` — captured from a real remix
+    // (2026-06-20). A missing link ⇒ "originals url is empty"; a bare {id} ⇒ a third-party
+    // fetch error. Prefer resolvedOriginals (full meta); fall back to building a minimal
+    // MakerWorld-internal entry from the id if only remixOriginalIds was supplied.
+    original: (input.resolvedOriginals
+      ?? (input.remixOriginalIds ?? []).map((id): OriginalRef => ({ link: `${MW_BASE}/models/${id}`, designId: id, designType: 0 }))
+    ).map((o) => ({
+      link: o.link, author: o.author ?? '', homepage: o.homepage ?? '',
+      designId: o.designId, designType: o.designType ?? 0,
+      title: o.title ?? '', cover: o.cover ?? '', license: o.license ?? '',
+      insideOriginalInfo: null, relatedUid: 0, relatedUser: null,
+    })),
     relateDesignInfo: input.relatedModel
       ? { needRelate: true, id: input.relatedModel.id, designType: input.relatedModel.designType, title: input.relatedModel.title ?? '', cover: input.relatedModel.cover ?? '', status: input.relatedModel.status ?? 1 }
       : { needRelate: false, id: 0, designType: 1, title: '', cover: '', status: 0 },
@@ -425,8 +440,15 @@ export async function mwVerifySubmitted(session: MakerWorldSession, id: number):
 
 /** Delete a draft / model (works for drafts and verifying/published records). */
 export async function mwDelete(session: MakerWorldSession, id: number): Promise<void> {
+  // Drafts + "verifying" delete via /my/draft/<draftId>. But a fully-published design
+  // (a PRIVATE model publishes instantly, skipping review) is its own id space and the
+  // draft endpoint 403s — it needs DELETE /design-service/design/<designId>. We don't
+  // always know which id/state we hold, so try the draft endpoint first and fall back.
   const res = await fetch(`${MW_BASE}/api/v1/design-service/my/draft/${id}`, { method: 'DELETE', headers: mwHeaders(session) });
-  if (!res.ok) throw new Error(`MakerWorld delete: HTTP ${res.status}`);
+  if (res.ok) return;
+  const draftStatus = res.status;
+  const res2 = await fetch(`${MW_BASE}/api/v1/design-service/design/${id}`, { method: 'DELETE', headers: mwHeaders(session) });
+  if (!res2.ok) throw new Error(`MakerWorld delete: HTTP ${draftStatus} (draft) / ${res2.status} (published design)`);
 }
 
 // -------------------- Vocab + listing ------------------------------------
@@ -521,6 +543,24 @@ export async function mwSearchRelatedDesigns(session: MakerWorldSession, relateD
   const res = await fetch(`${MW_BASE}/api/v1/design-service/my/design/relate?relateDesignType=${relateDesignType}&keyword=${encodeURIComponent(keyword)}`, { headers: mwHeaders(session) });
   const d = await mwJson<{ canUseDesign?: Array<{ id: number; title: string; cover: string; status: number; designType: 0 | 1 }> }>(res, 'search related designs');
   return (d.canUseDesign ?? []).map((x) => ({ id: x.id, designType: x.designType, title: x.title, cover: x.cover, status: x.status }));
+}
+
+/** Resolve a remix original (a MakerWorld-internal model id) into the full `original[]`
+ *  entry MakerWorld needs (link + designId + title/author/homepage/cover/license). */
+export async function mwFetchOriginalRef(session: MakerWorldSession, id: number): Promise<OriginalRef> {
+  const res = await fetch(`${MW_BASE}/api/v1/design-service/design/${id}`, { headers: mwHeaders(session) });
+  const d = await mwJson<{ title?: string; coverUrl?: string; license?: string; designCreator?: { name?: string; handle?: string } }>(res, 'fetch remix original');
+  const handle = d.designCreator?.handle;
+  return {
+    link: `${MW_BASE}/models/${id}`,
+    designId: id,
+    designType: 0,
+    title: d.title ?? '',
+    author: d.designCreator?.name ?? '',
+    homepage: handle ? `${MW_BASE}/@${handle}` : '',
+    cover: d.coverUrl ?? '',
+    license: d.license ?? '',
+  };
 }
 
 /** Refresh the access token using the refreshToken carried in the session cookie.

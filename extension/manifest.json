@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "ModelPrep — MakerWorld Connect",
+  "version": "1.0.0",
+  "description": "One-click: sign ModelPrep into your MakerWorld account without copying cookies by hand.",
+  "permissions": ["cookies", "scripting", "tabs"],
+  "host_permissions": [
+    "https://makerworld.com/*",
+    "https://*.makerworld.com/*",
+    "https://iamdjem.github.io/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Connect MakerWorld to ModelPrep"
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

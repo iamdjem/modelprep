@@ -111,9 +111,11 @@ ModelPrep React UI (deploy/)  →  user picks options, supplies MakerWorld sessi
 - ✅ Validated live (local Worker): full STL publish→delete; upload(presign→S3); create/update/submit/delete; related-search (35 results); LC **create**→delete; cookie decrypt+inject + 200 auth.
 - ✅ **NEW (2026-06-20) UI-expansion fields validated live (private→delete):** BOM picker output (real catalog kit leaf), Documentation (`designGuide`/`designOther`), Exclusive (`exclusive:1`). See flow doc "UI-expansion fields live-validated".
 - ✅ **Worker auto-cleanup added + validated:** `/publish` + `/laser-cut/publish` delete the draft if publish/submit fails (returns `{draftId,cleanedUp}`) — failed publishes no longer orphan drafts. (Cleaned up all test orphans this session via the capture-kit browser sweep; the SSR-only draft pages are the only place orphans show — no JSON draft-list API exists.)
-- ❌ **Remix link is broken** (discovered live): `original[]` triggers a MakerWorld URL-fetch that fails — needs a browser capture of a real remix publish to get the correct payload. UI still exposes it; it will surface the backend error until fixed.
+- ✅ **Remix link FIXED + validated:** `original[]` needs `link`+`designId`+meta (not bare `{id}`); adapter resolves via `mwFetchOriginalRef`. Remix of model 25748 → 200 verifying → deleted.
 - ❌ **Laser & Cut publish** fails at submit with an `.svg`-only draft (`[400]`); **needs a real `.lac`** to fill `lacFile`/`lacInfo`. LC create still works.
-- ◑ Implemented to captured spec, NOT fully live-tested: real **3mf publish** (only dry-ran the UI), **token refresh** (didn't fire — would rotate token), **CyberBrick** (needs `rcUpload` account).
+- ✅ **Real .3mf publish VALIDATED (2026-06-20):** a sliced Bambu `.3mf` published private incl. a working **print profile** (1 plate, 3.6h, printer compat) — MakerWorld slices server-side on submit; no slicer-compat call needed. (The "Oops" error a tester hit was from manually clicking MakerWorld's "Add Print Profile" on an already-published model — not our bug.)
+- ✅ **Delete fixed:** published designs (private = instant publish) delete via `/design-service/design/<id>`, not the draft endpoint; `mwDelete` now falls back to it.
+- ◑ Implemented to captured spec, NOT fully live-tested: **token refresh** (didn't fire — would rotate token), **CyberBrick** (needs `rcUpload` account).
 
 ---
 

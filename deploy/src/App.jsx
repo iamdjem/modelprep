@@ -4242,6 +4242,10 @@ function MakerWorldUploadFlow({ platform, project }) {
       {!cookie ? (
         <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
           <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>{platform.name} session</div>
+          <div className="text-[12px] p-2 mp-card flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.08)', color: '#15171C' }}>
+            <Sparkles size={14} className="mt-0.5 flex-shrink-0" />
+            <span><strong>One-click:</strong> install the <span className="mp-mono">ModelPrep — MakerWorld Connect</span> browser extension, then click its toolbar icon → <strong>Connect</strong>. No cookie-paste needed. (Otherwise use the manual method below.)</span>
+          </div>
           <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
             MakerWorld login is behind Bambu SSO + Cloudflare, so paste your session cookie. In a logged-in MakerWorld tab: DevTools → Application → Cookies → copy the <span className="mp-mono">token</span> and <span className="mp-mono">cf_clearance</span> values as <span className="mp-mono">token=…; cf_clearance=…</span>. Stored only in this browser.
           </p>
