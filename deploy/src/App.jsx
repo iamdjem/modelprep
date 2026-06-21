@@ -143,6 +143,8 @@ const PLATFORMS = [
     descFormat: 'html', maxImages: 16, maxFileMb: 150, maxTotalMb: 250,
     formats: ['3mf', 'stl', 'step', 'obj'], hasApi: false, apiSupport: 'manual',
     fields: ['remix'], note: 'Largest audience. Real photo of print required. Connects Printables/Thingiverse for import.',
+    // Verified from the live MakerWorld publish form.
+    limits: { titleMax: 50, tagMax: 50, tagCharMax: 100 },
   },
   {
     id: 'printables', name: 'Printables', org: 'Prusa Research', dot: '#FA6831',
@@ -150,6 +152,8 @@ const PLATFORMS = [
     descFormat: 'markdown', maxImages: 25, maxFileMb: 500, maxTotalMb: 2000,
     formats: ['stl', '3mf', 'obj', 'step', 'zip'], hasApi: false, apiSupport: 'manual',
     fields: [], note: 'High file limits. Markdown description. Active contests.',
+    // titleMax + tag rules read from Printables' shipped publish-form JS; tagMax/descMax not exposed.
+    limits: { titleMax: 255, tagCharMax: 25, tagPattern: /^[a-z0-9]+$/, tagHint: 'lowercase letters/numbers, no spaces' },
   },
   {
     id: 'cults', name: 'Cults3D', org: 'Independent', dot: '#F79E2E',
@@ -188,6 +192,8 @@ const PLATFORMS = [
     descFormat: 'markdown', maxImages: 12, maxFileMb: 100, maxTotalMb: 250,
     formats: ['3mf', 'stl', 'obj', 'step', 'amf'], hasApi: false, apiSupport: 'manual',
     fields: ['contestEntry'], note: 'New (Aug 2025), $1M creator fund, $5 per approved model.',
+    // All read directly from Nexprint's production front-end bundles (hard-coded constants).
+    limits: { titleMax: 80, tagMax: 10, tagCharMax: 50, descMax: 10000 },
   },
   {
     id: 'creality', name: 'Creality Cloud', org: 'Creality', dot: '#E63946',
@@ -197,6 +203,26 @@ const PLATFORMS = [
     fields: [], note: 'Manufacturer-tied, large Creality user base.',
   },
 ];
+
+// Cults3D, MyMiniFactory, Thingiverse, Thangs and Creality Cloud expose NO documented
+// title/tag length caps (their APIs declare the fields as bare strings). We deliberately
+// leave their `limits` unset rather than invent numbers — so they impose no cap until a
+// value is verified from their authenticated upload form (same approach as the MW capture).
+
+// The binding limit for a shared field across several targets is the STRICTEST (min) of the
+// targeted platforms that actually declare one. Returns {titleMax, titleMaxBy, ...}.
+function effectiveLimits(platforms) {
+  const out = {};
+  for (const key of ['titleMax', 'tagMax', 'tagCharMax', 'descMax']) {
+    let min = null, by = null;
+    for (const p of platforms) {
+      const v = p.limits?.[key];
+      if (typeof v === 'number' && (min === null || v < min)) { min = v; by = p.name; }
+    }
+    if (min !== null) { out[key] = min; out[`${key}By`] = by; }
+  }
+  return out;
+}
 
 const CATEGORIES = [
   'Home & Living', 'Tools', 'Toys & Games', 'Hobby & DIY', 'Art & Decor',
@@ -1661,7 +1687,15 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
   const visibleLicenses = LICENSES.filter(l => matchesLicenseFilter(l, licenseFilter));
 
-  const MAX_TAGS = 20;
+  // Strictest limits across the platforms the user is actually targeting (all of them
+  // until any are enabled, so we warn against the tightest possible case up front).
+  const targeted = PLATFORMS.filter(p => project.platforms?.[p.id]?.enabled);
+  const lim = effectiveLimits(targeted.length ? targeted : PLATFORMS);
+  const MAX_TAGS = lim.tagMax ?? 50;
+  const titleOver = lim.titleMax && project.title.length > lim.titleMax;
+  const descOver = lim.descMax && project.description.length > lim.descMax;
+  const longTags = lim.tagCharMax ? project.tags.filter(t => t.length > lim.tagCharMax) : [];
+
   const addTag = (raw) => {
     const t = raw.trim().toLowerCase().replace(/\s+/g, '-');
     if (!t || project.tags.includes(t) || project.tags.length >= MAX_TAGS) return;
@@ -1696,7 +1730,15 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
         <div className="lg:col-span-2 space-y-5">
           <div>
-            <Label>Title</Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="mb-0">Title</Label>
+              {lim.titleMax && (
+                <span className="mp-mono text-[12px]" style={{ color: titleOver ? '#FF5722' : 'rgba(21,23,28,0.4)' }}>
+                  {project.title.length}/{lim.titleMax}
+                  {titleOver && ` · over ${lim.titleMaxBy}'s limit`}
+                </span>
+              )}
+            </div>
             <input
               className="mp-input"
               placeholder="e.g. Articulating Desk Dragon"
@@ -1751,8 +1793,9 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             )}
 
             <div className="flex items-center justify-between mt-1.5">
-              <span className="mp-mono text-[12px]" style={{ color: 'rgba(21,23,28,0.4)' }}>
-                {project.description.length} chars
+              <span className="mp-mono text-[12px]" style={{ color: descOver ? '#FF5722' : 'rgba(21,23,28,0.4)' }}>
+                {project.description.length}{lim.descMax ? `/${lim.descMax}` : ''} chars
+                {descOver && ` · over ${lim.descMaxBy}'s limit`}
               </span>
               <span className="mp-mono text-[12px]" style={{ color: 'rgba(21,23,28,0.4)' }}>
                 Markdown for Printables/Cults/Nexprint · HTML for MakerWorld/MMF/Thangs/Creality · Plain for Thingiverse
@@ -1781,11 +1824,19 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                 />
               </div>
               <div className="flex items-center justify-between text-[12px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
-                <span className="mp-mono uppercase tracking-[0.15em]">{project.tags.length}/20 tags</span>
+                <span className="mp-mono uppercase tracking-[0.15em]">
+                  {project.tags.length}/{lim.tagMax ?? '∞'} tags
+                  {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
+                </span>
                 <button onClick={suggestTags} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#FF5722] transition">
                   <Sparkles size={10} /> Suggest tags
                 </button>
               </div>
+              {longTags.length > 0 && (
+                <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#FF5722' }}>
+                  {longTags.length} tag{longTags.length > 1 ? 's' : ''} over {lim.tagCharMax} chars ({lim.tagCharMaxBy} limit): {longTags.join(', ')}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -4895,8 +4946,13 @@ function SectionHeader({ number, title, subtitle }) {
 }
 
 function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabledReason }) {
+  // Sticky just above the fixed 32px status bar, so Back/Next are always reachable
+  // without scrolling to the end of long pages (e.g. the 9-crop Images preview).
   return (
-    <div className="mt-10 pt-5 border-t flex items-center justify-between gap-4" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+    <div
+      className="sticky bottom-8 z-[15] mt-8 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
+      style={{ borderColor: 'rgba(21,23,28,0.14)', background: 'rgba(237,233,222,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+    >
       <div>
         {backLabel && (
           <button onClick={onBack} className="mp-btn mp-btn-ghost text-xs">
