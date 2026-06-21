@@ -2768,24 +2768,9 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
     <div className="max-w-5xl">
       <SectionHeader
         number="06"
-        title="Prepare upload packages"
-        subtitle="One .zip per platform with everything inside: cropped cover at the right dimensions, gallery images, description in the right format, paste-ready metadata, and your model files. Open the platform's upload page, drop the folder contents in, paste the text fields, submit."
+        title="Publish"
+        subtitle="Publish to each enabled platform. API platforms (MakerWorld, Cults3D) upload directly — sign in and hit Publish. Manual platforms give you a ready-to-paste .zip package."
       />
-
-      <div className="mt-5 mp-card p-4 flex flex-col md:flex-row md:items-center gap-3 md:gap-5">
-        <div className="flex-1">
-          <div className="flex items-center gap-3 mb-1">
-            <Info size={14} style={{ color: '#FF5722' }} />
-            <span className="mp-display text-[16px] leading-none">One .zip per platform</span>
-          </div>
-          <p className="mp-body text-xs leading-relaxed" style={{ color: 'rgba(21,23,28,0.7)' }}>
-            "Download .zip" packs the cover at exact dimensions, gallery images cropped for that platform, your description in the right format (md / html / txt), a metadata.txt with paste-ready fields, a README with upload steps, and a /files folder with your model files. Open the upload page and drop the folder contents in. Cults3D, MyMiniFactory and Thingiverse (green <span className="mp-pill" style={{ background: '#4FB286', color: '#fff' }}>API</span>) get one-click upload in a future build.
-          </p>
-        </div>
-        <BatchZipButton enabled={enabled} project={project} cover={cover} />
-      </div>
-
-      <BatchUploadPanel enabled={enabled} project={project} />
 
       {enabled.length > 1 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
@@ -3004,6 +2989,9 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
   const [downloading, setDownloading] = useState(false);
   const [progressMsg, setProgressMsg] = useState(null);
   const [uploadSignal, setUploadSignal] = useState(0);
+  // Platforms with a real one-click upload: hide all the manual .zip/copy-paste prep
+  // (it's redundant) and show only the live upload flow. Others keep the manual package.
+  const hasRealUpload = platform.id === 'cults' || platform.id === 'makerworld';
 
   // React to the parent's expand-all / collapse-all broadcasts.
   useEffect(() => { if (expandSignal > 0) setExpanded(true); }, [expandSignal]);
@@ -3101,32 +3089,26 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
         </div>
 
         <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-          {/* Primary, working path: download the package, then open the upload page. */}
-          <button
-            onClick={downloadEverything}
-            disabled={downloading || !cover}
-            className="mp-btn text-[13px] py-2 px-3 disabled:opacity-40 flex-1 sm:flex-none sm:min-w-[140px]"
-            title={!cover ? 'Add at least one image first' : 'Download a ZIP containing everything for this platform'}
-          >
-            {downloading ? (
-              <><Loader size={12} className="mp-spin" /> <span className="mp-mono text-[13px] normal-case tracking-normal truncate" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{progressMsg || 'Working'}</span></>
-            ) : (
-              <><Download size={12} /> {progressMsg ? progressMsg : 'Download .zip'}</>
-            )}
-          </button>
-          <a href={uploadUrl} target="_blank" rel="noopener noreferrer" className="mp-btn mp-btn-ghost text-[13px] py-2 px-3 flex-1 sm:flex-none">
-            <Send size={12} /> Open upload page
-          </a>
-          {/* Demo-only one-click upload — visually subordinate (outline, not filled). */}
-          {platform.hasApi && (
-            <button
-              onClick={() => { setExpanded(true); setUploadSignal(n => n + 1); }}
-              className="mp-btn mp-btn-ghost text-[13px] py-2 px-3 flex-1 sm:flex-none"
-              style={{ color: '#3A86FF', borderColor: 'rgba(58,134,255,0.5)' }}
-              title="Preview the upcoming one-click upload (demo only)"
-            >
-              <Send size={12} /> One-click (demo)
-            </button>
+          {/* Manual prep (download package, open upload page) — only for platforms without
+              a real one-click upload. */}
+          {!hasRealUpload && (
+            <>
+              <button
+                onClick={downloadEverything}
+                disabled={downloading || !cover}
+                className="mp-btn text-[13px] py-2 px-3 disabled:opacity-40 flex-1 sm:flex-none sm:min-w-[140px]"
+                title={!cover ? 'Add at least one image first' : 'Download a ZIP containing everything for this platform'}
+              >
+                {downloading ? (
+                  <><Loader size={12} className="mp-spin" /> <span className="mp-mono text-[13px] normal-case tracking-normal truncate" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{progressMsg || 'Working'}</span></>
+                ) : (
+                  <><Download size={12} /> {progressMsg ? progressMsg : 'Download .zip'}</>
+                )}
+              </button>
+              <a href={uploadUrl} target="_blank" rel="noopener noreferrer" className="mp-btn mp-btn-ghost text-[13px] py-2 px-3 flex-1 sm:flex-none">
+                <Send size={12} /> Open upload page
+              </a>
+            </>
           )}
           <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-60 hover:opacity-100 transition hidden sm:block" aria-label={expanded ? 'Collapse package' : 'Expand package'} aria-expanded={expanded}>
             {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -3136,6 +3118,8 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
 
       {expanded && (
         <div className="p-4 space-y-4">
+          {!hasRealUpload && (
+          <>
           {/* Title + category + license row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <PackageField label="Title" value={project.title} />
@@ -3274,19 +3258,24 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
             </div>
           )}
 
-          {/* Real Cults3D upload (live); other API platforms still simulated until their OAuth flows land. */}
+          </>
+          )}
+
+          {/* Real upload (live). Other API platforms still simulated until their flows land. */}
           {platform.id === 'cults' && <CultsUploadFlow platform={platform} project={project} />}
           {platform.id === 'makerworld' && <MakerWorldUploadFlow platform={platform} project={project} />}
           {platform.hasApi && platform.id !== 'cults' && platform.id !== 'makerworld' && <MockUploadFlow platform={platform} project={project} startSignal={uploadSignal} />}
 
-          {/* Workflow hint */}
-          <div className="border-t pt-3 flex items-start gap-2 text-[13px]" style={{ borderColor: 'rgba(21,23,28,0.08)', color: 'rgba(21,23,28,0.6)' }}>
-            <Info size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#FF5722' }} />
-            <div>
-              <strong className="mp-display tracking-wide" style={{ color: '#15171C' }}>{platform.hasApi ? 'MANUAL UPLOAD (WORKS TODAY)' : 'WORKFLOW'}</strong>{' '}
-              <span>1) Click "Open upload page". 2) Drag model files into the form. 3) Copy → paste title and description. 4) Drop the downloaded cover image. 5) Drop gallery images in order. 6) Paste tags. 7) Pick the closest category. Done.</span>
+          {/* Manual workflow hint — only for platforms without a real upload. */}
+          {!hasRealUpload && (
+            <div className="border-t pt-3 flex items-start gap-2 text-[13px]" style={{ borderColor: 'rgba(21,23,28,0.08)', color: 'rgba(21,23,28,0.6)' }}>
+              <Info size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#FF5722' }} />
+              <div>
+                <strong className="mp-display tracking-wide" style={{ color: '#15171C' }}>{platform.hasApi ? 'MANUAL UPLOAD (WORKS TODAY)' : 'WORKFLOW'}</strong>{' '}
+                <span>1) Click "Open upload page". 2) Drag model files into the form. 3) Copy → paste title and description. 4) Drop the downloaded cover image. 5) Drop gallery images in order. 6) Paste tags. 7) Pick the closest category. Done.</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

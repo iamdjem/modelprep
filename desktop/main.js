@@ -9,7 +9,7 @@
 // The captured session is stored ONLY in the ModelPrep app's own localStorage (the app
 // already does this for the paste flow); this process just captures + forwards it.
 
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const path = require('node:path');
 
 // Must match the User-Agent the Worker replays with (backend/src/adapters/makerworld-web.ts),
@@ -43,6 +43,18 @@ function createMainWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   win.loadURL(MODELPREP_URL);
+
+  const isApp = (url) => url.startsWith(MODELPREP_URL) || url.startsWith('http://localhost');
+  // External links (the published-model URL, "open upload page", etc.) open in the user's
+  // real browser — where they're already signed into MakerWorld — not blank inside the app.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url) && !isApp(url)) { shell.openExternal(url); return { action: 'deny' }; }
+    return { action: 'allow' };
+  });
+  // Same for in-place navigations to an outside site (don't navigate the app away).
+  win.webContents.on('will-navigate', (e, url) => {
+    if (/^https?:/.test(url) && !isApp(url)) { e.preventDefault(); shell.openExternal(url); }
+  });
   return win;
 }
 
