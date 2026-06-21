@@ -484,6 +484,18 @@ function triggerDownload(blob, filename) {
 // MAIN COMPONENT
 // =====================================================================
 
+// Per-platform MakerWorld options — live in project.platforms.makerworld so they're
+// edited on the Platforms step and read by the Publish flow (serializable; File-based
+// docs are kept in a small runtime holder, see mwRuntimeDocs).
+const MW_DEFAULT_OPTS = {
+  categoryId: 401, visibility: 'private', license: 'Standard Digital File License',
+  productMode: '3d', modelSource: 'original', exclusive: false, communityPost: false,
+  remixModel: null, relatedModel: null,
+  boms: { kits: [], filaments: [], materials: [] }, otherParts: [],
+};
+// Runtime-only holder for File-based MakerWorld docs (can't live in serializable project state).
+const mwRuntimeDocs = { docGuides: [], docOthers: [] };
+
 const initialProject = {
   name: 'Untitled Project',
   files: [],
@@ -496,9 +508,9 @@ const initialProject = {
   license: 'ccbync',
   profiles: [],
   platforms: {
-    makerworld: { enabled: true, remix: false },
+    makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
     printables: { enabled: true },
-    cults: { enabled: true, price: 0, free: true },
+    cults: { enabled: true, price: 0, free: true, visibility: 'secret' },
     mmf: { enabled: true, price: 0, free: true },
     thingiverse: { enabled: true },
     thangs: { enabled: true },
@@ -558,7 +570,7 @@ function buildDemoProject() {
     license: 'ccbync',
     profiles,
     platforms: {
-      makerworld: { enabled: true, remix: false },
+      makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
       printables: { enabled: true },
       cults: { enabled: true, price: 4.5, free: false },
       mmf: { enabled: true, price: 0, free: true },
@@ -2479,7 +2491,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="05"
         title="Choose your platforms"
-        subtitle={`Toggle each platform on or off. Set per-platform options like price (Cults, MMF) or contest entry (Nexprint). ${enabledCount} of ${PLATFORMS.length} enabled.`}
+        subtitle={`Toggle each platform on or off, then expand a card to set its options — MakerWorld (category, visibility, BOM, remix, Laser & Cut…), Cults price/visibility, etc. ${enabledCount} of ${PLATFORMS.length} enabled.`}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-6">
@@ -2634,17 +2646,16 @@ function PlatformCard({ platform, state, onToggle, onUpdate }) {
             </div>
           )}
 
-          {platform.fields.includes('remix') && state.enabled && (
+          {platform.id === 'makerworld' && state.enabled && (
+            <MakerWorldOptions opts={state} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'cults' && state.enabled && (
             <div className="mt-3">
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={state.remix || false}
-                  onChange={(e) => onUpdate('remix', e.target.checked)}
-                  style={{ accentColor: '#FF5722' }}
-                />
-                This is a remix (will require linking original)
-              </label>
+              <Label>Visibility</Label>
+              <div className="flex items-center gap-3 text-xs">
+                <label className="flex items-center gap-1.5"><input type="radio" checked={(state.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: '#FF5722' }} /> Secret (unlisted)</label>
+                <label className="flex items-center gap-1.5"><input type="radio" checked={state.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: '#FF5722' }} /> Public</label>
+              </div>
             </div>
           )}
         </div>
@@ -3467,7 +3478,7 @@ function CultsUploadFlow({ platform, project }) {
   // Default to 'secret' so the first publish doesn't immediately surface on
   // the user's profile — they can flip to 'public' once they've seen the
   // listing render. Persisted in component state per session, not saved.
-  const [visibility, setVisibility] = useState('secret');
+  const visibility = project.platforms?.cults?.visibility || 'secret'; // set on the Platforms step
   const [result, setResult] = useState(null); // { designUrl, slug, substituted, uploadedFiles } | null
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
@@ -3703,19 +3714,11 @@ function CultsUploadFlow({ platform, project }) {
               <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition ml-1" style={{ color: 'rgba(21,23,28,0.55)' }}>manage</button>
               <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
             </div>
-            {/* Visibility picker — `secret` = unguessable URL, doesn't hit followers
-                or search. Safer default for first-time publishes; user can flip
-                to `public` once they've verified the listing renders correctly. */}
-            <div className="flex items-center gap-3 mb-2.5 text-[12px] flex-wrap" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            {/* Visibility is set on the Platforms step (project.platforms.cults.visibility). */}
+            <div className="flex items-center gap-2 mb-2.5 text-[12px] flex-wrap" style={{ color: 'rgba(21,23,28,0.7)' }}>
               <span className="mp-mono uppercase tracking-[0.15em] text-[11px]">visibility</span>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input type="radio" name="cults-vis" checked={visibility === 'secret'} onChange={() => setVisibility('secret')} />
-                <span>Secret <span style={{ color: 'rgba(21,23,28,0.5)' }}>(unguessable URL, not on profile)</span></span>
-              </label>
-              <label className="flex items-center gap-1 cursor-pointer">
-                <input type="radio" name="cults-vis" checked={visibility === 'public'} onChange={() => setVisibility('public')} />
-                <span>Public <span style={{ color: 'rgba(21,23,28,0.5)' }}>(live on your profile + search)</span></span>
-              </label>
+              <strong>{visibility === 'secret' ? 'Secret' : 'Public'}</strong>
+              <span className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>· change in the Platforms step</span>
             </div>
             <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.6)' }}>
               ⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{creds?.email}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return — you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}
@@ -4193,36 +4196,27 @@ function MwSection({ title, hint, badge, children, defaultOpen = false }) {
   );
 }
 
+// Slim Publish-step component: connection status + a summary of the options set on the
+// Platforms step + the print-profile summary (Profiles step) + the actual publish action.
 function MakerWorldUploadFlow({ platform, project }) {
   const acc = useAccounts();
   const openConnections = useOpenConnections();
   const mwAccounts = acc.getAccounts('makerworld');
   const active = acc.getActive('makerworld');
   const cookie = active?.secret || ''; // the active account's session; '' = not signed in
-  const [status, setStatus] = useState('idle'); // idle|publishing|done|error|deleting (sign-in handled by the accounts store)
+  const [status, setStatus] = useState('idle'); // idle|publishing|done|error|deleting
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
   const [result, setResult] = useState(null);
-  const [categoryId, setCategoryId] = useState(401);
-  const [visibility, setVisibility] = useState('private'); // default private (safety)
-  const [license, setLicense] = useState('Standard Digital File License');
-  // Print-profile name/photos/guidelines now live in the Profiles step (per .3mf); derived below.
-  const [communityPost, setCommunityPost] = useState(false);
 
-  // --- product mode + advanced options ---
-  const [productMode, setProductMode] = useState('3d'); // '3d' | 'laser-cut'
-  const [modelSource, setModelSource] = useState('original'); // 'original' | 'remix'
-  const [remixModel, setRemixModel] = useState(null);      // RelatedModelRef (3D, designType 0)
-  const [relatedModel, setRelatedModel] = useState(null);  // link: LC mode→3D (type 0); 3D mode→LC (type 1)
-  const [exclusive, setExclusive] = useState(false);
-  const [catalog, setCatalog] = useState(null);
-  const [catalogErr, setCatalogErr] = useState('');
-  const [boms, setBoms] = useState({ kits: [], filaments: [], materials: [] });
-  const [otherParts, setOtherParts] = useState([]); // {name, quantity, note}
-  const [skuInput, setSkuInput] = useState('');
-  const [docGuides, setDocGuides] = useState([]); // File[]
-  const [docOthers, setDocOthers] = useState([]); // File[]
-
+  // All MakerWorld options now live on the Platforms step (project.platforms.makerworld);
+  // File-based docs live in the runtime holder. This component only reads + publishes.
+  const opts = { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) };
+  const { categoryId, visibility, license, productMode, modelSource, exclusive, communityPost, remixModel, relatedModel } = opts;
+  const boms = opts.boms || { kits: [], filaments: [], materials: [] };
+  const otherParts = opts.otherParts || [];
+  const docGuides = mwRuntimeDocs.docGuides;
+  const docOthers = mwRuntimeDocs.docOthers;
   const isLC = productMode === 'laser-cut';
   const modelFiles = project.files.filter(f => f.isModel && f.blob);
   const has3mf = modelFiles.some(f => /\.3mf$/i.test(f.name));
@@ -4234,22 +4228,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   const profileName = mwProfile?.name || 'Print profile';
   const profilePicIds = mwProfile?.photoIds || [];
   const guidelinesOk = !!mwProfile?.guidelinesOk;
-
-  const ensureCatalog = async () => {
-    if (catalog) return catalog;
-    try { const c = await loadMwCatalog(); setCatalog(c); return c; }
-    catch (e) { setCatalogErr(e instanceof Error ? e.message : String(e)); return null; }
-  };
-  const addBom = (kind, item) => setBoms(b => ({ ...b, [kind]: [...b[kind], item] }));
-  const removeBom = (kind, idx) => setBoms(b => ({ ...b, [kind]: b[kind].filter((_, i) => i !== idx) }));
-  const addBySku = async () => {
-    const c = await ensureCatalog(); if (!c) return;
-    for (const [kind, key] of [['kits', 'kits'], ['filaments', 'filaments'], ['materials', 'materials']]) {
-      const hit = mwFindBySku(c[key], skuInput);
-      if (hit) { addBom(kind, mwCatalogItem(hit.node, hit.parentIds, 1)); setSkuInput(''); setCatalogErr(''); return; }
-    }
-    setCatalogErr(`No catalog item with Product ID "${skuInput.trim()}".`);
-  };
+  const catLabel = MW_CATEGORIES.find(c => String(c.id) === String(categoryId))?.label || categoryId;
 
   // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
   const disconnect = () => { if (active) acc.removeAccount('makerworld', active.id); setStatus('idle'); setResult(null); };
@@ -4375,18 +4354,16 @@ function MakerWorldUploadFlow({ platform, project }) {
     } catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('done'); }
   };
 
-  const inputCls = 'mp-card text-[13px] p-2 w-full';
   return (
     <div className="space-y-3">
       {!cookie ? (
         <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
           <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.55)' }}><StatusDot status="unknown" /> {platform.name} — not connected</div>
-          <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>Sign in to MakerWorld to publish. Connections are managed centrally — add or switch accounts in <strong>Connections</strong>.</p>
+          <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Connections</strong>.</p>
           <button onClick={openConnections} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
         </div>
       ) : (
         <>
-          {/* Compact "publishing as" status + account switcher (sign-in lives in Connections). */}
           <div className="flex items-center justify-between gap-2 text-[13px]">
             <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'rgba(21,23,28,0.7)' }}>
               <StatusDot status={active.status} /> Publishing as
@@ -4395,7 +4372,6 @@ function MakerWorldUploadFlow({ platform, project }) {
                   {mwAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                 </select>
               ) : <strong className="truncate">{active.label}</strong>}
-              {!isLC && has3mf && <span className="mp-mono opacity-60">· .3mf</span>}
             </span>
             <span className="flex items-center gap-2 flex-shrink-0">
               <button onClick={openConnections} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>manage</button>
@@ -4403,143 +4379,18 @@ function MakerWorldUploadFlow({ platform, project }) {
             </span>
           </div>
 
-          {/* Product mode: regular 3D model vs the separate Laser & Cut product. */}
-          <div className="flex gap-1 mp-card p-1" style={{ background: 'rgba(21,23,28,0.04)' }}>
-            {[['3d', '3D Model'], ['laser-cut', 'Laser & Cut']].map(([m, lbl]) => (
-              <button key={m} onClick={() => setProductMode(m)} className="flex-1 text-[12px] py-1.5 rounded-sm transition"
-                style={productMode === m ? { background: '#15171C', color: '#fff' } : { color: 'rgba(21,23,28,0.6)' }}>{lbl}</button>
-            ))}
+          <div className="mp-card p-2 text-[12px]" style={{ background: 'rgba(21,23,28,0.03)', color: 'rgba(21,23,28,0.7)' }}>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Globe size={13} style={{ color: '#FF5722' }} />
+              <span>{isLC ? 'Laser & Cut' : '3D model'} · {isLC ? (modelSource === 'remix' ? 'Remix' : 'Original') : catLabel} · <strong>{visibility}</strong>{bomCount ? ` · BOM ${bomCount}` : ''}{!isLC && modelSource === 'remix' ? ' · Remix' : ''}{!isLC && exclusive ? ' · Exclusive' : ''}{relatedModel ? ' · linked' : ''}{communityPost ? ' · community post' : ''}</span>
+            </div>
+            <div className="text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.5)' }}>Edit these in the <strong>Platforms</strong> step → MakerWorld options.</div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            {!isLC ? (
-              <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Category</span>
-                <select className={inputCls} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                  {MW_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
-              </label>
-            ) : (
-              <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Source</span>
-                <select className={inputCls} value={modelSource} onChange={(e) => setModelSource(e.target.value)}>
-                  <option value="original">Original</option><option value="remix">Remix</option>
-                </select>
-              </label>
-            )}
-            <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Visibility</span>
-              <select className={inputCls} value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-                <option value="private">Private</option><option value="public">Public</option>
-              </select>
-            </label>
-          </div>
           {!isLC && has3mf && (
             <div className="mp-card p-2 text-[12px] flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.75)' }}>
               <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#FF5722' }} />
-              <span>
-                Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'} · guidelines {guidelinesOk ? '✓' : '✗'}.{' '}
-                Edit the name, printed-model photos, and guidelines in the <strong>Profiles</strong> step.
-              </span>
-            </div>
-          )}
-          {/* ---- Source / remix (3D mode) ---- */}
-          {!isLC && (
-            <MwSection title="Source & remix" hint="original or remix" badge={modelSource === 'remix' ? '1' : 0}>
-              <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Model source</span>
-                <select className={inputCls} value={modelSource} onChange={(e) => setModelSource(e.target.value)}>
-                  <option value="original">Original design</option>
-                  <option value="remix">Remix of another model</option>
-                </select>
-              </label>
-              {modelSource === 'remix' && (
-                <div className="space-y-1">
-                  <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Link the original model you remixed (search your own designs):</div>
-                  <MwRelatedSearch cookie={cookie} type={0} selected={remixModel} onSelect={setRemixModel} label="Search 3D models you remixed…" />
-                </div>
-              )}
-            </MwSection>
-          )}
-
-          {/* ---- Related model link: 3D→link a Laser&Cut model; LC→link a 3D model ---- */}
-          <MwSection title={isLC ? 'Linked 3D model' : 'Linked Laser & Cut model'} hint="optional" badge={relatedModel ? '1' : 0}>
-            <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-              {isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}
-            </div>
-            <MwRelatedSearch cookie={cookie} type={isLC ? 0 : 1} selected={relatedModel} onSelect={setRelatedModel} label={isLC ? 'Search your 3D models…' : 'Search your Laser & Cut models…'} />
-          </MwSection>
-
-          {/* ---- Bill of Materials (3D mode) ---- */}
-          {!isLC && (
-            <MwSection title="Bill of Materials" hint="kits · filaments · materials" badge={bomCount + otherParts.length || 0}>
-              <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                Pick Maker's Supply catalog items, or enter a Product ID directly. (BOM needs ≥1 kit/filament/material — "other parts" alone won't validate.)
-              </div>
-              {!catalog ? (
-                <button onClick={ensureCatalog} className="mp-btn text-[11px] py-1.5 px-3">Load BOM catalog</button>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <input className="mp-card text-[12px] p-1.5 flex-1" placeholder="Product ID (e.g. B-ZH113)" value={skuInput}
-                      onChange={(e) => setSkuInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBySku(); } }} />
-                    <button onClick={addBySku} disabled={!skuInput.trim()} className="mp-btn text-[11px] py-1.5 px-3 disabled:opacity-40">Add by ID</button>
-                  </div>
-                  {[['kits', 'Kits & Parts'], ['filaments', 'Filaments'], ['materials', 'Materials']].map(([kind, lbl]) => (
-                    <div key={kind} className="space-y-1.5">
-                      <div className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.5)' }}>{lbl}</div>
-                      <MwBomPicker roots={catalog[kind]} onAdd={(item) => addBom(kind, item)} />
-                      {boms[kind].map((it, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
-                          {it.image && <img src={it.image} alt="" className="w-6 h-6 object-cover" />}
-                          <span className="flex-1 truncate">{it.title} <span className="mp-mono opacity-50">×{it.quantity}</span></span>
-                          <button onClick={() => removeBom(kind, i)} className="opacity-50 hover:opacity-100"><X size={13} /></button>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                  {/* Free-text other parts */}
-                  <div className="space-y-1.5">
-                    <div className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.5)' }}>Other parts (free text)</div>
-                    {otherParts.map((p, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
-                        <span className="flex-1 truncate">{p.name} <span className="mp-mono opacity-50">×{p.quantity}</span></span>
-                        <button onClick={() => setOtherParts(o => o.filter((_, j) => j !== i))} className="opacity-50 hover:opacity-100"><X size={13} /></button>
-                      </div>
-                    ))}
-                    <button onClick={() => setOtherParts(o => [...o, { name: 'Part', quantity: 1, note: '' }])} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"><Plus size={11} /> Add other part</button>
-                  </div>
-                </>
-              )}
-              {catalogErr && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{catalogErr}</div>}
-            </MwSection>
-          )}
-
-          {/* ---- Documentation uploads ---- */}
-          <MwSection title="Documentation" hint="assembly guide · other files" badge={docGuides.length + docOthers.length || 0}>
-            <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Assembly guide (pdf/png/jpg/webp/gif)</span>
-              <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif" className="text-[11px] w-full" onChange={(e) => setDocGuides(Array.from(e.target.files || []))} />
-            </label>
-            {docGuides.length > 0 && <div className="text-[11px] opacity-60">{docGuides.map(f => f.name).join(', ')}</div>}
-            <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Other files (txt/pdf/zip)</span>
-              <input type="file" multiple accept=".txt,.pdf,.zip" className="text-[11px] w-full" onChange={(e) => setDocOthers(Array.from(e.target.files || []))} />
-            </label>
-            {docOthers.length > 0 && <div className="text-[11px] opacity-60">{docOthers.map(f => f.name).join(', ')}</div>}
-          </MwSection>
-
-          {/* ---- Exclusive Model Program (3D mode) ---- */}
-          {!isLC && (
-            <label className="flex items-start gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              <input type="checkbox" checked={exclusive} onChange={(e) => setExclusive(e.target.checked)} className="mt-0.5" />
-              <span>Join the <strong>Exclusive Model Program</strong> (you agree this model is published exclusively on MakerWorld).</span>
-            </label>
-          )}
-
-          {!isLC && (
-            <label className="flex items-center gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              <input type="checkbox" checked={communityPost} onChange={(e) => setCommunityPost(e.target.checked)} /> Also create a community post
-            </label>
-          )}
-
-          {isLC && (
-            <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.7)' }}>
-              Laser & Cut mode uploads your <span className="mp-mono">.lac/.svg/.dxf</span> files to the separate Laser & Cut product. Print-profile, BOM picker and community post don't apply here.
+              <span>Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'} · guidelines {guidelinesOk ? '✓' : '✗'}. Edit in the <strong>Profiles</strong> step.</span>
             </div>
           )}
 
@@ -4571,6 +4422,154 @@ function MakerWorldUploadFlow({ platform, project }) {
   );
 }
 
+// MakerWorld options form — rendered on the Platforms step; edits project.platforms.makerworld.
+function MakerWorldOptions({ opts, onUpdate }) {
+  useAccounts();
+  const cookie = getActive('makerworld')?.secret || '';
+  const o = { ...MW_DEFAULT_OPTS, ...(opts || {}) };
+  const isLC = o.productMode === 'laser-cut';
+  const boms = o.boms || { kits: [], filaments: [], materials: [] };
+  const otherParts = o.otherParts || [];
+  const bomCount = boms.kits.length + boms.filaments.length + boms.materials.length;
+  const [catalog, setCatalog] = useState(null);
+  const [catalogErr, setCatalogErr] = useState('');
+  const [skuInput, setSkuInput] = useState('');
+  const [docGuides, setDocGuides] = useState(mwRuntimeDocs.docGuides);
+  const [docOthers, setDocOthers] = useState(mwRuntimeDocs.docOthers);
+  const inputCls = 'mp-card text-[13px] p-2 w-full';
+
+  const ensureCatalog = async () => { if (catalog) return catalog; try { const c = await loadMwCatalog(); setCatalog(c); return c; } catch (e) { setCatalogErr(e instanceof Error ? e.message : String(e)); return null; } };
+  const addBom = (kind, item) => onUpdate('boms', { ...boms, [kind]: [...boms[kind], item] });
+  const removeBom = (kind, idx) => onUpdate('boms', { ...boms, [kind]: boms[kind].filter((_, i) => i !== idx) });
+  const setOtherParts = (next) => onUpdate('otherParts', typeof next === 'function' ? next(otherParts) : next);
+  const addBySku = async () => {
+    const c = await ensureCatalog(); if (!c) return;
+    for (const kind of ['kits', 'filaments', 'materials']) { const hit = mwFindBySku(c[kind], skuInput); if (hit) { addBom(kind, mwCatalogItem(hit.node, hit.parentIds, 1)); setSkuInput(''); setCatalogErr(''); return; } }
+    setCatalogErr(`No catalog item with Product ID "${skuInput.trim()}".`);
+  };
+  const setGuides = (files) => { mwRuntimeDocs.docGuides = files; setDocGuides(files); };
+  const setOthers = (files) => { mwRuntimeDocs.docOthers = files; setDocOthers(files); };
+
+  return (
+    <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>MakerWorld options</div>
+      <div className="flex gap-1 mp-card p-1" style={{ background: 'rgba(21,23,28,0.04)' }}>
+        {[['3d', '3D Model'], ['laser-cut', 'Laser & Cut']].map(([m, lbl]) => (
+          <button key={m} onClick={() => onUpdate('productMode', m)} className="flex-1 text-[12px] py-1.5 rounded-sm transition"
+            style={o.productMode === m ? { background: '#15171C', color: '#fff' } : { color: 'rgba(21,23,28,0.6)' }}>{lbl}</button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {!isLC ? (
+          <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Category</span>
+            <select className={inputCls} value={o.categoryId} onChange={(e) => onUpdate('categoryId', e.target.value)}>
+              {MW_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          </label>
+        ) : (
+          <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Source</span>
+            <select className={inputCls} value={o.modelSource} onChange={(e) => onUpdate('modelSource', e.target.value)}>
+              <option value="original">Original</option><option value="remix">Remix</option>
+            </select>
+          </label>
+        )}
+        <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Visibility</span>
+          <select className={inputCls} value={o.visibility} onChange={(e) => onUpdate('visibility', e.target.value)}>
+            <option value="private">Private</option><option value="public">Public</option>
+          </select>
+        </label>
+      </div>
+      {!isLC && (
+        <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
+          <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Model source</span>
+            <select className={inputCls} value={o.modelSource} onChange={(e) => onUpdate('modelSource', e.target.value)}>
+              <option value="original">Original design</option>
+              <option value="remix">Remix of another model</option>
+            </select>
+          </label>
+          {o.modelSource === 'remix' && (
+            <div className="space-y-1">
+              <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Link the original model you remixed (search your own designs):</div>
+              <MwRelatedSearch cookie={cookie} type={0} selected={o.remixModel} onSelect={(v) => onUpdate('remixModel', v)} label="Search 3D models you remixed…" />
+            </div>
+          )}
+        </MwSection>
+      )}
+      <MwSection title={isLC ? 'Linked 3D model' : 'Linked Laser & Cut model'} hint="optional" badge={o.relatedModel ? '1' : 0}>
+        <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>{isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}</div>
+        <MwRelatedSearch cookie={cookie} type={isLC ? 0 : 1} selected={o.relatedModel} onSelect={(v) => onUpdate('relatedModel', v)} label={isLC ? 'Search your 3D models…' : 'Search your Laser & Cut models…'} />
+      </MwSection>
+      {!isLC && (
+        <MwSection title="Bill of Materials" hint="kits · filaments · materials" badge={bomCount + otherParts.length || 0}>
+          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Pick Maker's Supply catalog items, or enter a Product ID. (Needs ≥1 kit/filament/material — "other parts" alone won't validate.)</div>
+          {!catalog ? (
+            <button onClick={ensureCatalog} className="mp-btn text-[11px] py-1.5 px-3">Load BOM catalog</button>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <input className="mp-card text-[12px] p-1.5 flex-1" placeholder="Product ID (e.g. B-ZH113)" value={skuInput}
+                  onChange={(e) => setSkuInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBySku(); } }} />
+                <button onClick={addBySku} disabled={!skuInput.trim()} className="mp-btn text-[11px] py-1.5 px-3 disabled:opacity-40">Add by ID</button>
+              </div>
+              {[['kits', 'Kits & Parts'], ['filaments', 'Filaments'], ['materials', 'Materials']].map(([kind, lbl]) => (
+                <div key={kind} className="space-y-1.5">
+                  <div className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.5)' }}>{lbl}</div>
+                  <MwBomPicker roots={catalog[kind]} onAdd={(item) => addBom(kind, item)} />
+                  {boms[kind].map((it, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
+                      {it.image && <img src={it.image} alt="" className="w-6 h-6 object-cover" />}
+                      <span className="flex-1 truncate">{it.title} <span className="mp-mono opacity-50">×{it.quantity}</span></span>
+                      <button onClick={() => removeBom(kind, i)} className="opacity-50 hover:opacity-100"><X size={13} /></button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              <div className="space-y-1.5">
+                <div className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.5)' }}>Other parts (free text)</div>
+                {otherParts.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
+                    <span className="flex-1 truncate">{p.name} <span className="mp-mono opacity-50">×{p.quantity}</span></span>
+                    <button onClick={() => setOtherParts(arr => arr.filter((_, j) => j !== i))} className="opacity-50 hover:opacity-100"><X size={13} /></button>
+                  </div>
+                ))}
+                <button onClick={() => setOtherParts(arr => [...arr, { name: 'Part', quantity: 1, note: '' }])} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"><Plus size={11} /> Add other part</button>
+              </div>
+            </>
+          )}
+          {catalogErr && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{catalogErr}</div>}
+        </MwSection>
+      )}
+      <MwSection title="Documentation" hint="assembly guide · other files" badge={docGuides.length + docOthers.length || 0}>
+        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Assembly guide (pdf/png/jpg/webp/gif)</span>
+          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif" className="text-[11px] w-full" onChange={(e) => setGuides(Array.from(e.target.files || []))} />
+        </label>
+        {docGuides.length > 0 && <div className="text-[11px] opacity-60">{docGuides.map(f => f.name).join(', ')}</div>}
+        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Other files (txt/pdf/zip)</span>
+          <input type="file" multiple accept=".txt,.pdf,.zip" className="text-[11px] w-full" onChange={(e) => setOthers(Array.from(e.target.files || []))} />
+        </label>
+        {docOthers.length > 0 && <div className="text-[11px] opacity-60">{docOthers.map(f => f.name).join(', ')}</div>}
+        <div className="text-[10px] opacity-50">Docs are kept for this session (not saved with the project).</div>
+      </MwSection>
+      {!isLC && (
+        <label className="flex items-start gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <input type="checkbox" checked={!!o.exclusive} onChange={(e) => onUpdate('exclusive', e.target.checked)} className="mt-0.5" />
+          <span>Join the <strong>Exclusive Model Program</strong> (this model is published exclusively on MakerWorld).</span>
+        </label>
+      )}
+      {!isLC && (
+        <label className="flex items-center gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <input type="checkbox" checked={!!o.communityPost} onChange={(e) => onUpdate('communityPost', e.target.checked)} /> Also create a community post
+        </label>
+      )}
+      {isLC && (
+        <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.7)' }}>
+          Laser & Cut mode uploads your <span className="mp-mono">.lac/.svg/.dxf</span> files to the separate Laser & Cut product. Print-profile, BOM and community post don't apply.
+        </div>
+      )}
+      {!cookie && <div className="text-[11px]" style={{ color: '#B23A1A' }}>Connect MakerWorld (in Connections) to search for remix/linked models.</div>}
+    </div>
+  );
+}
 function CoverPreview({ image, cover, onDownload }) {
   const canvasRef = useRef(null);
   useEffect(() => {
