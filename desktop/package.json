@@ -12,7 +12,17 @@
     "appId": "io.makerstats.modelprep",
     "productName": "ModelPrep",
     "files": ["main.js", "preload.js", "icon.png"],
-    "mac": { "category": "public.app-category.graphics-design", "target": "dmg" },
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "target": "dmg",
+      "icon": "icon.png",
+      "identity": "Aleksei Adzhem (UTZ4TVACJS)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": { "teamId": "UTZ4TVACJS" }
+    },
     "win": { "target": "nsis" },
     "linux": { "target": "AppImage" }
   },

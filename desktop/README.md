@@ -43,13 +43,29 @@ it at a local dev build instead: `MODELPREP_URL=http://localhost:5173 npm start`
   `deploy/src/App.jsx`).
 - `package.json` — Electron + electron-builder config (DMG / NSIS / AppImage targets).
 
-## Build installers (later)
+## Build a signed + notarized macOS release
+
+The app is configured to sign with **Developer ID Application** + **hardened runtime**
+(`build/entitlements.mac.plist`) and notarize via an App Store Connect API key. Requires the
+Developer ID Application cert in the keychain (Team `UTZ4TVACJS`). Notarization credentials
+are passed via env (the `.p8` lives in `~/.appstoreconnect/private_keys/`, never in the repo):
 
 ```bash
-npm run dist    # electron-builder → DMG (mac) / installer (win) / AppImage (linux)
+export APPLE_API_KEY=~/.appstoreconnect/private_keys/AuthKey_52965D335T.p8
+export APPLE_API_KEY_ID=52965D335T
+export APPLE_API_ISSUER=98eccd7f-e7d0-4a71-91df-08fa462afb61
+export APPLE_TEAM_ID=UTZ4TVACJS
+npm run dist                      # → dist/ModelPrep-<ver>-arm64.dmg (signed + notarized)
+# electron-builder notarizes + staples the .app; staple the DMG too:
+xcrun stapler staple "dist/ModelPrep-1.0.0-arm64.dmg"
 ```
 
-Add an app icon and code-signing before distributing. `icon.png` is a placeholder.
+Verify: `spctl -a -t exec -vv dist/mac-arm64/ModelPrep.app` → `accepted / Notarized Developer ID`.
+
+NOTE: a Developer ID Application cert can only be created by the **Account Holder** (Xcode →
+Settings → Accounts → Manage Certificates → + → Developer ID Application) — the App Store
+Connect API key can notarize but cannot create that cert. Current build is **arm64**; add
+`"target": ["dmg"]` per-arch or `--x64`/`--universal` for Intel/universal.
 
 ## Notes
 
