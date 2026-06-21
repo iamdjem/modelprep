@@ -469,9 +469,29 @@ export async function mwSuggestTags(session: MakerWorldSession, keyword: string)
 }
 
 /** List the signed-in user's published designs. */
-export async function mwListMyDesigns(session: MakerWorldSession): Promise<unknown> {
-  const res = await fetch(`${MW_BASE}/api/v1/design-service/my/design/published`, { headers: mwHeaders(session) });
-  return mwJson(res, 'list my designs');
+/** One of the user's LIVE (published) designs + its status fields.
+ *  status: 1 = live/public. opStatus / offlineInstCnt hint at takedowns/offline profiles.
+ *  NOTE: this list contains only LIVE models — "verifying" (in review) and "failed"
+ *  (rejected) models are NOT here (those tabs are SSR-only, blocked server-side). So a
+ *  just-submitted model appearing here = confirmed live; absence = still in review OR
+ *  rejected (we can't yet distinguish those two server-side). */
+export interface MyDesignStatus {
+  id: number; title: string; status: number;
+  opStatus?: number; offlineInstCnt?: number; coverUrl?: string; url: string; createTime?: string;
+}
+export async function mwListMyDesigns(session: MakerWorldSession): Promise<MyDesignStatus[]> {
+  const res = await fetch(`${MW_BASE}/api/v1/design-service/my/design/published?limit=100&offset=0`, { headers: mwHeaders(session) });
+  const d = await mwJson<{ hits?: Array<Record<string, unknown>> }>(res, 'list my designs');
+  return (d.hits ?? []).map((h) => ({
+    id: h.id as number,
+    title: (h.title as string) ?? '',
+    status: h.status as number,
+    opStatus: h.opStatus as number | undefined,
+    offlineInstCnt: h.offlineInstCnt as number | undefined,
+    coverUrl: h.coverUrl as string | undefined,
+    url: `${MW_BASE}/en/models/${h.id}`,
+    createTime: h.createTime as string | undefined,
+  }));
 }
 
 // -------------------- BOM catalog (Maker's Supply: kits/filaments/materials) ----

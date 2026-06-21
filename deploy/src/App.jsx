@@ -4258,6 +4258,61 @@ function MwSection({ title, hint, badge, children, defaultOpen = false }) {
   );
 }
 
+// Map a live MakerWorld model to a status dot + label. The published list only contains
+// LIVE models, so being here = live; offline/odd status is flagged conservatively.
+function mwModelStatus(m) {
+  if (m.offlineInstCnt > 0) return { dot: '#d97706', label: `Live · ${m.offlineInstCnt} profile${m.offlineInstCnt === 1 ? '' : 's'} offline` };
+  if (m.status === 1) return { dot: '#1a7f37', label: 'Live' };
+  return { dot: '#d97706', label: `status ${m.status} — check on MakerWorld` };
+}
+
+// "My MakerWorld models" — polls the live published list so you can confirm a model
+// actually went live (post-submit) and spot takedowns. Honest about the gap: it only
+// shows LIVE models; "verifying"/rejected models aren't fetchable server-side yet.
+function MwMyModels({ cookie }) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+  const load = async () => {
+    setLoading(true); setErr('');
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/my-creations`, { headers: { 'X-MW-Cookie': cookie } });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Failed to load');
+      setModels(Array.isArray(data.designs) ? data.designs : []);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); }
+  };
+  useEffect(() => { if (open && models === null) load(); }, [open]); // eslint-disable-line
+  return (
+    <div className="mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>My MakerWorld models</span>
+        {models && <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.45)' }}>{models.length} live</span>}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-1.5">
+          <button onClick={load} disabled={loading} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 disabled:opacity-40">{loading ? 'Loading…' : 'Refresh'}</button>
+          {err && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{err}</div>}
+          {models && models.length === 0 && !loading && <div className="text-[11px] opacity-60">No live models found.</div>}
+          {models && models.map((m) => {
+            const s = mwModelStatus(m);
+            return (
+              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.03)' }}>
+                {m.coverUrl && <img src={m.coverUrl} alt="" className="w-7 h-7 object-cover flex-shrink-0" />}
+                <span className="flex-1 truncate">{m.title}</span>
+                <span className="flex items-center gap-1 flex-shrink-0"><StatusDot status="connected" /><span style={{ color: s.dot }}>{s.label}</span></span>
+              </a>
+            );
+          })}
+          <div className="text-[10px] opacity-50">Shows your <strong>live</strong> models. Models still in <em>verifying</em> or that were <em>rejected</em> can't be read here yet — check them on MakerWorld.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Slim Publish-step component: connection status + a summary of the options set on the
 // Platforms step + the print-profile summary (Profiles step) + the actual publish action.
 function MakerWorldUploadFlow({ platform, project }) {
@@ -4270,6 +4325,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
   const [result, setResult] = useState(null);
+  const [liveCheck, setLiveCheck] = useState(null); // post-submit "did it actually go live?"
 
   // All MakerWorld options now live on the Platforms step (project.platforms.makerworld);
   // File-based docs live in the runtime holder. This component only reads + publishes.
@@ -4411,8 +4467,22 @@ function MakerWorldUploadFlow({ platform, project }) {
       const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${delPath}`, { method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: result.id }) });
       const data = await res.json();
       if (!res.ok || !data.deleted) throw new Error(data?.message || data?.error || `Delete failed (HTTP ${res.status})`);
-      setResult(null); setStatus('connected');
+      setResult(null); setStatus('connected'); setLiveCheck(null);
     } catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('done'); }
+  };
+
+  // Post-submit verification: a submit returns "verifying" — this confirms whether the
+  // model actually became LIVE (appears in the published list) vs. still in review/rejected.
+  const checkLive = async () => {
+    if (!cookie || !result?.id || result.kind === 'laser-cut') return;
+    setLiveCheck({ loading: true });
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/my-creations`, { headers: { 'X-MW-Cookie': cookie } });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Status check failed');
+      const found = (data.designs || []).find((m) => m.id === result.id);
+      setLiveCheck({ loading: false, live: !!found, model: found });
+    } catch (e) { setLiveCheck({ loading: false, error: e instanceof Error ? e.message : String(e) }); }
   };
 
   return (
@@ -4473,9 +4543,22 @@ function MakerWorldUploadFlow({ platform, project }) {
                 <Check size={14} className="inline" /> Submitted to MakerWorld — status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
               {result.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-[12px] underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
+              {/* Post-submit verification — a 200 submit = "accepted for review", not "live". */}
+              {result.kind !== 'laser-cut' && (
+                <div className="space-y-1">
+                  <button onClick={checkLive} disabled={liveCheck?.loading} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{liveCheck?.loading ? 'Checking…' : 'Check if it went live'}</button>
+                  {liveCheck && !liveCheck.loading && (
+                    liveCheck.error ? <div className="text-[12px]" style={{ color: '#B91C1C' }}>{liveCheck.error}</div>
+                    : liveCheck.live ? <div className="text-[12px]" style={{ color: '#1a7f37' }}>✓ Confirmed live on MakerWorld{liveCheck.model?.offlineInstCnt > 0 ? ` (⚠ ${liveCheck.model.offlineInstCnt} print profile(s) offline)` : ''}.</div>
+                    : <div className="text-[12px]" style={{ color: '#B23A1A' }}>Not live yet — it's still in <strong>review</strong>, or it was <strong>rejected</strong>. We can't tell which from here yet; open it on MakerWorld to check.</div>
+                  )}
+                </div>
+              )}
               <button onClick={del} disabled={status === 'deleting'} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{status === 'deleting' ? 'Deleting…' : 'Delete this listing'}</button>
             </div>
           )}
+
+          <MwMyModels cookie={cookie} />
         </>
       )}
       {errorMsg && <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}
