@@ -518,13 +518,41 @@ function triggerDownload(blob, filename) {
 // edited on the Platforms step and read by the Publish flow (serializable; File-based
 // docs are kept in a small runtime holder, see mwRuntimeDocs).
 const MW_DEFAULT_OPTS = {
-  categoryId: 401, visibility: 'private', license: 'Standard Digital File License',
+  categoryId: 401, visibility: 'private', license: '', // '' = follow the Details-step license (see MW_LICENSE_MAP)
   productMode: '3d', modelSource: 'original', exclusive: false, communityPost: false,
   remixModel: null, relatedModel: null,
   boms: { kits: [], filaments: [], materials: [] }, otherParts: [],
 };
 // Runtime-only holder for File-based MakerWorld docs (can't live in serializable project state).
 const mwRuntimeDocs = { docGuides: [], docOthers: [] };
+
+// MakerWorld's license options (exact API strings; only "Standard Digital File License"
+// is live-verified — the CC names are the dropdown display strings, to confirm via capture).
+const MW_LICENSE_OPTIONS = [
+  'Creative Commons Public Domain',
+  'Creative Commons Attribution',
+  'Creative Commons Attribution-Share Alike',
+  'Creative Commons Attribution-NoDerivatives',
+  'Creative Commons Attribution-Noncommercial',
+  'Creative Commons Attribution-Noncommercial-Share Alike',
+  'Creative Commons Attribution-Noncommercial-NoDerivatives',
+  'Standard Digital File License',
+  'MakerWorld Exclusive License',
+  'Standard Digital File License - Community Use',
+  'Standard Digital File License - Platform Print Only (SDFL-PPO)',
+];
+// Our Details-step license id → the MakerWorld license string.
+const MW_LICENSE_MAP = {
+  cc0: 'Creative Commons Public Domain',
+  ccby: 'Creative Commons Attribution',
+  ccbysa: 'Creative Commons Attribution-Share Alike',
+  ccbync: 'Creative Commons Attribution-Noncommercial',
+  ccbyncsa: 'Creative Commons Attribution-Noncommercial-Share Alike',
+  ccbynd: 'Creative Commons Attribution-NoDerivatives',
+  standard: 'Standard Digital File License',
+};
+// Resolve the MakerWorld license: explicit override > mapped from Details > MakerWorld default.
+const mwResolveLicense = (opts, project) => opts?.license || MW_LICENSE_MAP[project?.license] || 'Standard Digital File License';
 
 const initialProject = {
   name: 'Untitled Project',
@@ -4243,7 +4271,8 @@ function MakerWorldUploadFlow({ platform, project }) {
   // All MakerWorld options now live on the Platforms step (project.platforms.makerworld);
   // File-based docs live in the runtime holder. This component only reads + publishes.
   const opts = { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) };
-  const { categoryId, visibility, license, productMode, modelSource, exclusive, communityPost, remixModel, relatedModel } = opts;
+  const { categoryId, visibility, productMode, modelSource, exclusive, communityPost, remixModel, relatedModel } = opts;
+  const license = mwResolveLicense(opts, project); // override > mapped from Details > default
   const boms = opts.boms || { kits: [], filaments: [], materials: [] };
   const otherParts = opts.otherParts || [];
   const docGuides = mwRuntimeDocs.docGuides;
@@ -4510,6 +4539,15 @@ function MakerWorldOptions({ opts, onUpdate }) {
           </select>
         </label>
       </div>
+
+      <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>License</span>
+        <select className={inputCls} value={o.license || ''} onChange={(e) => onUpdate('license', e.target.value)}>
+          <option value="">Same as Details step</option>
+          {MW_LICENSE_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <span className="text-[10px] block" style={{ color: 'rgba(21,23,28,0.5)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
+      </label>
+
       {!isLC && (
         <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
           <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Model source</span>
