@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useReducer } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useReducer, createContext, useContext } from 'react';
 import {
   mdToHtml, mdToPlain, formatBytes,
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
@@ -7,8 +7,13 @@ import {
   Upload, Download, Copy, Image as ImageIcon, FileText, Check, Sparkles,
   Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronDown, ChevronUp,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
-  Globe, DollarSign, Info, Edit3, ArrowRight
+  Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut
 } from 'lucide-react';
+import { useAccounts, getActive, CONNECTABLE } from './lib/accounts.js';
+
+// Lets any component open the Connections (accounts) modal without prop-threading.
+const ConnectionsCtx = createContext(() => {});
+const useOpenConnections = () => useContext(ConnectionsCtx);
 
 // =====================================================================
 // PLATFORM CONFIGURATION (from research report, May 2026)
@@ -603,6 +608,7 @@ export default function App() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [dialog, setDialog] = useState(null); // styled prompt/confirm modal
   const [demoActive, setDemoActive] = useState(false);
+  const [showConnections, setShowConnections] = useState(false); // Connections (accounts) modal
   const stashedProject = useRef(null);
 
   // Demo mode: fill the whole project with sample data so users can click through
@@ -765,6 +771,7 @@ export default function App() {
   };
 
   return (
+    <ConnectionsCtx.Provider value={() => setShowConnections(true)}>
     <div className="min-h-screen w-full" style={{ background: '#EDE9DE', color: '#15171C', fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
       <GlobalStyles />
 
@@ -786,6 +793,7 @@ export default function App() {
         onNewProject={newProject}
         demoActive={demoActive}
         onToggleDemo={toggleDemo}
+        onOpenConnections={() => setShowConnections(true)}
       />
 
       <div className="flex flex-col lg:flex-row max-w-[1400px] mx-auto" style={{ minHeight: 'calc(100vh - 81px - 32px)' }}>
@@ -826,7 +834,9 @@ export default function App() {
       </div>
 
       {dialog && <Modal dialog={dialog} onClose={() => setDialog(null)} />}
+      <ConnectionsModal open={showConnections} onClose={() => setShowConnections(false)} />
     </div>
+    </ConnectionsCtx.Provider>
   );
 }
 
@@ -1015,7 +1025,7 @@ function GlobalStyles() {
 // TOP HEADER
 // =====================================================================
 
-function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, demoActive, onToggleDemo }) {
+function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, demoActive, onToggleDemo, onOpenConnections }) {
   const [editingName, setEditingName] = useState(false);
   const templatesRef = useRef(null);
 
@@ -1074,6 +1084,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
         </div>
 
         <div className="flex items-center gap-2">
+          <ConnectionsButton onOpen={onOpenConnections} />
           <div className="relative" ref={templatesRef}>
             <button onClick={() => setShowTemplates(s => !s)} className="mp-btn mp-btn-ghost text-xs py-2 px-3" aria-haspopup="true" aria-expanded={showTemplates}>
               <Bookmark size={13} /> Templates
@@ -3413,10 +3424,12 @@ const WORKER_URL = (typeof import.meta !== 'undefined' && import.meta.env && imp
 const CULTS_CREDS_KEY = 'modelprep:cults-web-creds';
 
 function CultsUploadFlow({ platform, project }) {
-  const [creds, setCreds] = useState(null); // { email, password } | null
-  const [status, setStatus] = useState('idle'); // idle | connecting | connected | publishing | done | error | deactivating
-  const [draftEmail, setDraftEmail] = useState('');
-  const [draftPassword, setDraftPassword] = useState('');
+  const acc = useAccounts();
+  const openConnections = useOpenConnections();
+  const cultsAccounts = acc.getAccounts('cults');
+  const active = acc.getActive('cults');
+  const creds = active?.secret || null; // { email, password } | null — from the accounts store
+  const [status, setStatus] = useState(creds ? 'connected' : 'idle'); // connected | publishing | done | error | deactivating | idle
   // Default to 'secret' so the first publish doesn't immediately surface on
   // the user's profile — they can flip to 'public' once they've seen the
   // listing render. Persisted in component state per session, not saved.
@@ -3434,43 +3447,12 @@ function CultsUploadFlow({ platform, project }) {
   const [listingsLoading, setListingsLoading] = useState(false);
   const [pendingRow, setPendingRow] = useState({ slug: null, action: null }); // { slug, 'deactivate'|'delete' }
 
-  // Load creds from localStorage on mount.
+  // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
+  const disconnect = () => { if (active) acc.removeAccount('cults', active.id); setResult(null); setStatus('idle'); };
+  // Keep local status in sync with the active account (sign-in/out happens in the modal).
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(CULTS_CREDS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.email && parsed?.password) {
-          setCreds(parsed);
-          setStatus('connected');
-        }
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  const startConnect = () => {
-    setDraftEmail(creds?.email || '');
-    setDraftPassword('');
-    setStatus('connecting');
-  };
-
-  const saveCreds = () => {
-    const e = draftEmail.trim();
-    const p = draftPassword;
-    if (!e || !p) return;
-    const next = { email: e, password: p };
-    try { localStorage.setItem(CULTS_CREDS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-    setCreds(next);
-    setDraftPassword('');
-    setStatus('connected');
-  };
-
-  const disconnect = () => {
-    try { localStorage.removeItem(CULTS_CREDS_KEY); } catch { /* ignore */ }
-    setCreds(null);
-    setResult(null);
-    setStatus('idle');
-  };
+    setStatus((s) => (creds && s === 'idle') ? 'connected' : (!creds && s === 'connected') ? 'idle' : s);
+  }, [creds]);
 
   // Convert a project image (data URL) to a real File so it can ride the
   // multipart upload. Cover image alt is used as the filename hint.
@@ -3668,52 +3650,24 @@ function CultsUploadFlow({ platform, project }) {
 
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              Connect your {platform.name} account to publish for real. We log in as you to use Cults's full upload (real tags, secret listings, deactivate). Email + password stay in this browser (localStorage) — never on our servers.
+            <p className="text-[13px] mb-2.5 leading-snug flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+              <StatusDot status="unknown" /> {platform.name} — not connected. Sign in to publish for real (tags, secret listings, deactivate).
             </p>
-            <button onClick={startConnect} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
-          </>
-        )}
-
-        {status === 'connecting' && (
-          <>
-            <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              Use your cults3d.com login. We use this to log in on your behalf via the same upload form you'd use on the site (so files go to Cults's own CDN, tags work, you can publish as secret/public, and you can deactivate later).
-            </p>
-            <div className="flex flex-col gap-2 mb-2.5" style={{ maxWidth: 380 }}>
-              <input
-                type="email"
-                value={draftEmail}
-                onChange={(e) => setDraftEmail(e.target.value)}
-                placeholder="Cults email"
-                autoFocus
-                autoComplete="username"
-                className="mp-input-sm"
-                aria-label="Cults email"
-              />
-              <input
-                type="password"
-                value={draftPassword}
-                onChange={(e) => setDraftPassword(e.target.value)}
-                placeholder="Cults password"
-                autoComplete="current-password"
-                onKeyDown={(e) => { if (e.key === 'Enter' && draftEmail.trim() && draftPassword) saveCreds(); }}
-                className="mp-input-sm"
-                aria-label="Cults password"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={saveCreds} disabled={!draftEmail.trim() || !draftPassword} className="mp-btn text-xs py-2 px-3 disabled:opacity-40"><Check size={13} /> Save &amp; connect</button>
-              <button onClick={() => setStatus(creds ? 'connected' : 'idle')} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition">Cancel</button>
-            </div>
+            <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
           </>
         )}
 
         {status === 'connected' && (
           <>
             <div className="flex items-center gap-2 text-xs mb-2.5 flex-wrap" style={{ color: '#3a8d68' }}>
-              <Check size={14} /> Connected as <span className="mp-mono">{creds?.email}</span>
-              <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition ml-2" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
+              <StatusDot status={active?.status || 'connected'} /> Publishing as
+              {cultsAccounts.length > 1 ? (
+                <select value={active?.id} onChange={(e) => acc.setActive('cults', e.target.value)} className="mp-card text-[12px] p-1 max-w-[180px]">
+                  {cultsAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                </select>
+              ) : <span className="mp-mono">{creds?.email}</span>}
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition ml-1" style={{ color: 'rgba(21,23,28,0.55)' }}>manage</button>
+              <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
             </div>
             {/* Visibility picker — `secret` = unguessable URL, doesn't hit followers
                 or search. Safer default for first-time publishes; user can flip
@@ -3888,6 +3842,148 @@ function CultsUploadFlow({ platform, project }) {
   );
 }
 
+// =====================================================================
+// ACCOUNT CONNECTIONS — centralized multi-account sign-in (Settings modal)
+// =====================================================================
+const ACCT_STATUS = {
+  connected: { dot: '#1a7f37', label: 'Connected' },
+  reconnect: { dot: '#d97706', label: 'Reconnect needed' },
+  error:     { dot: '#dc2626', label: 'Error' },
+  unknown:   { dot: 'rgba(21,23,28,0.3)', label: 'Not verified' },
+};
+function StatusDot({ status }) {
+  const s = ACCT_STATUS[status] || ACCT_STATUS.unknown;
+  return <span title={s.label} className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: s.dot }} />;
+}
+
+// The header "Accounts" button: shows how many platforms have an active connection.
+function ConnectionsButton({ onOpen }) {
+  useAccounts();
+  const connected = CONNECTABLE.filter((id) => getActive(id)).length;
+  return (
+    <button onClick={onOpen} className="mp-btn mp-btn-ghost text-xs py-2 px-3" title="Manage platform sign-ins">
+      <User size={13} /> Accounts
+      {connected > 0 && <span className="ml-1 mp-mono text-[12px]" style={{ color: '#1a7f37' }}>{connected}</span>}
+    </button>
+  );
+}
+
+function ConnectionsModal({ open, onClose }) {
+  useAccounts();
+  if (!open) return null;
+  const meta = (id) => PLATFORMS.find((p) => p.id === id) || { id, name: id, dot: '#888' };
+  return (
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(21,23,28,0.45)' }} onClick={onClose}>
+      <div className="mp-card w-full max-w-xl my-8" style={{ background: '#EDE9DE' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(21,23,28,0.12)', background: '#EDE9DE' }}>
+          <div className="flex items-center gap-2"><User size={16} /><span className="mp-display text-[18px]">Connections</span></div>
+          <button onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[72vh] overflow-auto">
+          <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sign in to your publishing platforms once. Add multiple accounts per platform and choose which is active — that's the account ModelPrep publishes with. Stored only in this browser.</p>
+          {CONNECTABLE.map((id) => <PlatformConnections key={id} platform={meta(id)} />)}
+          <div className="mp-card p-3" style={{ background: 'rgba(21,23,28,0.03)' }}>
+            <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>Coming soon</div>
+            <div className="flex flex-wrap gap-1.5">
+              {PLATFORMS.filter((p) => !CONNECTABLE.includes(p.id)).map((p) => (
+                <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ background: 'rgba(21,23,28,0.06)', color: 'rgba(21,23,28,0.5)' }}>
+                  <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: p.dot }} />{p.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlatformConnections({ platform }) {
+  const acc = useAccounts();
+  const accounts = acc.getAccounts(platform.id);
+  const active = acc.getActive(platform.id);
+  const [adding, setAdding] = useState(false);
+  const showForm = adding || accounts.length === 0;
+  return (
+    <section className="mp-card p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="inline-block w-3 h-3 rounded-full flex-shrink-0" style={{ background: platform.dot }} />
+        <span className="mp-display text-[15px]">{platform.name}</span>
+        {accounts.length > 0 && <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.4)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
+      </div>
+      {accounts.map((a) => (
+        <div key={a.id} className="flex items-center gap-2 text-[13px] mp-card p-2" style={{ background: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(21,23,28,0.03)' }}>
+          <StatusDot status={a.status} />
+          <span className="flex-1 truncate">{a.label}</span>
+          {a.id === active?.id
+            ? <span className="mp-pill text-[10px]" style={{ background: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
+            : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>Use</button>}
+          <button onClick={() => acc.removeAccount(platform.id, a.id)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
+        </div>
+      ))}
+      {showForm
+        ? <ConnectForm platform={platform} onDone={() => setAdding(false)} canCancel={accounts.length > 0} />
+        : <button onClick={() => setAdding(true)} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2"><Plus size={11} /> Add account</button>}
+    </section>
+  );
+}
+
+// Platform-specific "add account" form (different sign-in per platform).
+function ConnectForm({ platform, onDone, canCancel }) {
+  const acc = useAccounts();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [email, setEmail] = useState('');
+  const [pass, setPass] = useState('');
+  const [label, setLabel] = useState('');
+  const [cookie, setCookie] = useState('');
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+  const inputCls = 'mp-card text-[13px] p-2 w-full';
+
+  const finishMw = async (rawCookie) => {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': rawCookie } });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again (needs token + cf_clearance).');
+      acc.addAccount('makerworld', { label: (label || 'MakerWorld').trim(), secret: rawCookie, status: 'connected' });
+      onDone();
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  };
+
+  if (platform.id === 'cults') {
+    return (
+      <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Cults3D email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} />
+        {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+        <div className="flex gap-2">
+          <button disabled={!email.trim() || !pass} onClick={() => { acc.addAccount('cults', { label: email.trim(), secret: { email: email.trim(), password: pass }, status: 'connected' }); onDone(); }} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">Save account</button>
+          {canCancel && <button onClick={onDone} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Cancel</button>}
+        </div>
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Email + password go to the Worker only to log in; stored only in this browser.</p>
+      </div>
+    );
+  }
+  // MakerWorld
+  return (
+    <div className="space-y-1.5">
+      <input className={inputCls} placeholder="Account name (e.g. Main)" value={label} onChange={(e) => setLabel(e.target.value)} />
+      {desktop ? (
+        <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(r.cookie); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}</button>
+      ) : (
+        <>
+          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.6)' }}>One-click sign-in is in the desktop app. On the web, paste your session cookie (DevTools → Application → Cookies on a logged-in MakerWorld tab):</div>
+          <textarea className={inputCls} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={cookie} onChange={(e) => setCookie(e.target.value)} />
+          <button disabled={!cookie.trim() || busy} onClick={() => finishMw(cookie.trim())} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{busy ? 'Checking…' : 'Connect'}</button>
+        </>
+      )}
+      {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+      {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
+    </div>
+  );
+}
+
 // ---- MakerWorld (Bambu Lab) real upload flow ----
 // Auth = the user's own MakerWorld session cookie (HttpOnly, so pasted/extension-
 // grabbed). Files upload one-by-one to the Worker (which presigns + PUTs to
@@ -4056,9 +4152,12 @@ function MwSection({ title, hint, badge, children, defaultOpen = false }) {
 }
 
 function MakerWorldUploadFlow({ platform, project }) {
-  const [cookie, setCookie] = useState(() => { try { return localStorage.getItem(MW_COOKIE_KEY) || ''; } catch { return ''; } });
-  const [draftCookie, setDraftCookie] = useState('');
-  const [status, setStatus] = useState(cookie ? 'connected' : 'idle'); // idle|connecting|connected|publishing|done|error|deleting
+  const acc = useAccounts();
+  const openConnections = useOpenConnections();
+  const mwAccounts = acc.getAccounts('makerworld');
+  const active = acc.getActive('makerworld');
+  const cookie = active?.secret || ''; // the active account's session; '' = not signed in
+  const [status, setStatus] = useState('idle'); // idle|publishing|done|error|deleting (sign-in handled by the accounts store)
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
   const [result, setResult] = useState(null);
@@ -4104,35 +4203,8 @@ function MakerWorldUploadFlow({ platform, project }) {
     setCatalogErr(`No catalog item with Product ID "${skuInput.trim()}".`);
   };
 
-  // True when running inside the ModelPrep desktop (Electron) app, which can sign into
-  // MakerWorld in an embedded window and hand back the session — no paste, no extension.
-  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
-
-  const validateAndStore = async (c) => {
-    const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': c } });
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again (the session may have expired).');
-    try { localStorage.setItem(MW_COOKIE_KEY, c); } catch { /* ignore */ }
-    setCookie(c); setStatus('connected');
-  };
-  const connect = async () => {
-    const c = draftCookie.trim();
-    if (!c) return;
-    setStatus('connecting'); setErrorMsg('');
-    try { await validateAndStore(c); setDraftCookie(''); }
-    catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('idle'); }
-  };
-  // Desktop sign-in: open MakerWorld login in the app, capture the session, validate, store.
-  const connectDesktop = async () => {
-    if (!desktop) return;
-    setStatus('connecting'); setErrorMsg('');
-    try {
-      const r = await desktop.connectMakerWorld();
-      if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in was cancelled.');
-      await validateAndStore(r.cookie);
-    } catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('idle'); }
-  };
-  const disconnect = () => { try { localStorage.removeItem(MW_COOKIE_KEY); } catch { /* */ } try { desktop?.disconnectMakerWorld?.(); } catch { /* */ } setCookie(''); setStatus('idle'); setResult(null); };
+  // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
+  const disconnect = () => { if (active) acc.removeAccount('makerworld', active.id); setStatus('idle'); setResult(null); };
 
   const imgToFile = async (img, fallback) => {
     const blob = await fetch(img.dataUrl).then(r => r.blob());
@@ -4257,42 +4329,27 @@ function MakerWorldUploadFlow({ platform, project }) {
     <div className="space-y-3">
       {!cookie ? (
         <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
-          <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>{platform.name} session</div>
-          {desktop ? (
-            <>
-              <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-                Sign in to your MakerWorld account — a MakerWorld login window opens, and ModelPrep saves your session so you can publish. Stored only on this computer.
-              </p>
-              <button onClick={connectDesktop} disabled={status === 'connecting'} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">
-                {status === 'connecting' ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}
-              </button>
-              <details className="text-[12px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                <summary className="cursor-pointer">Paste a session cookie manually instead</summary>
-                <textarea className={inputCls + ' mt-2'} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={draftCookie} onChange={(e) => setDraftCookie(e.target.value)} />
-                <button onClick={connect} disabled={!draftCookie.trim() || status === 'connecting'} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 mt-1 disabled:opacity-40">Connect with cookie</button>
-              </details>
-            </>
-          ) : (
-            <>
-              <div className="text-[12px] p-2 mp-card flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.08)', color: '#15171C' }}>
-                <Sparkles size={14} className="mt-0.5 flex-shrink-0" />
-                <span><strong>One-click sign-in</strong> is available in the <strong>ModelPrep desktop app</strong> — it opens MakerWorld login in-app and saves your session automatically. On the website, use the manual method below.</span>
-              </div>
-              <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-                MakerWorld login is behind Bambu SSO + Cloudflare, so paste your session cookie. In a logged-in MakerWorld tab: DevTools → Application → Cookies → copy the <span className="mp-mono">token</span> and <span className="mp-mono">cf_clearance</span> values as <span className="mp-mono">token=…; cf_clearance=…</span>. Stored only in this browser.
-              </p>
-              <textarea className={inputCls} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={draftCookie} onChange={(e) => setDraftCookie(e.target.value)} />
-              <button onClick={connect} disabled={!draftCookie.trim() || status === 'connecting'} className="mp-btn text-xs py-2 px-3 disabled:opacity-40">
-                {status === 'connecting' ? 'Checking…' : 'Connect MakerWorld'}
-              </button>
-            </>
-          )}
+          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.55)' }}><StatusDot status="unknown" /> {platform.name} — not connected</div>
+          <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>Sign in to MakerWorld to publish. Connections are managed centrally — add or switch accounts in <strong>Connections</strong>.</p>
+          <button onClick={openConnections} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between text-[13px]">
-            <span style={{ color: 'rgba(21,23,28,0.7)' }}><Check size={14} className="inline" /> Connected to MakerWorld {!isLC && has3mf && <span className="mp-mono">· .3mf print-profile path</span>}</span>
-            <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>disconnect</button>
+          {/* Compact "publishing as" status + account switcher (sign-in lives in Connections). */}
+          <div className="flex items-center justify-between gap-2 text-[13px]">
+            <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'rgba(21,23,28,0.7)' }}>
+              <StatusDot status={active.status} /> Publishing as
+              {mwAccounts.length > 1 ? (
+                <select value={active.id} onChange={(e) => acc.setActive('makerworld', e.target.value)} className="mp-card text-[12px] p-1 max-w-[160px]">
+                  {mwAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                </select>
+              ) : <strong className="truncate">{active.label}</strong>}
+              {!isLC && has3mf && <span className="mp-mono opacity-60">· .3mf</span>}
+            </span>
+            <span className="flex items-center gap-2 flex-shrink-0">
+              <button onClick={openConnections} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>manage</button>
+              <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>disconnect</button>
+            </span>
           </div>
 
           {/* Product mode: regular 3D model vs the separate Laser & Cut product. */}
