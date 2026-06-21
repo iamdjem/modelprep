@@ -526,8 +526,12 @@ const MW_DEFAULT_OPTS = {
 // Runtime-only holder for File-based MakerWorld docs (can't live in serializable project state).
 const mwRuntimeDocs = { docGuides: [], docOthers: [] };
 
-// MakerWorld's license options (exact API strings; only "Standard Digital File License"
-// is live-verified — the CC names are the dropdown display strings, to confirm via capture).
+// MakerWorld's license options (exact API strings).
+// Verified live 2026-06-21: all CC strings below were ACCEPTED by a real private
+// publish→delete (so they're valid, won't break publishing). Exact STORED form is
+// display==stored — confirmed from public models for Standard / Exclusive / Community Use;
+// for CC the stored value couldn't be read (private models don't expose `license`), so the
+// CC strings are accepted-verified but not byte-confirmed as stored (capture the form to nail).
 const MW_LICENSE_OPTIONS = [
   'Creative Commons Public Domain',
   'Creative Commons Attribution',
