@@ -2398,6 +2398,40 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                   )}
                 </div>
               </div>
+
+              {/* Print-profile photos — MakerWorld requires ≥1 photo of the PRINTED model
+                  for this profile (or it can be taken down). Picked here, used at publish. */}
+              <div>
+                <Label>Print profile photos <span style={{ opacity: 0.6, fontWeight: 400 }}>· photos of the printed model (MakerWorld requires ≥1)</span></Label>
+                {project.images.length === 0 ? (
+                  <p className="text-xs" style={{ color: '#B23A1A' }}>Add images in step 03 first — at least one printed-model photo is required.</p>
+                ) : (
+                  <div className="grid grid-cols-5 md:grid-cols-6 gap-2">
+                    {project.images.map(img => {
+                      const ids = active.photoIds || [];
+                      const on = ids.includes(img.id);
+                      return (
+                        <button key={img.id} type="button"
+                          onClick={() => updateProfile(active.id, { photoIds: on ? ids.filter(x => x !== img.id) : [...ids, img.id] })}
+                          className="relative aspect-square overflow-hidden transition"
+                          style={{ outline: on ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: -1 }}
+                          title={on ? 'Selected as print-profile photo' : 'Use as print-profile photo'}>
+                          <img src={img.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: on ? 1 : 0.55 }} />
+                          {on && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: '#FF5722' }}><Check size={10} color="#fff" /></span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {(active.photoIds || []).length === 0 && project.images.length > 0 && (
+                  <p className="text-xs mt-1" style={{ color: '#B23A1A' }}>None selected — your cover image will be used. Pick real printed-model photos to avoid takedown.</p>
+                )}
+              </div>
+
+              <label className="flex items-start gap-2 text-xs mt-1" style={{ color: 'rgba(21,23,28,0.75)' }}>
+                <input type="checkbox" checked={!!active.guidelinesOk} onChange={(e) => updateProfile(active.id, { guidelinesOk: e.target.checked })} className="mt-0.5" style={{ accentColor: '#FF5722' }} />
+                I've read the MakerWorld Print Profile Guidelines and this profile meets the requirements.
+              </label>
             </>
           )}
         </div>
@@ -4172,9 +4206,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   const [categoryId, setCategoryId] = useState(401);
   const [visibility, setVisibility] = useState('private'); // default private (safety)
   const [license, setLicense] = useState('Standard Digital File License');
-  const [profileName, setProfileName] = useState('0.2mm layer, 2 walls, 15% infill');
-  const [guidelinesOk, setGuidelinesOk] = useState(false);
-  const [profilePicIds, setProfilePicIds] = useState(() => project.coverImageId ? [project.coverImageId] : []); // .3mf print-profile photos (image ids)
+  // Print-profile name/photos/guidelines now live in the Profiles step (per .3mf); derived below.
   const [communityPost, setCommunityPost] = useState(false);
 
   // --- product mode + advanced options ---
@@ -4195,6 +4227,13 @@ function MakerWorldUploadFlow({ platform, project }) {
   const modelFiles = project.files.filter(f => f.isModel && f.blob);
   const has3mf = modelFiles.some(f => /\.3mf$/i.test(f.name));
   const bomCount = boms.kits.length + boms.filaments.length + boms.materials.length;
+
+  // The .3mf's print profile (name, photos, guidelines) is configured in the Profiles step.
+  const mw3mfFile = modelFiles.find(f => /\.3mf$/i.test(f.name));
+  const mwProfile = project.profiles?.find(p => p.fileId === mw3mfFile?.id) || project.profiles?.[0] || null;
+  const profileName = mwProfile?.name || 'Print profile';
+  const profilePicIds = mwProfile?.photoIds || [];
+  const guidelinesOk = !!mwProfile?.guidelinesOk;
 
   const ensureCatalog = async () => {
     if (catalog) return catalog;
@@ -4237,7 +4276,7 @@ function MakerWorldUploadFlow({ platform, project }) {
       const coverImg = project.images.find(i => i.id === project.coverImageId) || project.images[0];
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
       if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
-      if (!isLC && has3mf && !guidelinesOk) throw new Error('This is a .3mf (print-profile) upload — confirm you\'ve read the Print Profile Guidelines below.');
+      if (!isLC && has3mf && !guidelinesOk) throw new Error('This is a .3mf (print-profile) upload — open the Profiles step and confirm you\'ve read the Print Profile Guidelines for this profile.');
       if (modelSource === 'remix' && !remixModel) throw new Error('Remix mode is on — search and select the original model you remixed (or switch Source back to Original).');
 
       setProgressMsg('Uploading cover…');
@@ -4393,35 +4432,12 @@ function MakerWorldUploadFlow({ platform, project }) {
             </label>
           </div>
           {!isLC && has3mf && (
-            <div className="mp-card p-2 space-y-2" style={{ background: 'rgba(255,105,0,0.06)' }}>
-              <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Print profile name</span>
-                <input className={inputCls} value={profileName} onChange={(e) => setProfileName(e.target.value)} />
-              </label>
-              {/* Print profile photos — MakerWorld requires ≥1 photo of the printed model. */}
-              <div className="space-y-1">
-                <span className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Print profile photos <span className="opacity-60">· tap to pick photos of the printed model (≥1 required)</span></span>
-                {project.images.length === 0 ? (
-                  <div className="text-[11px]" style={{ color: '#B23A1A' }}>Add images in step 03 first — at least one printed-model photo is required.</div>
-                ) : (
-                  <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
-                    {project.images.map((img) => {
-                      const on = profilePicIds.includes(img.id);
-                      return (
-                        <button key={img.id} type="button" onClick={() => setProfilePicIds((ids) => on ? ids.filter((x) => x !== img.id) : [...ids, img.id])}
-                          className="relative aspect-square overflow-hidden" style={{ outline: on ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: '-1px' }} title={on ? 'Selected as print-profile photo' : 'Use as print-profile photo'}>
-                          <img src={img.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: on ? 1 : 0.55 }} />
-                          {on && <span className="absolute top-0.5 right-0.5 rounded-full flex items-center justify-center" style={{ width: 14, height: 14, background: '#FF5722' }}><Check size={9} color="#fff" /></span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {project.images.length > 0 && profilePicIds.length === 0 && <div className="text-[11px]" style={{ color: '#B23A1A' }}>No photos selected — the cover image will be used. Pick real printed-model photos to avoid takedown.</div>}
-              </div>
-              <label className="flex items-start gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-                <input type="checkbox" checked={guidelinesOk} onChange={(e) => setGuidelinesOk(e.target.checked)} className="mt-0.5" />
-                I've read the MakerWorld Print Profile Guidelines and my profile meets the requirements.
-              </label>
+            <div className="mp-card p-2 text-[12px] flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.75)' }}>
+              <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#FF5722' }} />
+              <span>
+                Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'} · guidelines {guidelinesOk ? '✓' : '✗'}.{' '}
+                Edit the name, printed-model photos, and guidelines in the <strong>Profiles</strong> step.
+              </span>
             </div>
           )}
           {/* ---- Source / remix (3D mode) ---- */}
