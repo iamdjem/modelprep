@@ -3530,10 +3530,8 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
 // .env.production for prod builds (committed; points at the deployed Worker).
 const WORKER_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORKER_URL)
   || 'http://localhost:8787';
-// localStorage key — new schema (email/password). The previous key
-// `modelprep:cults-creds` held {username, apiKey} for the GraphQL flow;
-// anyone with that saved will just have to reconnect with email+password.
-const CULTS_CREDS_KEY = 'modelprep:cults-web-creds';
+// Cults credentials now live in the accounts store; lib/accounts.js migrates the
+// legacy `modelprep:cults-web-creds` key on first load.
 
 function CultsUploadFlow({ platform, project }) {
   const acc = useAccounts();
@@ -4101,7 +4099,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
 // grabbed). Files upload one-by-one to the Worker (which presigns + PUTs to
 // MakerWorld's S3), then one /publish call with the URLs. Backend:
 // backend/src/adapters/makerworld-web.ts + /api/v1/makerworld/web/*.
-const MW_COOKIE_KEY = 'modelprep:makerworld-cookie';
+// (Session now lives in the accounts store; lib/accounts.js migrates the legacy
+// `modelprep:makerworld-cookie` key on first load.)
 // Curated MakerWorld category IDs (int leaf ids). 401 is confirmed; others follow
 // the captured parent+offset pattern. Refine via the categories endpoint later.
 const MW_CATEGORIES = [
