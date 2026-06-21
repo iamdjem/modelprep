@@ -138,7 +138,7 @@ const PLATFORMS = [
     id: 'makerworld', name: 'MakerWorld', org: 'Bambu Lab', dot: '#FF6900',
     covers: [
       { id: 'web', label: 'Web cover', w: 1920, h: 1440, aspect: '4:3' },
-      { id: 'app', label: 'App cover', w: 1500, h: 1500, aspect: '1:1' },
+      { id: 'app', label: 'App cover', w: 1500, h: 2000, aspect: '3:4' },
     ],
     descFormat: 'html', maxImages: 16, maxFileMb: 150, maxTotalMb: 250,
     formats: ['3mf', 'stl', 'step', 'obj'], hasApi: false, apiSupport: 'manual',
@@ -4359,11 +4359,6 @@ function MakerWorldUploadFlow({ platform, project }) {
   // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
   const disconnect = () => { if (active) acc.removeAccount('makerworld', active.id); setStatus('idle'); setResult(null); };
 
-  const imgToFile = async (img, fallback) => {
-    const blob = await fetch(img.dataUrl).then(r => r.blob());
-    const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-    return new File([blob], `${slugify(img.alt || fallback)}.${ext}`, { type: blob.type || 'image/jpeg' });
-  };
   const uploadOne = async (fileOrBlob, name) => {
     const fd = new FormData();
     fd.append('file', fileOrBlob, name);
@@ -4383,18 +4378,26 @@ function MakerWorldUploadFlow({ platform, project }) {
       if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
       if (modelSource === 'remix' && !remixModel) throw new Error('Remix mode is on — search and select the original model you remixed (or switch Source back to Original).');
 
-      setProgressMsg('Uploading cover…');
-      const coverFile = await imgToFile(coverImg, 'cover');
-      const cover = await uploadOne(coverFile, coverFile.name);
-      const imageUrlById = { [coverImg.id]: cover.url }; // image id → uploaded url (for the print-profile picker)
-      const galleryImgs = project.images.filter(i => i.id !== coverImg.id);
+      // Crop every image to MakerWorld's exact aspects (4:3 web cover + 3:4 app cover,
+      // 4:3 gallery) using the focal point, and re-encode to JPEG — so the uploaded files
+      // match the per-platform preview instead of being raw images MakerWorld center-crops.
+      const webSpec = platform.covers.find(c => c.aspect === '4:3') || platform.covers[0];
+      const appSpec = platform.covers.find(c => c.aspect === '3:4');
+      setProgressMsg('Preparing cover…');
+      const cover = await uploadOne(await cropImageToBlob(coverImg, webSpec.w, webSpec.h), 'cover.jpg');
+      const imageUrlById = { [coverImg.id]: cover.url }; // image id → uploaded 4:3 url (for the print-profile picker)
       let portraitUrl = cover.url;
-      if (galleryImgs[0]) { const pf = await imgToFile(galleryImgs[0], 'cover-portrait'); portraitUrl = (await uploadOne(pf, pf.name)).url; imageUrlById[galleryImgs[0].id] = portraitUrl; }
+      if (appSpec) { portraitUrl = (await uploadOne(await cropImageToBlob(coverImg, appSpec.w, appSpec.h), 'cover-portrait.jpg')).url; }
 
-      setProgressMsg('Uploading gallery…');
+      // Gallery / Model Pictures — crop each to MakerWorld's recommended 4:3, capped at maxImages.
+      const galleryImgs = project.images.filter(i => i.id !== coverImg.id).slice(0, platform.maxImages);
+      setProgressMsg('Preparing gallery…');
       const galleryUrls = [];
-      for (let i = 1; i < galleryImgs.length; i++) { const f = await imgToFile(galleryImgs[i], `image-${i + 1}`); const u = (await uploadOne(f, f.name)).url; galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u; }
-      // Print-profile photos (.3mf): the user-picked images, falling back to the cover.
+      for (let i = 0; i < galleryImgs.length; i++) {
+        const u = (await uploadOne(await cropImageToBlob(galleryImgs[i], webSpec.w, webSpec.h), `image-${i + 2}.jpg`)).url;
+        galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u;
+      }
+      // Print-profile photos (.3mf): the user-picked images (already cropped 4:3), fallback to cover.
       const profilePicUrls = (profilePicIds.length ? profilePicIds : [coverImg.id]).map((id) => imageUrlById[id]).filter(Boolean);
 
       setProgressMsg('Uploading model files…');
@@ -4731,6 +4734,32 @@ function MakerWorldOptions({ opts, onUpdate }) {
     </div>
   );
 }
+// Render a project image to a platform-correct image Blob: crop to the exact target
+// aspect/dimensions using the image's focal point, and re-encode (default JPEG) — so the
+// UPLOADED file matches the per-platform preview, in an accepted format and a sane size.
+function cropImageToBlob(image, w, h, mime = 'image/jpeg', quality = 0.92) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        const aspect = w / h;
+        const srcA = img.naturalWidth / img.naturalHeight;
+        const fx = image.focal?.x ?? 0.5, fy = image.focal?.y ?? 0.5;
+        let sx, sy, sw, sh;
+        if (srcA > aspect) { sh = img.naturalHeight; sw = sh * aspect; sy = 0; sx = (img.naturalWidth - sw) * fx; }
+        else { sw = img.naturalWidth; sh = sw / aspect; sx = 0; sy = (img.naturalHeight - sh) * fy; }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+        canvas.toBlob((b) => b ? resolve(b) : reject(new Error('crop encode failed')), mime, quality);
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error('image load failed'));
+    img.src = image.dataUrl;
+  });
+}
+
 function CoverPreview({ image, cover, onDownload, hideDownload }) {
   const canvasRef = useRef(null);
   useEffect(() => {
