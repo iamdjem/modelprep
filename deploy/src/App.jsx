@@ -865,14 +865,18 @@ export default function App() {
       />
       <VersionBanner />
 
-      <div className="flex flex-col lg:flex-row max-w-[1400px] mx-auto" style={{ minHeight: 'calc(100vh - 81px - 32px)' }}>
+      {/* No forced full-viewport height — the content area is exactly as tall as its
+          content, so SectionNav (Back/Next) flows right after the content instead of
+          being pushed to the bottom edge against the status bar. The outer min-h-screen
+          div keeps the background full-height on short pages. */}
+      <div className="flex flex-col lg:flex-row max-w-[1400px] mx-auto">
         <Sidebar
           currentSection={currentSection}
           setCurrentSection={setCurrentSection}
           completion={completion}
         />
 
-        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden pb-16">
+        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden pb-20">
           {currentSection === 'files' && (
             <FilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
           )}
