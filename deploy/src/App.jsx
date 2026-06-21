@@ -526,33 +526,27 @@ const MW_DEFAULT_OPTS = {
 // Runtime-only holder for File-based MakerWorld docs (can't live in serializable project state).
 const mwRuntimeDocs = { docGuides: [], docOthers: [] };
 
-// MakerWorld's license options (exact API strings).
-// Verified live 2026-06-21: all CC strings below were ACCEPTED by a real private
-// publish→delete (so they're valid, won't break publishing). Exact STORED form is
-// display==stored — confirmed from public models for Standard / Exclusive / Community Use;
-// for CC the stored value couldn't be read (private models don't expose `license`), so the
-// CC strings are accepted-verified but not byte-confirmed as stored (capture the form to nail).
+// MakerWorld's license options as {label (UI), value (exact API `license` string)}.
+// VERIFIED 2026-06-21 (browser-agent capture from the live license config module +
+// PUT /my/draft/<id> round-trips): CC licenses use SHORT CODES (CC0/BY/BY-SA/…);
+// SDFL/Exclusive use the full string. The backend derives all share/commercial flags
+// from this single string (the four radio questions are just a UX affordance).
 const MW_LICENSE_OPTIONS = [
-  'Creative Commons Public Domain',
-  'Creative Commons Attribution',
-  'Creative Commons Attribution-Share Alike',
-  'Creative Commons Attribution-NoDerivatives',
-  'Creative Commons Attribution-Noncommercial',
-  'Creative Commons Attribution-Noncommercial-Share Alike',
-  'Creative Commons Attribution-Noncommercial-NoDerivatives',
-  'Standard Digital File License',
-  'MakerWorld Exclusive License',
-  'Standard Digital File License - Community Use',
-  'Standard Digital File License - Platform Print Only (SDFL-PPO)',
+  { label: 'Creative Commons Public Domain', value: 'CC0' },
+  { label: 'Creative Commons Attribution', value: 'BY' },
+  { label: 'Creative Commons Attribution-Share Alike', value: 'BY-SA' },
+  { label: 'Creative Commons Attribution-NoDerivatives', value: 'BY-ND' },
+  { label: 'Creative Commons Attribution-Noncommercial', value: 'BY-NC' },
+  { label: 'Creative Commons Attribution-Noncommercial-Share Alike', value: 'BY-NC-SA' },
+  { label: 'Creative Commons Attribution-Noncommercial-NoDerivatives', value: 'BY-NC-ND' },
+  { label: 'Standard Digital File License', value: 'Standard Digital File License' },
+  { label: 'MakerWorld Exclusive License', value: 'MakerWorld Exclusive License' },
+  { label: 'Standard Digital File License - Community Use', value: 'Standard Digital File License - Community Use' },
+  { label: 'Standard Digital File License - Platform Print Only (SDFL-PPO)', value: 'Standard Digital File License - Platform Print Only (SDFL-PPO)' },
 ];
-// Our Details-step license id → the MakerWorld license string.
+// Our Details-step license id → the MakerWorld license API value.
 const MW_LICENSE_MAP = {
-  cc0: 'Creative Commons Public Domain',
-  ccby: 'Creative Commons Attribution',
-  ccbysa: 'Creative Commons Attribution-Share Alike',
-  ccbync: 'Creative Commons Attribution-Noncommercial',
-  ccbyncsa: 'Creative Commons Attribution-Noncommercial-Share Alike',
-  ccbynd: 'Creative Commons Attribution-NoDerivatives',
+  cc0: 'CC0', ccby: 'BY', ccbysa: 'BY-SA', ccbync: 'BY-NC', ccbyncsa: 'BY-NC-SA', ccbynd: 'BY-ND',
   standard: 'Standard Digital File License',
 };
 // Resolve the MakerWorld license: explicit override > mapped from Details > MakerWorld default.
@@ -4627,7 +4621,7 @@ function MakerWorldOptions({ opts, onUpdate }) {
       <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>License</span>
         <select className={inputCls} value={o.license || ''} onChange={(e) => onUpdate('license', e.target.value)}>
           <option value="">Same as Details step</option>
-          {MW_LICENSE_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+          {MW_LICENSE_OPTIONS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
         </select>
         <span className="text-[10px] block" style={{ color: 'rgba(21,23,28,0.5)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
       </label>

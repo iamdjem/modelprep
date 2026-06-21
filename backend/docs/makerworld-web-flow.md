@@ -170,3 +170,57 @@ Optional sections (all supported as passthrough in the adapter):
 - Re-capture flow when something breaks: use the kit at `/Users/alex/makerworld-capture/`
   (`bash run.sh`, `capture-*.mjs`) — it decrypts the user's Chrome cookies + injects into a
   stealth browser, so it needs no login.
+
+## Browser-agent verified findings (2026-06-21)
+
+Captured by an agent with full browser access (license config module + live PUT round-trips
++ a real submitted→rejected test). These resolve the items the Worker can't observe (SSR/HTML
+is Cloudflare-blocked server-side).
+
+### License — exact API `license` values
+The PUT body sends ONLY the `license` string; the backend derives all share/commercial flags
+from it (the 4 license radio questions are just UX). **CC licenses use SHORT CODES; SDFL/
+Exclusive use the full string.** UI label → API value:
+
+| UI label | API `license` |
+|---|---|
+| Creative Commons Public Domain | `CC0` |
+| Creative Commons Attribution | `BY` |
+| Creative Commons Attribution-Share Alike | `BY-SA` |
+| Creative Commons Attribution-NoDerivatives | `BY-ND` |
+| Creative Commons Attribution-Noncommercial | `BY-NC` |
+| Creative Commons Attribution-Noncommercial-Share Alike | `BY-NC-SA` |
+| Creative Commons Attribution-Noncommercial-NoDerivatives | `BY-NC-ND` |
+| Standard Digital File License | `Standard Digital File License` |
+| MakerWorld Exclusive License | `MakerWorld Exclusive License` |
+| Standard Digital File License - Community Use | `Standard Digital File License - Community Use` |
+| Standard Digital File License - Platform Print Only (SDFL-PPO) | `Standard Digital File License - Platform Print Only (SDFL-PPO)` |
+
+All 11 accepted by PUT (200); `BY-SA` additionally verified through our full publish+submit.
+(ModelPrep: `MW_LICENSE_MAP`/`MW_LICENSE_OPTIONS` in deploy/src/App.jsx use these values.)
+
+### Verifying / Failed (rejected) models — SSR only
+Both are Next.js `_next/data`, NOT JSON REST (so the Worker, Cloudflare-blocked on SSR,
+CANNOT fetch them — the desktop app's real browser CAN):
+- Verifying: `GET /_next/data/{buildId}/en/@{handle}/verifying.json?handle={handle}`
+- Failed:    `GET /_next/data/{buildId}/en/@{handle}/verify-failed.json?handle={handle}`
+- `pageProps`: `{ drafts:[…], uploadCount:{instCnt,verifyingCnt,failedCnt,draftCnt,designCnt,presetCnt}, … }`.
+  The profile tab counts come from `uploadCount` (no separate call). Also `pageProps.sliceFailReason`
+  = 95-entry slicer-error code list.
+- **Status model:** a draft's `status=8` covers BOTH verifying and failed; distinguish by
+  `resultType` (0 = still pending/verifying, non-zero = rejected) + `resultDesc` (human reason).
+  `status=1` (+ a real `designId`) = LIVE (appears in `/my/design/published`). `opStatus` exists
+  only on live designs (=1). Example rejection: `resultType 6401`, `resultDesc "System detected
+  no real life photo"` (a content-policy AI check, not a slicer error).
+
+### Other
+- **Token refresh** `POST /api/v1/user-service/user/refreshtoken {refreshToken}` is LIVE
+  (400 "field refreshToken is not set" if missing; 401 if invalid). Success body shape still
+  UNVERIFIED (refreshToken is HttpOnly, unreadable from JS).
+- **Tag limit:** UI caps at 50; PUT does NOT enforce (50 and 100 both 200). Client-side only.
+- **categoryId:** no leaf enforcement at PUT (parent 400 and leaf 401 both accepted).
+- **submitAsPrivate** in `designSetting`/`instanceSetting` is a BOOLEAN (our adapter already sends bool).
+- **edit.json** `pageProps` keys confirmed: `draft, categories (11 top-level), boms,
+  filamentBoms, materials, forbiddenWords (64 entries), id, userInfo`.
+- `modelFiles[].modelUrl` in the PUT may carry signed CDN query params (`?at=&exp=&key=&uid=`);
+  the backend ignores them — the bare CDN path is fine (what we send).
