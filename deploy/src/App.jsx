@@ -2734,6 +2734,7 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
   const [expandSignal, setExpandSignal] = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
   const [allExpanded, setAllExpanded] = useState(true); // cards default to expanded
+  const [showZip, setShowZip] = useState(false); // manual .zip fallback — collapsed, at the bottom
   const toggleAll = () => {
     if (allExpanded) { setCollapseSignal(n => n + 1); setAllExpanded(false); }
     else { setExpandSignal(n => n + 1); setAllExpanded(true); }
@@ -2799,6 +2800,23 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
             collapseSignal={collapseSignal}
           />
         ))}
+      </div>
+
+      {/* Manual .zip packages — kept as a fallback, demoted to the bottom, collapsed by default. */}
+      <div className="mt-6 mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+        <button onClick={() => setShowZip(s => !s)} className="w-full flex items-center gap-2 p-3 text-left">
+          {showZip ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span className="mp-display text-[15px]">Download .zip packages</span>
+          <span className="text-[12px] ml-auto" style={{ color: 'rgba(21,23,28,0.5)' }}>manual fallback</span>
+        </button>
+        {showZip && (
+          <div className="px-3 pb-3 flex flex-col md:flex-row md:items-center gap-3">
+            <p className="mp-body text-xs leading-relaxed flex-1" style={{ color: 'rgba(21,23,28,0.7)' }}>
+              Packs the cover at exact dimensions, gallery images cropped per platform, your description in each format (md / html / txt), a paste-ready metadata.txt, a README, and a /files folder. For platforms without one-click upload — open their upload page and drop the contents in.
+            </p>
+            <BatchZipButton enabled={enabled} project={project} cover={cover} />
+          </div>
+        )}
       </div>
 
       <SectionNav backLabel="Back to Platforms" onBack={() => setCurrentSection('platforms')} />
