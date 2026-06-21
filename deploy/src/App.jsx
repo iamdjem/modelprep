@@ -2499,10 +2499,9 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                 )}
               </div>
 
-              <label className="flex items-start gap-2 text-xs mt-1" style={{ color: 'rgba(21,23,28,0.75)' }}>
-                <input type="checkbox" checked={!!active.guidelinesOk} onChange={(e) => updateProfile(active.id, { guidelinesOk: e.target.checked })} className="mt-0.5" style={{ accentColor: '#FF5722' }} />
-                I've read the MakerWorld Print Profile Guidelines and this profile meets the requirements.
-              </label>
+              <p className="text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.5)' }}>
+                By publishing, you confirm this print profile meets MakerWorld's <a href="https://makerworld.com/en/rules" target="_blank" rel="noopener noreferrer" className="underline">Print Profile Guidelines</a>.
+              </p>
             </>
           )}
         </div>
@@ -4287,7 +4286,6 @@ function MakerWorldUploadFlow({ platform, project }) {
   const mwProfile = project.profiles?.find(p => p.fileId === mw3mfFile?.id) || project.profiles?.[0] || null;
   const profileName = mwProfile?.name || 'Print profile';
   const profilePicIds = mwProfile?.photoIds || [];
-  const guidelinesOk = !!mwProfile?.guidelinesOk;
   const catLabel = MW_CATEGORIES.find(c => String(c.id) === String(categoryId))?.label || categoryId;
 
   // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
@@ -4315,7 +4313,6 @@ function MakerWorldUploadFlow({ platform, project }) {
       const coverImg = project.images.find(i => i.id === project.coverImageId) || project.images[0];
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
       if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
-      if (!isLC && has3mf && !guidelinesOk) throw new Error('This is a .3mf (print-profile) upload — open the Profiles step and confirm you\'ve read the Print Profile Guidelines for this profile.');
       if (modelSource === 'remix' && !remixModel) throw new Error('Remix mode is on — search and select the original model you remixed (or switch Source back to Original).');
 
       setProgressMsg('Uploading cover…');
@@ -4385,7 +4382,7 @@ function MakerWorldUploadFlow({ platform, project }) {
           ...(hasBom ? { boms: { ...boms, ...(otherParts.length ? { otherParts } : {}) } } : {}),
           ...(designGuide.length ? { designGuide } : {}),
           ...(designOther.length ? { designOther } : {}),
-          ...(model3mf ? { model3mf, printProfile: { title: profileName, pictureUrls: profilePicUrls.length ? profilePicUrls : [cover.url], isPrinterTested: guidelinesOk } } : {}),
+          ...(model3mf ? { model3mf, printProfile: { title: profileName, pictureUrls: profilePicUrls.length ? profilePicUrls : [cover.url], isPrinterTested: true } } : {}),
           ...(communityPost ? { communityPost: { content: project.description || '' } } : {}),
         };
       }
@@ -4450,7 +4447,7 @@ function MakerWorldUploadFlow({ platform, project }) {
           {!isLC && has3mf && (
             <div className="mp-card p-2 text-[12px] flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.75)' }}>
               <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#FF5722' }} />
-              <span>Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'} · guidelines {guidelinesOk ? '✓' : '✗'}. Edit in the <strong>Profiles</strong> step.</span>
+              <span>Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'}. Edit in the <strong>Profiles</strong> step.</span>
             </div>
           )}
 
