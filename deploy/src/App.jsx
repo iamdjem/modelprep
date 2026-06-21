@@ -4174,6 +4174,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   const [license, setLicense] = useState('Standard Digital File License');
   const [profileName, setProfileName] = useState('0.2mm layer, 2 walls, 15% infill');
   const [guidelinesOk, setGuidelinesOk] = useState(false);
+  const [profilePicIds, setProfilePicIds] = useState(() => project.coverImageId ? [project.coverImageId] : []); // .3mf print-profile photos (image ids)
   const [communityPost, setCommunityPost] = useState(false);
 
   // --- product mode + advanced options ---
@@ -4242,13 +4243,16 @@ function MakerWorldUploadFlow({ platform, project }) {
       setProgressMsg('Uploading cover…');
       const coverFile = await imgToFile(coverImg, 'cover');
       const cover = await uploadOne(coverFile, coverFile.name);
+      const imageUrlById = { [coverImg.id]: cover.url }; // image id → uploaded url (for the print-profile picker)
       const galleryImgs = project.images.filter(i => i.id !== coverImg.id);
       let portraitUrl = cover.url;
-      if (galleryImgs[0]) { const pf = await imgToFile(galleryImgs[0], 'cover-portrait'); portraitUrl = (await uploadOne(pf, pf.name)).url; }
+      if (galleryImgs[0]) { const pf = await imgToFile(galleryImgs[0], 'cover-portrait'); portraitUrl = (await uploadOne(pf, pf.name)).url; imageUrlById[galleryImgs[0].id] = portraitUrl; }
 
       setProgressMsg('Uploading gallery…');
       const galleryUrls = [];
-      for (let i = 1; i < galleryImgs.length; i++) { const f = await imgToFile(galleryImgs[i], `image-${i + 1}`); galleryUrls.push((await uploadOne(f, f.name)).url); }
+      for (let i = 1; i < galleryImgs.length; i++) { const f = await imgToFile(galleryImgs[i], `image-${i + 1}`); const u = (await uploadOne(f, f.name)).url; galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u; }
+      // Print-profile photos (.3mf): the user-picked images, falling back to the cover.
+      const profilePicUrls = (profilePicIds.length ? profilePicIds : [coverImg.id]).map((id) => imageUrlById[id]).filter(Boolean);
 
       setProgressMsg('Uploading model files…');
       let model3mf = null; const mfList = [];
@@ -4303,7 +4307,7 @@ function MakerWorldUploadFlow({ platform, project }) {
           ...(hasBom ? { boms: { ...boms, ...(otherParts.length ? { otherParts } : {}) } } : {}),
           ...(designGuide.length ? { designGuide } : {}),
           ...(designOther.length ? { designOther } : {}),
-          ...(model3mf ? { model3mf, printProfile: { title: profileName, pictureUrls: [cover.url], isPrinterTested: guidelinesOk } } : {}),
+          ...(model3mf ? { model3mf, printProfile: { title: profileName, pictureUrls: profilePicUrls.length ? profilePicUrls : [cover.url], isPrinterTested: guidelinesOk } } : {}),
           ...(communityPost ? { communityPost: { content: project.description || '' } } : {}),
         };
       }
@@ -4393,6 +4397,27 @@ function MakerWorldUploadFlow({ platform, project }) {
               <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Print profile name</span>
                 <input className={inputCls} value={profileName} onChange={(e) => setProfileName(e.target.value)} />
               </label>
+              {/* Print profile photos — MakerWorld requires ≥1 photo of the printed model. */}
+              <div className="space-y-1">
+                <span className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Print profile photos <span className="opacity-60">· tap to pick photos of the printed model (≥1 required)</span></span>
+                {project.images.length === 0 ? (
+                  <div className="text-[11px]" style={{ color: '#B23A1A' }}>Add images in step 03 first — at least one printed-model photo is required.</div>
+                ) : (
+                  <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
+                    {project.images.map((img) => {
+                      const on = profilePicIds.includes(img.id);
+                      return (
+                        <button key={img.id} type="button" onClick={() => setProfilePicIds((ids) => on ? ids.filter((x) => x !== img.id) : [...ids, img.id])}
+                          className="relative aspect-square overflow-hidden" style={{ outline: on ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: '-1px' }} title={on ? 'Selected as print-profile photo' : 'Use as print-profile photo'}>
+                          <img src={img.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: on ? 1 : 0.55 }} />
+                          {on && <span className="absolute top-0.5 right-0.5 rounded-full flex items-center justify-center" style={{ width: 14, height: 14, background: '#FF5722' }}><Check size={9} color="#fff" /></span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {project.images.length > 0 && profilePicIds.length === 0 && <div className="text-[11px]" style={{ color: '#B23A1A' }}>No photos selected — the cover image will be used. Pick real printed-model photos to avoid takedown.</div>}
+              </div>
               <label className="flex items-start gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
                 <input type="checkbox" checked={guidelinesOk} onChange={(e) => setGuidelinesOk(e.target.checked)} className="mt-0.5" />
                 I've read the MakerWorld Print Profile Guidelines and my profile meets the requirements.
