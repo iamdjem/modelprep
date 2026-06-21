@@ -12,6 +12,11 @@
 const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const path = require('node:path');
 
+// The app renders multiple <canvas> cover previews; GPU-accelerated canvas can crash the
+// renderer with EXC_BAD_ACCESS/SIGBUS on some Macs. Software rendering is plenty fast here
+// and avoids the crash.
+app.disableHardwareAcceleration();
+
 // Must match the User-Agent the Worker replays with (backend/src/adapters/makerworld-web.ts),
 // so the cf_clearance the embedded login earns is bound to a UA the Worker also sends.
 const WORKER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';

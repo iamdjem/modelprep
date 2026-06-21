@@ -2798,6 +2798,7 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
             platformState={project.platforms[p.id]}
             expandSignal={expandSignal}
             collapseSignal={collapseSignal}
+            setCurrentSection={setCurrentSection}
           />
         ))}
       </div>
@@ -3002,7 +3003,7 @@ function BatchZipButton({ enabled, project, cover }) {
   );
 }
 
-function PlatformPackageCard({ platform, project, cover, platformState, expandSignal = 0, collapseSignal = 0 }) {
+function PlatformPackageCard({ platform, project, cover, platformState, expandSignal = 0, collapseSignal = 0, setCurrentSection }) {
   const [expanded, setExpanded] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [progressMsg, setProgressMsg] = useState(null);
@@ -3278,6 +3279,9 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
 
           </>
           )}
+
+          {/* Read-only listing preview (collapsed) — verify per-platform before publishing. */}
+          {hasRealUpload && <PlatformPreview platform={platform} project={project} cover={cover} setCurrentSection={setCurrentSection} />}
 
           {/* Real upload (live). Other API platforms still simulated until their flows land. */}
           {platform.id === 'cults' && <CultsUploadFlow platform={platform} project={project} />}
@@ -4724,7 +4728,7 @@ function MakerWorldOptions({ opts, onUpdate }) {
     </div>
   );
 }
-function CoverPreview({ image, cover, onDownload }) {
+function CoverPreview({ image, cover, onDownload, hideDownload }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     if (!canvasRef.current || !image) return;
@@ -4751,20 +4755,22 @@ function CoverPreview({ image, cover, onDownload }) {
       <div className="absolute top-2 left-2 mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(0,0,0,0.7)', color: '#fff' }}>
         {cover.label} · {cover.w}×{cover.h}
       </div>
-      <button
-        onClick={onDownload}
-        className="absolute bottom-2 right-2 mp-mono text-[12px] uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition"
-        style={{ background: '#15171C', color: '#fff' }}
-        onMouseEnter={(e) => e.currentTarget.style.background = '#FF5722'}
-        onMouseLeave={(e) => e.currentTarget.style.background = '#15171C'}
-      >
-        <Download size={11} /> JPG
-      </button>
+      {!hideDownload && (
+        <button
+          onClick={onDownload}
+          className="absolute bottom-2 right-2 mp-mono text-[12px] uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition"
+          style={{ background: '#15171C', color: '#fff' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#FF5722'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#15171C'}
+        >
+          <Download size={11} /> JPG
+        </button>
+      )}
     </div>
   );
 }
 
-function GalleryThumb({ image, mainCover, onDownload }) {
+function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
   return (
     <div className="relative group aspect-square overflow-hidden" style={{ background: '#15171C' }}>
       <img
@@ -4773,19 +4779,66 @@ function GalleryThumb({ image, mainCover, onDownload }) {
         className="w-full h-full object-cover"
         style={{ objectPosition: `${image.focal.x * 100}% ${image.focal.y * 100}%` }}
       />
-      <button
-        onClick={onDownload}
-        aria-label="Download this image as JPG"
-        title="Download JPG"
-        className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[#FF5722]"
-        style={{ background: 'rgba(21,23,28,0.85)', color: '#fff' }}
-      >
-        <Download size={14} />
-      </button>
+      {!hideDownload && (
+        <button
+          onClick={onDownload}
+          aria-label="Download this image as JPG"
+          title="Download JPG"
+          className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[#FF5722]"
+          style={{ background: 'rgba(21,23,28,0.85)', color: '#fff' }}
+        >
+          <Download size={14} />
+        </button>
+      )}
     </div>
   );
 }
 
+
+// Read-only "what will be published" preview for API platforms — cover cropped to the
+// platform's spec, title, rendered description, tags, gallery — collapsed by default,
+// with jump-to-edit links. Lets you verify per-platform before publishing without the
+// old copy-paste clutter, and without diving into each step.
+function PlatformPreview({ platform, project, cover, setCurrentSection }) {
+  const [open, setOpen] = useState(false);
+  const galleryImgs = project.images.filter(i => i.id !== project.coverImageId).slice(0, Math.max(0, platform.maxImages - 1));
+  const descHtml = mdToHtml(project.description || '');
+  const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>{label}</button>;
+  const lbl = (t) => <span className="text-[11px]" style={{ color: 'rgba(21,23,28,0.6)' }}>{t}</span>;
+  return (
+    <div className="mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>Preview listing</span>
+        <span className="text-[11px] ml-auto truncate" style={{ color: 'rgba(21,23,28,0.45)', maxWidth: '55%' }}>{project.title || '(no title)'} · {project.images.length} img · {project.tags.length} tags</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-3">
+          {cover ? (
+            <div>
+              <div className="flex items-center justify-between mb-1">{lbl(`Cover · ${platform.covers.map(c => `${c.w}×${c.h}`).join(' · ')}`)}<Edit to="images" /></div>
+              <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${platform.covers.length}, minmax(0,1fr))` }}>
+                {platform.covers.map(c => <CoverPreview key={c.id} image={cover} cover={c} hideDownload />)}
+              </div>
+            </div>
+          ) : <div className="text-[11px]" style={{ color: '#B23A1A' }}>No cover image — <Edit to="images" label="add one in Images" />.</div>}
+
+          <div><div className="flex items-center justify-between mb-1">{lbl('Title')}<Edit to="details" /></div><div className="text-[14px] font-medium">{project.title || <span style={{ opacity: 0.4 }}>(no title)</span>}</div></div>
+
+          <div><div className="flex items-center justify-between mb-1">{lbl(`Description · ${platform.descFormat}`)}<Edit to="details" /></div>
+            <div className="mp-prose text-[13px] max-h-44 overflow-auto mp-card p-2.5" style={{ background: '#fff' }} dangerouslySetInnerHTML={{ __html: descHtml || '<span style="opacity:.4">(no description)</span>' }} /></div>
+
+          <div><div className="flex items-center justify-between mb-1">{lbl(`Tags · ${project.tags.length}`)}<Edit to="details" /></div><div className="text-[12px]" style={{ color: 'rgba(21,23,28,0.8)' }}>{project.tags.join(', ') || <span style={{ opacity: 0.4 }}>(none)</span>}</div></div>
+
+          {galleryImgs.length > 0 && (
+            <div><div className="flex items-center justify-between mb-1">{lbl(`Gallery · ${galleryImgs.length}`)}<Edit to="images" /></div>
+              <div className="grid grid-cols-6 gap-1.5">{galleryImgs.map(img => <GalleryThumb key={img.id} image={img} mainCover={platform.covers[0]} hideDownload />)}</div></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // =====================================================================
 // SHARED UI BITS
