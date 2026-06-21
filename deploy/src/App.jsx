@@ -15,6 +15,36 @@ import { useAccounts, getActive, CONNECTABLE } from './lib/accounts.js';
 const ConnectionsCtx = createContext(() => {});
 const useOpenConnections = () => useContext(ConnectionsCtx);
 
+// Build stamp (injected by vite.config.js) — shows exactly which version is running.
+const BUILD_COMMIT = (typeof __BUILD_COMMIT__ !== 'undefined' ? __BUILD_COMMIT__ : 'dev');
+const BUILD_TIME = (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '');
+const BUILD_LABEL = BUILD_TIME
+  ? `${BUILD_COMMIT} · ${new Date(BUILD_TIME).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+  : BUILD_COMMIT;
+
+// Polls the deployed version.json; shows a banner when a newer build is live so you
+// always know whether the open app is the latest (important for the desktop app, which
+// loads the cached website until refreshed).
+function VersionBanner() {
+  const [latest, setLatest] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) || '/';
+    const check = () => fetch(`${base}version.json?t=${Date.now()}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null).then(v => { if (alive && v) setLatest(v); }).catch(() => {});
+    check();
+    const id = setInterval(check, 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  const stale = latest && BUILD_TIME && latest.time && latest.time > BUILD_TIME;
+  if (!stale) return null;
+  return (
+    <button onClick={() => window.location.reload()} className="w-full text-center py-1.5 px-4 mp-mono text-[12px] uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ background: '#1a7f37', color: '#fff' }}>
+      <Loader size={12} /> New build available ({latest.commit}) — click to refresh
+    </button>
+  );
+}
+
 // =====================================================================
 // PLATFORM CONFIGURATION (from research report, May 2026)
 // =====================================================================
@@ -807,6 +837,7 @@ export default function App() {
         onToggleDemo={toggleDemo}
         onOpenConnections={() => setShowConnections(true)}
       />
+      <VersionBanner />
 
       <div className="flex flex-col lg:flex-row max-w-[1400px] mx-auto" style={{ minHeight: 'calc(100vh - 81px - 32px)' }}>
         <Sidebar
@@ -1067,7 +1098,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
           <div className="min-w-0">
             <div className="flex items-baseline gap-2.5">
               <h1 className="mp-display text-[26px] leading-none">ModelPrep</h1>
-              <span className="hidden sm:inline mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.45)' }}>v0.3 · build 04</span>
+              <span className="hidden sm:inline mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.45)' }} title={`Build ${BUILD_COMMIT}${BUILD_TIME ? ' · ' + new Date(BUILD_TIME).toISOString() : ''}`}>v0.3 · {BUILD_LABEL}</span>
             </div>
             <div className="flex items-center gap-1.5 mt-1">
               {editingName ? (
