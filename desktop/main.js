@@ -17,18 +17,23 @@ const path = require('node:path');
 const WORKER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 // Where the ModelPrep web app lives. Override with MODELPREP_URL for local dev.
 const MODELPREP_URL = process.env.MODELPREP_URL || 'https://iamdjem.github.io/modelprep/';
-const MW_LOGIN_URL = 'https://makerworld.com/en/login';
+// Load the MakerWorld homepage and let the user click its own "Sign In" — the same
+// approach the MakerStats iOS app uses. (There is no /en/login page; it 404s.)
+const MW_LOGIN_URL = 'https://makerworld.com/';
 const MW_PARTITION = 'persist:makerworld'; // persistent session so cf_clearance survives
 const WANT = ['token', 'cf_clearance', 'refreshToken'];
 
 function mwSession() { return session.fromPartition(MW_PARTITION); }
 
 // Read MakerWorld cookies from the embedded session; return the assembled string or null.
+// Signed in == `token` OR `refreshToken` present (matches MakerStats iOS's auth check);
+// cf_clearance is bundled when present (Cloudflare sets it while browsing) — the Worker
+// needs it for server-side replay, but it shouldn't gate login detection.
 async function readMwCookie() {
   const cks = await mwSession().cookies.get({ domain: 'makerworld.com' });
   const map = {};
   for (const c of cks) { if (WANT.includes(c.name) && c.value) map[c.name] = c.value; }
-  if (!map.token || !map.cf_clearance) return null;
+  if (!map.token && !map.refreshToken) return null;
   return WANT.filter((n) => map[n]).map((n) => `${n}=${map[n]}`).join('; ');
 }
 
@@ -46,11 +51,23 @@ function createMainWindow() {
 function openLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
-      width: 480, height: 760, parent, modal: false, title: 'Sign in to MakerWorld',
+      width: 460, height: 800, parent, modal: false, title: 'Sign in to MakerWorld',
       webPreferences: { partition: MW_PARTITION, contextIsolation: true, nodeIntegration: false },
     });
     login.webContents.setUserAgent(WORKER_UA);
     login.loadURL(MW_LOGIN_URL, { userAgent: WORKER_UA });
+
+    // MakerWorld's social sign-in (Google/Apple/Facebook) uses window.open() popups.
+    // Allow them, in a child window sharing the same session + UA, so OAuth completes
+    // and writes the session cookie back into our partition (which the poll then sees).
+    login.webContents.setWindowOpenHandler(() => ({
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: login, width: 480, height: 700,
+        webPreferences: { partition: MW_PARTITION, contextIsolation: true, nodeIntegration: false },
+      },
+    }));
+    login.webContents.on('did-create-window', (child) => { try { child.webContents.setUserAgent(WORKER_UA); } catch { /* */ } });
 
     let done = false;
     const finish = (fn, val) => { if (done) return; done = true; clearInterval(poll); clearTimeout(timer); if (!login.isDestroyed()) login.close(); fn(val); };

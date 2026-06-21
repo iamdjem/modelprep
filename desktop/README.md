@@ -27,10 +27,15 @@ it at a local dev build instead: `MODELPREP_URL=http://localhost:5173 npm start`
 
 1. In ModelPrep, go to a project → **MakerWorld** → the connect box shows **Sign in to
    MakerWorld** (the website's cookie-paste is replaced by this button in the app).
-2. Click it → a MakerWorld login window opens. Sign in (and solve any Cloudflare/2FA prompt).
-3. The app detects the session (`token` + `cf_clearance`), closes the window, validates it,
-   and you're connected — ready to publish. The session is reused next time (no re-login
-   until it expires); **disconnect** clears it.
+2. Click it → a window opens on **makerworld.com**. Click MakerWorld's own **Sign In**
+   (top-right) and log in — email/password, or Google/Apple/Facebook (their OAuth popups
+   are supported). Solve any Cloudflare/2FA prompt.
+3. The app detects the session (`token`/`refreshToken` cookie, matching the MakerStats iOS
+   auth check), closes the window, validates it, and you're connected — ready to publish.
+   The session is reused next time (no re-login until it expires); **disconnect** clears it.
+
+   (Loading the homepage + using MakerWorld's own Sign In mirrors the MakerStats iOS app —
+   there is no standalone `/en/login` page; it 404s.)
 
 ## Files
 
