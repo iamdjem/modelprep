@@ -3946,7 +3946,15 @@ function ConnectForm({ platform, onDone, canCancel }) {
       const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': rawCookie } });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again (needs token + cf_clearance).');
-      acc.addAccount('makerworld', { label: (label || 'MakerWorld').trim(), secret: rawCookie, status: 'connected' });
+      // Auto-label from the MakerWorld profile (handle/name); a typed label overrides it.
+      let autoLabel = label.trim();
+      if (!autoLabel) {
+        try {
+          const me = await (await fetch(`${WORKER_URL}/api/v1/makerworld/web/whoami`, { headers: { 'X-MW-Cookie': rawCookie } })).json();
+          if (me?.handle) autoLabel = me.name ? `${me.name} (@${me.handle})` : `@${me.handle}`;
+        } catch { /* fall back below */ }
+      }
+      acc.addAccount('makerworld', { label: autoLabel || 'MakerWorld', secret: rawCookie, status: 'connected' });
       onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
@@ -3968,7 +3976,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
   // MakerWorld
   return (
     <div className="space-y-1.5">
-      <input className={inputCls} placeholder="Account name (e.g. Main)" value={label} onChange={(e) => setLabel(e.target.value)} />
+      <input className={inputCls} placeholder="Account name (optional — defaults to your @handle)" value={label} onChange={(e) => setLabel(e.target.value)} />
       {desktop ? (
         <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(r.cookie); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}</button>
       ) : (

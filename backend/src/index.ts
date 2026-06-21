@@ -37,6 +37,7 @@ import {
   mwFetchCatalogStandalone,
   mwSearchRelatedDesigns,
   mwFetchOriginalRef,
+  mwWhoami,
   mwRefreshToken,
   mwCreateLaserCutDraft,
   mwPublishLaserCut,
@@ -677,6 +678,13 @@ export default {
     if (path === '/api/v1/makerworld/web/check' && req.method === 'GET') {
       const s = getMwSession(); if (!s) return mwAuthError();
       try { return json({ ok: await mwCheckSession(s) }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/whoami — the signed-in user's profile (handle/name) for labelling.
+    if (path === '/api/v1/makerworld/web/whoami' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      try { const me = await mwWhoami(s); return json({ ok: !!me, ...(me || {}) }); }
       catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
     }
 

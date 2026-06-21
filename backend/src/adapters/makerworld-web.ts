@@ -76,6 +76,14 @@ export async function mwCheckSession(session: MakerWorldSession): Promise<boolea
   return res.status === 200;
 }
 
+/** The signed-in user's own profile — handle/name/uid/avatar — for labelling the account. */
+export async function mwWhoami(session: MakerWorldSession): Promise<{ handle?: string; name?: string; uid?: number; avatar?: string } | null> {
+  const res = await fetch(`${MW_BASE}/api/v1/design-user-service/my/profile`, { headers: mwHeaders(session) });
+  if (!res.ok) return null;
+  const d = await res.json() as { handle?: string; name?: string; uid?: number; avatar?: string };
+  return { handle: d.handle, name: d.name, uid: d.uid, avatar: d.avatar };
+}
+
 // -------------------- File upload (presign → S3 PUT) ---------------------
 
 export interface UploadedFile {

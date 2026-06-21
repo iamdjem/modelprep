@@ -103,6 +103,7 @@ Optional sections (all supported as passthrough in the adapter):
 ## Worker routes (`index.ts`), auth via `X-MW-Cookie`
 
 - `GET  /api/v1/makerworld/web/check` — session valid?
+- `GET  /api/v1/makerworld/web/whoami` — signed-in user profile for account labels. Adapter `mwWhoami` → `GET /api/v1/design-user-service/my/profile` → `{handle,name,uid,avatar}`. (Note: `/my/profile` AND `/my/preference` both return the profile; the `/my/user…` variants 404.)
 - `POST /api/v1/makerworld/web/upload` — multipart `file` (+ `useType`,`fileName`) → presign+PUT → `{url,key}`
 - `POST /api/v1/makerworld/web/publish` — JSON `MakerWorldPublishInput` (+ `draftOnly`) → create [+ publish] → `{id,status}`
 - `POST /api/v1/makerworld/web/delete` — `{id}`
