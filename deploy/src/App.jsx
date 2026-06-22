@@ -4892,6 +4892,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
   const [pass, setPass] = useState('');
   const [label, setLabel] = useState('');
   const [cookie, setCookie] = useState('');
+  const [code, setCode] = useState('');
+  const [needCode, setNeedCode] = useState(false); // MakerWorld emailed a verification code
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const inputCls = 'mp-card text-[13px] p-2 w-full';
 
@@ -4939,8 +4941,21 @@ function ConnectForm({ platform, onDone, canCancel }) {
         body: JSON.stringify({ account: email.trim(), password: pass }),
       });
       const data = await res.json().catch(() => ({}));
+      if (data.needCode) { setNeedCode(true); setBusy(false); setErr(''); return; } // MakerWorld emailed an OTP
       if (!res.ok || !data.ok || !data.cookie) throw new Error(data.error || `Sign-in failed (HTTP ${res.status}).`);
       await finishMw(data.cookie); // validates the token + saves the account
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
+  };
+  const loginMwCode = async () => {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/login-code`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: email.trim(), code: code.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.cookie) throw new Error(data.error || `Code not accepted (HTTP ${res.status}).`);
+      await finishMw(data.cookie);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
   };
   return (
@@ -4949,10 +4964,21 @@ function ConnectForm({ platform, onDone, canCancel }) {
       {desktop && (
         <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(r.cookie); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in via MakerWorld window (desktop)'}</button>
       )}
-      <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
-      <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
-      <button disabled={!email.trim() || !pass || busy} onClick={loginMw} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Signing in…' : 'Sign in to MakerWorld'}</button>
-      <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Email + password go to the Worker only to exchange for a sign-in token (lasts ~180 days); the password is never stored. The token is kept only in this browser.</p>
+      <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={needCode} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
+      {!needCode && <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />}
+      {!needCode ? (
+        <button disabled={!email.trim() || !pass || busy} onClick={loginMw} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Signing in…' : 'Sign in to MakerWorld'}</button>
+      ) : (
+        <>
+          <div className="text-[11px]" style={{ color: '#3a8d68' }}>MakerWorld emailed a verification code to <strong>{email}</strong>. Enter it to finish signing in:</div>
+          <input className={inputCls} placeholder="Verification code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && code.trim()) loginMwCode(); }} />
+          <div className="flex gap-2">
+            <button disabled={!code.trim() || busy} onClick={loginMwCode} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Verifying…' : 'Verify & connect'}</button>
+            <button disabled={busy} onClick={() => { setNeedCode(false); setCode(''); setErr(''); }} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Back</button>
+          </div>
+        </>
+      )}
+      <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Email + password go to the Worker only to exchange for a sign-in token (lasts ~180 days); the password is never stored. A one-time email code is required because sign-in happens from our server.</p>
       <details>
         <summary className="text-[11px] cursor-pointer" style={{ color: 'rgba(21,23,28,0.5)' }}>Trouble signing in? Paste a session cookie instead</summary>
         <div className="mt-1.5 space-y-1.5">

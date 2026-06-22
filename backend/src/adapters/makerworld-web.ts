@@ -77,32 +77,46 @@ async function mwJson<T>(res: Response, what: string): Promise<T> {
  *  calls this, so CORS doesn't apply. `refreshToken` comes back as a Set-Cookie we capture.
  *  Risk: a GeeTest captcha MAY trigger on suspicious/repeat attempts (not solvable here) —
  *  callers should surface the error and offer the cookie-paste / desktop fallback. */
-export interface MwLoginResult { userId: string; token: string; expireIn: number; refreshToken?: string }
-export async function mwLogin(account: string, password: string): Promise<MwLoginResult> {
+// Login outcome: either a token, or "we need the email verification code first". MakerWorld
+// requires an emailed code when the login comes from an unrecognised IP (always true for the
+// Worker), responding `{loginType:"verifyCode", accessToken:""}` and emailing a code.
+export type MwLoginOutcome =
+  | { ok: true; token: string; userId: string; expireIn: number; refreshToken?: string }
+  | { ok: false; needCode: true; tfaKey?: string };
+
+function interpretLogin(data: Record<string, unknown>, text: string, res: Response): MwLoginOutcome {
+  const token = (data.accessToken as string) || (data.token as string) || '';
+  if (token) {
+    let refreshToken = (data.refreshToken as string) || undefined;
+    if (!refreshToken) { const m = /(?:^|[;,\s])refreshToken=([^;,\s]+)/.exec(res.headers.get('set-cookie') || ''); if (m) refreshToken = m[1]; }
+    return { ok: true, token, userId: (data.userId as string) ?? '', expireIn: (data.expiresIn as number) ?? (data.expireIn as number) ?? 0, refreshToken };
+  }
+  if (data.loginType === 'verifyCode' || data.tfaKey) return { ok: false, needCode: true, tfaKey: (data.tfaKey as string) || undefined };
+  throw new Error(`MakerWorld login [code ${(data.code as number) ?? '?'}, http ${res.status}]: ${(data.error as string) || text.slice(0, 400) || 'no token in response'}`);
+}
+
+async function mwPostLogin(body: Record<string, string>): Promise<MwLoginOutcome> {
   const res = await fetch(`${MW_BASE}/api/v1/user-service/user/login`, {
     method: 'POST',
     headers: {
-      ...BBL_HEADERS,
-      'User-Agent': USER_AGENT,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Origin: MW_BASE,
-      Referer: `${MW_BASE}/sign-in/password-sign-in`,
+      ...BBL_HEADERS, 'User-Agent': USER_AGENT, 'Content-Type': 'application/json',
+      Accept: 'application/json', Origin: MW_BASE, Referer: `${MW_BASE}/sign-in/password-sign-in`,
     },
-    body: JSON.stringify({ account, password }),
+    body: JSON.stringify(body),
   });
   const text = await res.text();
-  let data: { userId?: string; token?: string; expireIn?: number; code?: number; error?: string };
-  try { data = JSON.parse(text); } catch { throw new Error(`MakerWorld login: non-JSON response (HTTP ${res.status}). Cloudflare may be challenging — try the cookie-paste or desktop sign-in.`); }
-  if (!res.ok || !data.token) {
-    throw new Error(data.error || `MakerWorld login failed [${data.code ?? res.status}]`);
-  }
-  // refreshToken is set as an HttpOnly cookie — readable from a server-side response.
-  let refreshToken: string | undefined;
-  const setCookie = res.headers.get('set-cookie') || '';
-  const m = /(?:^|[;,\s])refreshToken=([^;,\s]+)/.exec(setCookie);
-  if (m) refreshToken = m[1];
-  return { userId: data.userId ?? '', token: data.token, expireIn: data.expireIn ?? 0, refreshToken };
+  let data: Record<string, unknown>;
+  try { data = JSON.parse(text); } catch { throw new Error(`MakerWorld login: non-JSON response (HTTP ${res.status}). Try the cookie-paste or desktop sign-in.`); }
+  return interpretLogin(data, text, res);
+}
+
+/** Step 1: email + password. Returns a token, or {needCode} when MakerWorld emails an OTP. */
+export function mwLogin(account: string, password: string): Promise<MwLoginOutcome> {
+  return mwPostLogin({ account, password });
+}
+/** Step 2: complete the sign-in with the emailed verification code. */
+export function mwLoginWithCode(account: string, code: string): Promise<MwLoginOutcome> {
+  return mwPostLogin({ account, code });
 }
 
 /** Quick liveness/auth check: GET my message count. 200 = session valid. */

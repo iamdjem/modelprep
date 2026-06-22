@@ -29,6 +29,7 @@ import {
 import {
   mwCheckSession,
   mwLogin,
+  mwLoginWithCode,
   mwUploadFile,
   mwCreateDraft,
   mwPublish,
@@ -681,12 +682,30 @@ export default {
     // The Worker (server-side, no CORS/cf_clearance constraint) exchanges credentials for a
     // 180-day token via MakerWorld's login API, and returns it as the `cookie` string the
     // rest of the app uses as the account secret. The password is exchanged, never stored.
+    // Step 1 — POST {account, password}. Returns {ok:true, cookie} on success, or
+    // {ok:false, needCode:true} when MakerWorld emails a verification code (new-IP MFA).
     if (path === '/api/v1/makerworld/web/login' && req.method === 'POST') {
       let body: { account?: string; password?: string };
       try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
       if (!body.account || !body.password) return json({ error: 'missing_credentials', hint: 'Send {account, password}.' }, { status: 400 });
       try {
         const r = await mwLogin(body.account, body.password);
+        if (!r.ok) return json({ ok: false, needCode: true });
+        const cookie = `token=${r.token}` + (r.refreshToken ? `; refreshToken=${r.refreshToken}` : '');
+        return json({ ok: true, cookie, userId: r.userId, expireIn: r.expireIn });
+      } catch (err) {
+        return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 401 });
+      }
+    }
+
+    // Step 2 — POST {account, code} to complete sign-in with the emailed verification code.
+    if (path === '/api/v1/makerworld/web/login-code' && req.method === 'POST') {
+      let body: { account?: string; code?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!body.account || !body.code) return json({ error: 'missing_code', hint: 'Send {account, code}.' }, { status: 400 });
+      try {
+        const r = await mwLoginWithCode(body.account, body.code);
+        if (!r.ok) return json({ ok: false, error: 'Code not accepted — check it and try again.' }, { status: 401 });
         const cookie = `token=${r.token}` + (r.refreshToken ? `; refreshToken=${r.refreshToken}` : '');
         return json({ ok: true, cookie, userId: r.userId, expireIn: r.expireIn });
       } catch (err) {
