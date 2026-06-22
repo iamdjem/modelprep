@@ -140,8 +140,10 @@ const PLATFORMS = [
       { id: 'web', label: 'Web cover', w: 1920, h: 1440, aspect: '4:3' },
       { id: 'app', label: 'App cover', w: 1500, h: 2000, aspect: '3:4' },
     ],
-    descFormat: 'html', maxImages: 16, maxFileMb: 150, maxTotalMb: 250,
-    formats: ['3mf', 'stl', 'step', 'obj'], hasApi: false, apiSupport: 'manual',
+    descFormat: 'html', maxImages: 16, maxFileMb: 200, maxTotalMb: 250,
+    // Full accepted raw-model set (verified from the upload form 2026-06-22).
+    formats: ['3mf', 'stl', 'step', 'stp', 'obj', '3ds', 'amf', 'dwg', 'dxf', 'f3d', 'factory', 'fcstd', 'iges', 'ipt', 'ply', 'rsdoc', 'scad', 'shape', 'shapr', 'skp', 'sldasm', 'sldprt', 'slvs', 'studio3', 'stpz'],
+    hasApi: false, apiSupport: 'manual',
     fields: ['remix'], note: 'Largest audience. Real photo of print required. Connects Printables/Thingiverse for import.',
     // Verified from the live MakerWorld publish form.
     limits: { titleMax: 50, tagMax: 50, tagCharMax: 100 },

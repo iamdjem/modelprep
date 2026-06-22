@@ -257,3 +257,40 @@ the editor does the conversion; sending `<h1>` via API may store as `<h1>`, so e
   filamentBoms, materials, forbiddenWords (64 entries), id, userInfo`.
 - `modelFiles[].modelUrl` in the PUT may carry signed CDN query params (`?at=&exp=&key=&uid=`);
   the backend ignores them — the bare CDN path is fine (what we send).
+
+## Full UI field audit (browser-agent, 2026-06-22)
+
+Walked both upload paths end-to-end. Most of our payload was CONFIRMED correct
+(`summary`, `designPictures`/`auxiliaryPictures` `{url,name,isRealLifePhoto:0|1}`,
+`profileCover`=first auxiliaryPictures url, license-as-string, `postNeeded`/`postContent`,
+`paidSetting`, `coverLandscape`, `auxiliaryBom`, `cyberBrick.isOfficialController`,
+draft endpoint, cookie-only auth). New/corrected details:
+
+- **Path selector** ("Do you have a Bambu Studio .3mf?") → `draftSetting.createWith3mf`
+  (true = 3-step 3mf path, false = 2-step STL path). REQUIRED before continuing.
+- **Raw model files:** 26 accepted formats (3ds amf dwg dxf f3d factory fcstd iges ipt obj
+  ply rsdoc scad shape shapr skp sldasm sldprt slvs step stl stp studio3 stpz zip 3mf) ·
+  **200 MB/file** (209715200 bytes) · each item has `isOpenSource` (default true) + a free `note`.
+- **CyberBrick** question appears ONLY in the 3mf path (not STL path).
+- **Covers:** jpg/gif/png only (**no webp for covers**); gallery accepts png/jpg/webp/gif.
+  We always re-encode to jpg, so safe. Fields: `cover` (4:3) + `coverPortrait` (3:4) +
+  `coverLandscape` (sent, no UI slot). Gallery max **16**; ≤30 MB/piece.
+- **License = two radio groups → one string.** Matrix: adaptation(shared?) × commercial?
+  → `BY` / `BY-NC` / `BY-SA` / `BY-NC-SA` / `BY-ND` / `BY-NC-ND`; adaptation "MW Exclusive" →
+  `"MakerWorld Exclusive License"`; "MW + community" → `"Standard Digital File License - Community Use"`.
+  `CC0` exists in the JS table but is NOT reachable via the radios (API-only). We already
+  carry all these strings in `MW_LICENSE_OPTIONS`.
+- **Print Profile (3mf path):** `profileTitle` max **60** (DOM maxLength=100 but the counter
+  caps 60) · `auxiliaryPictures` max **37**, ≥1 required (publish-gated) · `profileSummary`
+  uses a REDUCED CKEditor toolbar (no headings/table/blockquote/image — those are stripped) ·
+  `instanceSetting.submitAsPrivate` defaults **Public** (false), unlike the model's
+  `designSetting.submitAsPrivate` default **Private** (true) — separate nested fields ·
+  "I've read Print Profile Guidelines" is a UI-only publish gate (NOT sent to the API).
+- **Printer compatibility codes** (14): P1S=C12, X1 Carbon=BL-P001, X1=BL-P002, X1E=C13,
+  P1P=C11, P2S=N7, A1 mini=N1, A1=N2, H2C=O1C2, H2D=O1D, H2D Pro=O1E, H2S=O1S, X2D=N6, A2L=N9.
+- **BOM:** if the toggle is on, ≥1 of kits/filaments/materials/other-parts must be filled
+  (else "Please add the non-3D printed parts, filaments or Materials"). `bomsLinks`/`auxiliaryBom`
+  appear in the body with no direct UI section.
+- **Global Creator Center → Customization** header/footer are prepended/appended SERVER-SIDE
+  at render — NOT part of `summary`. ModelPrep can't read or control them.
+- **`parentId`** in the body = the design id (matters for update-vs-create).
