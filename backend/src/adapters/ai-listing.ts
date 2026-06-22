@@ -32,6 +32,19 @@ export interface GeneratedListing {
   notes?: string;                // anything the model wants to flag to the user
 }
 
+// OpenAI-compatible providers — one request shape covers all of them. Users bring their
+// own key; we never store it. Base URLs are resolved here so the frontend only sends a
+// provider id (or a custom baseUrl). Free/cheap options: OpenRouter (free `:free` models +
+// cheap DeepSeek/Qwen/GLM), Gemini (free tier), Groq (free tier). Local Ollama is NOT here —
+// the Worker can't reach a user's localhost, so the frontend calls it directly.
+export const OPENAI_COMPAT_BASE: Record<string, string> = {
+  openrouter: 'https://openrouter.ai/api/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  groq: 'https://api.groq.com/openai/v1',
+  openai: 'https://api.openai.com/v1',
+  deepseek: 'https://api.deepseek.com/v1', // text strong; vision support varies by model
+};
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 // Sonnet 4.6 — strong vision + writing at a sane cost. Override per call if needed.
 const MODEL = 'claude-sonnet-4-6';
@@ -141,6 +154,49 @@ export async function generateListing(apiKey: string, input: GenerateListingInpu
   }
   const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
   const text = (data.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n').trim();
+  if (!text) throw new Error('empty model response');
+  return parseListing(text, input.categories, input.limits);
+}
+
+/** Call any OpenAI-compatible chat endpoint (OpenRouter, Gemini, Groq, DeepSeek, custom)
+ *  with the user's own key + chosen model. Vision uses the standard `image_url` content
+ *  block with an inline data URL. Throws so the route can surface a clear error. */
+export async function generateListingOpenAICompat(opts: {
+  baseUrl: string; apiKey: string; model: string; input: GenerateListingInput;
+}): Promise<GeneratedListing> {
+  const { baseUrl, apiKey, model, input } = opts;
+  const images = input.images.slice(0, MAX_IMAGES);
+  if (!images.length) throw new Error('no images supplied');
+
+  const userContent: unknown[] = images.map((img) => ({
+    type: 'image_url',
+    image_url: { url: `data:${img.mediaType};base64,${img.base64}` },
+  }));
+  userContent.push({
+    type: 'text',
+    text: input.hint?.trim()
+      ? `Maker's one-line hint: "${input.hint.trim()}". Write the listing for the model in these photos.`
+      : 'Write the listing for the model in these photos.',
+  });
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1200,
+      messages: [
+        { role: 'system', content: buildSystemPrompt(input) },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`provider ${res.status}: ${detail.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const text = (data.choices?.[0]?.message?.content ?? '').trim();
   if (!text) throw new Error('empty model response');
   return parseListing(text, input.categories, input.limits);
 }

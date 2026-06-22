@@ -48,7 +48,7 @@ import {
   type LaserCutPublishInput,
 } from './adapters/makerworld-web';
 import { stageFile, serveFile } from './r2';
-import { generateListing, type ListingImage } from './adapters/ai-listing';
+import { generateListing, generateListingOpenAICompat, OPENAI_COMPAT_BASE, type ListingImage } from './adapters/ai-listing';
 import type { PublishPayload } from './types';
 
 // Bytes — cap upload size at the Worker request-body limit. Cloudflare's
@@ -890,25 +890,35 @@ export default {
     }
 
     // -------------------- AI: generate a listing from photos ---------------
-    // POST { images:[{base64,mediaType}], hint?, categories:string[], limits? }
-    // → { title, description, tags, category, realPhotoDetected, notes }.
-    // 503 when no ANTHROPIC_API_KEY is configured, so the frontend can fall back
-    // to its on-device heuristic without treating it as a hard error.
+    // POST { provider, apiKey?, model?, baseUrl?, images:[{base64,mediaType}], hint?,
+    //        categories:string[], limits? } → { title, description, tags, category,
+    //        realPhotoDetected, notes }. The user brings their OWN key — it is used for
+    //        this one request and never stored. Providers: any OpenAI-compatible host
+    //        (openrouter/gemini/groq/openai/deepseek/custom), or `anthropic-server` which
+    //        uses our env key if configured. 503 when nothing is usable → frontend falls
+    //        back to its offline heuristic. (Local Ollama is called direct from the browser.)
     if (path === '/api/v1/ai/generate-listing' && req.method === 'POST') {
-      if (!env.ANTHROPIC_API_KEY) {
-        return json({ error: 'ai_not_configured', hint: 'Set ANTHROPIC_API_KEY via `wrangler secret put`.' }, { status: 503 });
-      }
-      let body: { images?: ListingImage[]; hint?: string; categories?: string[]; limits?: Record<string, number> };
+      let body: { provider?: string; apiKey?: string; model?: string; baseUrl?: string; images?: ListingImage[]; hint?: string; categories?: string[]; limits?: Record<string, number> };
       try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
       const images = (body.images ?? []).filter((i) => i && i.base64 && i.mediaType);
       if (!images.length) return json({ error: 'no_images', hint: 'Send at least one photo as {base64, mediaType}.' }, { status: 400 });
+      const input = { images, hint: body.hint, categories: body.categories ?? [], limits: body.limits };
+      const provider = (body.provider ?? '').toLowerCase();
+      const isOpenAICompat = !!OPENAI_COMPAT_BASE[provider] || (provider === 'custom' && !!body.baseUrl);
       try {
-        const listing = await generateListing(env.ANTHROPIC_API_KEY, {
-          images,
-          hint: body.hint,
-          categories: body.categories ?? [],
-          limits: body.limits,
-        });
+        let listing;
+        if (isOpenAICompat) {
+          const baseUrl = provider === 'custom' ? String(body.baseUrl) : OPENAI_COMPAT_BASE[provider];
+          const apiKey = String(body.apiKey ?? '');
+          const model = String(body.model ?? '');
+          if (!apiKey) return json({ error: 'missing_key', hint: 'This provider needs your API key.' }, { status: 400 });
+          if (!model) return json({ error: 'missing_model', hint: 'Choose a model (e.g. a free vision model).' }, { status: 400 });
+          listing = await generateListingOpenAICompat({ baseUrl, apiKey, model, input });
+        } else if (provider === 'anthropic-server' && env.ANTHROPIC_API_KEY) {
+          listing = await generateListing(env.ANTHROPIC_API_KEY, input);
+        } else {
+          return json({ error: 'ai_not_configured', hint: 'Pick an AI provider and add your key in AI settings.' }, { status: 503 });
+        }
         return json({ ok: true, ...listing });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

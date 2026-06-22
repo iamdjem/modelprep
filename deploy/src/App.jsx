@@ -1784,11 +1784,78 @@ function dataUrlToParts(dataUrl) {
   return { mediaType: m[1], base64: m[2] };
 }
 
+// AI provider presets. Users bring their OWN key (or run a local model for $0). Default
+// models are best-effort suggestions — free-tier model names change, so the user can edit
+// them. `local` providers are called directly from the browser (the Worker can't reach
+// localhost); the rest are proxied through the Worker with the user's key per-request.
+const AI_PROVIDERS = {
+  none:       { label: 'None — smart manual (no AI)',      needsKey: false, model: '' },
+  ollama:     { label: 'Local — Ollama ($0, open-source)', needsKey: false, local: true, baseUrl: 'http://localhost:11434/v1', model: 'llama3.2-vision' },
+  openrouter: { label: 'OpenRouter (free + cheap models)', needsKey: true,  model: 'meta-llama/llama-3.2-11b-vision-instruct:free' },
+  gemini:     { label: 'Google Gemini (free tier)',        needsKey: true,  model: 'gemini-2.0-flash' },
+  groq:       { label: 'Groq (free tier)',                 needsKey: true,  model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
+  custom:     { label: 'Custom (OpenAI-compatible)',       needsKey: true,  custom: true, model: '' },
+};
+const AI_CONFIG_KEY = 'modelprep:ai-config';
+function getAiConfig() {
+  try { return { provider: 'none', apiKey: '', model: '', baseUrl: '', ...(JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || {}) }; }
+  catch { return { provider: 'none', apiKey: '', model: '', baseUrl: '' }; }
+}
+function setAiConfig(c) { try { localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(c)); } catch { /* quota */ } }
+
+// Minimal client-side mirror of the Worker's prompt + JSON parse, used ONLY for the local
+// (Ollama) path that can't go through the Worker.
+function aiSystemPrompt(limits, categories) {
+  const lim = limits || {}; const rules = [];
+  if (lim.titleMax) rules.push(`- Title: at most ${lim.titleMax} characters.`);
+  if (lim.descMax) rules.push(`- Description: at most ${lim.descMax} characters.`);
+  if (lim.tagMax) rules.push(`- Tags: at most ${lim.tagMax} tags.`);
+  if (lim.tagCharMax) rules.push(`- Each tag: at most ${lim.tagCharMax} characters.`);
+  return [
+    'You write listings for 3D-printable models. You are given real photos of a printed model (and maybe a one-line hint).',
+    'Return STRICT JSON only (no prose, no code fences) with keys:',
+    '{"title": string, "description": string (Markdown), "tags": string[], "category": string, "realPhotoDetected": boolean, "notes": string}',
+    `Category must be EXACTLY ONE of, copied verbatim, or "": ${JSON.stringify(categories || [])}.`,
+    'Tags: lowercase, relevant, no "#", no duplicates. Be accurate; do not invent features you cannot see.',
+    ...(rules.length ? ['Hard limits (obey exactly):', ...rules] : []),
+  ].join('\n');
+}
+function parseAiListing(text, categories, limits) {
+  let raw = (text || '').trim();
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i); if (fence) raw = fence[1].trim();
+  if (raw[0] !== '{') { const i = raw.indexOf('{'), j = raw.lastIndexOf('}'); if (i >= 0 && j > i) raw = raw.slice(i, j + 1); }
+  const obj = JSON.parse(raw); const lim = limits || {};
+  let title = String(obj.title || '').trim(); if (lim.titleMax) title = title.slice(0, lim.titleMax).trim();
+  let description = String(obj.description || '').trim(); if (lim.descMax) description = description.slice(0, lim.descMax).trim();
+  let tags = Array.isArray(obj.tags) ? [...new Set(obj.tags.map(t => String(t).trim().toLowerCase().replace(/^#/, '').replace(/\s+/g, '-')).filter(Boolean))] : [];
+  if (lim.tagCharMax) tags = tags.filter(t => t.length <= lim.tagCharMax);
+  if (lim.tagMax) tags = tags.slice(0, lim.tagMax);
+  let category = String(obj.category || '').trim();
+  if (category && !(categories || []).includes(category)) category = (categories || []).find(c => c.toLowerCase() === category.toLowerCase()) || '';
+  return { title, description, tags, category, realPhotoDetected: obj.realPhotoDetected === true, notes: String(obj.notes || '').trim() || undefined };
+}
+
+// Direct browser → local Ollama (OpenAI-compatible). Needs Ollama running with the origin
+// allowed (OLLAMA_ORIGINS). Returns parsed fields or throws.
+async function callOllamaListing({ baseUrl, model, parts, hint, limits, categories }) {
+  const content = parts.map(p => ({ type: 'image_url', image_url: { url: `data:${p.mediaType};base64,${p.base64}` } }));
+  content.push({ type: 'text', text: hint?.trim() ? `Hint: "${hint.trim()}". Write the listing for the model in these photos.` : 'Write the listing for the model in these photos.' });
+  const res = await fetch(`${(baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: model || 'llama3.2-vision', messages: [{ role: 'system', content: aiSystemPrompt(limits, categories) }, { role: 'user', content }] }),
+  });
+  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  const d = await res.json();
+  const text = d.choices?.[0]?.message?.content || '';
+  return parseAiListing(text, categories, limits);
+}
+
 // Generate Title/Description/Tags/Category from the project's photos + an optional one-line
-// hint. Tries the Worker's Claude-vision endpoint; if that's not configured (no API key) or
-// fails, falls back to an on-device heuristic so the button always does *something*.
+// hint, using the user's configured AI provider. Falls back to an on-device heuristic when
+// no provider is set or the call fails, so the button always does *something*.
 // Returns { fields, source: 'ai' | 'offline', notes?, realPhotoDetected? }.
 async function generateListingAI({ images, hint, limits, categories }) {
+  const cfg = getAiConfig();
   // Down-rez to keep the request small + cheap; vision doesn't need full res.
   const parts = [];
   for (const img of (images || []).slice(0, 8)) {
@@ -1799,23 +1866,27 @@ async function generateListingAI({ images, hint, limits, categories }) {
     } catch { /* skip unreadable image */ }
   }
 
-  if (parts.length) {
+  let providerError = null;
+  if (parts.length && cfg.provider && cfg.provider !== 'none') {
     try {
+      if (cfg.provider === 'ollama') {
+        const fields = await callOllamaListing({ baseUrl: cfg.baseUrl, model: cfg.model, parts, hint, limits, categories });
+        return { source: 'ai', notes: fields.notes, realPhotoDetected: fields.realPhotoDetected, fields };
+      }
       const res = await fetch(`${WORKER_URL}/api/v1/ai/generate-listing`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: parts, hint: hint || '', categories: categories || [], limits: limits || {} }),
+        body: JSON.stringify({ provider: cfg.provider, apiKey: cfg.apiKey, model: cfg.model, baseUrl: cfg.baseUrl, images: parts, hint: hint || '', categories: categories || [], limits: limits || {} }),
       });
       if (res.ok) {
         const d = await res.json();
-        return {
-          source: 'ai',
-          notes: d.notes,
-          realPhotoDetected: d.realPhotoDetected,
-          fields: { title: d.title || '', description: d.description || '', tags: d.tags || [], category: d.category || '' },
-        };
+        return { source: 'ai', notes: d.notes, realPhotoDetected: d.realPhotoDetected,
+          fields: { title: d.title || '', description: d.description || '', tags: d.tags || [], category: d.category || '' } };
       }
-      // 503 ai_not_configured (no key) or 502 ai_failed → fall through to offline.
-    } catch { /* network → offline */ }
+      const e = await res.json().catch(() => ({}));
+      providerError = e.error === 'missing_key' ? 'add your API key in AI settings'
+        : e.error === 'missing_model' ? 'choose a model in AI settings'
+        : e.message || e.error || `provider error ${res.status}`;
+    } catch (err) { providerError = String((err && err.message) || err); }
   }
 
   // ── Offline heuristic fallback ──────────────────────────────────────────
@@ -1827,10 +1898,59 @@ async function generateListingAI({ images, hint, limits, categories }) {
   const description = seed
     ? `# ${title}\n\n${seed}.\n\n## Print settings\n- Layer height: 0.2 mm\n- Material: PLA\n- Supports: as needed\n`
     : '';
-  return {
-    source: 'offline',
-    fields: { title, description, tags, category: '' },
+  return { source: 'offline', providerError, fields: { title, description, tags, category: '' } };
+}
+
+// Where each provider's (free) key / setup lives — shown as a hint under the picker.
+const AI_PROVIDER_HINTS = {
+  none:       'No AI — fills fields with smart manual heuristics (tag suggestions, title-casing). Works for everyone, no key.',
+  ollama:     'Run a local model: `ollama run llama3.2-vision`, then start Ollama with OLLAMA_ORIGINS allowing this site. $0, fully private — nothing leaves your machine.',
+  openrouter: 'Free key at openrouter.ai/keys. Many models incl. free ones (the “:free” suffix) and cheap DeepSeek/Qwen/GLM. Pick a model that supports vision.',
+  gemini:     'Free key at aistudio.google.com/apikey. Gemini Flash has vision + a generous free tier.',
+  groq:       'Free key at console.groq.com/keys. Fast, free Llama vision models.',
+  custom:     'Any OpenAI-compatible /chat/completions endpoint. Enter its base URL, your key and a vision model.',
+};
+
+function AiSettings() {
+  const [cfg, setCfg] = useState(getAiConfig());
+  const preset = AI_PROVIDERS[cfg.provider] || AI_PROVIDERS.none;
+  const save = (next) => { const merged = { ...cfg, ...next }; setCfg(merged); setAiConfig(merged); };
+  const pickProvider = (provider) => {
+    const p = AI_PROVIDERS[provider] || {};
+    save({ provider, model: p.model || '', baseUrl: p.baseUrl || '' });
   };
+  const lbl = 'mp-mono text-[11px] uppercase tracking-[0.12em] block mb-1';
+  return (
+    <div className="mt-3 pt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>AI provider</label>
+          <select className="mp-input" value={cfg.provider} onChange={(e) => pickProvider(e.target.value)}>
+            {Object.entries(AI_PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          </select>
+        </div>
+        {cfg.provider !== 'none' && (
+          <div>
+            <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>Model</label>
+            <input className="mp-input" value={cfg.model} placeholder={preset.model || 'model name'} onChange={(e) => save({ model: e.target.value })} />
+          </div>
+        )}
+        {preset.needsKey && (
+          <div>
+            <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>API key (yours — sent per request, never stored on our server)</label>
+            <input className="mp-input" type="password" autoComplete="off" value={cfg.apiKey} placeholder="sk-…" onChange={(e) => save({ apiKey: e.target.value })} />
+          </div>
+        )}
+        {(preset.custom || preset.local) && (
+          <div>
+            <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>Base URL</label>
+            <input className="mp-input" value={cfg.baseUrl} placeholder={preset.baseUrl || 'https://…/v1'} onChange={(e) => save({ baseUrl: e.target.value })} />
+          </div>
+        )}
+      </div>
+      <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.45)' }}>{AI_PROVIDER_HINTS[cfg.provider]}</p>
+    </div>
+  );
 }
 
 function CategorySelect({ value, onChange, options }) {
@@ -1916,6 +2036,8 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [aiHint, setAiHint] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const aiProvider = getAiConfig().provider;
   const [licenseFilter, setLicenseFilter] = useState('all');
 
   const visibleLicenses = LICENSES.filter(l => matchesLicenseFilter(l, licenseFilter));
@@ -1948,7 +2070,9 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       if (Object.keys(patch).length) updateProject(patch);
       const filled = Object.keys(patch).map(k => k === 'tags' ? `${patch.tags.length} tags` : k).join(', ') || 'nothing';
       const tail = out.source === 'offline'
-        ? ' (offline draft — no AI key configured, so this is a rough starting point you should edit)'
+        ? (out.providerError
+            ? ` (AI provider failed: ${out.providerError} — used an offline draft instead)`
+            : ' (offline draft — pick an AI provider in ⚙ AI settings for photo-based results)')
         : (out.realPhotoDetected === false ? ' · ⚠ no real print photo detected — MakerWorld requires one' : '');
       setAiMsg({ kind: out.source === 'offline' || out.realPhotoDetected === false ? 'warn' : 'ok', text: `Generated ${filled}.${out.notes ? ' ' + out.notes : ''}${tail}` });
     } catch (e) {
@@ -1996,6 +2120,14 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           <span className="text-[12px]" style={{ color: 'rgba(21,23,28,0.45)' }}>
             from your {project.images.length} photo{project.images.length === 1 ? '' : 's'}
           </span>
+          <button
+            onClick={() => setAiSettingsOpen(o => !o)}
+            className="ml-auto mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1 hover:text-[#FF5722] transition"
+            style={{ color: 'rgba(21,23,28,0.5)' }}
+            aria-expanded={aiSettingsOpen}
+          >
+            <Edit3 size={11} /> {aiProvider === 'none' ? 'Set up AI' : AI_PROVIDERS[aiProvider]?.label?.split(' ')[0] || 'AI'} {aiSettingsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
           <input
@@ -2020,9 +2152,12 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             {aiMsg.text}
           </p>
         )}
-        <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.4)' }}>
-          Looks at your print photos to write everything — you review and tweak below. Respects each platform's length/tag limits.
-        </p>
+        {aiSettingsOpen
+          ? <AiSettings />
+          : <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.4)' }}>
+              Looks at your print photos to write everything — you review and tweak below. Respects each platform's length/tag limits.
+              {aiProvider === 'none' && ' No AI key needed to try it (offline draft); add a free/own-key provider via “Set up AI” for photo-based results.'}
+            </p>}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
