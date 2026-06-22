@@ -695,6 +695,136 @@ function projectReducer(state, action) {
   }
 }
 
+// ── Folder import (pure-convention) ──────────────────────────────────────────
+// Select/drop a folder and we infer a whole project from how it's organised — no
+// manifest needed. Recognised purely by name + extension:
+//   folder name             → title          title.txt        → title override
+//   description.md / .txt    → description    (readme.md works too)
+//   tags.txt / .csv          → tags (comma- or line-separated)
+//   license.txt              → license (CC-BY-SA, CC0… mapped to our ids)
+//   category.txt             → category (best-effort match to our list)
+//   cover.*                  → cover image (else the first photo wins)
+//   any image                → gallery (ordered by filename)
+//   .stl/.3mf/.step/.obj…    → model files (3MF auto-become print profiles)
+// Everything is optional; whatever's missing is REPORTED, never invented.
+
+function prettifyFolderName(name) {
+  return name.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function mapLicenseString(raw) {
+  const s = (raw || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!s) return null;
+  if (s.includes('cc0') || s.includes('publicdomain')) return 'cc0';
+  if (s.includes('byncsa')) return 'ccbyncsa';
+  if (s.includes('bync')) return 'ccbync';
+  if (s.includes('bysa')) return 'ccbysa';
+  if (s.includes('bynd')) return 'ccbynd';
+  if (s.includes('ccby') || s === 'by' || s === 'attribution') return 'ccby';
+  if (s.includes('standard') || s.includes('paid')) return 'standard';
+  return null;
+}
+
+function readFileText(file) {
+  if (file.text) return file.text();
+  return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result || ''); r.onerror = () => res(''); r.readAsText(file); });
+}
+
+async function buildImportImage(file, idx) {
+  const dataUrl = await new Promise((res) => {
+    const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null);
+    try { r.readAsDataURL(file); } catch { res(null); }
+  });
+  if (!dataUrl) return null;
+  try {
+    const img = await loadImageFromDataUrl(dataUrl);
+    return { id: 'img_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2, 7),
+      dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: 0.5 },
+      alt: file.name.replace(/\.[^.]+$/, '') };
+  } catch { return null; }
+}
+
+// Parse a flat FileList (webkitdirectory / dropped folder) → { patch, summary }.
+async function importFolderToProject(fileList) {
+  const rel = (f) => f.webkitRelativePath || f.name;
+  const baseOf = (f) => rel(f).split('/').pop();
+  const files = Array.from(fileList).filter(f => { const b = baseOf(f); return b && !b.startsWith('.'); });
+  if (!files.length) return null;
+
+  const rootName = rel(files[0]).split('/')[0] || 'Imported model';
+  const meta = (f, re) => re.test(baseOf(f));
+  const summary = { found: [], missing: [], warnings: [] };
+
+  // Warn (don't silently merge) if this looks like a batch of several models.
+  const topDirs = new Set();
+  for (const f of files) { const p = rel(f).split('/'); if (p.length > 2) topDirs.add(p[1]); }
+  const batchish = [...topDirs].filter(d => files.some(f => rel(f).startsWith(`${rootName}/${d}/`) && (isModelFile(baseOf(f)) || isImageFile(baseOf(f))))).length;
+  if (batchish >= 2) summary.warnings.push(`${batchish} subfolders look like separate models — imported as ONE for now (batch import is coming next).`);
+
+  const patch = {};
+  const descFile  = files.find(f => meta(f, /^(description|readme)\.(md|markdown|txt)$/i));
+  const titleFile = files.find(f => meta(f, /^title\.txt$/i));
+  const tagsFile  = files.find(f => meta(f, /^tags\.(txt|csv|md)$/i));
+  const licFile   = files.find(f => meta(f, /^licen[cs]e\.(txt|md)$/i));
+  const catFile   = files.find(f => meta(f, /^category\.txt$/i));
+  const consumed  = new Set([descFile, titleFile, tagsFile, licFile, catFile].filter(Boolean));
+
+  patch.title = (titleFile ? (await readFileText(titleFile)).trim().split('\n')[0] : '') || prettifyFolderName(rootName);
+  summary.found.push(`Title: “${patch.title}”${titleFile ? '' : ' (from folder name)'}`);
+
+  if (descFile) { patch.description = (await readFileText(descFile)).trim(); summary.found.push(`Description (${patch.description.length} chars)`); }
+  else summary.missing.push('Description — add description.md');
+
+  if (tagsFile) {
+    const tags = [...new Set((await readFileText(tagsFile)).split(/[\n,]/).map(t => t.trim().toLowerCase().replace(/\s+/g, '-')).filter(Boolean))];
+    if (tags.length) { patch.tags = tags; summary.found.push(`${tags.length} tags`); }
+  }
+  if (!patch.tags) summary.missing.push('Tags — add tags.txt');
+
+  if (licFile) { const id = mapLicenseString(await readFileText(licFile)); if (id) { patch.license = id; summary.found.push(`License: ${id}`); } else summary.warnings.push(`Couldn't read the license in ${baseOf(licFile)} — left default`); }
+  if (catFile) {
+    const want = (await readFileText(catFile)).trim().toLowerCase();
+    const match = CATEGORIES.find(c => c.toLowerCase() === want) || CATEGORIES.find(c => want && c.toLowerCase().includes(want));
+    if (match) { patch.category = match; summary.found.push(`Category: ${match}`); }
+    else if (want) summary.warnings.push(`Category “${want}” didn't match — pick one in Details`);
+  }
+  if (!patch.category) summary.missing.push('Category — pick one in Details');
+
+  // Images → gallery (cover first, then filename order).
+  const imgs = files.filter(f => isImageFile(baseOf(f)));
+  const coverFile = imgs.find(f => /^cover\./i.test(baseOf(f)));
+  const ordered = [...imgs].sort((a, b) => rel(a).localeCompare(rel(b), undefined, { numeric: true }));
+  const finalOrder = coverFile ? [coverFile, ...ordered.filter(f => f !== coverFile)] : ordered;
+  const builtImages = (await Promise.all(finalOrder.map((f, i) => buildImportImage(f, i)))).filter(Boolean);
+  if (builtImages.length) {
+    patch.images = builtImages; patch.coverImageId = builtImages[0].id;
+    summary.found.push(`${builtImages.length} photo${builtImages.length > 1 ? 's' : ''} (cover: ${baseOf(coverFile || finalOrder[0])})`);
+  } else summary.missing.push('Photos — add images (MakerWorld needs a real print photo)');
+
+  // Model + reference files (skip the meta text files we already consumed).
+  const taken = new Set();
+  const buildFiles = files
+    .filter(f => !consumed.has(f) && (isModelFile(baseOf(f)) || ['pdf', 'txt', 'md', 'zip'].includes(fileExt(baseOf(f)))))
+    .map((f) => { const name = uniqueFileName(baseOf(f), taken); taken.add(name.toLowerCase());
+      return { id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, size: f.size, type: f.type,
+        isModel: isModelFile(name), isProfile: isProfile(name), isImage: false, blob: f }; });
+  if (buildFiles.length) {
+    patch.files = buildFiles;
+    const models = buildFiles.filter(f => f.isModel).length;
+    summary.found.push(`${models} model file${models === 1 ? '' : 's'}${buildFiles.length > models ? ` + ${buildFiles.length - models} extra` : ''}`);
+  } else summary.missing.push('Model files — add an .stl or .3mf');
+
+  return { patch, summary };
+}
+
+function buildImportSummaryText(s) {
+  const parts = [];
+  if (s.found.length)    parts.push('Imported:\n• ' + s.found.join('\n• '));
+  if (s.warnings.length) parts.push('Heads up:\n• ' + s.warnings.join('\n• '));
+  if (s.missing.length)  parts.push('Still needed:\n• ' + s.missing.join('\n• '));
+  return parts.join('\n\n');
+}
+
 export default function App() {
   const [project, dispatchProject] = useReducer(projectReducer, initialProject);
   const [currentSection, setCurrentSection] = useState('files');
@@ -842,6 +972,28 @@ export default function App() {
     }
   };
   const isDirty = () => project.files.length || project.images.length || project.title || project.description || project.tags.length || Object.values(project.platforms).some(p => p.enabled);
+  // Folder import: infer a whole project from a chosen folder, then land on Details
+  // for review. Replaces the current project (with confirmation if it has content).
+  const importFolder = (fileList) => {
+    if (!fileList || !fileList.length) return;
+    const run = async () => {
+      try {
+        const result = await importFolderToProject(fileList);
+        if (!result) { setDialog({ kind: 'confirm', title: 'Nothing to import', message: 'That folder had no recognisable files (photos, models, or description/tags text).', confirmLabel: 'OK' }); return; }
+        setDemoActive(false);
+        stashedProject.current = null;
+        setProject({ ...initialProject, name: result.patch.title || 'Imported project', ...result.patch });
+        setCurrentSection('details');
+        setDialog({ kind: 'confirm', title: 'Folder imported', message: buildImportSummaryText(result.summary), confirmLabel: 'Review details' });
+      } catch (e) {
+        setDialog({ kind: 'confirm', title: 'Import failed', message: String((e && e.message) || e), confirmLabel: 'OK' });
+      }
+    };
+    if (projectHasContent(project) && !demoActive) {
+      setDialog({ kind: 'confirm', title: 'Replace current project?', message: 'Importing a folder replaces your current title, files, photos and settings.', confirmLabel: 'Import & replace', danger: true, onConfirm: run });
+    } else run();
+  };
+
   const newProject = () => {
     const reset = () => {
       try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
@@ -885,6 +1037,7 @@ export default function App() {
         onSaveTemplate={saveAsTemplate}
         onLoadTemplate={loadTemplate}
         onNewProject={newProject}
+        onImportFolder={importFolder}
         demoActive={demoActive}
         onToggleDemo={toggleDemo}
         onOpenConnections={() => setShowConnections(true)}
@@ -956,7 +1109,7 @@ function Modal({ dialog, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.55)' }} onMouseDown={onClose}>
       <div className="mp-card w-full max-w-md p-5" style={{ background: '#EDE9DE' }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 className="mp-display text-[22px] leading-none mb-2">{title}</h3>
-        {message && <p className="mp-body text-sm mb-4" style={{ color: 'rgba(21,23,28,0.7)' }}>{message}</p>}
+        {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(21,23,28,0.7)' }}>{message}</p>}
         {kind === 'prompt' && (
           <input
             ref={inputRef}
@@ -1124,9 +1277,12 @@ function GlobalStyles() {
 // TOP HEADER
 // =====================================================================
 
-function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, demoActive, onToggleDemo, onOpenConnections }) {
+function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, onImportFolder, demoActive, onToggleDemo, onOpenConnections }) {
   const [editingName, setEditingName] = useState(false);
   const templatesRef = useRef(null);
+  const folderRef = useRef(null);
+  // webkitdirectory must be set imperatively — React doesn't render it reliably as a prop.
+  useEffect(() => { if (folderRef.current) { folderRef.current.setAttribute('webkitdirectory', ''); folderRef.current.setAttribute('directory', ''); } }, []);
 
   // Close the Templates menu on outside tap/click or Escape (works on touch).
   useEffect(() => {
@@ -1222,6 +1378,20 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
           >
             <Sparkles size={13} /> {demoActive ? 'Exit demo' : 'Demo'}
           </button>
+          <button
+            onClick={() => folderRef.current?.click()}
+            className="mp-btn mp-btn-ghost text-xs py-2 px-3"
+            title="Import a folder of photos, files, description.md and tags.txt — fills everything in"
+          >
+            <Folder size={13} /> Import
+          </button>
+          <input
+            ref={folderRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => { onImportFolder(e.target.files); e.target.value = ''; }}
+          />
           <button onClick={onNewProject} className="mp-btn mp-btn-ghost text-xs py-2 px-3">
             <Plus size={13} /> New
           </button>
