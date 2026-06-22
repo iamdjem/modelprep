@@ -5352,7 +5352,10 @@ function MakerWorldUploadFlow({ platform, project }) {
                   {liveCheck && !liveCheck.loading && (
                     liveCheck.error ? <div className="text-[12px]" style={{ color: '#B91C1C' }}>{liveCheck.error}</div>
                     : liveCheck.live ? <div className="text-[12px]" style={{ color: '#1a7f37' }}>✓ Confirmed live on MakerWorld{liveCheck.model?.offlineInstCnt > 0 ? ` (⚠ ${liveCheck.model.offlineInstCnt} print profile(s) offline)` : ''}.</div>
-                    : <div className="text-[12px]" style={{ color: '#B23A1A' }}>Not live yet — it's still in <strong>review</strong>, or it was <strong>rejected</strong>. We can't tell which from here yet; open it on MakerWorld to check.</div>
+                    : <div className="text-[12px]" style={{ color: '#B23A1A' }}>
+                        Not live yet — it's still in <strong>review</strong>, or it was <strong>rejected</strong>.
+                        {' '}Check <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>your MakerWorld notifications</a> for the reason (e.g. a print profile that didn't pass slicing).
+                      </div>
                   )}
                 </div>
               )}
