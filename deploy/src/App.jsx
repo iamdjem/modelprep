@@ -661,6 +661,7 @@ function buildDemoProject() {
       nexprint: { enabled: true, contestEntry: 'creator-fund' },
       creality: { enabled: false },
     },
+    __demo: true, // publish flows simulate success instead of hitting the real network
   };
 }
 
@@ -4025,8 +4026,10 @@ function CultsUploadFlow({ platform, project }) {
   const acc = useAccounts();
   const openConnections = useOpenConnections();
   const cultsAccounts = acc.getAccounts('cults');
-  const active = acc.getActive('cults');
-  const creds = active?.secret || null; // { email, password } | null — from the accounts store
+  // Demo mode simulates the publish (no network) with a synthetic connected account.
+  const isDemo = !!project.__demo;
+  const active = acc.getActive('cults') || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
+  const creds = active?.secret || (isDemo ? { email: 'demo' } : null); // { email, password } | null
   const [status, setStatus] = useState(creds ? 'connected' : 'idle'); // connected | publishing | done | error | deactivating | idle
   // Default to 'secret' so the first publish doesn't immediately surface on
   // the user's profile — they can flip to 'public' once they've seen the
@@ -4067,6 +4070,15 @@ function CultsUploadFlow({ platform, project }) {
   // isn't streamable through a single fetch, so we just show a generic
   // "publishing…" message; full timing shows up in `wrangler tail`.
   const publish = async () => {
+    if (isDemo) {
+      setStatus('publishing'); setErrorMsg(''); setResult(null);
+      setProgressMsg('Simulating publish (demo)…');
+      await new Promise((r) => setTimeout(r, 900));
+      const n = project.files.filter(f => f.isModel).length + project.images.length;
+      setResult({ designUrl: 'https://cults3d.com/', slug: 'demo', substituted: [], uploadedFiles: n, visibility, demo: true });
+      setStatus('done'); setProgressMsg('');
+      return;
+    }
     if (!creds) return;
     setStatus('publishing');
     setErrorMsg('');
@@ -4146,6 +4158,7 @@ function CultsUploadFlow({ platform, project }) {
   // delete, but it hides the listing from search + profile (logged-in owner
   // can still see it in /en/creations/mine and re-activate).
   const deactivate = async () => {
+    if (isDemo) { setResult(r => r ? { ...r, deactivated: true } : r); setStatus('done'); return; }
     if (!creds || !result?.slug) return;
     setStatus('deactivating');
     setErrorMsg('');
@@ -4176,6 +4189,7 @@ function CultsUploadFlow({ platform, project }) {
   // doesn't expose). Used to drive the per-row deactivate/delete buttons.
 
   const loadListings = async () => {
+    if (isDemo) { setListings([]); setListingsError(''); return; }
     if (!creds) return;
     setListingsLoading(true);
     setListingsError('');
@@ -4377,8 +4391,9 @@ function CultsUploadFlow({ platform, project }) {
               <Check size={14} />
               {result?.deactivated
                 ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
-                : <>Published to {platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'rgba(21,23,28,0.55)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
+                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'rgba(21,23,28,0.55)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
             </div>
+            {result?.demo && <div className="mp-mono text-[11px] mb-1.5" style={{ color: '#3A86FF' }}>Demo mode — nothing was uploaded. Exit demo and connect a real account to publish for real.</div>}
             {result?.designUrl && (
               <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FF5722] transition" style={{ background: 'rgba(21,23,28,0.04)', color: 'rgba(21,23,28,0.85)' }}>
                 {result.designUrl}
@@ -4761,12 +4776,13 @@ function mwModelStatus(m) {
 // "My MakerWorld models" — polls the live published list so you can confirm a model
 // actually went live (post-submit) and spot takedowns. Honest about the gap: it only
 // shows LIVE models; "verifying"/rejected models aren't fetchable server-side yet.
-function MwMyModels({ cookie }) {
+function MwMyModels({ cookie, isDemo }) {
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const load = async () => {
+    if (isDemo) { setModels([]); setErr(''); return; }
     setLoading(true); setErr('');
     try {
       const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/my-creations`, { headers: { 'X-MW-Cookie': cookie } });
@@ -4811,8 +4827,11 @@ function MakerWorldUploadFlow({ platform, project }) {
   const acc = useAccounts();
   const openConnections = useOpenConnections();
   const mwAccounts = acc.getAccounts('makerworld');
-  const active = acc.getActive('makerworld');
-  const cookie = active?.secret || ''; // the active account's session; '' = not signed in
+  // In demo mode the publish is simulated (no network), and we present a synthetic
+  // "connected" account so the full flow is explorable even without a real sign-in.
+  const isDemo = !!project.__demo;
+  const active = acc.getActive('makerworld') || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
+  const cookie = active?.secret || (isDemo ? 'demo-cookie' : ''); // '' = not signed in
   const [status, setStatus] = useState('idle'); // idle|publishing|done|error|deleting
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
@@ -4854,6 +4873,15 @@ function MakerWorldUploadFlow({ platform, project }) {
   };
 
   const publish = async () => {
+    if (isDemo) {
+      // Simulate a successful publish — no network, works for any platform/account.
+      setStatus('publishing'); setErrorMsg(''); setResult(null);
+      setProgressMsg('Simulating publish (demo)…');
+      await new Promise((r) => setTimeout(r, 900));
+      setResult({ id: 'demo-' + Math.random().toString(36).slice(2, 8), status: 8, url: 'https://makerworld.com/', kind: isLC ? 'laser-cut' : '3d', files: modelFiles.length + project.images.length + (has3mf ? 1 : 0), visibility, demo: true });
+      setStatus('done'); setProgressMsg('');
+      return;
+    }
     if (!cookie) return;
     setStatus('publishing'); setErrorMsg(''); setResult(null);
     try {
@@ -4893,7 +4921,7 @@ function MakerWorldUploadFlow({ platform, project }) {
         const up = await uploadOne(mf.blob, mf.name);
         const type = (mf.name.split('.').pop() || '').toLowerCase();
         if (!isLC && type === '3mf' && !model3mf) model3mf = { name: mf.name, size: up.size, url: up.url };
-        else mfList.push({ modelName: mf.name, modelSize: up.size, modelType: type, modelUrl: up.url, thumbnailUrl: cover.url, thumbnailName: coverFile.name, thumbnailSize: cover.size });
+        else mfList.push({ modelName: mf.name, modelSize: up.size, modelType: type, modelUrl: up.url, thumbnailUrl: cover.url, thumbnailName: 'cover.jpg', thumbnailSize: cover.size });
       }
 
       // Documentation uploads (Assembly Guide + Other Files) → {name,url,size} refs.
@@ -4958,6 +4986,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   };
 
   const del = async () => {
+    if (isDemo) { setResult(null); setStatus('idle'); setErrorMsg(''); setLiveCheck(null); return; }
     if (!cookie || !result?.id) return;
     setStatus('deleting'); setErrorMsg('');
     try {
@@ -4972,6 +5001,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   // Post-submit verification: a submit returns "verifying" — this confirms whether the
   // model actually became LIVE (appears in the published list) vs. still in review/rejected.
   const checkLive = async () => {
+    if (isDemo) { setLiveCheck({ loading: false, live: true, model: { id: result?.id, title: project.title, status: 1 } }); return; }
     if (!cookie || !result?.id || result.kind === 'laser-cut') return;
     setLiveCheck({ loading: true });
     try {
@@ -5038,8 +5068,9 @@ function MakerWorldUploadFlow({ platform, project }) {
           {result && (
             <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
               <div className="text-[13px]" style={{ color: 'rgba(21,23,28,0.85)' }}>
-                <Check size={14} className="inline" /> Submitted to MakerWorld — status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
+                <Check size={14} className="inline" /> {result.demo ? 'Simulated publish (demo) — ' : 'Submitted to MakerWorld — '}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
+              {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Demo mode — nothing was actually uploaded. Exit demo and connect a real account to publish for real.</div>}
               {result.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-[12px] underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
               {/* Post-submit verification — a 200 submit = "accepted for review", not "live". */}
               {result.kind !== 'laser-cut' && (
@@ -5056,7 +5087,7 @@ function MakerWorldUploadFlow({ platform, project }) {
             </div>
           )}
 
-          <MwMyModels cookie={cookie} />
+          <MwMyModels cookie={cookie} isDemo={isDemo} />
         </>
       )}
       {errorMsg && <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}
