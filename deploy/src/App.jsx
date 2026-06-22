@@ -669,9 +669,50 @@ function buildDemoProject() {
 // Real photos demonstrate the per-platform cropping far better than label cards, and a
 // real model file means a connected user can do a genuine private publish from the demo.
 
-// Verified real photos on the Unsplash CDN (CORS-enabled, no API key). Generic stock —
-// not the literal dragon, but real photographs at varied aspect ratios so the per-platform
-// crop is clearly visible. A keyword image-search (BYO key) for on-topic shots is a follow-up.
+// Primary source: real photos of ACTUAL 3D prints from Wikimedia Commons (free, no key,
+// CORS-enabled). On-topic by construction — these look like what users really publish.
+const COMMONS_CATEGORIES = ['3D_printed_objects', '3D_printed_art'];
+// Skip Commons files that aren't appealing printed objects (medical/bioprint/diagrams/etc.).
+const COMMONS_SKIP = /(bioprint|tissue|skin|organ|cell|medical|diagram|schematic|microscop|scan|x-ray|pen art|drawing|graph|chart|\blogo\b|\bmap\b|patent|poster)/i;
+
+async function fetchCommonsPrintUrls(limit) {
+  const urls = [];
+  for (const cat of COMMONS_CATEGORIES) {
+    if (urls.length >= limit) break;
+    const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:${cat}&gcmtype=file&gcmlimit=40&prop=imageinfo&iiprop=url&iiurlwidth=1600&format=json&origin=*`;
+    try {
+      const d = await fetch(api).then((r) => r.json());
+      for (const p of Object.values(d?.query?.pages || {})) {
+        const u = p?.imageinfo?.[0]?.thumburl; const title = p?.title || '';
+        if (!u || COMMONS_SKIP.test(title)) continue;
+        if (!/\.(jpe?g|png)/i.test(u.split('?')[0])) continue;
+        urls.push(u);
+      }
+    } catch { /* try next category / fall back */ }
+  }
+  return urls.slice(0, limit);
+}
+
+async function buildImageFromUrl(url, i) {
+  try {
+    const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http'); return r.blob(); });
+    const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+    const img = await loadImageFromDataUrl(dataUrl);
+    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}` };
+  } catch { return null; }
+}
+
+// Build `count` demo images: on-topic 3D-print photos first, then Unsplash, then samples.
+async function loadDemoImages(count) {
+  const onTopic = await fetchCommonsPrintUrls(count + 6).catch(() => []);
+  return Promise.all(Array.from({ length: count }, async (_, i) => {
+    if (onTopic[i]) { const img = await buildImageFromUrl(onTopic[i], i); if (img) return img; }
+    return fetchDemoImage(i); // Unsplash varied → generated sample
+  }));
+}
+
+// Secondary source: real photos on the Unsplash CDN (CORS-enabled, no API key) at varied
+// aspect ratios. Used only when an on-topic Commons photo for that slot fails to load.
 const DEMO_PHOTO_IDS = [
   '1635776062127-d379bfcba9f8', '1610890716171-6b1bb98ffd09', '1612817159949-195b6eb9e31a',
   '1581092160562-40aa08e78837', '1581092918056-0c4c3acd3789', '1518770660439-4636190af475',
@@ -731,7 +772,7 @@ async function makeCube3mf(s = 20) {
 // Build the real-asset patch for the demo: real photos (filled to `count`) + real STL/3MF
 // files wired to the existing profile. Applied after the placeholder demo is shown.
 async function loadDemoAssets(base, count = 16) {
-  const images = await Promise.all(Array.from({ length: count }, (_, i) => fetchDemoImage(i)));
+  const images = await loadDemoImages(count);
   const cube3mf = await makeCube3mf().catch(() => null);
   const files = base.files.map((f) => {
     if (/\.3mf$/i.test(f.name) && cube3mf) return { ...f, blob: cube3mf, size: cube3mf.size };
