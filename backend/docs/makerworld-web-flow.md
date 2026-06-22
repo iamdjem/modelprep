@@ -229,7 +229,7 @@ CANNOT fetch them — the desktop app's real browser CAN):
 - **Token refresh** `POST /api/v1/user-service/user/refreshtoken {refreshToken}` is LIVE
   (400 "field refreshToken is not set" if missing; 401 if invalid). Success body shape still
   UNVERIFIED (refreshToken is HttpOnly, unreadable from JS).
-- **Tag limit:** UI caps at 50; PUT does NOT enforce (50 and 100 both 200). Client-side only.
+- **Text limits (UI-enforced, verified 2026-06-22):** **title (`title`) ≤50 chars**; **tags ≤50** with **≤100 chars per tag**; description (`summary`) has no hard cap observed. All client-side only — the PUT does NOT enforce them (50 and 100 tags both 200). Mirrored in `PLATFORMS.makerworld.limits = { titleMax: 50, tagMax: 50, tagCharMax: 100 }` and enforced on the Details step.
 - **categoryId:** no leaf enforcement at PUT (parent 400 and leaf 401 both accepted).
 - **submitAsPrivate** in `designSetting`/`instanceSetting` is a BOOLEAN (our adapter already sends bool).
 - **edit.json** `pageProps` keys confirmed: `draft, categories (11 top-level), boms,
