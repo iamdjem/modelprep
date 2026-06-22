@@ -7,7 +7,7 @@ import {
   Upload, Download, Copy, Image as ImageIcon, FileText, Check, Sparkles,
   Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronDown, ChevronUp,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
-  Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut
+  Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut, Settings
 } from 'lucide-react';
 import { useAccounts, getActive, CONNECTABLE } from './lib/accounts.js';
 
@@ -837,7 +837,9 @@ export default function App() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [dialog, setDialog] = useState(null); // styled prompt/confirm modal
   const [demoActive, setDemoActive] = useState(false);
-  const [showConnections, setShowConnections] = useState(false); // Connections (accounts) modal
+  const [showConnections, setShowConnections] = useState(false); // unified Settings modal
+  const [settingsTab, setSettingsTab] = useState('accounts');     // accounts | ai | about
+  const openSettings = (tab = 'accounts') => { setSettingsTab(tab); setShowConnections(true); };
   const stashedProject = useRef(null);
 
   // Demo mode: fill the whole project with sample data so users can click through
@@ -1022,7 +1024,7 @@ export default function App() {
   };
 
   return (
-    <ConnectionsCtx.Provider value={() => setShowConnections(true)}>
+    <ConnectionsCtx.Provider value={openSettings}>
     <div className="min-h-screen w-full" style={{ background: '#EDE9DE', color: '#15171C', fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
       <GlobalStyles />
 
@@ -1045,7 +1047,7 @@ export default function App() {
         onImportFolder={importFolder}
         demoActive={demoActive}
         onToggleDemo={toggleDemo}
-        onOpenConnections={() => setShowConnections(true)}
+        onOpenConnections={openSettings}
       />
       <VersionBanner />
 
@@ -1091,7 +1093,7 @@ export default function App() {
       </div>
 
       {dialog && <Modal dialog={dialog} onClose={() => setDialog(null)} />}
-      <ConnectionsModal open={showConnections} onClose={() => setShowConnections(false)} />
+      <SettingsModal open={showConnections} onClose={() => setShowConnections(false)} tab={settingsTab} setTab={setSettingsTab} />
     </div>
     </ConnectionsCtx.Provider>
   );
@@ -2037,7 +2039,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [aiHint, setAiHint] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const openSettings = useOpenConnections();
   const aiProvider = getAiConfig().provider;
   const [licenseFilter, setLicenseFilter] = useState('all');
 
@@ -2122,12 +2124,12 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             from your {project.images.length} photo{project.images.length === 1 ? '' : 's'}
           </span>
           <button
-            onClick={() => setAiSettingsOpen(o => !o)}
+            onClick={() => openSettings('ai')}
             className="ml-auto mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1 hover:text-[#FF5722] transition"
             style={{ color: 'rgba(21,23,28,0.5)' }}
-            aria-expanded={aiSettingsOpen}
+            title="Configure the AI provider in Settings"
           >
-            <Edit3 size={11} /> {aiProvider === 'none' ? 'Set up AI' : AI_PROVIDERS[aiProvider]?.label?.split(' ')[0] || 'AI'} {aiSettingsOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            <Settings size={11} /> {aiProvider === 'none' ? 'Set up AI' : (AI_PROVIDERS[aiProvider]?.label?.split(' ')[0] || 'AI')}
           </button>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -2153,12 +2155,10 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             {aiMsg.text}
           </p>
         )}
-        {aiSettingsOpen
-          ? <AiSettings />
-          : <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.4)' }}>
-              Looks at your print photos to write everything — you review and tweak below. Respects each platform's length/tag limits.
-              {aiProvider === 'none' && ' No AI key needed to try it (offline draft); add a free/own-key provider via “Set up AI” for photo-based results.'}
-            </p>}
+        <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.4)' }}>
+          Looks at your print photos to write everything — you review and tweak below. Respects each platform's length/tag limits.
+          {aiProvider === 'none' && ' No key needed to try it (offline draft); pick a free/own-key provider in Settings for photo-based results.'}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
@@ -4466,39 +4466,100 @@ function ConnectionsButton({ onOpen }) {
   useAccounts();
   const connected = CONNECTABLE.filter((id) => getActive(id)).length;
   return (
-    <button onClick={onOpen} className="mp-btn mp-btn-ghost text-xs py-2 px-3" title="Manage platform sign-ins">
-      <User size={13} /> Accounts
+    <button onClick={() => onOpen('accounts')} className="mp-btn mp-btn-ghost text-xs py-2 px-3" title="Settings — sign-ins, AI, and more">
+      <Settings size={13} /> Settings
       {connected > 0 && <span className="ml-1 mp-mono text-[12px]" style={{ color: '#1a7f37' }}>{connected}</span>}
     </button>
   );
 }
 
-function ConnectionsModal({ open, onClose }) {
+// Unified Settings: everything that's configured once and remembered across runs —
+// platform sign-ins (Accounts), AI provider/key (AI), and build/info + reset (About).
+// All of it persists in localStorage (accounts store + ai-config), so it survives reloads.
+function SettingsModal({ open, onClose, tab, setTab }) {
   useAccounts();
   if (!open) return null;
   const meta = (id) => PLATFORMS.find((p) => p.id === id) || { id, name: id, dot: '#888' };
+  const connectedCount = CONNECTABLE.filter((id) => getActive(id)).length;
+  const aiProvider = getAiConfig().provider;
+  const TABS = [
+    { id: 'accounts', label: 'Accounts', icon: User, badge: connectedCount || null },
+    { id: 'ai', label: 'AI', icon: Sparkles, badge: aiProvider !== 'none' ? '•' : null },
+    { id: 'about', label: 'About', icon: Info, badge: null },
+  ];
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(21,23,28,0.45)' }} onClick={onClose}>
       <div className="mp-card w-full max-w-xl my-8" style={{ background: '#EDE9DE' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(21,23,28,0.12)', background: '#EDE9DE' }}>
-          <div className="flex items-center gap-2"><User size={16} /><span className="mp-display text-[18px]">Connections</span></div>
+          <div className="flex items-center gap-2"><Settings size={16} /><span className="mp-display text-[18px]">Settings</span></div>
           <button onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
-        <div className="p-4 space-y-3 max-h-[72vh] overflow-auto">
-          <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sign in to your publishing platforms once. Add multiple accounts per platform and choose which is active — that's the account ModelPrep publishes with. Stored only in this browser.</p>
-          {CONNECTABLE.map((id) => <PlatformConnections key={id} platform={meta(id)} />)}
-          <div className="mp-card p-3" style={{ background: 'rgba(21,23,28,0.03)' }}>
-            <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>Coming soon</div>
-            <div className="flex flex-wrap gap-1.5">
-              {PLATFORMS.filter((p) => !CONNECTABLE.includes(p.id)).map((p) => (
-                <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ background: 'rgba(21,23,28,0.06)', color: 'rgba(21,23,28,0.5)' }}>
-                  <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: p.dot }} />{p.name}
-                </span>
-              ))}
-            </div>
-          </div>
+        {/* Tab strip */}
+        <div className="flex gap-1 px-4 pt-3 border-b" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+          {TABS.map((t) => {
+            const Icon = t.icon; const on = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className="px-3 py-2 mp-mono text-[12px] uppercase tracking-[0.12em] flex items-center gap-1.5 -mb-px border-b-2 transition"
+                style={{ borderColor: on ? '#FF5722' : 'transparent', color: on ? '#15171C' : 'rgba(21,23,28,0.5)' }}>
+                <Icon size={13} /> {t.label}
+                {t.badge != null && <span className="mp-mono text-[10px]" style={{ color: '#1a7f37' }}>{t.badge}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="p-4 space-y-3 max-h-[68vh] overflow-auto">
+          {tab === 'accounts' && (
+            <>
+              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sign in to your publishing platforms once. Add multiple accounts per platform and choose which is active — that's the account ModelPrep publishes with. Stored only in this browser.</p>
+              {CONNECTABLE.map((id) => <PlatformConnections key={id} platform={meta(id)} />)}
+              <div className="mp-card p-3" style={{ background: 'rgba(21,23,28,0.03)' }}>
+                <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>Coming soon</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PLATFORMS.filter((p) => !CONNECTABLE.includes(p.id)).map((p) => (
+                    <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ background: 'rgba(21,23,28,0.06)', color: 'rgba(21,23,28,0.5)' }}>
+                      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: p.dot }} />{p.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+          {tab === 'ai' && (
+            <>
+              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Pick the AI used to generate titles, descriptions and tags from your photos. Use a free/cheap model with your own key, a local model ($0), or none. Your key is stored only in this browser and sent per-request.</p>
+              <div className="mp-card p-3"><AiSettings /></div>
+            </>
+          )}
+          {tab === 'about' && <SettingsAbout onClose={onClose} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+// About tab — build info + a hard reset for the locally-stored settings/accounts.
+function SettingsAbout({ onClose }) {
+  const acc = useAccounts();
+  const clearAll = () => {
+    try {
+      for (const id of CONNECTABLE) for (const a of acc.getAccounts(id)) acc.removeAccount(id, a.id);
+      localStorage.removeItem(AI_CONFIG_KEY);
+    } catch { /* ignore */ }
+    onClose();
+  };
+  return (
+    <div className="space-y-3 text-[13px]" style={{ color: 'rgba(21,23,28,0.8)' }}>
+      <div className="mp-card p-3 space-y-1">
+        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.45)' }}>Build</div>
+        <div className="mp-mono text-[12px]">{BUILD_LABEL}</div>
+      </div>
+      <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>
+        Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.
+      </p>
+      <button onClick={clearAll} className="mp-btn mp-btn-ghost text-xs py-2 px-3" style={{ color: '#b91c1c' }}>
+        <Trash2 size={13} /> Clear saved accounts &amp; AI settings
+      </button>
     </div>
   );
 }
