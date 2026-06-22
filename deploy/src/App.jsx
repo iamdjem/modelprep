@@ -5223,10 +5223,13 @@ function MakerWorldUploadFlow({ platform, project }) {
         setProgressMsg('Uploading documentation…');
         const [designGuide, designOther] = [await uploadDocs(docGuides), await uploadDocs(docOthers)];
         const hasBom = bomCount > 0;
+        // MakerWorld's description (`summary`) is an HTML rich-text field — send converted
+        // HTML, not raw Markdown (else the `#`/`**` show literally in the listing).
+        const htmlDesc = mdToHtml(project.description) || '<p>Uploaded with ModelPrep.</p>';
         endpoint = `${WORKER_URL}/api/v1/makerworld/web/publish`;
         input = {
           title: project.title || 'ModelPrep upload',
-          description: project.description || '<p>Uploaded with ModelPrep.</p>',
+          description: htmlDesc,
           categoryId: Number(categoryId),
           tags: project.tags ?? [],
           license,
@@ -5242,7 +5245,7 @@ function MakerWorldUploadFlow({ platform, project }) {
           ...(designGuide.length ? { designGuide } : {}),
           ...(designOther.length ? { designOther } : {}),
           ...(model3mf ? { model3mf, printProfile: { title: profileName, pictureUrls: profilePicUrls.length ? profilePicUrls : [cover.url], isPrinterTested: true } } : {}),
-          ...(communityPost ? { communityPost: { content: project.description || '' } } : {}),
+          ...(communityPost ? { communityPost: { content: htmlDesc } } : {}),
         };
       }
 
