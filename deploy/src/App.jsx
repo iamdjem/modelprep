@@ -5414,6 +5414,7 @@ function MakerWorldOptions({ opts, onUpdate }) {
   const [skuInput, setSkuInput] = useState('');
   const [docGuides, setDocGuides] = useState(mwRuntimeDocs.docGuides);
   const [docOthers, setDocOthers] = useState(mwRuntimeDocs.docOthers);
+  const [docNotice, setDocNotice] = useState('');
   const inputCls = 'mp-card text-[13px] p-2 w-full';
 
   const ensureCatalog = async () => { if (catalog) return catalog; try { const c = await loadMwCatalog(); setCatalog(c); return c; } catch (e) { setCatalogErr(e instanceof Error ? e.message : String(e)); return null; } };
@@ -5425,8 +5426,24 @@ function MakerWorldOptions({ opts, onUpdate }) {
     for (const kind of ['kits', 'filaments', 'materials']) { const hit = mwFindBySku(c[kind], skuInput); if (hit) { addBom(kind, mwCatalogItem(hit.node, hit.parentIds, 1)); setSkuInput(''); setCatalogErr(''); return; } }
     setCatalogErr(`No catalog item with Product ID "${skuInput.trim()}".`);
   };
-  const setGuides = (files) => { mwRuntimeDocs.docGuides = files; setDocGuides(files); };
-  const setOthers = (files) => { mwRuntimeDocs.docOthers = files; setDocOthers(files); };
+  // MakerWorld documentation limits (verified from the upload UI 2026-06-22):
+  //   Assembly Guide: pdf/png/jpg/webp/gif · images ≤30MB, pdf ≤50MB · max 25.
+  //   Other Files:    txt/pdf/zip · txt ≤2MB, pdf ≤50MB, zip ≤100MB · max 10.
+  const validateDocs = (files, kind) => {
+    const MB = 1024 * 1024, max = kind === 'guide' ? 25 : 10, rejected = [];
+    let ok = Array.from(files).filter((f) => {
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      const allowed = kind === 'guide' ? ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif'] : ['txt', 'pdf', 'zip'];
+      if (!allowed.includes(ext)) { rejected.push(`${f.name} (unsupported type)`); return false; }
+      const limit = kind === 'guide' ? (ext === 'pdf' ? 50 : 30) : (ext === 'txt' ? 2 : ext === 'pdf' ? 50 : 100);
+      if (f.size > limit * MB) { rejected.push(`${f.name} (over ${limit}MB)`); return false; }
+      return true;
+    });
+    if (ok.length > max) { rejected.push(`${ok.length - max} file(s) over the ${max}-file limit`); ok = ok.slice(0, max); }
+    return { ok, rejected };
+  };
+  const setGuides = (files) => { const { ok, rejected } = validateDocs(files, 'guide'); mwRuntimeDocs.docGuides = ok; setDocGuides(ok); setDocNotice(rejected.length ? `Assembly guide — skipped: ${rejected.join('; ')}` : ''); };
+  const setOthers = (files) => { const { ok, rejected } = validateDocs(files, 'other'); mwRuntimeDocs.docOthers = ok; setDocOthers(ok); setDocNotice(rejected.length ? `Other files — skipped: ${rejected.join('; ')}` : ''); };
 
   return (
     <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
@@ -5527,14 +5544,15 @@ function MakerWorldOptions({ opts, onUpdate }) {
         </MwSection>
       )}
       <MwSection title="Documentation" hint="assembly guide · other files" badge={docGuides.length + docOthers.length || 0}>
-        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Assembly guide (pdf/png/jpg/webp/gif)</span>
-          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif" className="text-[11px] w-full" onChange={(e) => setGuides(Array.from(e.target.files || []))} />
+        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Assembly guide ({docGuides.length}/25 · pdf/png/jpg/webp/gif · img ≤30MB, pdf ≤50MB)</span>
+          <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif" className="text-[11px] w-full" onChange={(e) => setGuides(e.target.files || [])} />
         </label>
         {docGuides.length > 0 && <div className="text-[11px] opacity-60">{docGuides.map(f => f.name).join(', ')}</div>}
-        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Other files (txt/pdf/zip)</span>
-          <input type="file" multiple accept=".txt,.pdf,.zip" className="text-[11px] w-full" onChange={(e) => setOthers(Array.from(e.target.files || []))} />
+        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Other files ({docOthers.length}/10 · txt ≤2MB, pdf ≤50MB, zip ≤100MB)</span>
+          <input type="file" multiple accept=".txt,.pdf,.zip" className="text-[11px] w-full" onChange={(e) => setOthers(e.target.files || [])} />
         </label>
         {docOthers.length > 0 && <div className="text-[11px] opacity-60">{docOthers.map(f => f.name).join(', ')}</div>}
+        {docNotice && <div className="text-[11px]" style={{ color: '#c83f10' }}>{docNotice}</div>}
         <div className="text-[10px] opacity-50">Docs are kept for this session (not saved with the project).</div>
       </MwSection>
       {!isLC && (

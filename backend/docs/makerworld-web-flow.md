@@ -76,7 +76,7 @@ Optional sections (all supported as passthrough in the adapter):
   - `bomsOfOtherPartList[]` — free-text rows: `{name, quantity, note}`.
   - `bomsLinks[]` — external links (separate).
   - Note: BOM toggled ON but with **no catalog item** (only "other parts") shows *"Please add… parts/filaments/Materials"* and **disables Add Print Profile** — needs ≥1 kit/filament/material.
-- **Documentation**: Assembly Guide → `designGuide[]` (pdf/png/jpg/webp/gif); Other Files → `designOther[]` (txt/pdf/zip).
+- **Documentation**: Assembly Guide → `designGuide[]` (pdf/png/jpg/webp/gif; **images ≤30MB/piece, pdf ≤50MB/piece; max 25**); Other Files → `designOther[]` (txt/pdf/zip; **txt ≤2MB, pdf ≤50MB, zip ≤100MB; max 10**). Limits verified from the upload UI 2026-06-22; enforced client-side in `MakerWorldOptions.validateDocs`.
 - **Community Post**: `postNeeded` + `postContent` (opt-in — don't auto-post for users).
 - **CyberBrick**: `cyberBrick.*` (RC/hardware models).
 - **Paid/Crowdfunding**: `paidSetting.{isPaid,crowdfunding}`.
