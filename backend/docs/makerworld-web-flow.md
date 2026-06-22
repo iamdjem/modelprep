@@ -7,10 +7,23 @@ outside the repo at `/Users/alex/makerworld-capture/`, which is gitignored becau
 outputs contain live session tokens). Validated end-to-end on 2026-06-20 (upload → publish
 private → delete) through the adapter itself.
 
-## Auth model (NOT a server-side login)
+## Auth model
 
-MakerWorld sits behind **Bambu SSO + Cloudflare bot-management**, so we cannot log in
-server-side the way the Cults web flow does. Instead:
+> **MAJOR UPDATE (browser-agent verified 2026-06-23): server-side email/password login IS
+> possible.** `POST /api/v1/user-service/user/login {account, password}` returns the auth JWT
+> in the **response body** (`{userId, token, expireIn}`) — a **180-day** token. **`cf_clearance`
+> is NOT required for `/api/v1/*`** (Cloudflare passes the API through; an unauthenticated call
+> returns an app-layer JSON `{}` 401, not a CF HTML 403). So the **Worker** can log in directly
+> (no CORS — that only blocks browsers) and the `token` alone authorizes every call. The `X-BBL-*`
+> headers are optional for reads (keep them for writes). This powers the in-app email/password
+> sign-in: adapter `mwLogin`, Worker `POST /api/v1/makerworld/web/login` → returns `cookie`
+> (`token=…; refreshToken=…`) used as the account secret. Refresh works server-side:
+> `POST /api/v1/user-service/user/refreshtoken {refreshToken}` → new `{token, expireIn}`
+> (capture `refreshToken` from the login response's Set-Cookie). Only caveat: a **GeeTest captcha**
+> (client-side) MAY trigger on suspicious/repeat attempts — surface the error + offer the
+> cookie-paste / desktop fallback. The legacy cookie-capture text below remains valid as a fallback.
+
+MakerWorld sits behind **Bambu SSO + Cloudflare bot-management**. Original (fallback) flow:
 
 - The **user supplies their own MakerWorld session cookie** (the browser obtains it; it's
   HttpOnly so a page can't read it — production needs a browser extension or a manual paste).

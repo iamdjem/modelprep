@@ -4928,19 +4928,39 @@ function ConnectForm({ platform, onDone, canCancel }) {
       </div>
     );
   }
-  // MakerWorld
+  // MakerWorld — real email/password sign-in works on the WEB now (the Worker exchanges
+  // credentials for a 180-day token; cf_clearance isn't needed). Desktop one-click and
+  // cookie-paste remain as alternatives.
+  const loginMw = async () => {
+    setBusy(true); setErr('');
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: email.trim(), password: pass }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.cookie) throw new Error(data.error || `Sign-in failed (HTTP ${res.status}).`);
+      await finishMw(data.cookie); // validates the token + saves the account
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
+  };
   return (
     <div className="space-y-1.5">
       <input className={inputCls} placeholder="Account name (optional — defaults to your @handle)" value={label} onChange={(e) => setLabel(e.target.value)} />
-      {desktop ? (
-        <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(r.cookie); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}</button>
-      ) : (
-        <>
-          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.6)' }}>One-click sign-in is in the desktop app. On the web, paste your session cookie (DevTools → Application → Cookies on a logged-in MakerWorld tab):</div>
-          <textarea className={inputCls} rows={2} placeholder="token=…; cf_clearance=…; refreshToken=…" value={cookie} onChange={(e) => setCookie(e.target.value)} />
-          <button disabled={!cookie.trim() || busy} onClick={() => finishMw(cookie.trim())} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{busy ? 'Checking…' : 'Connect'}</button>
-        </>
+      {desktop && (
+        <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(r.cookie); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in via MakerWorld window (desktop)'}</button>
       )}
+      <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
+      <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
+      <button disabled={!email.trim() || !pass || busy} onClick={loginMw} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Signing in…' : 'Sign in to MakerWorld'}</button>
+      <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Email + password go to the Worker only to exchange for a sign-in token (lasts ~180 days); the password is never stored. The token is kept only in this browser.</p>
+      <details>
+        <summary className="text-[11px] cursor-pointer" style={{ color: 'rgba(21,23,28,0.5)' }}>Trouble signing in? Paste a session cookie instead</summary>
+        <div className="mt-1.5 space-y-1.5">
+          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>From a logged-in MakerWorld tab: DevTools → Application → Cookies → copy <code>token</code> (and <code>refreshToken</code>).</div>
+          <textarea className={inputCls} rows={2} placeholder="token=…; refreshToken=…" value={cookie} onChange={(e) => setCookie(e.target.value)} />
+          <button disabled={!cookie.trim() || busy} onClick={() => finishMw(cookie.trim())} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{busy ? 'Checking…' : 'Connect with cookie'}</button>
+        </div>
+      </details>
       {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
       {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
     </div>

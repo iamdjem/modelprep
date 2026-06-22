@@ -28,6 +28,7 @@ import {
 } from './adapters/cults3d-web';
 import {
   mwCheckSession,
+  mwLogin,
   mwUploadFile,
   mwCreateDraft,
   mwPublish,
@@ -675,6 +676,23 @@ export default {
     };
     const mwAuthError = () =>
       json({ error: 'missing_makerworld_session', hint: 'Send X-MW-Cookie with your MakerWorld session (token=…; cf_clearance=…).' }, { status: 401 });
+
+    // POST /api/v1/makerworld/web/login {account, password} — real email/password sign-in.
+    // The Worker (server-side, no CORS/cf_clearance constraint) exchanges credentials for a
+    // 180-day token via MakerWorld's login API, and returns it as the `cookie` string the
+    // rest of the app uses as the account secret. The password is exchanged, never stored.
+    if (path === '/api/v1/makerworld/web/login' && req.method === 'POST') {
+      let body: { account?: string; password?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!body.account || !body.password) return json({ error: 'missing_credentials', hint: 'Send {account, password}.' }, { status: 400 });
+      try {
+        const r = await mwLogin(body.account, body.password);
+        const cookie = `token=${r.token}` + (r.refreshToken ? `; refreshToken=${r.refreshToken}` : '');
+        return json({ ok: true, cookie, userId: r.userId, expireIn: r.expireIn });
+      } catch (err) {
+        return json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 401 });
+      }
+    }
 
     // GET /api/v1/makerworld/web/check — is the supplied cookie a valid session?
     if (path === '/api/v1/makerworld/web/check' && req.method === 'GET') {

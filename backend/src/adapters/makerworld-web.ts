@@ -70,6 +70,41 @@ async function mwJson<T>(res: Response, what: string): Promise<T> {
   return parsed as T;
 }
 
+/** Email/password sign-in (server-side, browser-agent verified 2026-06-23).
+ *  `POST /user-service/user/login {account,password}` returns the auth JWT in the BODY
+ *  ({userId, token, expireIn}) — a 180-day token. cf_clearance is NOT required for the
+ *  API, so this token alone authorizes all subsequent calls. The Worker (not a browser)
+ *  calls this, so CORS doesn't apply. `refreshToken` comes back as a Set-Cookie we capture.
+ *  Risk: a GeeTest captcha MAY trigger on suspicious/repeat attempts (not solvable here) —
+ *  callers should surface the error and offer the cookie-paste / desktop fallback. */
+export interface MwLoginResult { userId: string; token: string; expireIn: number; refreshToken?: string }
+export async function mwLogin(account: string, password: string): Promise<MwLoginResult> {
+  const res = await fetch(`${MW_BASE}/api/v1/user-service/user/login`, {
+    method: 'POST',
+    headers: {
+      ...BBL_HEADERS,
+      'User-Agent': USER_AGENT,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Origin: MW_BASE,
+      Referer: `${MW_BASE}/sign-in/password-sign-in`,
+    },
+    body: JSON.stringify({ account, password }),
+  });
+  const text = await res.text();
+  let data: { userId?: string; token?: string; expireIn?: number; code?: number; error?: string };
+  try { data = JSON.parse(text); } catch { throw new Error(`MakerWorld login: non-JSON response (HTTP ${res.status}). Cloudflare may be challenging — try the cookie-paste or desktop sign-in.`); }
+  if (!res.ok || !data.token) {
+    throw new Error(data.error || `MakerWorld login failed [${data.code ?? res.status}]`);
+  }
+  // refreshToken is set as an HttpOnly cookie — readable from a server-side response.
+  let refreshToken: string | undefined;
+  const setCookie = res.headers.get('set-cookie') || '';
+  const m = /(?:^|[;,\s])refreshToken=([^;,\s]+)/.exec(setCookie);
+  if (m) refreshToken = m[1];
+  return { userId: data.userId ?? '', token: data.token, expireIn: data.expireIn ?? 0, refreshToken };
+}
+
 /** Quick liveness/auth check: GET my message count. 200 = session valid. */
 export async function mwCheckSession(session: MakerWorldSession): Promise<boolean> {
   const res = await fetch(`${MW_BASE}/api/v1/user-service/my/message/count`, { headers: mwHeaders(session) });
