@@ -13,6 +13,11 @@ export interface Env {
   CULTS_PASSWORD?: string;
   STAGING: R2Bucket;            // bound from [[r2_buckets]] in wrangler.toml
   // TOKENS?: KVNamespace;      // enable when KV namespace is bound
+  // Anthropic API key for AI listing generation (vision over the user's photos).
+  // Set via `wrangler secret put ANTHROPIC_API_KEY`. Optional — when absent, the
+  // /api/v1/ai/generate-listing route returns 503 and the frontend falls back to
+  // its on-device heuristic.
+  ANTHROPIC_API_KEY?: string;
 }
 
 // Payload that the React frontend will eventually POST to /publish/cults3d.

@@ -822,6 +822,10 @@ function buildImportSummaryText(s) {
   if (s.found.length)    parts.push('Imported:\n• ' + s.found.join('\n• '));
   if (s.warnings.length) parts.push('Heads up:\n• ' + s.warnings.join('\n• '));
   if (s.missing.length)  parts.push('Still needed:\n• ' + s.missing.join('\n• '));
+  // If the text fields are missing but photos came in, point at the AI generator.
+  if (s.missing.some(m => /description|tags|title/i.test(m)) && s.found.some(f => /photo/i.test(f))) {
+    parts.push('Tip: click “✨ Generate with AI” on the Details step to write the title, description and tags from your photos.');
+  }
   return parts.join('\n\n');
 }
 
@@ -1773,6 +1777,62 @@ function aiSuggestTags(title) {
   return AI_TAG_SUGGESTIONS.default;
 }
 
+// data:image/jpeg;base64,XXXX → { base64, mediaType } for the AI endpoint.
+function dataUrlToParts(dataUrl) {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl || '');
+  if (!m) return null;
+  return { mediaType: m[1], base64: m[2] };
+}
+
+// Generate Title/Description/Tags/Category from the project's photos + an optional one-line
+// hint. Tries the Worker's Claude-vision endpoint; if that's not configured (no API key) or
+// fails, falls back to an on-device heuristic so the button always does *something*.
+// Returns { fields, source: 'ai' | 'offline', notes?, realPhotoDetected? }.
+async function generateListingAI({ images, hint, limits, categories }) {
+  // Down-rez to keep the request small + cheap; vision doesn't need full res.
+  const parts = [];
+  for (const img of (images || []).slice(0, 8)) {
+    try {
+      const blob = await cropImageToBlob(img, 1024, 768, 'image/jpeg', 0.8);
+      const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(blob); });
+      const p = dataUrlToParts(dataUrl); if (p) parts.push(p);
+    } catch { /* skip unreadable image */ }
+  }
+
+  if (parts.length) {
+    try {
+      const res = await fetch(`${WORKER_URL}/api/v1/ai/generate-listing`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images: parts, hint: hint || '', categories: categories || [], limits: limits || {} }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        return {
+          source: 'ai',
+          notes: d.notes,
+          realPhotoDetected: d.realPhotoDetected,
+          fields: { title: d.title || '', description: d.description || '', tags: d.tags || [], category: d.category || '' },
+        };
+      }
+      // 503 ai_not_configured (no key) or 502 ai_failed → fall through to offline.
+    } catch { /* network → offline */ }
+  }
+
+  // ── Offline heuristic fallback ──────────────────────────────────────────
+  const seed = (hint || '').trim();
+  const title = seed
+    ? seed.replace(/[._-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, limits?.titleMax || 120)
+    : '';
+  const tags = [...new Set(aiSuggestTags(seed || 'thing'))].slice(0, limits?.tagMax || 20);
+  const description = seed
+    ? `# ${title}\n\n${seed}.\n\n## Print settings\n- Layer height: 0.2 mm\n- Material: PLA\n- Supports: as needed\n`
+    : '';
+  return {
+    source: 'offline',
+    fields: { title, description, tags, category: '' },
+  };
+}
+
 function CategorySelect({ value, onChange, options }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -1853,6 +1913,9 @@ function matchesLicenseFilter(l, f) {
 function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [tagInput, setTagInput] = useState('');
   const [previewMode, setPreviewMode] = useState('write'); // write | preview | formats
+  const [aiHint, setAiHint] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
   const [licenseFilter, setLicenseFilter] = useState('all');
 
   const visibleLicenses = LICENSES.filter(l => matchesLicenseFilter(l, licenseFilter));
@@ -1865,6 +1928,33 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const titleOver = lim.titleMax && project.title.length > lim.titleMax;
   const descOver = lim.descMax && project.description.length > lim.descMax;
   const longTags = lim.tagCharMax ? project.tags.filter(t => t.length > lim.tagCharMax) : [];
+
+  // ✨ Generate Title/Description/Tags/Category from the photos (+ optional hint).
+  const runGenerate = async () => {
+    if (aiBusy) return;
+    if (!project.images.length && !aiHint.trim()) {
+      setAiMsg({ kind: 'warn', text: 'Add photos in step 03 (or type a one-line hint) first.' });
+      return;
+    }
+    setAiBusy(true); setAiMsg(null);
+    try {
+      const out = await generateListingAI({ images: project.images, hint: aiHint, limits: lim, categories: CATEGORIES });
+      const f = out.fields;
+      const patch = {};
+      if (f.title) patch.title = f.title;
+      if (f.description) patch.description = f.description;
+      if (f.tags?.length) patch.tags = [...new Set(f.tags)];
+      if (f.category) patch.category = f.category;
+      if (Object.keys(patch).length) updateProject(patch);
+      const filled = Object.keys(patch).map(k => k === 'tags' ? `${patch.tags.length} tags` : k).join(', ') || 'nothing';
+      const tail = out.source === 'offline'
+        ? ' (offline draft — no AI key configured, so this is a rough starting point you should edit)'
+        : (out.realPhotoDetected === false ? ' · ⚠ no real print photo detected — MakerWorld requires one' : '');
+      setAiMsg({ kind: out.source === 'offline' || out.realPhotoDetected === false ? 'warn' : 'ok', text: `Generated ${filled}.${out.notes ? ' ' + out.notes : ''}${tail}` });
+    } catch (e) {
+      setAiMsg({ kind: 'warn', text: 'Generation failed — ' + String((e && e.message) || e) });
+    } finally { setAiBusy(false); }
+  };
 
   const addTag = (raw) => {
     const t = raw.trim().toLowerCase().replace(/\s+/g, '-');
@@ -1896,6 +1986,44 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         title="Project details"
         subtitle="Title, description, tags, category, and license. These get formatted three ways for the different platforms."
       />
+
+      {/* ✨ AI generate — reads the photos (+ an optional one-line hint) and fills in
+          Title, Description, Tags and Category. The most you ever type is one line. */}
+      <div className="mp-card p-4 mt-6" style={{ background: 'rgba(255,87,34,0.05)', borderColor: 'rgba(255,87,34,0.3)' }}>
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles size={15} style={{ color: '#FF5722' }} />
+          <span className="mp-mono text-[12px] uppercase tracking-[0.15em]" style={{ color: '#FF5722' }}>Generate with AI</span>
+          <span className="text-[12px]" style={{ color: 'rgba(21,23,28,0.45)' }}>
+            from your {project.images.length} photo{project.images.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            className="mp-input flex-1"
+            placeholder="Optional one-line hint, e.g. “articulating desk dragon, PLA, no supports”"
+            value={aiHint}
+            onChange={(e) => setAiHint(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') runGenerate(); }}
+            disabled={aiBusy}
+          />
+          <button
+            onClick={runGenerate}
+            disabled={aiBusy}
+            className="mp-btn text-[13px] py-2 px-4 disabled:opacity-50 flex items-center gap-1.5 justify-center"
+            style={{ background: '#FF5722', borderColor: '#FF5722', color: '#fff' }}
+          >
+            {aiBusy ? <><Loader size={13} className="animate-spin" /> Generating…</> : <><Sparkles size={13} /> Generate</>}
+          </button>
+        </div>
+        {aiMsg && (
+          <p className="text-[12px] mt-2" style={{ color: aiMsg.kind === 'warn' ? '#c83f10' : 'rgba(21,23,28,0.6)' }}>
+            {aiMsg.text}
+          </p>
+        )}
+        <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.4)' }}>
+          Looks at your print photos to write everything — you review and tweak below. Respects each platform's length/tag limits.
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
         <div className="lg:col-span-2 space-y-5">

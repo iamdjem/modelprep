@@ -48,6 +48,7 @@ import {
   type LaserCutPublishInput,
 } from './adapters/makerworld-web';
 import { stageFile, serveFile } from './r2';
+import { generateListing, type ListingImage } from './adapters/ai-listing';
 import type { PublishPayload } from './types';
 
 // Bytes — cap upload size at the Worker request-body limit. Cloudflare's
@@ -885,6 +886,34 @@ export default {
         const message = err instanceof Error ? err.message : String(err);
         console.log('[upload] EXCEPTION:', message);
         return json({ error: 'upload_failed', message }, { status: 500 });
+      }
+    }
+
+    // -------------------- AI: generate a listing from photos ---------------
+    // POST { images:[{base64,mediaType}], hint?, categories:string[], limits? }
+    // → { title, description, tags, category, realPhotoDetected, notes }.
+    // 503 when no ANTHROPIC_API_KEY is configured, so the frontend can fall back
+    // to its on-device heuristic without treating it as a hard error.
+    if (path === '/api/v1/ai/generate-listing' && req.method === 'POST') {
+      if (!env.ANTHROPIC_API_KEY) {
+        return json({ error: 'ai_not_configured', hint: 'Set ANTHROPIC_API_KEY via `wrangler secret put`.' }, { status: 503 });
+      }
+      let body: { images?: ListingImage[]; hint?: string; categories?: string[]; limits?: Record<string, number> };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      const images = (body.images ?? []).filter((i) => i && i.base64 && i.mediaType);
+      if (!images.length) return json({ error: 'no_images', hint: 'Send at least one photo as {base64, mediaType}.' }, { status: 400 });
+      try {
+        const listing = await generateListing(env.ANTHROPIC_API_KEY, {
+          images,
+          hint: body.hint,
+          categories: body.categories ?? [],
+          limits: body.limits,
+        });
+        return json({ ok: true, ...listing });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log('[ai] generate-listing failed:', message);
+        return json({ error: 'ai_failed', message }, { status: 502 });
       }
     }
 
