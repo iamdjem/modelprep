@@ -698,17 +698,19 @@ async function buildImageFromUrl(url, i) {
     const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http'); return r.blob(); });
     const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
     const img = await loadImageFromDataUrl(dataUrl);
-    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}` };
+    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}`, real: true };
   } catch { return null; }
 }
 
 // Build `count` demo images: on-topic 3D-print photos first, then Unsplash, then samples.
+// Real photos are sorted first so the cover/app-cover land on an actual print, not a sample.
 async function loadDemoImages(count) {
   const onTopic = await fetchCommonsPrintUrls(count + 6).catch(() => []);
-  return Promise.all(Array.from({ length: count }, async (_, i) => {
+  const built = await Promise.all(Array.from({ length: count }, async (_, i) => {
     if (onTopic[i]) { const img = await buildImageFromUrl(onTopic[i], i); if (img) return img; }
     return fetchDemoImage(i); // Unsplash varied → generated sample
   }));
+  return built.sort((a, b) => (b.real ? 1 : 0) - (a.real ? 1 : 0));
 }
 
 // Secondary source: real photos on the Unsplash CDN (CORS-enabled, no API key) at varied
@@ -729,12 +731,12 @@ async function fetchDemoImage(i) {
     const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http ' + r.status); return r.blob(); });
     const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
     const img = await loadImageFromDataUrl(dataUrl);
-    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}` };
+    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}`, real: true };
   } catch {
     // Fallback: a generated sample at the same aspect so the demo always fills up.
     const tints = [['#FF5722', '#FFB627', '#1A1A1A'], ['#3A86FF', '#4FB286', '#1A1A1A'], ['#9B5DE5', '#F15BB5', '#1A1A1A']];
     const dataUrl = makeSampleImage(`PHOTO ${i + 1}`, tints[i % tints.length]);
-    return { id: 'demoimg_' + i, dataUrl, naturalW: w, naturalH: h, focal: { x: 0.5, y: 0.5 }, alt: `Print photo ${i + 1}` };
+    return { id: 'demoimg_' + i, dataUrl, naturalW: w, naturalH: h, focal: { x: 0.5, y: 0.5 }, alt: `Print photo ${i + 1}`, real: false };
   }
 }
 
@@ -752,36 +754,35 @@ function makeCubeStl(s = 20) {
   return new Blob([out], { type: 'model/stl' });
 }
 
-// A minimal valid 3MF (OPC zip + a cube mesh) so the .3mf print-profile path is real too.
-async function makeCube3mf(s = 20) {
-  const JSZip = await loadJSZip();
-  const zip = new JSZip();
-  zip.file('[Content_Types].xml',
-    `<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
-  zip.folder('_rels').file('.rels',
-    `<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
-  const v = [[0,0,0],[s,0,0],[s,s,0],[0,s,0],[0,0,s],[s,0,s],[s,s,s],[0,s,s]];
-  const tri = [[0,3,2],[0,2,1],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]];
-  const vXml = v.map(([x, y, z]) => `<vertex x="${x}" y="${y}" z="${z}"/>`).join('');
-  const tXml = tri.map(([a, b, c]) => `<triangle v1="${a}" v2="${b}" v3="${c}"/>`).join('');
-  zip.folder('3D').file('3dmodel.model',
-    `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model"><mesh><vertices>${vXml}</vertices><triangles>${tXml}</triangles></mesh></object></resources><build><item objectid="1"/></build></model>`);
-  return zip.generateAsync({ type: 'blob' });
-}
-
-// Build the real-asset patch for the demo: real photos (filled to `count`) + real STL/3MF
-// files wired to the existing profile. Applied after the placeholder demo is shown.
+// Build the real-asset patch for the demo: real photos (filled to `count`) + real model
+// files. MakerWorld's .3mf path REQUIRES a genuine Bambu-Studio 3mf ("not generated by
+// Bambu Studio" → publish fails), and we can't synthesize one. So:
+//   • if a real Bambu .3mf is bundled at public/demo/desk-dragon-bambu.3mf → use it (the
+//     full print-profile flow is demoed AND a connected user can really publish it);
+//   • otherwise → STL-only (drop the 3mf + profiles) so the real publish actually succeeds.
 async function loadDemoAssets(base, count = 16) {
   const images = await loadDemoImages(count);
-  const cube3mf = await makeCube3mf().catch(() => null);
-  const files = base.files.map((f) => {
-    if (/\.3mf$/i.test(f.name) && cube3mf) return { ...f, blob: cube3mf, size: cube3mf.size };
-    if (/\.stl$/i.test(f.name)) { const stl = makeCubeStl(); return { ...f, blob: stl, size: stl.size }; }
-    return f;
-  });
-  // Point the profile cover + photo set at the new real images so the print profile is full.
-  const profiles = base.profiles.map((p) => ({ ...p, coverImageId: images[1]?.id || images[0]?.id, photoIds: images.map((im) => im.id) }));
-  return { images, coverImageId: images[0].id, files, profiles };
+  const cover = images.find((im) => im.real) || images[0];
+  const realMf = await fetch(`${import.meta.env.BASE_URL}demo/desk-dragon-bambu.3mf`)
+    .then((r) => (r.ok ? r.blob() : null)).catch(() => null);
+
+  let files, profiles;
+  if (realMf) {
+    files = base.files.map((f) => {
+      if (/\.3mf$/i.test(f.name)) return { ...f, blob: realMf, size: realMf.size };
+      if (/\.stl$/i.test(f.name)) { const stl = makeCubeStl(); return { ...f, blob: stl, size: stl.size }; }
+      return f;
+    });
+    profiles = base.profiles.map((p) => ({ ...p, coverImageId: images[1]?.id || cover.id, photoIds: images.map((im) => im.id) }));
+  } else {
+    // No real Bambu 3mf available → STL-only so a connected user's real publish succeeds.
+    files = base.files.filter((f) => !/\.3mf$/i.test(f.name)).map((f) => {
+      if (/\.stl$/i.test(f.name)) { const stl = makeCubeStl(); return { ...f, blob: stl, size: stl.size }; }
+      return f;
+    });
+    profiles = [];
+  }
+  return { images, coverImageId: cover.id, files, profiles };
 }
 
 // --- Autosave (localStorage) -------------------------------------------------
