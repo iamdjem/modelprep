@@ -171,6 +171,18 @@ Optional sections (all supported as passthrough in the adapter):
   (`bash run.sh`, `capture-*.mjs`) — it decrypts the user's Chrome cookies + injects into a
   stealth browser, so it needs no login.
 
+### Print Profile Pictures = `auxiliaryPictures` (confirmed live 2026-06-22)
+The "Print Profile Pictures (n/37)" on the .3mf Step 3 are sent in the **top-level
+`auxiliaryPictures`** array — NOT `profilePictures` (that name is only a client-side React
+state var, never serialized). Captured from a live PUT `/my/draft/<id>` for a profile with 6
+photos, cross-checked against GET `/design-service/design/<id>` (`auxiliaryPictures` ==
+`instances[0].pictures`, `profileCover` == `instances[0].cover`). Item shape:
+`{ isRealLifePhoto: 0, name: "<filename>.jpg", url: "<…/instance/<hash>.jpg>" }` (all 3 fields;
+`isRealLifePhoto` defaults 0 for programmatic uploads). `profileCover` MUST be sent explicitly =
+`auxiliaryPictures[0].url` (`""` when none — not auto-derived). `designPictures` (Model Pictures)
+uses the same item shape but `…/design/<hash>.jpg` URLs. Spec: max **37**, jpg/png/webp/gif,
+≤30 MB/piece (20 MB CN), no enforced aspect ratio (no crop applied by the widget).
+
 ## Browser-agent verified findings (2026-06-21)
 
 Captured by an agent with full browser access (license config module + live PUT round-trips

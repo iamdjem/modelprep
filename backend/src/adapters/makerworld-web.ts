@@ -298,17 +298,21 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     modelFiles,
     model3Mf: input.model3mf ?? { name: '', size: 0, url: '' },
     designPictures: (input.galleryUrls ?? []).map((url) => ({ url })),
-    // Print Profile Pictures (.3mf path). Mirrors designPictures' shape — the model-
-    // gallery field that works. Field name inferred from the draft schema's
-    // `profilePicturesIsUploading` flag; VERIFY with one private test-publish.
-    profilePictures: (input.printProfile?.pictureUrls ?? []).map((url) => ({ url })),
 
     // --- documentation ---
     designGuide: input.designGuide ?? [],
     designOther: input.designOther ?? [],
     auxiliaryGuide: [],
     auxiliaryOther: [],
-    auxiliaryPictures: [],
+    // "Print Profile Pictures" (.3mf path). Confirmed live (PUT my/draft + GET design
+    // round-trip, 2026-06-22): the field is `auxiliaryPictures` (NOT `profilePictures`,
+    // which is only a client-side state var). Items are {isRealLifePhoto, name, url};
+    // `name` = the photo's filename; isRealLifePhoto defaults to 0 for uploads.
+    auxiliaryPictures: (input.printProfile?.pictureUrls ?? []).map((url) => ({
+      isRealLifePhoto: 0,
+      name: url.split('/').pop() ?? '',
+      url,
+    })),
     auxiliaryBom: [],
     designBom: [],
 
