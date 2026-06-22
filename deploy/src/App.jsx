@@ -4618,8 +4618,11 @@ function MakerWorldUploadFlow({ platform, project }) {
         const u = (await uploadOne(await cropImageToBlob(galleryImgs[i], webSpec.w, webSpec.h), `image-${i + 2}.jpg`)).url;
         galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u;
       }
-      // Print-profile photos (.3mf): the user-picked images (already cropped 4:3), fallback to cover.
-      const profilePicUrls = (profilePicIds.length ? profilePicIds : [coverImg.id]).map((id) => imageUrlById[id]).filter(Boolean);
+      // Print-profile photos (.3mf): the user-picked images (already cropped 4:3); if the
+      // user didn't customise them in the Profiles step, default to the FULL gallery (cover +
+      // all photos) so the profile carries the real print photos, not just the cover.
+      const profileFallbackIds = [coverImg.id, ...galleryImgs.map((g) => g.id)];
+      const profilePicUrls = (profilePicIds.length ? profilePicIds : profileFallbackIds).map((id) => imageUrlById[id]).filter(Boolean);
 
       setProgressMsg('Uploading model files…');
       let model3mf = null; const mfList = [];

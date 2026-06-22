@@ -281,7 +281,10 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     categoryId: input.categoryId ?? 0,
     tags: input.tags ?? [],
     cover: input.coverUrl ?? '',
-    profileCover: '',
+    // Print-profile cover = the first profile photo (mirrors how `cover` is the first
+    // model photo). Empty profileCover + no profilePictures is why the published print
+    // profile showed "Print Profile Pictures (0/37)".
+    profileCover: input.printProfile?.pictureUrls?.[0] ?? '',
     coverPortrait: input.coverPortraitUrl ?? '',
     coverLandscape: '',
     nsfw: input.nsfw ?? false,
@@ -295,6 +298,10 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     modelFiles,
     model3Mf: input.model3mf ?? { name: '', size: 0, url: '' },
     designPictures: (input.galleryUrls ?? []).map((url) => ({ url })),
+    // Print Profile Pictures (.3mf path). Mirrors designPictures' shape — the model-
+    // gallery field that works. Field name inferred from the draft schema's
+    // `profilePicturesIsUploading` flag; VERIFY with one private test-publish.
+    profilePictures: (input.printProfile?.pictureUrls ?? []).map((url) => ({ url })),
 
     // --- documentation ---
     designGuide: input.designGuide ?? [],
