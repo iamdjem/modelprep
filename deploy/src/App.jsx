@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useReducer, createContext, useContext } from 'react';
 import {
-  mdToHtml, mdToPlain, formatBytes,
+  mdToHtml, mdToPlain, mdToMakerWorldHtml, formatBytes,
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
 } from './lib/format';
 import {
@@ -5223,9 +5223,10 @@ function MakerWorldUploadFlow({ platform, project }) {
         setProgressMsg('Uploading documentation…');
         const [designGuide, designOther] = [await uploadDocs(docGuides), await uploadDocs(docOthers)];
         const hasBom = bomCount > 0;
-        // MakerWorld's description (`summary`) is an HTML rich-text field — send converted
-        // HTML, not raw Markdown (else the `#`/`**` show literally in the listing).
-        const htmlDesc = mdToHtml(project.description) || '<p>Uploaded with ModelPrep.</p>';
+        // MakerWorld's description (`summary`) is a CKEditor HTML field with a fixed schema
+        // (#→<h2>, *italic*→<i>, links with target/rel, ol/ul, blockquote). Use the
+        // MakerWorld-specific converter so it renders correctly instead of literal Markdown.
+        const htmlDesc = mdToMakerWorldHtml(project.description) || '<p>Uploaded with ModelPrep.</p>';
         endpoint = `${WORKER_URL}/api/v1/makerworld/web/publish`;
         input = {
           title: project.title || 'ModelPrep upload',

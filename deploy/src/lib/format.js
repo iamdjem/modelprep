@@ -36,6 +36,48 @@ export function mdToHtml(md) {
   return out.join('\n');
 }
 
+// MakerWorld's description editor is CKEditor with a fixed schema (verified live 2026-06-22):
+//   #/##/### → <h2>/<h3>/<h4> (it remaps H1→H2), *italic* → <i> (not <em>), links carry
+//   target/rel, ordered + unordered lists, blockquotes. Inline code, strikethrough, <pre>
+//   and <hr> are NOT supported (stripped) — so we render their text as plain.
+function inlineFormatMW(t) {
+  return t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<i>$1</i>')
+          .replace(/\[(.+?)\]\((.+?)\)/g, '<a target="_blank" rel="noopener noreferrer" href="$2">$1</a>')
+          .replace(/`(.+?)`/g, '$1'); // inline code unsupported → keep text only
+}
+
+export function mdToMakerWorldHtml(md) {
+  if (!md) return '';
+  const lines = md.split('\n'); const out = [];
+  let listTag = null;       // 'ul' | 'ol' | null
+  let quoteBuf = [], paraBuf = [];
+  const flushPara = () => { if (paraBuf.length) { const t = paraBuf.join(' ').trim(); if (t) out.push(`<p>${inlineFormatMW(t)}</p>`); paraBuf = []; } };
+  const closeList = () => { if (listTag) { out.push(`</${listTag}>`); listTag = null; } };
+  const flushQuote = () => { if (quoteBuf.length) { out.push(`<blockquote><p>${inlineFormatMW(quoteBuf.join(' ').trim())}</p></blockquote>`); quoteBuf = []; } };
+  for (const raw of lines) {
+    const line = raw.replace(/^```.*$/, ''); // drop code fences; keep any content as plain
+    const h = line.match(/^(#{1,6})\s+(.+)$/);
+    if (h) { flushPara(); flushQuote(); closeList(); out.push(`<h${Math.min(h[1].length + 1, 6)}>${inlineFormatMW(h[2])}</h${Math.min(h[1].length + 1, 6)}>`); continue; }
+    const q = line.match(/^>\s?(.*)$/);
+    if (q) { flushPara(); closeList(); quoteBuf.push(q[1]); continue; }
+    flushQuote();
+    const ol = line.match(/^\s*\d+\.\s+(.+)$/);
+    const ul = line.match(/^\s*[-*]\s+(.+)$/);
+    if (ol || ul) {
+      flushPara();
+      const want = ol ? 'ol' : 'ul';
+      if (listTag !== want) { closeList(); out.push(`<${want}>`); listTag = want; }
+      out.push(`<li>${inlineFormatMW((ol || ul)[1])}</li>`);
+      continue;
+    }
+    if (line.trim() === '') { flushPara(); closeList(); continue; }
+    closeList(); paraBuf.push(line);
+  }
+  flushPara(); flushQuote(); closeList();
+  return out.join('');
+}
+
 export function mdToPlain(md) {
   if (!md) return '';
   return md

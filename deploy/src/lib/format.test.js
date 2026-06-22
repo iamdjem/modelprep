@@ -1,8 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import {
-  mdToHtml, mdToPlain, slugify, uniqueFileName,
+  mdToHtml, mdToPlain, mdToMakerWorldHtml, slugify, uniqueFileName,
   fileExt, isModelFile, isProfile, isImageFile, formatBytes, escapeHtml,
 } from './format';
+
+describe('mdToMakerWorldHtml (matches MakerWorld CKEditor schema)', () => {
+  it('remaps headings #/##/### → h2/h3/h4', () => {
+    expect(mdToMakerWorldHtml('# A\n## B\n### C')).toBe('<h2>A</h2><h3>B</h3><h4>C</h4>');
+  });
+  it('bold → <strong>, italic → <i> (not <em>)', () => {
+    expect(mdToMakerWorldHtml('**b** and *i*')).toBe('<p><strong>b</strong> and <i>i</i></p>');
+  });
+  it('links carry target + rel', () => {
+    expect(mdToMakerWorldHtml('[x](https://m.com)')).toBe('<p><a target="_blank" rel="noopener noreferrer" href="https://m.com">x</a></p>');
+  });
+  it('ordered and unordered lists', () => {
+    expect(mdToMakerWorldHtml('- a\n- b')).toBe('<ul><li>a</li><li>b</li></ul>');
+    expect(mdToMakerWorldHtml('1. a\n2. b')).toBe('<ol><li>a</li><li>b</li></ol>');
+  });
+  it('blockquote → <blockquote><p>', () => {
+    expect(mdToMakerWorldHtml('> quoted')).toBe('<blockquote><p>quoted</p></blockquote>');
+  });
+  it('inline code is stripped to plain text (unsupported in MW)', () => {
+    expect(mdToMakerWorldHtml('use `npm`')).toBe('<p>use npm</p>');
+  });
+});
 
 describe('slugify', () => {
   it('lowercases and dashes', () => expect(slugify('Articulating Desk Dragon')).toBe('articulating-desk-dragon'));
