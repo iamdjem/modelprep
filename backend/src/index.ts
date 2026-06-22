@@ -33,6 +33,7 @@ import {
   mwPublish,
   mwDelete,
   mwListMyDesigns,
+  mwDraftStatus,
   mwSuggestTags,
   mwFetchCatalogStandalone,
   mwSearchRelatedDesigns,
@@ -694,6 +695,19 @@ export default {
       const s = getMwSession(); if (!s) return mwAuthError();
       try { return json({ ok: true, designs: await mwListMyDesigns(s) }); }
       catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/draft-status?id=<draftId> — post-submit slicing result.
+    // resultType != 0 ⇒ failed (with a human reason); == 0 ⇒ verifying or published.
+    if (path === '/api/v1/makerworld/web/draft-status' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      const id = url.searchParams.get('id');
+      if (!id) return json({ error: 'missing_id' }, { status: 400 });
+      try {
+        const st = await mwDraftStatus(s, id);
+        if (!st) return json({ ok: false, error: 'not_found' }, { status: 404 });
+        return json({ ok: true, ...st });
+      } catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
     }
 
     // GET /api/v1/makerworld/web/bom-catalog — the Maker's Supply BOM catalog
