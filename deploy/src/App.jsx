@@ -661,8 +661,86 @@ function buildDemoProject() {
       nexprint: { enabled: true, contestEntry: 'creator-fund' },
       creality: { enabled: false },
     },
-    __demo: true, // publish flows simulate success instead of hitting the real network
+    __demo: true, // when NOT connected, publish flows simulate; when connected, real publish
   };
+}
+
+// ---- Demo: REAL assets (so the demo can actually publish + show real cropping) ----
+// Real photos demonstrate the per-platform cropping far better than label cards, and a
+// real model file means a connected user can do a genuine private publish from the demo.
+
+// Verified real photos on the Unsplash CDN (CORS-enabled, no API key). Generic stock —
+// not the literal dragon, but real photographs at varied aspect ratios so the per-platform
+// crop is clearly visible. A keyword image-search (BYO key) for on-topic shots is a follow-up.
+const DEMO_PHOTO_IDS = [
+  '1635776062127-d379bfcba9f8', '1610890716171-6b1bb98ffd09', '1612817159949-195b6eb9e31a',
+  '1581092160562-40aa08e78837', '1581092918056-0c4c3acd3789', '1518770660439-4636190af475',
+  '1530124566582-a618bc2615dc',
+];
+// Rotate source aspect ratios so cropping to each platform's target is obvious.
+const DEMO_PHOTO_DIMS = [[1600, 1200], [1200, 1600], [1500, 1500], [1920, 1080], [1080, 1440]];
+
+async function fetchDemoImage(i) {
+  const id = DEMO_PHOTO_IDS[i % DEMO_PHOTO_IDS.length];
+  const [w, h] = DEMO_PHOTO_DIMS[i % DEMO_PHOTO_DIMS.length];
+  const url = `https://images.unsplash.com/photo-${id}?w=${w}&h=${h}&fit=crop&auto=format&q=70`;
+  try {
+    const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http ' + r.status); return r.blob(); });
+    const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+    const img = await loadImageFromDataUrl(dataUrl);
+    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}` };
+  } catch {
+    // Fallback: a generated sample at the same aspect so the demo always fills up.
+    const tints = [['#FF5722', '#FFB627', '#1A1A1A'], ['#3A86FF', '#4FB286', '#1A1A1A'], ['#9B5DE5', '#F15BB5', '#1A1A1A']];
+    const dataUrl = makeSampleImage(`PHOTO ${i + 1}`, tints[i % tints.length]);
+    return { id: 'demoimg_' + i, dataUrl, naturalW: w, naturalH: h, focal: { x: 0.5, y: 0.5 }, alt: `Print photo ${i + 1}` };
+  }
+}
+
+// A valid ASCII STL of a cube — a real, uploadable model file.
+function makeCubeStl(s = 20) {
+  const v = [[0,0,0],[s,0,0],[s,s,0],[0,s,0],[0,0,s],[s,0,s],[s,s,s],[0,s,s]];
+  const faces = [[0,3,2],[0,2,1],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]];
+  let out = 'solid modelprep_demo\n';
+  for (const f of faces) {
+    out += '  facet normal 0 0 0\n    outer loop\n';
+    for (const idx of f) out += `      vertex ${v[idx][0]} ${v[idx][1]} ${v[idx][2]}\n`;
+    out += '    endloop\n  endfacet\n';
+  }
+  out += 'endsolid modelprep_demo\n';
+  return new Blob([out], { type: 'model/stl' });
+}
+
+// A minimal valid 3MF (OPC zip + a cube mesh) so the .3mf print-profile path is real too.
+async function makeCube3mf(s = 20) {
+  const JSZip = await loadJSZip();
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>`);
+  zip.folder('_rels').file('.rels',
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>`);
+  const v = [[0,0,0],[s,0,0],[s,s,0],[0,s,0],[0,0,s],[s,0,s],[s,s,s],[0,s,s]];
+  const tri = [[0,3,2],[0,2,1],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]];
+  const vXml = v.map(([x, y, z]) => `<vertex x="${x}" y="${y}" z="${z}"/>`).join('');
+  const tXml = tri.map(([a, b, c]) => `<triangle v1="${a}" v2="${b}" v3="${c}"/>`).join('');
+  zip.folder('3D').file('3dmodel.model',
+    `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"><resources><object id="1" type="model"><mesh><vertices>${vXml}</vertices><triangles>${tXml}</triangles></mesh></object></resources><build><item objectid="1"/></build></model>`);
+  return zip.generateAsync({ type: 'blob' });
+}
+
+// Build the real-asset patch for the demo: real photos (filled to `count`) + real STL/3MF
+// files wired to the existing profile. Applied after the placeholder demo is shown.
+async function loadDemoAssets(base, count = 16) {
+  const images = await Promise.all(Array.from({ length: count }, (_, i) => fetchDemoImage(i)));
+  const cube3mf = await makeCube3mf().catch(() => null);
+  const files = base.files.map((f) => {
+    if (/\.3mf$/i.test(f.name) && cube3mf) return { ...f, blob: cube3mf, size: cube3mf.size };
+    if (/\.stl$/i.test(f.name)) { const stl = makeCubeStl(); return { ...f, blob: stl, size: stl.size }; }
+    return f;
+  });
+  // Point the profile cover + photo set at the new real images so the print profile is full.
+  const profiles = base.profiles.map((p) => ({ ...p, coverImageId: images[1]?.id || images[0]?.id, photoIds: images.map((im) => im.id) }));
+  return { images, coverImageId: images[0].id, files, profiles };
 }
 
 // --- Autosave (localStorage) -------------------------------------------------
@@ -845,6 +923,7 @@ export default function App() {
   // Demo mode: fill the whole project with sample data so users can click through
   // a finished UI, then toggle off to restore their own work. We stash the real
   // project on enter and never autosave while demo is on (see autosave effect).
+  const [demoLoading, setDemoLoading] = useState(false);
   const toggleDemo = () => {
     if (!demoActive) {
       stashedProject.current = project;
@@ -853,13 +932,22 @@ export default function App() {
       try {
         if (projectHasContent(project)) localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serializeProjectMeta(project)));
       } catch (e) { /* ignore */ }
-      setProject(buildDemoProject());
+      const base = buildDemoProject();
+      setProject(base);           // show placeholders instantly
       setDemoActive(true);
       setCurrentSection('files');
+      // Upgrade to REAL assets (photos + STL/3MF) in the background so the demo shows
+      // genuine per-platform cropping and a connected user can really publish from it.
+      setDemoLoading(true);
+      loadDemoAssets(base)
+        .then((assets) => setProject((p) => p.__demo ? { ...p, ...assets } : p))
+        .catch(() => { /* keep placeholders */ })
+        .finally(() => setDemoLoading(false));
     } else {
       setProject(stashedProject.current || { ...initialProject, name: 'Untitled Project' });
       stashedProject.current = null;
       setDemoActive(false);
+      setDemoLoading(false);
     }
   };
 
@@ -989,7 +1077,7 @@ export default function App() {
         if (!result) { setDialog({ kind: 'confirm', title: 'Nothing to import', message: 'That folder had no recognisable files (photos, models, or description/tags text).', confirmLabel: 'OK' }); return; }
         setDemoActive(false);
         stashedProject.current = null;
-        setProject({ ...initialProject, name: result.patch.title || 'Imported project', ...result.patch });
+        setProject({ ...initialProject, platforms: applyDefaultPlatforms(initialProject.platforms), name: result.patch.title || 'Imported project', ...result.patch });
         setCurrentSection('details');
         setDialog({ kind: 'confirm', title: 'Folder imported', message: buildImportSummaryText(result.summary), confirmLabel: 'Review details' });
       } catch (e) {
@@ -1006,7 +1094,7 @@ export default function App() {
       try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
       setDemoActive(false);
       stashedProject.current = null;
-      setProject({ ...initialProject, name: 'Untitled Project' });
+      setProject({ ...initialProject, platforms: applyDefaultPlatforms(initialProject.platforms), name: 'Untitled Project' });
       setCurrentSection('files');
     };
     if (isDirty()) {
@@ -1046,6 +1134,7 @@ export default function App() {
         onNewProject={newProject}
         onImportFolder={importFolder}
         demoActive={demoActive}
+        demoLoading={demoLoading}
         onToggleDemo={toggleDemo}
         onOpenConnections={openSettings}
       />
@@ -1055,7 +1144,7 @@ export default function App() {
           content, so SectionNav (Back/Next) flows right after the content instead of
           being pushed to the bottom edge against the status bar. The outer min-h-screen
           div keeps the background full-height on short pages. */}
-      <div className="flex flex-col lg:flex-row max-w-[1400px] mx-auto">
+      <div className="flex flex-col lg:flex-row max-w-[1760px] 2xl:max-w-[2200px] mx-auto">
         <Sidebar
           currentSection={currentSection}
           setCurrentSection={setCurrentSection}
@@ -1160,7 +1249,7 @@ function StatusBar({ project, completion, currentSection }) {
       borderColor: '#15171C',
       height: 32,
     }}>
-      <div className="max-w-[1400px] mx-auto h-full flex items-center justify-between px-4 sm:px-6 overflow-x-auto whitespace-nowrap">
+      <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto h-full flex items-center justify-between px-4 sm:px-6 overflow-x-auto whitespace-nowrap">
         <div className="flex items-center gap-3 sm:gap-5 mp-mono text-[12px] uppercase tracking-[0.15em]">
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5" style={{ background: status.color }} />
@@ -1284,7 +1373,7 @@ function GlobalStyles() {
 // TOP HEADER
 // =====================================================================
 
-function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, onImportFolder, demoActive, onToggleDemo, onOpenConnections }) {
+function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, onImportFolder, demoActive, demoLoading, onToggleDemo, onOpenConnections }) {
   const [editingName, setEditingName] = useState(false);
   const templatesRef = useRef(null);
   const folderRef = useRef(null);
@@ -1303,7 +1392,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
 
   return (
     <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'rgba(21,23,28,0.1)', background: 'rgba(237,233,222,0.92)' }}>
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
+      <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 relative" style={{ background: '#15171C' }}>
             {/* Layer-stack icon: 4 horizontal bars stacked, mimicking print layers */}
@@ -1406,7 +1495,9 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
       </div>
       {demoActive && (
         <div className="text-center py-1.5 px-4 mp-mono text-[12px] uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ background: '#3A86FF', color: '#fff' }}>
-          <Sparkles size={12} /> Demo data loaded — explore the filled-in flow. Your own work is safe; click “Exit demo” to restore it.
+          {demoLoading
+            ? <><Loader size={12} className="animate-spin" /> Loading real demo photos &amp; model — per-platform cropping in a moment…</>
+            : <><Sparkles size={12} /> Demo data loaded — real photos + model. Explore the flow; click “Exit demo” to restore your work.</>}
         </div>
       )}
     </header>
@@ -1544,7 +1635,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   const totalSize = project.files.reduce((s, f) => s + f.size, 0);
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <SectionHeader
         number="01"
         title="Drop your files"
@@ -1805,6 +1896,23 @@ function getAiConfig() {
   catch { return { provider: 'none', apiKey: '', model: '', baseUrl: '' }; }
 }
 function setAiConfig(c) { try { localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(c)); } catch { /* quota */ } }
+
+// Default platform selection — which platforms a NEW project starts with enabled.
+// null = the user hasn't customised it → use initialProject's built-in defaults.
+const DEFAULT_PLATFORMS_KEY = 'modelprep:default-platforms';
+function getDefaultPlatforms() {
+  try { const v = JSON.parse(localStorage.getItem(DEFAULT_PLATFORMS_KEY) || 'null'); return Array.isArray(v) ? v : null; }
+  catch { return null; }
+}
+function setDefaultPlatforms(ids) { try { localStorage.setItem(DEFAULT_PLATFORMS_KEY, JSON.stringify(ids)); } catch { /* quota */ } }
+// Apply the saved default selection onto a platforms map (no-op if none saved).
+function applyDefaultPlatforms(platforms) {
+  const ids = getDefaultPlatforms();
+  if (!ids) return platforms;
+  const out = {};
+  for (const k of Object.keys(platforms)) out[k] = { ...platforms[k], enabled: ids.includes(k) };
+  return out;
+}
 
 // Minimal client-side mirror of the Worker's prompt + JSON parse, used ONLY for the local
 // (Ollama) path that can't go through the Worker.
@@ -2107,7 +2215,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   };
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <SectionHeader
         number="02"
         title="Project details"
@@ -2516,7 +2624,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
   const activeImage = project.images.find(i => i.id === activeImageId) || project.images[0];
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <SectionHeader
         number="03"
         title="Cover and gallery images"
@@ -2656,7 +2764,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                 </div>
 
                 {showPlatformPreviews && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
                     {PLATFORMS.flatMap(p => p.covers.map(c => ({ ...c, p }))).map((co, i) => (
                       <PlatformCropPreview key={i} image={activeImage} platform={co.p} cover={co} />
                     ))}
@@ -2820,7 +2928,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 
   if (project.profiles.length === 0) {
     return (
-      <div className="max-w-5xl">
+      <div className="max-w-7xl">
         <SectionHeader number="04" title="Print profiles" subtitle="Each 3MF file becomes a print profile here. You haven't added any 3MF files yet, so this step is skipped." />
         <div className="mt-6 p-8 text-center mp-card">
           <Layers size={32} className="mx-auto mb-3 opacity-30" />
@@ -2843,7 +2951,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
   const active = project.profiles.find(p => p.id === activeProfileId) || project.profiles[0];
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <SectionHeader
         number="04"
         title="Print profiles"
@@ -2893,7 +3001,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                   <div className="mp-mono text-[12px] uppercase tracking-[0.2em] mb-3" style={{ color: 'rgba(21,23,28,0.55)' }}>
                     Estimated from file (preview)
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
                     <Stat label="Printer" value={active.parsed.printer} />
                     <Stat label="Material" value={active.parsed.material} />
                     <Stat label="Layer height" value={active.parsed.layerHeight} />
@@ -3030,16 +3138,35 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
   };
 
   const enabledCount = Object.values(project.platforms).filter(p => p.enabled).length;
+  const setAll = (enabled) => {
+    const next = {}; for (const k of Object.keys(project.platforms)) next[k] = { ...project.platforms[k], enabled };
+    updateProject({ platforms: next });
+  };
+  const [savedDefault, setSavedDefault] = useState(false);
+  const saveAsDefault = () => {
+    setDefaultPlatforms(PLATFORMS.filter(p => project.platforms[p.id]?.enabled).map(p => p.id));
+    setSavedDefault(true); setTimeout(() => setSavedDefault(false), 2000);
+  };
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full">
       <SectionHeader
         number="05"
         title="Choose your platforms"
         subtitle={`Toggle each platform on or off, then expand a card to set its options — MakerWorld (category, visibility, BOM, remix, Laser & Cut…), Cults price/visibility, etc. ${enabledCount} of ${PLATFORMS.length} enabled.`}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-6">
+      <div className="flex flex-wrap items-center gap-2 mt-5">
+        <button onClick={() => setAll(true)} className="mp-btn mp-btn-ghost text-[12px] py-1.5 px-3"><Check size={12} /> Select all</button>
+        <button onClick={() => setAll(false)} className="mp-btn mp-btn-ghost text-[12px] py-1.5 px-3"><X size={12} /> Deselect all</button>
+        <span className="mx-1" style={{ color: 'rgba(21,23,28,0.2)' }}>·</span>
+        <button onClick={saveAsDefault} className="mp-btn mp-btn-ghost text-[12px] py-1.5 px-3" title="Remember this selection for new projects">
+          <Star size={12} /> {savedDefault ? 'Saved as default ✓' : 'Save as default'}
+        </button>
+        <span className="mp-mono text-[12px] ml-auto" style={{ color: 'rgba(21,23,28,0.45)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
         {PLATFORMS.map(p => (
           <PlatformCard
             key={p.id}
@@ -3231,7 +3358,7 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
 
   if (!allReady) {
     return (
-      <div className="max-w-5xl">
+      <div className="max-w-7xl">
         <SectionHeader number="06" title="Prepare upload packages" subtitle="Finish the missing steps below to generate platform-ready exports." />
         <div className="mt-6 space-y-2">
           {SECTIONS.slice(0, -1).map(s => (
@@ -3255,7 +3382,7 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
   }
 
   return (
-    <div className="max-w-5xl">
+    <div className="max-w-7xl">
       <SectionHeader
         number="06"
         title="Publish"
@@ -4028,8 +4155,11 @@ function CultsUploadFlow({ platform, project }) {
   const cultsAccounts = acc.getAccounts('cults');
   // Demo mode simulates the publish (no network) with a synthetic connected account.
   const isDemo = !!project.__demo;
-  const active = acc.getActive('cults') || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
-  const creds = active?.secret || (isDemo ? { email: 'demo' } : null); // { email, password } | null
+  const realActive = acc.getActive('cults');
+  const realCreds = realActive?.secret || null;
+  const simulate = isDemo && !realCreds; // demo + no account → simulate; demo + account → real
+  const active = realActive || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
+  const creds = realCreds || (isDemo ? { email: 'demo' } : null); // { email, password } | null
   const [status, setStatus] = useState(creds ? 'connected' : 'idle'); // connected | publishing | done | error | deactivating | idle
   // Default to 'secret' so the first publish doesn't immediately surface on
   // the user's profile — they can flip to 'public' once they've seen the
@@ -4070,7 +4200,7 @@ function CultsUploadFlow({ platform, project }) {
   // isn't streamable through a single fetch, so we just show a generic
   // "publishing…" message; full timing shows up in `wrangler tail`.
   const publish = async () => {
-    if (isDemo) {
+    if (simulate) {
       setStatus('publishing'); setErrorMsg(''); setResult(null);
       setProgressMsg('Simulating publish (demo)…');
       await new Promise((r) => setTimeout(r, 900));
@@ -4158,7 +4288,7 @@ function CultsUploadFlow({ platform, project }) {
   // delete, but it hides the listing from search + profile (logged-in owner
   // can still see it in /en/creations/mine and re-activate).
   const deactivate = async () => {
-    if (isDemo) { setResult(r => r ? { ...r, deactivated: true } : r); setStatus('done'); return; }
+    if (simulate) { setResult(r => r ? { ...r, deactivated: true } : r); setStatus('done'); return; }
     if (!creds || !result?.slug) return;
     setStatus('deactivating');
     setErrorMsg('');
@@ -4189,7 +4319,7 @@ function CultsUploadFlow({ platform, project }) {
   // doesn't expose). Used to drive the per-row deactivate/delete buttons.
 
   const loadListings = async () => {
-    if (isDemo) { setListings([]); setListingsError(''); return; }
+    if (simulate) { setListings([]); setListingsError(''); return; }
     if (!creds) return;
     setListingsLoading(true);
     setListingsError('');
@@ -4485,6 +4615,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
   const TABS = [
     { id: 'accounts', label: 'Accounts', icon: User, badge: connectedCount || null },
     { id: 'ai', label: 'AI', icon: Sparkles, badge: aiProvider !== 'none' ? '•' : null },
+    { id: 'defaults', label: 'Defaults', icon: Globe, badge: null },
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
   return (
@@ -4531,8 +4662,41 @@ function SettingsModal({ open, onClose, tab, setTab }) {
               <div className="mp-card p-3"><AiSettings /></div>
             </>
           )}
+          {tab === 'defaults' && <SettingsDefaults />}
           {tab === 'about' && <SettingsAbout onClose={onClose} />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Defaults tab — which platforms a NEW project starts with enabled.
+function SettingsDefaults() {
+  const initial = getDefaultPlatforms() || PLATFORMS.filter(p => initialProject.platforms[p.id]?.enabled).map(p => p.id);
+  const [sel, setSel] = useState(initial);
+  const toggle = (id) => {
+    const next = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id];
+    setSel(next); setDefaultPlatforms(next);
+  };
+  const setAll = (on) => { const next = on ? PLATFORMS.map(p => p.id) : []; setSel(next); setDefaultPlatforms(next); };
+  return (
+    <div className="space-y-2">
+      <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Pick which platforms a new project starts with enabled, so you don't toggle them every time. Saved in this browser; applies to <strong>new</strong> and imported projects.</p>
+      <div className="flex gap-2">
+        <button onClick={() => setAll(true)} className="mp-btn mp-btn-ghost text-[12px] py-1.5 px-3"><Check size={12} /> All</button>
+        <button onClick={() => setAll(false)} className="mp-btn mp-btn-ghost text-[12px] py-1.5 px-3"><X size={12} /> None</button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+        {PLATFORMS.map(p => {
+          const on = sel.includes(p.id);
+          return (
+            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ background: on ? 'rgba(255,87,34,0.06)' : 'rgba(21,23,28,0.02)', borderColor: on ? 'rgba(255,87,34,0.3)' : 'rgba(21,23,28,0.1)' }}>
+              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ background: on ? '#FF5722' : 'transparent', border: `1px solid ${on ? '#FF5722' : 'rgba(21,23,28,0.3)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
+              <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.dot }} />
+              <span className="text-[13px]">{p.name}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -4545,6 +4709,7 @@ function SettingsAbout({ onClose }) {
     try {
       for (const id of CONNECTABLE) for (const a of acc.getAccounts(id)) acc.removeAccount(id, a.id);
       localStorage.removeItem(AI_CONFIG_KEY);
+      localStorage.removeItem(DEFAULT_PLATFORMS_KEY);
     } catch { /* ignore */ }
     onClose();
   };
@@ -4891,8 +5056,13 @@ function MakerWorldUploadFlow({ platform, project }) {
   // In demo mode the publish is simulated (no network), and we present a synthetic
   // "connected" account so the full flow is explorable even without a real sign-in.
   const isDemo = !!project.__demo;
-  const active = acc.getActive('makerworld') || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
-  const cookie = active?.secret || (isDemo ? 'demo-cookie' : ''); // '' = not signed in
+  const realActive = acc.getActive('makerworld');
+  const realCookie = realActive?.secret || '';
+  // Demo with a REAL connected account → real (private) publish. Demo with no account →
+  // simulate so the flow is still explorable. Non-demo → always real.
+  const simulate = isDemo && !realCookie;
+  const active = realActive || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
+  const cookie = realCookie || (isDemo ? 'demo-cookie' : ''); // '' = not signed in
   const [status, setStatus] = useState('idle'); // idle|publishing|done|error|deleting
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
@@ -4934,8 +5104,8 @@ function MakerWorldUploadFlow({ platform, project }) {
   };
 
   const publish = async () => {
-    if (isDemo) {
-      // Simulate a successful publish — no network, works for any platform/account.
+    if (simulate) {
+      // No real account connected — simulate so the demo flow is still explorable.
       setStatus('publishing'); setErrorMsg(''); setResult(null);
       setProgressMsg('Simulating publish (demo)…');
       await new Promise((r) => setTimeout(r, 900));
@@ -5047,7 +5217,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   };
 
   const del = async () => {
-    if (isDemo) { setResult(null); setStatus('idle'); setErrorMsg(''); setLiveCheck(null); return; }
+    if (simulate) { setResult(null); setStatus('idle'); setErrorMsg(''); setLiveCheck(null); return; }
     if (!cookie || !result?.id) return;
     setStatus('deleting'); setErrorMsg('');
     try {
@@ -5062,7 +5232,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   // Post-submit verification: a submit returns "verifying" — this confirms whether the
   // model actually became LIVE (appears in the published list) vs. still in review/rejected.
   const checkLive = async () => {
-    if (isDemo) { setLiveCheck({ loading: false, live: true, model: { id: result?.id, title: project.title, status: 1 } }); return; }
+    if (simulate) { setLiveCheck({ loading: false, live: true, model: { id: result?.id, title: project.title, status: 1 } }); return; }
     if (!cookie || !result?.id || result.kind === 'laser-cut') return;
     setLiveCheck({ loading: true });
     try {
@@ -5148,7 +5318,7 @@ function MakerWorldUploadFlow({ platform, project }) {
             </div>
           )}
 
-          <MwMyModels cookie={cookie} isDemo={isDemo} />
+          <MwMyModels cookie={cookie} isDemo={simulate} />
         </>
       )}
       {errorMsg && <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}

@@ -63,6 +63,22 @@ describe('Unified Settings page', () => {
     expect(screen.getByRole('button', { name: /clear saved accounts/i })).toBeInTheDocument();
   });
 
+  it('Defaults tab persists the default platform selection', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /settings/i }));
+    await user.click(screen.getByRole('button', { name: /^Defaults/i }));
+
+    // Toggling a platform off writes the new default set to localStorage.
+    const dialog = screen.getByText(/which platforms a new project starts/i).closest('div');
+    const mwBtn = within(dialog.parentElement).getByRole('button', { name: /makerworld/i });
+    await user.click(mwBtn); // turn MakerWorld off
+
+    const saved = JSON.parse(localStorage.getItem('modelprep:default-platforms'));
+    expect(Array.isArray(saved)).toBe(true);
+    expect(saved).not.toContain('makerworld');
+  });
+
   it('Details "Set up AI" deep-links into the Settings AI tab', async () => {
     const user = userEvent.setup();
     render(<App />);
