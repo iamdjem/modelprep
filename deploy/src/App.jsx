@@ -1618,6 +1618,41 @@ function Sidebar({ currentSection, setCurrentSection, completion }) {
 // rejected everywhere, so we block the upload outright rather than just warn.
 const MAX_BUILD_FILE_MB = 500;
 
+// Pre-flight: validate the project against ONE platform's real requirements before publish,
+// so the user is told what won't pass instead of finding out after a failed upload.
+// Returns { errors:[], warnings:[] } — errors will definitely fail; warnings may degrade.
+function platformPreflight(platform, project) {
+  const errors = [], warnings = [];
+  const lim = platform.limits || {};
+  const MB = 1024 * 1024;
+  const modelFiles = project.files.filter(f => f.isModel);
+
+  if (!modelFiles.length) errors.push('No model file to upload (add an .stl/.3mf in Files).');
+  for (const f of modelFiles) {
+    const ext = fileExt(f.name);
+    if (!platform.formats.includes(ext)) errors.push(`${f.name}: .${ext} isn't accepted here (this file won't upload).`);
+    if (platform.maxFileMb && f.size / MB > platform.maxFileMb) errors.push(`${f.name} is ${formatBytes(f.size)} — over the ${platform.maxFileMb}MB per-file cap.`);
+  }
+  const totalMb = project.files.reduce((s, f) => s + f.size, 0) / MB;
+  if (platform.maxTotalMb && totalMb > platform.maxTotalMb) errors.push(`Files total ${Math.round(totalMb)}MB — over the ${platform.maxTotalMb}MB cap.`);
+
+  if (project.images.length === 0) errors.push('No photos — at least one is required.');
+  else if (!project.coverImageId) warnings.push('No cover photo selected.');
+  if (platform.maxImages && project.images.length > platform.maxImages) warnings.push(`${project.images.length} photos — only the first ${platform.maxImages} will upload.`);
+  if (platform.id === 'makerworld') warnings.push('MakerWorld requires a real photo of the print (renders can be rejected).');
+
+  if (!project.title.trim()) errors.push('Title is empty.');
+  else if (lim.titleMax && project.title.length > lim.titleMax) errors.push(`Title is ${project.title.length}/${lim.titleMax} chars — too long for ${platform.name}.`);
+  if (lim.tagMax && project.tags.length > lim.tagMax) warnings.push(`${project.tags.length} tags — ${platform.name} allows ${lim.tagMax}.`);
+  if (lim.tagCharMax) { const long = project.tags.filter(t => t.length > lim.tagCharMax); if (long.length) warnings.push(`${long.length} tag(s) over ${lim.tagCharMax} chars.`); }
+  if (!project.description.trim()) warnings.push('Description is empty.');
+  if (!project.category) warnings.push('No category selected.');
+
+  const cults = project.platforms?.cults;
+  if (platform.id === 'cults' && cults && !cults.free && !(cults.price > 0)) warnings.push('Marked paid but the price is 0.');
+  return { errors, warnings };
+}
+
 function FilesSection({ project, updateProject, setCurrentSection }) {
   const fileInputRef = useRef(null);
   const [notice, setNotice] = useState(null); // { kind: 'image' | 'toobig' | 'renamed', detail }
@@ -3384,6 +3419,49 @@ function PlatformCard({ platform, state, onToggle, onUpdate }) {
 // SECTION: PREPARE FOR UPLOAD (real exports, no fake publishing)
 // =====================================================================
 
+// Pre-flight: run platformPreflight for every enabled platform and surface issues BEFORE
+// the user publishes. Collapsed when everything's clean; expanded with details otherwise.
+function PreflightPanel({ enabled, project, setCurrentSection }) {
+  const [open, setOpen] = useState(false);
+  const reports = enabled.map(p => ({ platform: p, ...platformPreflight(p, project) }));
+  const totalErr = reports.reduce((n, r) => n + r.errors.length, 0);
+  const totalWarn = reports.reduce((n, r) => n + r.warnings.length, 0);
+  const clean = totalErr === 0 && totalWarn === 0;
+  const bg = totalErr ? 'rgba(185,28,28,0.06)' : totalWarn ? 'rgba(255,87,34,0.05)' : 'rgba(79,178,134,0.08)';
+  const bd = totalErr ? 'rgba(185,28,28,0.35)' : totalWarn ? 'rgba(255,87,34,0.3)' : 'rgba(79,178,134,0.35)';
+  if (!enabled.length) return null;
+  return (
+    <div className="mp-card p-3 mt-5" style={{ background: bg, borderColor: bd }}>
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
+        {clean ? <Check size={15} style={{ color: '#3a8d68' }} /> : totalErr ? <AlertCircle size={15} style={{ color: '#B91C1C' }} /> : <AlertCircle size={15} style={{ color: '#c83f10' }} />}
+        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>
+          {clean ? 'Pre-flight checks passed — ready to publish'
+            : `Pre-flight: ${totalErr ? `${totalErr} blocker${totalErr > 1 ? 's' : ''}` : ''}${totalErr && totalWarn ? ' · ' : ''}${totalWarn ? `${totalWarn} warning${totalWarn > 1 ? 's' : ''}` : ''} across ${enabled.length} platform${enabled.length > 1 ? 's' : ''}`}
+        </span>
+        <span className="ml-auto">{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+      </button>
+      {open && !clean && (
+        <div className="mt-3 space-y-3">
+          {reports.filter(r => r.errors.length || r.warnings.length).map(r => (
+            <div key={r.platform.id}>
+              <div className="flex items-center gap-1.5 text-[12px] font-medium mb-1">
+                <span className="inline-block w-2 h-2 rounded-full" style={{ background: r.platform.dot }} />{r.platform.name}
+              </div>
+              <ul className="space-y-0.5 ml-3.5">
+                {r.errors.map((e, i) => <li key={'e' + i} className="text-[12px]" style={{ color: '#B91C1C' }}>❌ {e}</li>)}
+                {r.warnings.map((w, i) => <li key={'w' + i} className="text-[12px]" style={{ color: '#c83f10' }}>⚠ {w}</li>)}
+              </ul>
+            </div>
+          ))}
+          <div className="text-[11px] pt-1" style={{ color: 'rgba(21,23,28,0.5)' }}>
+            Fix in <button onClick={() => setCurrentSection('files')} className="underline">Files</button> · <button onClick={() => setCurrentSection('details')} className="underline">Details</button> · <button onClick={() => setCurrentSection('images')} className="underline">Images</button>. Blockers (❌) will fail the upload; warnings (⚠) may just degrade the listing.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PublishSection({ project, allReady, completion, setCurrentSection }) {
   const enabled = PLATFORMS.filter(p => project.platforms[p.id]?.enabled);
   const cover = project.images.find(i => i.id === project.coverImageId);
@@ -3432,6 +3510,8 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
         title="Publish"
         subtitle="Publish to each enabled platform. API platforms (MakerWorld, Cults3D) upload directly — sign in and hit Publish. Manual platforms give you a ready-to-paste .zip package."
       />
+
+      <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
 
       {enabled.length > 1 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
