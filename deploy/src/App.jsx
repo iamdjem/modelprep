@@ -4,6 +4,15 @@ import {
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
 } from './lib/format';
 import {
+  MAKERWORLD_REGULAR_FORMATS, MAKERWORLD_LASER_FORMATS, MAKERWORLD_PRINTERS,
+  compatibilityFromProducts, flattenMakerWorldCategories,
+  isMakerWorldLaserFile, isMakerWorldRegularFile, makerWorldFilesForMode,
+  makerWorldLicenseAllowsRemix, makerWorldPrimaryProfile, makerWorldPublishIssues, readLacMetadata,
+} from './lib/makerworld.js';
+import { makerWorldResponseError, uploadMakerWorldFile } from './lib/makerworld-upload.js';
+import makerWorldCategoryTree from './data/makerworld-categories.json';
+import makerWorldForbiddenWords from './data/makerworld-forbidden-words.json';
+import {
   Upload, Download, Copy, Image as ImageIcon, FileText, Check, Sparkles,
   Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronDown, ChevronUp,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
@@ -50,7 +59,7 @@ function VersionBanner() {
 // =====================================================================
 
 const UPLOAD_URLS = {
-  makerworld:  'https://makerworld.com/en/my/upload',
+  makerworld:  'https://makerworld.com/en/my/models/publish?type=original',
   printables:  'https://www.printables.com/model/new',
   cults:       'https://cults3d.com/en/upload',
   mmf:         'https://www.myminifactory.com/object/new',
@@ -141,9 +150,9 @@ const PLATFORMS = [
       { id: 'app', label: 'App cover', w: 1500, h: 2000, aspect: '3:4' },
     ],
     descFormat: 'html', maxImages: 16, maxFileMb: 200, maxTotalMb: 250,
-    // Full accepted raw-model set (verified from the upload form 2026-06-22).
-    formats: ['3mf', 'stl', 'step', 'stp', 'obj', '3ds', 'amf', 'dwg', 'dxf', 'f3d', 'factory', 'fcstd', 'iges', 'ipt', 'ply', 'rsdoc', 'scad', 'shape', 'shapr', 'skp', 'sldasm', 'sldprt', 'slvs', 'studio3', 'stpz'],
-    hasApi: false, apiSupport: 'manual',
+    // Full accepted raw-model set (re-checked against the live form 2026-07-18).
+    formats: MAKERWORLD_REGULAR_FORMATS,
+    hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: ['remix'], note: 'Largest audience. Real photo of print required. Connects Printables/Thingiverse for import.',
     // Verified from the live MakerWorld publish form.
     limits: { titleMax: 50, tagMax: 50, tagCharMax: 100 },
@@ -164,7 +173,7 @@ const PLATFORMS = [
     // 1 GB per file, images max 10 MB / 8000×8000 px, jpg/png/webp + webm/mp4 video.
     descFormat: 'markdown', maxImages: 20, maxFileMb: 1000, maxTotalMb: 2000,
     formats: ['3ds', '3mf', 'ai', 'amf', 'bin', 'blend', 'bmp', 'curaprofile', 'dae', 'doc', 'dst', 'dwg', 'dxf', 'eps', 'f3d', 'f3z', 'fcstd', 'fff', 'gbr', 'gbx', 'gcode', 'ini', 'mtl', 'obj', 'pdf', 'ply', 'ppt', 'psd', 'rcp', 'scad', 'skp', 'sldasm', 'sldprt', 'step', 'stl', 'stp', 'svg', 'txt', 'x3d', 'zip'],
-    hasApi: true, apiSupport: 'oneclick',
+    hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: ['price'], note: 'GraphQL API. Paid marketplace, 80% creator share. Accepts video (mp4/webm). Real-photo emphasis: place prints first in gallery.',
   },
   {
@@ -205,6 +214,12 @@ const PLATFORMS = [
     fields: [], note: 'Manufacturer-tied, large Creality user base.',
   },
 ];
+
+// MakerWorld's live form counts "Model Pictures" separately from the two cover
+// crops, while the other platforms' maxImages values include their cover.
+function galleryCapacity(platform) {
+  return platform.id === 'makerworld' ? platform.maxImages : Math.max(0, platform.maxImages - 1);
+}
 
 // Cults3D, MyMiniFactory, Thingiverse, Thangs and Creality Cloud expose NO documented
 // title/tag length caps (their APIs declare the fields as bare strings). We deliberately
@@ -417,7 +432,7 @@ function generateReadme(platform, project, descExt, imageCount, fileCount) {
     `WHAT IS IN THIS FOLDER`,
     '-'.repeat(40),
     `- ${platform.covers.length} cover image(s), named 01_cover_*.jpg`,
-    `- ${Math.min(Math.max(0, imageCount - 1), platform.maxImages - 1)} gallery image(s), named 02_gallery_*.jpg, 03_gallery_*.jpg, ...`,
+    `- ${Math.min(Math.max(0, imageCount - 1), galleryCapacity(platform))} gallery image(s), named 02_gallery_*.jpg, 03_gallery_*.jpg, ...`,
     isRichTextPlatform(platform.id)
       ? `- description.html (rendered — open in a browser, select all, copy, then paste into ${platform.name}'s visual editor; do NOT paste the raw HTML)`
       : `- description.${descExt} (in ${platform.descFormat} format, ready to paste)`,
@@ -478,7 +493,7 @@ async function buildPlatformZip(JSZip, platform, project, cover, onProgress = ()
 
   // 2. Gallery images (cover excluded), capped at the platform's max.
   const others = project.images.filter(i => i.id !== project.coverImageId);
-  const galleryLimit = Math.min(others.length, platform.maxImages - 1);
+  const galleryLimit = Math.min(others.length, galleryCapacity(platform));
   for (let i = 0; i < galleryLimit; i++) {
     onProgress(`Cropping gallery ${i + 1}/${galleryLimit}`);
     const galImg = await loadImageFromDataUrl(others[i].dataUrl);
@@ -547,12 +562,19 @@ function triggerDownload(blob, filename) {
 // docs are kept in a small runtime holder, see mwRuntimeDocs).
 const MW_DEFAULT_OPTS = {
   categoryId: 401, visibility: 'private', license: '', // '' = follow the Details-step license (see MW_LICENSE_MAP)
-  productMode: '3d', modelSource: 'original', exclusive: false, communityPost: false,
-  remixModel: null, relatedModel: null,
+  productMode: '3d', laserMode: 'raw', modelSource: 'original',
+  exclusive: false, exclusiveTermsAccepted: false, communityPost: false,
+  remixModel: null, remixUrl: '', remixLicense: '', remixDescription: '', relatedModel: null,
+  primaryProfileFileId: null, primaryLacFileId: null, cyberBrick: false,
+  laserInfo: { machineName: '', processTypes: '', materialIds: '', otherTools: '', compatibleDevices: '' },
+  laserProfile: { title: '', description: '', visibility: 'private', useMainCover: true, coverImageId: null, photoIds: [] },
   boms: { kits: [], filaments: [], materials: [] }, otherParts: [],
 };
 // Runtime-only holder for File-based MakerWorld docs (can't live in serializable project state).
 const mwRuntimeDocs = { docGuides: [], docOthers: [] };
+// CyberBrick files are also runtime-only File objects; the serializable toggle and
+// descriptive fields stay in project.platforms.makerworld.
+const mwRuntimeCyberBrick = { controlConfigs: [], motionConfigs: [], microPython: [], mainControlConfig: null };
 
 // MakerWorld's license options as {label (UI), value (exact API `license` string)}.
 // VERIFIED 2026-06-21 (browser-agent capture from the live license config module +
@@ -626,6 +648,7 @@ function buildDemoProject() {
     id: 'demofile_' + name,
     name, size, type,
     isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
+    isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' },
     blob: new Blob([`ModelPrep demo placeholder — ${name}`], { type: type || 'application/octet-stream' }),
   });
   const files = [
@@ -640,6 +663,11 @@ function buildDemoProject() {
     description: 'Calibrated for Bambu A1 Mini, 0.4mm nozzle. Matte PLA, 0.2mm layers, 15% gyroid infill, no supports.',
     useMainCover: false,
     coverImageId: images[1].id,
+    photoIds: [images[1].id, images[2].id],
+    visibility: 'private',
+    compatiblePrinters: [],
+    realPhotoConfirmed: true,
+    guidelinesAccepted: true,
     parsed: mockParseThreeMF('desk-dragon-bambu.3mf'),
   }));
   return {
@@ -927,10 +955,11 @@ async function importFolderToProject(fileList) {
   // Model + reference files (skip the meta text files we already consumed).
   const taken = new Set();
   const buildFiles = files
-    .filter(f => !consumed.has(f) && (isModelFile(baseOf(f)) || ['pdf', 'txt', 'md', 'zip'].includes(fileExt(baseOf(f)))))
+    .filter(f => !consumed.has(f) && (isModelFile(baseOf(f)) || isMakerWorldLaserFile(baseOf(f)) || ['pdf', 'txt', 'md', 'zip'].includes(fileExt(baseOf(f)))))
     .map((f) => { const name = uniqueFileName(baseOf(f), taken); taken.add(name.toLowerCase());
       return { id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, size: f.size, type: f.type,
-        isModel: isModelFile(name), isProfile: isProfile(name), isImage: false, blob: f }; });
+        isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
+        isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' }, blob: f }; });
   if (buildFiles.length) {
     patch.files = buildFiles;
     const models = buildFiles.filter(f => f.isModel).length;
@@ -1019,6 +1048,11 @@ export default function App() {
           description: '',
           useMainCover: true,
           coverImageId: null,
+          photoIds: [],
+          visibility: 'private',
+          compatiblePrinters: [],
+          realPhotoConfirmed: false,
+          guidelinesAccepted: false,
           parsed: mockParseThreeMF(f.name),
         }));
       // No change → return prev to avoid an extra render.
@@ -1436,8 +1470,8 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
 
   return (
     <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'rgba(21,23,28,0.1)', background: 'rgba(237,233,222,0.92)' }}>
-      <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 sm:gap-4">
+        <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
           <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 relative" style={{ background: '#15171C' }}>
             {/* Layer-stack icon: 4 horizontal bars stacked, mimicking print layers */}
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -1467,7 +1501,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
               ) : (
                 <button
                   onClick={() => setEditingName(true)}
-                  className="mp-mono text-[13px] flex items-center gap-1 group"
+                  className="mp-mono text-[13px] flex items-center gap-1 group max-w-[280px] sm:max-w-none truncate"
                   style={{ color: 'rgba(21,23,28,0.6)' }}
                 >
                   ▸ {project.name}
@@ -1478,7 +1512,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto min-w-0">
           <ConnectionsButton onOpen={onOpenConnections} />
           <div className="relative" ref={templatesRef}>
             <button onClick={() => setShowTemplates(s => !s)} className="mp-btn mp-btn-ghost text-xs py-2 px-3" aria-haspopup="true" aria-expanded={showTemplates}>
@@ -1622,6 +1656,12 @@ const MAX_BUILD_FILE_MB = 500;
 // so the user is told what won't pass instead of finding out after a failed upload.
 // Returns { errors:[], warnings:[] } — errors will definitely fail; warnings may degrade.
 function platformPreflight(platform, project) {
+  if (platform.id === 'makerworld') {
+    return makerWorldPublishIssues(project, { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) }, {
+      cyberControlCount: mwRuntimeCyberBrick.controlConfigs.length,
+      forbiddenWords: makerWorldForbiddenWords,
+    });
+  }
   const errors = [], warnings = [];
   const lim = platform.limits || {};
   const MB = 1024 * 1024;
@@ -1638,7 +1678,8 @@ function platformPreflight(platform, project) {
 
   if (project.images.length === 0) errors.push('No photos — at least one is required.');
   else if (!project.coverImageId) warnings.push('No cover photo selected.');
-  if (platform.maxImages && project.images.length > platform.maxImages) warnings.push(`${project.images.length} photos — only the first ${platform.maxImages} will upload.`);
+  const galleryCount = Math.max(0, project.images.length - (project.coverImageId ? 1 : 0));
+  if (platform.maxImages && galleryCount > galleryCapacity(platform)) warnings.push(`${galleryCount} gallery photos — only the first ${galleryCapacity(platform)} will upload.`);
   if (platform.id === 'makerworld') warnings.push('MakerWorld requires a real photo of the print (renders can be rejected).');
 
   if (!project.title.trim()) errors.push('Title is empty.');
@@ -1659,7 +1700,8 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
 
   const handleFiles = (fileList) => {
     const arr = Array.from(fileList);
-    const supported = arr.filter(f => isModelFile(f.name) || ['pdf', 'txt', 'md', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'zip'].includes(fileExt(f.name)));
+    const supported = arr.filter(f => isModelFile(f.name) || isMakerWorldLaserFile(f.name)
+      || ['pdf', 'txt', 'md', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'zip'].includes(fileExt(f.name)));
 
     // #1 — reject single files larger than any platform will accept.
     const tooBig = supported.filter(f => f.size / 1024 / 1024 > MAX_BUILD_FILE_MB);
@@ -1680,6 +1722,8 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         isModel: isModelFile(f.name),
         isProfile: isProfile(f.name),
         isImage: isImageFile(f.name),
+        isLaserCut: isMakerWorldLaserFile(f.name),
+        makerWorld: { note: '', openSource: true, folderPath: '' },
         blob: f,  // keep the actual File so we can include it in ZIP exports
       };
     });
@@ -1704,11 +1748,21 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
 
   const removeFile = (id) => updateProject({ files: project.files.filter(f => f.id !== id) });
 
+  const updateMakerWorldFile = (id, patch) => updateProject({
+    files: project.files.map((file) => file.id === id
+      ? { ...file, makerWorld: { note: '', openSource: true, folderPath: '', ...(file.makerWorld || {}), ...patch } }
+      : file),
+  });
+
   const renameFile = (id, newName) => {
     // Don't let a rename collide with another file's name.
     const taken = new Set(project.files.filter(f => f.id !== id).map(f => f.name.toLowerCase()));
     const finalName = uniqueFileName(newName, taken);
-    updateProject({ files: project.files.map(f => f.id === id ? { ...f, name: finalName } : f) });
+    updateProject({ files: project.files.map(f => f.id === id ? {
+      ...f, name: finalName,
+      isModel: isModelFile(finalName), isProfile: isProfile(finalName),
+      isImage: isImageFile(finalName), isLaserCut: isMakerWorldLaserFile(finalName),
+    } : f) });
   };
 
   const totalSize = project.files.reduce((s, f) => s + f.size, 0);
@@ -1718,7 +1772,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="01"
         title="Drop your files"
-        subtitle="STL for raw geometry, 3MF for print profiles, plus optional PDFs or images. Each 3MF will become a print profile in step 04."
+        subtitle="Add 3D model files, Bambu Studio 3MF profiles, or Laser & Cut source files. MakerWorld-specific file notes and open-source settings stay attached to each file."
       />
 
       <div
@@ -1738,7 +1792,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".stl,.3mf,.obj,.step,.stp,.amf,.scad,.dxf,.svg,.pdf,.txt,.md,.zip,.png,.jpg,.jpeg,.webp,.gif"
+          accept=".3ds,.3mf,.ai,.amf,.bmp,.dwg,.dxf,.f3d,.factory,.fbx,.fcstd,.gcode,.glb,.iges,.ipt,.jpg,.jpeg,.lac,.obj,.ply,.png,.rsdoc,.scad,.shape,.shapr,.skp,.sldasm,.sldprt,.slvs,.step,.stl,.studio3,.stp,.stpz,.svg,.webp,.x3d,.pdf,.txt,.md,.zip,.gif"
           onChange={(e) => handleFiles(e.target.files)}
           className="hidden"
         />
@@ -1748,7 +1802,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         <h2 className="mp-display text-[36px] leading-none mb-2">Load build files</h2>
         <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
         <div className="inline-flex items-center gap-1.5 mp-mono text-[12px] uppercase tracking-[0.2em] flex-wrap justify-center" style={{ color: 'rgba(21,23,28,0.5)' }}>
-          {['stl', '3mf', 'obj', 'step', 'amf', 'scad', 'svg', 'dxf', 'pdf'].map(ext => (
+          {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
             <span key={ext} className="mp-pill" style={{ background: 'rgba(21,23,28,0.06)' }}>.{ext}</span>
           ))}
         </div>
@@ -1769,7 +1823,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
               <>
                 <div className="mp-display font-bold mb-1">Nothing added — unsupported files</div>
                 <div style={{ color: 'rgba(21,23,28,0.7)' }}>
-                  None of those files are supported here. Try <strong>.stl, .3mf, .obj, .step, .amf</strong> (or .pdf / .zip extras).
+                  None of those files are supported here. Try a MakerWorld 3D or Laser &amp; Cut format, or a supported documentation file.
                 </div>
               </>
             ) : notice.kind === 'renamed' ? (
@@ -1804,7 +1858,8 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           </div>
           <div className="space-y-2">
             {project.files.map(f => (
-              <FileRow key={f.id} file={f} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)} />
+              <FileRow key={f.id} file={f} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)}
+                onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)} />
             ))}
           </div>
         </div>
@@ -1823,13 +1878,15 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
-function FileRow({ file, onRemove, onRename }) {
+function FileRow({ file, onRemove, onRename, onUpdateMakerWorld }) {
   const isProf = file.isProfile;
   const isImg = file.isImage;
   const ext = fileExt(file.name);
   const baseName = file.name.replace(/\.[^.]+$/, '');
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(baseName);
+  const supportsMakerWorld = isMakerWorldRegularFile(file.name) || isMakerWorldLaserFile(file.name);
+  const makerWorld = { note: '', openSource: true, folderPath: '', ...(file.makerWorld || {}) };
 
   const startEdit = () => { setDraft(baseName); setEditing(true); };
   const commit = () => {
@@ -1839,7 +1896,8 @@ function FileRow({ file, onRemove, onRename }) {
   };
 
   return (
-    <div className="mp-card p-3 flex items-center gap-3">
+    <div className="mp-card p-3">
+      <div className="flex items-center gap-3">
       <div className="w-10 h-10 flex items-center justify-center flex-shrink-0" style={{ background: isProf ? '#FF5722' : isImg ? 'rgba(21,23,28,0.4)' : '#15171C' }}>
         {isProf ? <Layers size={16} color="#fff" /> : isImg ? <ImageIcon size={16} color="#EDE9DE" /> : <FileCheck size={16} color="#EDE9DE" />}
       </div>
@@ -1878,6 +1936,11 @@ function FileRow({ file, onRemove, onRename }) {
               Reference image
             </span>
           )}
+          {file.isLaserCut && (
+            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>
+              Laser &amp; Cut
+            </span>
+          )}
         </div>
       </div>
       <button onClick={startEdit} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#FF5722] transition" aria-label="Rename file" title="Rename">
@@ -1886,6 +1949,26 @@ function FileRow({ file, onRemove, onRename }) {
       <button onClick={onRemove} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#FF5722] transition" aria-label="Remove file" title="Remove">
         <Trash2 size={15} />
       </button>
+      </div>
+      {supportsMakerWorld && (
+        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.55)' }}>MakerWorld file settings</summary>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+            <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
+              <input className="mp-input text-[12px]" value={makerWorld.folderPath}
+                placeholder="parts/large" onChange={(e) => onUpdateMakerWorld({ folderPath: e.target.value.replace(/^\/+|\/+$/g, '') })} />
+            </label>
+            <label className="text-[11px] space-y-1"><span>File note (optional)</span>
+              <input className="mp-input text-[12px]" value={makerWorld.note} maxLength={500}
+                placeholder="Print this part twice" onChange={(e) => onUpdateMakerWorld({ note: e.target.value })} />
+            </label>
+          </div>
+          <label className="flex items-center gap-2 text-[11px] mt-2">
+            <input type="checkbox" checked={makerWorld.openSource} onChange={(e) => onUpdateMakerWorld({ openSource: e.target.checked })} />
+            Open Source — allow the raw file to be downloaded
+          </label>
+        </details>
+      )}
     </div>
   );
 }
@@ -2221,7 +2304,10 @@ function matchesLicenseFilter(l, f) {
 }
 
 function DetailsSection({ project, updateProject, setCurrentSection }) {
+  useAccounts();
   const [tagInput, setTagInput] = useState('');
+  const [tagSuggestBusy, setTagSuggestBusy] = useState(false);
+  const [tagSuggestMsg, setTagSuggestMsg] = useState('');
   const [previewMode, setPreviewMode] = useState('write'); // write | preview | formats
   const [aiHint, setAiHint] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
@@ -2285,12 +2371,34 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
     }
   };
 
-  const suggestTags = () => {
+  const suggestTags = async () => {
     const room = MAX_TAGS - project.tags.length;
     if (room <= 0) return;
-    const suggestions = aiSuggestTags(project.title || 'thing');
-    const newTags = suggestions.filter(t => !project.tags.includes(t)).slice(0, Math.min(5, room));
-    updateProject({ tags: [...project.tags, ...newTags] });
+    setTagSuggestBusy(true); setTagSuggestMsg('');
+    try {
+      let suggestions = [];
+      const makerWorldAccount = project.platforms?.makerworld?.enabled ? getActive('makerworld') : null;
+      if (makerWorldAccount?.secret) {
+        const keyword = tagInput.trim() || project.title.trim() || 'model';
+        const response = await fetch(`${WORKER_URL}/api/v1/makerworld/web/suggest-tags?keyword=${encodeURIComponent(keyword)}`, {
+          headers: { 'X-MW-Cookie': makerWorldAccount.secret },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) suggestions = (data.suggestions || []).map((item) => item.text).filter(Boolean);
+      }
+      if (!suggestions.length) {
+        suggestions = aiSuggestTags(project.title || 'thing');
+        setTagSuggestMsg(makerWorldAccount ? 'MakerWorld had no suggestions; used local suggestions.' : 'Connect MakerWorld for live tag suggestions.');
+      }
+      const newTags = suggestions.map((tag) => String(tag).trim().toLowerCase().replace(/\s+/g, '-'))
+        .filter((tag) => tag && !project.tags.includes(tag)).slice(0, Math.min(5, room));
+      updateProject({ tags: [...project.tags, ...newTags] });
+    } catch (error) {
+      const suggestions = aiSuggestTags(project.title || 'thing');
+      const newTags = suggestions.filter((tag) => !project.tags.includes(tag)).slice(0, Math.min(5, room));
+      updateProject({ tags: [...project.tags, ...newTags] });
+      setTagSuggestMsg(`Live suggestions unavailable; used local suggestions. ${error instanceof Error ? error.message : String(error)}`);
+    } finally { setTagSuggestBusy(false); }
   };
 
   return (
@@ -2449,10 +2557,11 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   {project.tags.length}/{lim.tagMax ?? '∞'} tags
                   {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
                 </span>
-                <button onClick={suggestTags} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#FF5722] transition">
-                  <Sparkles size={10} /> Suggest tags
+                <button onClick={suggestTags} disabled={tagSuggestBusy} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#FF5722] transition disabled:opacity-40">
+                  {tagSuggestBusy ? <Loader size={10} className="animate-spin" /> : <Sparkles size={10} />} {tagSuggestBusy ? 'Checking MakerWorld…' : 'Suggest tags'}
                 </button>
               </div>
+              {tagSuggestMsg && <p className="text-[11px] mt-1.5 opacity-55">{tagSuggestMsg}</p>}
               {longTags.length > 0 && (
                 <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#FF5722' }}>
                   {longTags.length} tag{longTags.length > 1 ? 's' : ''} over {lim.tagCharMax} chars ({lim.tagCharMaxBy} limit): {longTags.join(', ')}
@@ -2707,7 +2816,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="03"
         title="Cover and gallery images"
-        subtitle={<>Drop images, set the focal point so every platform's crop keeps what matters in frame.<br />Up to 16 for MakerWorld; most platforms cap at 10-25.</>}
+        subtitle={<>Drop images, set the focal point so every platform's crop keeps what matters in frame.<br />MakerWorld supports one cover plus up to 16 model pictures.</>}
       />
 
       {imgNotice && (
@@ -2733,7 +2842,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           <div className="lg:col-span-3 space-y-2">
             <div className="flex items-center justify-between">
               <span className="mp-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                {project.images.length}/16 images
+                {project.images.length} images · 1 cover + up to 16 model pictures
               </span>
               <button onClick={() => fileInputRef.current?.click()} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
                 <Plus size={11} /> Add
@@ -3034,7 +3143,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="04"
         title="Print profiles"
-        subtitle="One profile per 3MF file. Add a name and a per-profile description. Settings below are estimated from the file (preview — full 3MF parsing comes later)."
+        subtitle="Configure each 3MF profile. MakerWorld accepts one initial Bambu Studio profile per new design; choose which one on the MakerWorld options card."
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
@@ -3071,8 +3180,19 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                 <input
                   className="mp-input"
                   value={active.name}
+                  maxLength={60}
                   onChange={(e) => updateProfile(active.id, { name: e.target.value })}
                 />
+                <div className="text-[10px] text-right mt-1 opacity-50">{active.name.length}/60</div>
+              </div>
+
+              <div>
+                <Label>MakerWorld profile visibility</Label>
+                <select className="mp-input" value={active.visibility || 'private'} onChange={(e) => updateProfile(active.id, { visibility: e.target.value })}>
+                  <option value="private">Private</option>
+                  <option value="public">Public</option>
+                </select>
+                <div className="text-[10px] mt-1 opacity-50">Independent from the model visibility, matching MakerWorld's profile editor.</div>
               </div>
 
               {active.parsed && (
@@ -3169,13 +3289,39 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                   </div>
                 )}
                 {(active.photoIds || []).length === 0 && project.images.length > 0 && (
-                  <p className="text-xs mt-1" style={{ color: '#B23A1A' }}>None selected — your cover image will be used. Pick real printed-model photos to avoid takedown.</p>
+                  <p className="text-xs mt-1" style={{ color: '#B91C1C' }}>Select at least one real printed-model photo before publishing.</p>
                 )}
+                <label className="flex items-start gap-2 text-[12px] mt-2">
+                  <input type="checkbox" className="mt-0.5" checked={!!active.realPhotoConfirmed}
+                    onChange={(e) => updateProfile(active.id, { realPhotoConfirmed: e.target.checked })} />
+                  <span>I confirm that at least one selected photo shows the <strong>real printed model</strong>, not only a render.</span>
+                </label>
               </div>
 
-              <p className="text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.5)' }}>
-                By publishing, you confirm this print profile meets MakerWorld's <a href="https://makerworld.com/en/rules" target="_blank" rel="noopener noreferrer" className="underline">Print Profile Guidelines</a>.
-              </p>
+              <MwSection title="Additional compatible printers" hint="optional" badge={(active.compatiblePrinters || []).length}>
+                <div className="text-[11px] opacity-60">MakerWorld detects the native printer from the 3MF. Select only additional printers you have verified.</div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+                  {MAKERWORLD_PRINTERS.map((printer) => {
+                    const selected = (active.compatiblePrinters || []).includes(printer.product);
+                    return (
+                      <label key={printer.product} className="flex items-center gap-1.5 text-[11px] mp-card p-1.5">
+                        <input type="checkbox" checked={selected} onChange={() => updateProfile(active.id, {
+                          compatiblePrinters: selected
+                            ? (active.compatiblePrinters || []).filter((name) => name !== printer.product)
+                            : [...(active.compatiblePrinters || []), printer.product],
+                        })} />
+                        {printer.product}
+                      </label>
+                    );
+                  })}
+                </div>
+              </MwSection>
+
+              <label className="flex items-start gap-2 text-[12px]">
+                <input type="checkbox" className="mt-0.5" checked={!!active.guidelinesAccepted}
+                  onChange={(e) => updateProfile(active.id, { guidelinesAccepted: e.target.checked })} />
+                <span>I have read and this profile meets MakerWorld's <a href="https://makerworld.com/en/rules" target="_blank" rel="noopener noreferrer" className="underline">Print Profile Guidelines</a>.</span>
+              </label>
             </>
           )}
         </div>
@@ -3211,8 +3357,9 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
     });
   };
   const updatePlatformField = (id, field, value) => {
+    const patch = typeof field === 'object' ? field : { [field]: value };
     updateProject({
-      platforms: { ...project.platforms, [id]: { ...project.platforms[id], [field]: value } },
+      platforms: { ...project.platforms, [id]: { ...project.platforms[id], ...patch } },
     });
   };
 
@@ -3251,6 +3398,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
             key={p.id}
             platform={p}
             state={project.platforms[p.id]}
+            project={project}
             onToggle={() => togglePlatform(p.id)}
             onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
           />
@@ -3269,8 +3417,11 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
-function PlatformCard({ platform, state, onToggle, onUpdate }) {
+function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
   const [expanded, setExpanded] = useState(false);
+  const acceptedFormats = platform.id === 'makerworld' && state.productMode === 'laser-cut'
+    ? MAKERWORLD_LASER_FORMATS
+    : platform.formats;
   return (
     <div className="mp-card" style={{ borderColor: state.enabled ? 'rgba(21,23,28,0.2)' : 'rgba(21,23,28,0.08)', opacity: state.enabled ? 1 : 0.65 }}>
       <div className="p-3.5 flex items-start gap-3">
@@ -3327,7 +3478,7 @@ function PlatformCard({ platform, state, onToggle, onUpdate }) {
           <div className="mb-3">
             <Label>Accepted formats</Label>
             <div className="flex flex-wrap gap-1">
-              {platform.formats.map(f => (
+              {acceptedFormats.map(f => (
                 <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(21,23,28,0.06)' }}>
                   .{f}
                 </span>
@@ -3398,7 +3549,7 @@ function PlatformCard({ platform, state, onToggle, onUpdate }) {
           )}
 
           {platform.id === 'makerworld' && state.enabled && (
-            <MakerWorldOptions opts={state} onUpdate={onUpdate} />
+            <MakerWorldOptions opts={state} project={project} onUpdate={onUpdate} />
           )}
           {platform.id === 'cults' && state.enabled && (
             <div className="mt-3">
@@ -3786,7 +3937,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
   const downloadAllGallery = async () => {
     setDownloading(true);
     const others = project.images.filter(i => i.id !== project.coverImageId);
-    const limit = Math.min(others.length, platform.maxImages - 1);
+    const limit = Math.min(others.length, galleryCapacity(platform));
     const main = platform.covers[0];
     for (let i = 0; i < limit; i++) {
       await downloadImage(others[i], main.w, main.h, `gallery${String(i + 2).padStart(2, '0')}`);
@@ -3829,7 +3980,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="mp-display text-[22px] leading-none">{platform.name}</h3>
               {platform.apiSupport === 'oneclick' && (
-                <span className="mp-pill" style={{ background: '#4FB286', color: '#fff' }}>API soon</span>
+                <span className="mp-pill" style={{ background: '#4FB286', color: '#fff' }}>{platform.apiLive ? 'API' : 'API soon'}</span>
               )}
               {platform.apiSupport === 'manual' && (
                 <span className="mp-pill" style={{ background: 'rgba(21,23,28,0.1)', color: 'rgba(21,23,28,0.6)' }}>manual</span>
@@ -3839,7 +3990,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
               )}
             </div>
             <div className="mp-mono text-[12px] uppercase tracking-[0.15em] mt-1" style={{ color: 'rgba(21,23,28,0.55)' }}>
-              {platform.org} · {platform.descFormat} description · {platform.maxImages} img max
+              {platform.org} · {platform.descFormat} description · {platform.id === 'makerworld' ? `${platform.maxImages} model pictures + cover` : `${platform.maxImages} img max`}
             </div>
           </div>
           <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-60 hover:opacity-100 transition flex-shrink-0 sm:hidden" aria-label={expanded ? 'Collapse package' : 'Expand package'} aria-expanded={expanded}>
@@ -3961,7 +4112,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
             <div>
               <PackageLabel
                 label="Gallery images"
-                hint={`${Math.min(project.images.length - 1, platform.maxImages - 1)} of ${project.images.length - 1} additional (cap ${platform.maxImages})`}
+                hint={`${Math.min(project.images.length - 1, galleryCapacity(platform))} of ${project.images.length - 1} additional (cap ${galleryCapacity(platform)})`}
               >
                 <button onClick={downloadAllGallery} disabled={downloading} className="mp-mono text-[12px] uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
                   <Download size={10} /> All gallery
@@ -3970,7 +4121,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
               <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
                 {project.images
                   .filter(i => i.id !== project.coverImageId)
-                  .slice(0, platform.maxImages - 1)
+                  .slice(0, galleryCapacity(platform))
                   .map((img, i) => (
                     <GalleryThumb
                       key={img.id}
@@ -3980,9 +4131,9 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
                     />
                   ))}
               </div>
-              {project.images.length - 1 > platform.maxImages - 1 && (
+              {project.images.length - 1 > galleryCapacity(platform) && (
                 <div className="mt-2 mp-mono text-[12px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
-                  /// {project.images.length - 1 - (platform.maxImages - 1)} image(s) skipped, {platform.name} caps at {platform.maxImages}
+                  /// {project.images.length - 1 - galleryCapacity(platform)} image(s) skipped, {platform.name} caps at {galleryCapacity(platform)} gallery images
                 </div>
               )}
             </div>
@@ -4272,6 +4423,25 @@ const WORKER_URL = (typeof import.meta !== 'undefined' && import.meta.env && imp
   || 'http://localhost:8787';
 // Cults credentials now live in the accounts store; lib/accounts.js migrates the
 // legacy `modelprep:cults-web-creds` key on first load.
+
+function useMakerWorldCapabilities(cookie, enabled = true) {
+  const [state, setState] = useState({ data: null, error: '', loading: false });
+  useEffect(() => {
+    let active = true;
+    if (!enabled || !cookie) { setState({ data: null, error: '', loading: false }); return () => { active = false; }; }
+    setState({ data: null, error: '', loading: true });
+    fetch(`${WORKER_URL}/api/v1/makerworld/web/capabilities`, { headers: { 'X-MW-Cookie': cookie } })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(makerWorldResponseError(data, response.status, 'Could not check MakerWorld upload eligibility'));
+        return data;
+      })
+      .then((data) => { if (active) setState({ data, error: '', loading: false }); })
+      .catch((error) => { if (active) setState({ data: null, error: error instanceof Error ? error.message : String(error), loading: false }); });
+    return () => { active = false; };
+  }, [cookie, enabled]);
+  return state;
+}
 
 function CultsUploadFlow({ platform, project }) {
   const acc = useAccounts();
@@ -4858,7 +5028,24 @@ function PlatformConnections({ platform }) {
   const accounts = acc.getAccounts(platform.id);
   const active = acc.getActive(platform.id);
   const [adding, setAdding] = useState(false);
+  const [refreshingId, setRefreshingId] = useState(null);
+  const [accountNotice, setAccountNotice] = useState('');
   const showForm = adding || accounts.length === 0;
+  const refreshMakerWorld = async (account) => {
+    setRefreshingId(account.id); setAccountNotice('');
+    try {
+      const response = await fetch(`${WORKER_URL}/api/v1/makerworld/web/refresh`, {
+        method: 'POST', headers: { 'X-MW-Cookie': account.secret },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.cookie) throw new Error(makerWorldResponseError(data, response.status, 'Session refresh failed'));
+      acc.updateAccount('makerworld', account.id, { secret: data.cookie, status: 'connected' });
+      setAccountNotice(`Refreshed ${account.label}.`);
+    } catch (error) {
+      acc.updateAccount('makerworld', account.id, { status: 'reconnect' });
+      setAccountNotice(error instanceof Error ? error.message : String(error));
+    } finally { setRefreshingId(null); }
+  };
   return (
     <section className="mp-card p-3 space-y-2">
       <div className="flex items-center gap-2">
@@ -4873,9 +5060,15 @@ function PlatformConnections({ platform }) {
           {a.id === active?.id
             ? <span className="mp-pill text-[10px]" style={{ background: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
             : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>Use</button>}
+          {platform.id === 'makerworld' && typeof a.secret === 'string' && a.secret.includes('refreshToken=') && (
+            <button onClick={() => refreshMakerWorld(a)} disabled={refreshingId === a.id} className="mp-mono text-[10px] underline disabled:opacity-40" style={{ color: 'rgba(21,23,28,0.55)' }}>
+              {refreshingId === a.id ? 'refreshing…' : 'refresh session'}
+            </button>
+          )}
           <button onClick={() => acc.removeAccount(platform.id, a.id)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
         </div>
       ))}
+      {accountNotice && <div className="text-[11px]" style={{ color: accountNotice.startsWith('Refreshed') ? '#1a7f37' : '#B91C1C' }}>{accountNotice}</div>}
       {showForm
         ? <ConnectForm platform={platform} onDone={() => setAdding(false)} canCancel={accounts.length > 0} />
         : <button onClick={() => setAdding(true)} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2"><Plus size={11} /> Add account</button>}
@@ -4902,7 +5095,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
     try {
       const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': rawCookie } });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again (needs token + cf_clearance).');
+      if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again or paste a current MakerWorld token.');
       // Auto-label from the MakerWorld profile (handle/name); a typed label overrides it.
       let autoLabel = label.trim();
       if (!autoLabel) {
@@ -5000,26 +5193,25 @@ function ConnectForm({ platform, onDone, canCancel }) {
 // backend/src/adapters/makerworld-web.ts + /api/v1/makerworld/web/*.
 // (Session now lives in the accounts store; lib/accounts.js migrates the legacy
 // `modelprep:makerworld-cookie` key on first load.)
-// Curated MakerWorld category IDs (int leaf ids). 401 is confirmed; others follow
-// the captured parent+offset pattern. Refine via the categories endpoint later.
-const MW_CATEGORIES = [
-  { id: 401, label: 'Household' },
-  { id: 901, label: '3D Printer · Accessories' },
-  { id: 902, label: '3D Printer · Parts' },
-  { id: 903, label: '3D Printer · Test Models' },
-  { id: 104, label: 'Art · Sculptures' },
-  { id: 303, label: 'Hobby & DIY · Music' },
-  { id: 800, label: 'Toys & Games' },
-  { id: 600, label: 'Miniatures' },
-  { id: 700, label: 'Tools' },
-  { id: 1000, label: 'Props & Cosplays' },
-];
+// Full MakerWorld hierarchy captured from the live publish page. Keep the source
+// tree in data/ so category labels and exact integer ids remain inspectable.
+const MW_CATEGORIES = flattenMakerWorldCategories(makerWorldCategoryTree).filter((category) => category.isLeaf);
 
-// The bundled BOM catalog (kits/filaments/materials trees) is ~548KB — lazy-load
-// it only when the user opens the BOM picker so it stays out of the main bundle.
+// Prefer the Worker's seven-day live cache; use the bundled catalog only when the
+// session/edge cannot refresh it. The ~548KB seed stays lazy-loaded.
 let _mwCatalogCache = null;
-async function loadMwCatalog() {
+async function loadMwCatalog(cookie = '') {
   if (_mwCatalogCache) return _mwCatalogCache;
+  try {
+    const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/bom-catalog`, {
+      headers: cookie ? { 'X-MW-Cookie': cookie } : {},
+    });
+    const data = await res.json();
+    if (res.ok && data?.catalog) {
+      _mwCatalogCache = data.catalog;
+      return _mwCatalogCache;
+    }
+  } catch { /* offline/development: fall through to the bundled seed */ }
   const mod = await import('./data/makerworld-bom-catalog.json');
   _mwCatalogCache = mod.default || mod;
   return _mwCatalogCache;
@@ -5172,19 +5364,26 @@ function mwModelStatus(m) {
 // "My MakerWorld models" — polls the live published list so you can confirm a model
 // actually went live (post-submit) and spot takedowns. Honest about the gap: it only
 // shows LIVE models; "verifying"/rejected models aren't fetchable server-side yet.
-function MwMyModels({ cookie, isDemo }) {
+function MwMyModels({ cookie, isDemo, kind = '3d' }) {
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
+  useEffect(() => { setModels(null); setErr(''); }, [kind, cookie]);
   const load = async () => {
     if (isDemo) { setModels([]); setErr(''); return; }
     setLoading(true); setErr('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/my-creations`, { headers: { 'X-MW-Cookie': cookie } });
+      const endpoint = kind === 'laser-cut' ? 'related?type=1&keyword=' : 'my-creations';
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${endpoint}`, { headers: { 'X-MW-Cookie': cookie } });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Failed to load');
-      setModels(Array.isArray(data.designs) ? data.designs : []);
+      setModels(Array.isArray(data.designs) ? data.designs.map((model) => ({
+        ...model,
+        status: model.status ?? 1,
+        coverUrl: model.coverUrl || model.cover,
+        url: model.url || `https://makerworld.com/en/models/${model.id}`,
+      })) : []);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setLoading(false); }
   };
   useEffect(() => { if (open && models === null) load(); }, [open]); // eslint-disable-line
@@ -5192,14 +5391,14 @@ function MwMyModels({ cookie, isDemo }) {
     <div className="mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>My MakerWorld models</span>
+        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>My MakerWorld {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'}</span>
         {models && <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.45)' }}>{models.length} live</span>}
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-1.5">
           <button onClick={load} disabled={loading} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 disabled:opacity-40">{loading ? 'Loading…' : 'Refresh'}</button>
           {err && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{err}</div>}
-          {models && models.length === 0 && !loading && <div className="text-[11px] opacity-60">No live models found.</div>}
+          {models && models.length === 0 && !loading && <div className="text-[11px] opacity-60">No live {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'} found.</div>}
           {models && models.map((m) => {
             const s = mwModelStatus(m);
             return (
@@ -5233,6 +5432,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   const simulate = isDemo && !realCookie;
   const active = realActive || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
   const cookie = realCookie || (isDemo ? 'demo-cookie' : ''); // '' = not signed in
+  const uploadCapabilities = useMakerWorldCapabilities(realCookie, !simulate && !!realCookie);
   const [status, setStatus] = useState('idle'); // idle|publishing|done|error|deleting
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
@@ -5249,47 +5449,92 @@ function MakerWorldUploadFlow({ platform, project }) {
   const docGuides = mwRuntimeDocs.docGuides;
   const docOthers = mwRuntimeDocs.docOthers;
   const isLC = productMode === 'laser-cut';
-  const modelFiles = project.files.filter(f => f.isModel && f.blob);
+  const publishIssues = makerWorldPublishIssues(project, opts, {
+    cyberControlCount: mwRuntimeCyberBrick.controlConfigs.length,
+    forbiddenWords: makerWorldForbiddenWords,
+    rcUpload: simulate ? true : uploadCapabilities.data?.rcUpload,
+    uploadAllowed: simulate ? true : uploadCapabilities.data?.uploadAllowed,
+  });
+  const modelFiles = publishIssues.files.filter((file) => file.blob);
+  const draftIssues = [
+    uploadCapabilities.data?.uploadAllowed === false ? 'MakerWorld upload is disabled for this account.' : '',
+    opts.cyberBrick && uploadCapabilities.data?.rcUpload === false ? 'CyberBrick upload is not enabled for this MakerWorld account.' : '',
+    !String(project.title || '').trim() ? 'Add a title before saving a draft.' : '',
+    !project.coverImageId ? 'Select a cover image before saving a draft.' : '',
+    !modelFiles.length ? `Add at least one ${isLC ? 'Laser & Cut' : '3D model'} file before saving a draft.` : '',
+  ].filter(Boolean);
   const has3mf = modelFiles.some(f => /\.3mf$/i.test(f.name));
+  const primaryLacProjectFile = isLC && opts.laserMode === 'lac'
+    ? (modelFiles.find((file) => file.id === opts.primaryLacFileId && fileExt(file.name) === 'lac')
+      || modelFiles.find((file) => fileExt(file.name) === 'lac'))
+    : null;
   const bomCount = boms.kits.length + boms.filaments.length + boms.materials.length;
 
   // The .3mf's print profile (name, photos, guidelines) is configured in the Profiles step.
-  const mw3mfFile = modelFiles.find(f => /\.3mf$/i.test(f.name));
-  const mwProfile = project.profiles?.find(p => p.fileId === mw3mfFile?.id) || project.profiles?.[0] || null;
-  const profileName = mwProfile?.name || 'Print profile';
-  const profilePicIds = mwProfile?.photoIds || [];
+  const mw3mfFile = modelFiles.find((file) => file.id === opts.primaryProfileFileId && /\.3mf$/i.test(file.name))
+    || modelFiles.find(f => /\.3mf$/i.test(f.name));
+  const mwProfile = !isLC ? makerWorldPrimaryProfile(project, { ...opts, primaryProfileFileId: mw3mfFile?.id }) : null;
+  const laserProfile = { ...MW_DEFAULT_OPTS.laserProfile, ...(opts.laserProfile || {}) };
+  const profileName = isLC ? laserProfile.title : (mwProfile?.name || 'Print profile');
+  const profilePicIds = isLC ? (laserProfile.photoIds || []) : (mwProfile?.photoIds || []);
   const catLabel = MW_CATEGORIES.find(c => String(c.id) === String(categoryId))?.label || categoryId;
 
   // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
   const disconnect = () => { if (active) acc.removeAccount('makerworld', active.id); setStatus('idle'); setResult(null); };
 
   const uploadOne = async (fileOrBlob, name) => {
-    const fd = new FormData();
-    fd.append('file', fileOrBlob, name);
-    fd.append('fileName', name);
-    const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/upload`, { method: 'POST', headers: { 'X-MW-Cookie': cookie }, body: fd });
-    const data = await res.json();
-    if (!res.ok || !data.url) throw new Error(data?.message || data?.error || `Upload of ${name} failed (HTTP ${res.status})`);
-    return data; // { url, key, size, cdnPrefix }
+    return uploadMakerWorldFile({ workerUrl: WORKER_URL, cookie, file: fileOrBlob, name });
   };
 
-  const publish = async () => {
+  const publish = async (draftOnly = false) => {
+    const blockingIssues = draftOnly ? draftIssues : publishIssues.errors;
+    if (blockingIssues.length) {
+      setErrorMsg(blockingIssues.join(' '));
+      setStatus('error');
+      return;
+    }
     if (simulate) {
       // No real account connected — simulate so the demo flow is still explorable.
       setStatus('publishing'); setErrorMsg(''); setResult(null);
-      setProgressMsg('Simulating publish (demo)…');
+      setProgressMsg(draftOnly ? 'Simulating draft save (demo)…' : 'Simulating publish (demo)…');
       await new Promise((r) => setTimeout(r, 900));
-      setResult({ id: 'demo-' + Math.random().toString(36).slice(2, 8), status: 8, url: 'https://makerworld.com/', kind: isLC ? 'laser-cut' : '3d', files: modelFiles.length + project.images.length + (has3mf ? 1 : 0), visibility, demo: true });
+      setResult({ id: 'demo-' + Math.random().toString(36).slice(2, 8), status: draftOnly ? 'draft' : 8, url: 'https://makerworld.com/', kind: isLC ? 'laser-cut' : '3d', files: modelFiles.length + project.images.length + (has3mf ? 1 : 0), visibility, demo: true, draftOnly });
       setStatus('done'); setProgressMsg('');
       return;
     }
     if (!cookie) return;
     setStatus('publishing'); setErrorMsg(''); setResult(null);
     try {
-      const coverImg = project.images.find(i => i.id === project.coverImageId) || project.images[0];
+      const coverImg = project.images.find(i => i.id === project.coverImageId);
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
-      if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
-      if (modelSource === 'remix' && !remixModel) throw new Error('Remix mode is on — search and select the original model you remixed (or switch Source back to Original).');
+      let effectiveLacMetadata = null;
+      if (isLC && opts.laserMode === 'lac') {
+        const source = primaryLacProjectFile;
+        setProgressMsg('Reading Bambu Suite metadata…');
+        const parsed = await readLacMetadata(source?.blob, loadJSZip);
+        const manualProcessTypes = String(opts.laserInfo?.processTypes || '').split(',').map((value) => value.trim()).filter(Boolean);
+        const manualMaterialIds = String(opts.laserInfo?.materialIds || '').split(',').map((value) => value.trim()).filter(Boolean);
+        const manualDevices = String(opts.laserInfo?.compatibleDevices || '').split(',').map((value) => value.trim()).filter(Boolean);
+        effectiveLacMetadata = {
+          lacInfo: {
+            plates: parsed.lacInfo.plates,
+            processTypes: manualProcessTypes.length ? manualProcessTypes : parsed.lacInfo.processTypes,
+            machineName: String(opts.laserInfo?.machineName || '').trim() || parsed.lacInfo.machineName,
+            materialIds: manualMaterialIds.length ? manualMaterialIds : parsed.lacInfo.materialIds,
+          },
+          lacCustomInfo: {
+            otherTools: String(opts.laserInfo?.otherTools || '').trim() || parsed.lacCustomInfo.otherTools,
+            compatibleDevicesSelected: manualDevices.length ? manualDevices : parsed.lacCustomInfo.compatibleDevicesSelected,
+          },
+          model2DInfo: parsed.model2DInfo,
+        };
+        if (!draftOnly && !effectiveLacMetadata.lacInfo.plates.length) {
+          throw new Error('Could not read plate metadata from this .lac file. Re-save it with the current Bambu Suite before publishing.');
+        }
+        if (!draftOnly && (!effectiveLacMetadata.lacInfo.machineName || !effectiveLacMetadata.lacInfo.processTypes.length)) {
+          throw new Error('Could not read the machine/process metadata from this .lac file. Enter the Bambu Suite profile overrides in MakerWorld options.');
+        }
+      }
 
       // Crop every image to MakerWorld's exact aspects (4:3 web cover + 3:4 app cover,
       // 4:3 gallery) using the focal point, and re-encode to JPEG — so the uploaded files
@@ -5303,34 +5548,82 @@ function MakerWorldUploadFlow({ platform, project }) {
       if (appSpec) { portraitUrl = (await uploadOne(await cropImageToBlob(coverImg, appSpec.w, appSpec.h), 'cover-portrait.jpg')).url; }
 
       // Gallery / Model Pictures — crop each to MakerWorld's recommended 4:3, capped at maxImages.
-      const galleryImgs = project.images.filter(i => i.id !== coverImg.id).slice(0, platform.maxImages);
+      const galleryImgs = project.images.filter(i => i.id !== coverImg.id).slice(0, galleryCapacity(platform));
       setProgressMsg('Preparing gallery…');
       const galleryUrls = [];
       for (let i = 0; i < galleryImgs.length; i++) {
         const u = (await uploadOne(await cropImageToBlob(galleryImgs[i], webSpec.w, webSpec.h), `image-${i + 2}.jpg`)).url;
         galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u;
       }
-      // Print-profile photos (.3mf): the user-picked images (already cropped 4:3); if the
-      // user didn't customise them in the Profiles step, default to the FULL gallery (cover +
-      // all photos) so the profile carries the real print photos, not just the cover.
-      const profileFallbackIds = [coverImg.id, ...galleryImgs.map((g) => g.id)];
-      const profilePicUrls = (profilePicIds.length ? profilePicIds : profileFallbackIds).map((id) => imageUrlById[id]).filter(Boolean);
+      // Print-profile media is independent from the model gallery. Upload exactly the
+      // configured cover/photos and never silently substitute a render or model cover.
+      const needsProfileMedia = (!isLC && !!mw3mfFile) || (isLC && opts.laserMode === 'lac');
+      const profileCoverId = isLC
+        ? (laserProfile.useMainCover ? coverImg.id : laserProfile.coverImageId)
+        : (mwProfile?.useMainCover ? coverImg.id : mwProfile?.coverImageId);
+      const profileImageIds = needsProfileMedia
+        ? [...new Set([profileCoverId, ...profilePicIds].filter(Boolean))]
+        : [];
+      for (const imageId of profileImageIds) {
+        if (imageUrlById[imageId]) continue;
+        const image = project.images.find((item) => item.id === imageId);
+        if (!image) continue;
+        imageUrlById[imageId] = (await uploadOne(await cropImageToBlob(image, webSpec.w, webSpec.h), `profile-${imageId}.jpg`)).url;
+      }
+      const profilePicUrls = profileImageIds.map((id) => imageUrlById[id]).filter(Boolean);
 
       setProgressMsg('Uploading model files…');
-      let model3mf = null; const mfList = [];
-      for (const mf of modelFiles) {
+      let model3mf = null; let lacFile = null; const mfList = [];
+      const filesToUpload = modelFiles;
+      for (const mf of filesToUpload) {
         const up = await uploadOne(mf.blob, mf.name);
         const type = (mf.name.split('.').pop() || '').toLowerCase();
-        if (!isLC && type === '3mf' && !model3mf) model3mf = { name: mf.name, size: up.size, url: up.url };
-        else mfList.push({ modelName: mf.name, modelSize: up.size, modelType: type, modelUrl: up.url, thumbnailUrl: cover.url, thumbnailName: 'cover.jpg', thumbnailSize: cover.size });
+        if (!isLC && type === '3mf' && mf.id === mw3mfFile?.id) model3mf = { name: mf.name, size: up.size, url: up.url };
+        else if (isLC && opts.laserMode === 'lac' && mf.id === primaryLacProjectFile?.id) lacFile = { uniKey: up.key, name: mf.name, size: up.size, url: up.url };
+        else mfList.push({
+          modelName: mf.name, modelSize: up.size, modelType: type, modelUrl: up.url,
+          note: mf.makerWorld?.note || '', protected: mf.makerWorld?.openSource === false,
+          relativePath: [mf.makerWorld?.folderPath, mf.name].filter(Boolean).join('/'),
+          cdnPrefix: up.cdnPrefix, uploadKey: up.key,
+          thumbnailUrl: cover.url, thumbnailName: 'cover.jpg', thumbnailSize: cover.size,
+        });
       }
 
       // Documentation uploads (Assembly Guide + Other Files) → {name,url,size} refs.
       const uploadDocs = async (files) => {
         const out = [];
-        for (const f of files) { const up = await uploadOne(f, f.name); out.push({ name: f.name, url: up.url, size: up.size }); }
+        for (const f of files) { const up = await uploadOne(f, f.name); out.push({ uniKey: up.key, name: f.name, url: up.url, size: up.size }); }
         return out;
       };
+
+      const uploadRuntimeFiles = async (files) => {
+        const out = [];
+        for (const file of files || []) {
+          const up = await uploadOne(file, file.name);
+          out.push({ uniKey: up.key, name: file.name, size: up.size, url: up.url });
+        }
+        return out;
+      };
+      let cyberBrick;
+      if (opts.cyberBrick) {
+        setProgressMsg('Uploading CyberBrick files…');
+        const [controlConfig, motionConfig, originMicroPython, mainControlList] = await Promise.all([
+          uploadRuntimeFiles(mwRuntimeCyberBrick.controlConfigs),
+          uploadRuntimeFiles(mwRuntimeCyberBrick.motionConfigs),
+          uploadRuntimeFiles(mwRuntimeCyberBrick.microPython),
+          uploadRuntimeFiles(mwRuntimeCyberBrick.mainControlConfig ? [mwRuntimeCyberBrick.mainControlConfig] : []),
+        ]);
+        cyberBrick = { controlConfig, motionConfig, originMicroPython, ...(mainControlList[0] ? { mainControlConfig: mainControlList[0] } : {}) };
+      }
+
+      const remixFields = modelSource === 'remix' ? {
+        modelSource: 'remix',
+        remixSourceUrl: opts.remixUrl,
+        remixSourceLicense: opts.remixLicense || remixModel?.license || '',
+        remixDescription: opts.remixDescription,
+        remixOriginalDesignType: remixModel?.designType ?? (isLC ? 1 : 0),
+        ...(remixModel ? { remixOriginalIds: [remixModel.id] } : {}),
+      } : { modelSource: 'original' };
 
       let endpoint, input;
       if (isLC) {
@@ -5340,21 +5633,35 @@ function MakerWorldUploadFlow({ platform, project }) {
         input = {
           title: project.title || 'ModelPrep upload',
           license, visibility, tags: project.tags ?? [],
-          modelSource,
+          ...remixFields,
           modelFiles: mfList,
+          ...(lacFile ? {
+            lacFile,
+            lacInfo: effectiveLacMetadata.lacInfo,
+            lacCustomInfo: effectiveLacMetadata.lacCustomInfo,
+            model2DInfo: effectiveLacMetadata.model2DInfo,
+            profileTitle: laserProfile.title,
+            profileDescription: laserProfile.description ? mdToMakerWorldHtml(laserProfile.description) : '',
+            profileVisibility: laserProfile.visibility || visibility,
+            profilePictures: profilePicUrls,
+          } : {}),
           pictures: [cover.url, portraitUrl, ...galleryUrls].filter(Boolean),
-          ...(relatedModel ? { relatedModel: { id: relatedModel.id, designType: 0 } } : {}),
+          ...(cyberBrick ? { cyberBrick } : {}),
+          ...(relatedModel ? { relatedModel: { id: relatedModel.id, designType: 0, title: relatedModel.title, cover: relatedModel.cover, status: relatedModel.status } } : {}),
           ...(docGuide.length ? { docGuide } : {}),
           ...(docOther.length ? { docOther } : {}),
+          ...(draftOnly ? { draftOnly: true } : {}),
         };
       } else {
         setProgressMsg('Uploading documentation…');
         const [designGuide, designOther] = [await uploadDocs(docGuides), await uploadDocs(docOthers)];
-        const hasBom = bomCount > 0;
+        const validOtherParts = otherParts.filter((part) => String(part.name || '').trim());
+        const hasBom = bomCount > 0 || validOtherParts.length > 0;
         // MakerWorld's description (`summary`) is a CKEditor HTML field with a fixed schema
         // (#→<h2>, *italic*→<i>, links with target/rel, ol/ul, blockquote). Use the
         // MakerWorld-specific converter so it renders correctly instead of literal Markdown.
-        const htmlDesc = mdToMakerWorldHtml(project.description) || '<p>Uploaded with ModelPrep.</p>';
+        const remixHtml = modelSource === 'remix' ? `<h2>Remix details</h2>${mdToMakerWorldHtml(opts.remixDescription)}` : '';
+        const htmlDesc = `${mdToMakerWorldHtml(project.description) || '<p>Uploaded with ModelPrep.</p>'}${remixHtml}`;
         endpoint = `${WORKER_URL}/api/v1/makerworld/web/publish`;
         input = {
           title: project.title || 'ModelPrep upload',
@@ -5367,24 +5674,36 @@ function MakerWorldUploadFlow({ platform, project }) {
           coverPortraitUrl: portraitUrl,
           galleryUrls,
           modelFiles: mfList,
-          ...(modelSource === 'remix' && remixModel ? { modelSource: 'remix', remixOriginalIds: [remixModel.id] } : {}),
-          ...(relatedModel ? { relatedModel: { id: relatedModel.id, designType: 1 } } : {}),
-          ...(exclusive ? { exclusive: 1 } : {}),
-          ...(hasBom ? { boms: { ...boms, ...(otherParts.length ? { otherParts } : {}) } } : {}),
+          ...remixFields,
+          ...(cyberBrick ? { cyberBrick } : {}),
+          ...(relatedModel ? { relatedModel: { id: relatedModel.id, designType: 1, title: relatedModel.title, cover: relatedModel.cover, status: relatedModel.status } } : {}),
+          ...(exclusive ? { exclusive: 1, exclusiveTermsAccepted: !!opts.exclusiveTermsAccepted } : {}),
+          ...(hasBom ? { boms: { ...boms, ...(validOtherParts.length ? { otherParts: validOtherParts } : {}) } } : {}),
           ...(designGuide.length ? { designGuide } : {}),
           ...(designOther.length ? { designOther } : {}),
-          ...(model3mf ? { model3mf, printProfile: { title: profileName, pictureUrls: profilePicUrls.length ? profilePicUrls : [cover.url], isPrinterTested: true } } : {}),
+          ...(model3mf ? { model3mf, printProfile: {
+            title: profileName,
+            description: mwProfile?.description ? mdToMakerWorldHtml(mwProfile.description) : '',
+            pictureUrls: profilePicUrls,
+            visibility: mwProfile?.visibility || visibility,
+            realPhotoConfirmed: !!mwProfile?.realPhotoConfirmed,
+            isPrinterTested: !!mwProfile?.guidelinesAccepted,
+            otherCompatibility: compatibilityFromProducts(mwProfile?.compatiblePrinters || []),
+          } } : {}),
           ...(communityPost ? { communityPost: { content: htmlDesc } } : {}),
+          ...(draftOnly ? { draftOnly: true } : {}),
         };
       }
 
-      setProgressMsg(isLC ? 'Creating Laser & Cut draft + publishing…' : (has3mf ? 'Creating draft + print profile + publishing…' : 'Creating draft + publishing…'));
+      setProgressMsg(draftOnly
+        ? 'Saving MakerWorld draft…'
+        : (isLC ? 'Creating Laser & Cut draft + publishing…' : (has3mf ? 'Creating draft + print profile + publishing…' : 'Creating draft + publishing…')));
       const res = await fetch(endpoint, {
         method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
       });
       const data = await res.json();
-      if (!res.ok || !data.id) throw new Error(data?.message || data?.error || `Publish failed (HTTP ${res.status})`);
-      setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + 1 + (model3mf ? 1 : 0), visibility });
+      if (!res.ok || !data.id) throw new Error(makerWorldResponseError(data, res.status, 'MakerWorld publish failed'));
+      setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + 1 + (model3mf || lacFile ? 1 : 0), visibility, draftOnly });
       setStatus('done');
     } catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('error'); }
     finally { setProgressMsg(''); }
@@ -5407,29 +5726,31 @@ function MakerWorldUploadFlow({ platform, project }) {
   // model actually became LIVE (appears in the published list) vs. still in review/rejected.
   const checkLive = async () => {
     if (simulate) { setLiveCheck({ loading: false, live: true, model: { id: result?.id, title: project.title, status: 1 } }); return; }
-    if (!cookie || !result?.id || result.kind === 'laser-cut') return;
+    if (!cookie || !result?.id || result.draftOnly) return;
     setLiveCheck({ loading: true });
     try {
       // 1. Did slicing/verification FAIL? draft-status carries the exact reason
       //    (e.g. "The 3mf was not generated by Bambu Studio"). resultType != 0 = failed.
-      const sres = await fetch(`${WORKER_URL}/api/v1/makerworld/web/draft-status?id=${result.id}`, { headers: { 'X-MW-Cookie': cookie } });
+      const statusPath = result.kind === 'laser-cut' ? 'laser-cut/draft-status' : 'draft-status';
+      const sres = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${statusPath}?id=${result.id}`, { headers: { 'X-MW-Cookie': cookie } });
       const sdata = await sres.json().catch(() => ({}));
       if (sres.ok && sdata.ok && sdata.outcome === 'failed') {
         setLiveCheck({ loading: false, failed: true, reason: sdata.reason || `Verification failed (code ${sdata.code})`, profileTitle: sdata.profileTitle });
         return;
       }
       // 2. Not failed → confirm it's actually live (in the published list) vs still verifying.
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/my-creations`, { headers: { 'X-MW-Cookie': cookie } });
+      const listPath = result.kind === 'laser-cut' ? 'related?type=1&keyword=' : 'my-creations';
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${listPath}`, { headers: { 'X-MW-Cookie': cookie } });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Status check failed');
-      const found = (data.designs || []).find((m) => m.id === result.id);
+      const found = (data.designs || []).find((m) => String(m.id) === String(result.id));
       setLiveCheck({ loading: false, live: !!found, model: found });
     } catch (e) { setLiveCheck({ loading: false, error: e instanceof Error ? e.message : String(e) }); }
   };
 
   // Auto-check ~6s after a real publish so a rejection surfaces without the user clicking.
   useEffect(() => {
-    if (status === 'done' && result?.id && !simulate && result.kind !== 'laser-cut' && !liveCheck) {
+    if (status === 'done' && result?.id && !result.draftOnly && !simulate && !liveCheck) {
       const t = setTimeout(() => checkLive(), 6000);
       return () => clearTimeout(t);
     }
@@ -5482,21 +5803,40 @@ function MakerWorldUploadFlow({ platform, project }) {
             </div>
           )}
 
+          {publishIssues.errors.length > 0 && (
+            <div className="mp-card p-2.5 text-[12px] space-y-1" style={{ background: 'rgba(185,28,28,0.07)', borderColor: 'rgba(185,28,28,0.3)', color: '#B91C1C' }}>
+              <strong>Complete these MakerWorld fields before publishing:</strong>
+              <ul className="list-disc pl-5">{publishIssues.errors.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            </div>
+          )}
+          {publishIssues.warnings.length > 0 && (
+            <div className="mp-card p-2.5 text-[12px] space-y-1" style={{ background: 'rgba(255,182,39,0.09)', color: '#8A4B08' }}>
+              <ul className="list-disc pl-5">{publishIssues.warnings.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+            </div>
+          )}
+
           {status !== 'done' && (
-            <button onClick={publish} disabled={status === 'publishing'} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">
-              {status === 'publishing' ? (progressMsg || 'Publishing…') : `Publish to ${platform.name}`}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => publish(false)} disabled={status === 'publishing' || publishIssues.errors.length > 0} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">
+                {status === 'publishing' ? (progressMsg || 'Publishing…') : `Publish to ${platform.name}`}
+              </button>
+              <button onClick={() => publish(true)} disabled={status === 'publishing' || draftIssues.length > 0} className="mp-btn mp-btn-ghost text-sm py-2 px-4 disabled:opacity-40">
+                <Save size={13} /> Save as MakerWorld draft
+              </button>
+            </div>
           )}
 
           {result && (
             <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
               <div className="text-[13px]" style={{ color: 'rgba(21,23,28,0.85)' }}>
-                <Check size={14} className="inline" /> {result.demo ? 'Simulated publish (demo) — ' : 'Submitted to MakerWorld — '}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
+                <Check size={14} className="inline" /> {result.demo
+                  ? (result.draftOnly ? 'Simulated draft save (demo) — ' : 'Simulated publish (demo) — ')
+                  : (result.draftOnly ? 'Saved to MakerWorld — ' : 'Submitted to MakerWorld — ')}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
               {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Demo mode — nothing was actually uploaded. Exit demo and connect a real account to publish for real.</div>}
               {result.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-[12px] underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
               {/* Post-submit verification — a 200 submit = "accepted for review", not "live". */}
-              {result.kind !== 'laser-cut' && (
+              {!result.draftOnly && (
                 <div className="space-y-1">
                   <button onClick={checkLive} disabled={liveCheck?.loading} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{liveCheck?.loading ? 'Checking…' : 'Check if it went live'}</button>
                   {liveCheck && !liveCheck.loading && (
@@ -5504,23 +5844,23 @@ function MakerWorldUploadFlow({ platform, project }) {
                       <div className="mp-card p-2 text-[12px]" style={{ background: 'rgba(185,28,28,0.08)', borderColor: 'rgba(185,28,28,0.35)', color: '#B91C1C' }}>
                         <strong>❌ Rejected by MakerWorld:</strong> {liveCheck.reason}
                         {liveCheck.profileTitle ? <span style={{ opacity: 0.8 }}> (print profile “{liveCheck.profileTitle}”)</span> : null}
-                        <div className="mt-1" style={{ opacity: 0.85 }}>Fix the issue and re-publish, or <button onClick={del} className="underline" style={{ color: '#B91C1C' }}>delete this draft</button>. The 3mf must be sliced/exported by Bambu Studio.</div>
+                        <div className="mt-1" style={{ opacity: 0.85 }}>Fix the issue and re-publish, or <button onClick={del} className="underline" style={{ color: '#B91C1C' }}>delete this draft</button>.{result.kind === 'laser-cut' ? ' Re-save the source in the current Bambu Suite if package metadata was rejected.' : ' The 3mf must be sliced/exported by Bambu Studio.'}</div>
                       </div>
                     )
                     : liveCheck.error ? <div className="text-[12px]" style={{ color: '#B91C1C' }}>{liveCheck.error}</div>
                     : liveCheck.live ? <div className="text-[12px]" style={{ color: '#1a7f37' }}>✓ Confirmed live on MakerWorld{liveCheck.model?.offlineInstCnt > 0 ? ` (⚠ ${liveCheck.model.offlineInstCnt} print profile(s) offline)` : ''}.</div>
                     : <div className="text-[12px]" style={{ color: '#B23A1A' }}>
                         Not live yet — it's still in <strong>review</strong>, or it was <strong>rejected</strong>.
-                        {' '}Check <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>your MakerWorld notifications</a> for the reason (e.g. a print profile that didn't pass slicing).
+                        {' '}Check {result.kind === 'laser-cut' ? 'your Laser & Cut drafts on MakerWorld' : <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>your MakerWorld notifications</a>} for the reason.
                       </div>
                   )}
                 </div>
               )}
-              <button onClick={del} disabled={status === 'deleting'} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{status === 'deleting' ? 'Deleting…' : 'Delete this listing'}</button>
+              <button onClick={del} disabled={status === 'deleting'} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{status === 'deleting' ? 'Deleting…' : (result.draftOnly ? 'Delete this draft' : 'Delete this listing')}</button>
             </div>
           )}
 
-          <MwMyModels cookie={cookie} isDemo={simulate} />
+          <MwMyModels cookie={cookie} isDemo={simulate} kind={isLC ? 'laser-cut' : '3d'} />
         </>
       )}
       {errorMsg && <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}
@@ -5529,12 +5869,14 @@ function MakerWorldUploadFlow({ platform, project }) {
 }
 
 // MakerWorld options form — rendered on the Platforms step; edits project.platforms.makerworld.
-function MakerWorldOptions({ opts, onUpdate }) {
+export function MakerWorldOptions({ opts, project, onUpdate }) {
   useAccounts();
   const cookie = getActive('makerworld')?.secret || '';
   const o = { ...MW_DEFAULT_OPTS, ...(opts || {}) };
   const isLC = o.productMode === 'laser-cut';
   const boms = o.boms || { kits: [], filaments: [], materials: [] };
+  const laserInfo = { ...MW_DEFAULT_OPTS.laserInfo, ...(o.laserInfo || {}) };
+  const laserProfile = { ...MW_DEFAULT_OPTS.laserProfile, ...(o.laserProfile || {}) };
   const otherParts = o.otherParts || [];
   const bomCount = boms.kits.length + boms.filaments.length + boms.materials.length;
   const [catalog, setCatalog] = useState(null);
@@ -5543,9 +5885,30 @@ function MakerWorldOptions({ opts, onUpdate }) {
   const [docGuides, setDocGuides] = useState(mwRuntimeDocs.docGuides);
   const [docOthers, setDocOthers] = useState(mwRuntimeDocs.docOthers);
   const [docNotice, setDocNotice] = useState('');
+  const [categoryQuery, setCategoryQuery] = useState('');
+  const uploadCapabilities = useMakerWorldCapabilities(cookie, !!cookie && !project?.__demo);
+  const [cyberFiles, setCyberFiles] = useState(() => ({
+    controlConfigs: mwRuntimeCyberBrick.controlConfigs,
+    motionConfigs: mwRuntimeCyberBrick.motionConfigs,
+    microPython: mwRuntimeCyberBrick.microPython,
+    mainControlConfig: mwRuntimeCyberBrick.mainControlConfig,
+  }));
   const inputCls = 'mp-card text-[13px] p-2 w-full';
+  const profileFiles = (project?.files || []).filter((file) => fileExt(file.name) === '3mf');
+  const lacFiles = (project?.files || []).filter((file) => fileExt(file.name) === 'lac');
+  const cyberBrickPath = (!isLC && profileFiles.length > 0) || (isLC && o.laserMode === 'lac');
+  useEffect(() => {
+    if (uploadCapabilities.data?.rcUpload === false && o.cyberBrick) onUpdate('cyberBrick', false);
+  }, [uploadCapabilities.data?.rcUpload, o.cyberBrick, onUpdate]);
+  const visibleCategories = useMemo(() => {
+    const query = categoryQuery.trim().toLowerCase();
+    if (!query) return MW_CATEGORIES;
+    const matches = MW_CATEGORIES.filter((category) => category.label.toLowerCase().includes(query));
+    const selected = MW_CATEGORIES.find((category) => String(category.id) === String(o.categoryId));
+    return selected && !matches.some((category) => category.id === selected.id) ? [selected, ...matches] : matches;
+  }, [categoryQuery, o.categoryId]);
 
-  const ensureCatalog = async () => { if (catalog) return catalog; try { const c = await loadMwCatalog(); setCatalog(c); return c; } catch (e) { setCatalogErr(e instanceof Error ? e.message : String(e)); return null; } };
+  const ensureCatalog = async () => { if (catalog) return catalog; try { const c = await loadMwCatalog(cookie); setCatalog(c); return c; } catch (e) { setCatalogErr(e instanceof Error ? e.message : String(e)); return null; } };
   const addBom = (kind, item) => onUpdate('boms', { ...boms, [kind]: [...boms[kind], item] });
   const removeBom = (kind, idx) => onUpdate('boms', { ...boms, [kind]: boms[kind].filter((_, i) => i !== idx) });
   const setOtherParts = (next) => onUpdate('otherParts', typeof next === 'function' ? next(otherParts) : next);
@@ -5572,26 +5935,120 @@ function MakerWorldOptions({ opts, onUpdate }) {
   };
   const setGuides = (files) => { const { ok, rejected } = validateDocs(files, 'guide'); mwRuntimeDocs.docGuides = ok; setDocGuides(ok); setDocNotice(rejected.length ? `Assembly guide — skipped: ${rejected.join('; ')}` : ''); };
   const setOthers = (files) => { const { ok, rejected } = validateDocs(files, 'other'); mwRuntimeDocs.docOthers = ok; setDocOthers(ok); setDocNotice(rejected.length ? `Other files — skipped: ${rejected.join('; ')}` : ''); };
+  const setCyberRuntimeFiles = (kind, files) => {
+    const allowed = kind === 'microPython' ? ['py', 'mpy'] : ['json'];
+    const picked = Array.from(files || []).filter((file) => allowed.includes(fileExt(file.name)));
+    const value = kind === 'mainControlConfig' ? (picked[0] || null) : picked;
+    mwRuntimeCyberBrick[kind] = value;
+    setCyberFiles((previous) => ({ ...previous, [kind]: value }));
+  };
+  const changeModelSource = (value) => onUpdate(value === 'remix'
+    ? { modelSource: 'remix', exclusive: false, exclusiveTermsAccepted: false }
+    : { modelSource: value });
+  const setLaserInfo = (field, value) => onUpdate('laserInfo', { ...laserInfo, [field]: value });
+  const setLaserProfile = (field, value) => onUpdate('laserProfile', { ...laserProfile, [field]: value });
 
   return (
     <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
       <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>MakerWorld options</div>
       <div className="flex gap-1 mp-card p-1" style={{ background: 'rgba(21,23,28,0.04)' }}>
         {[['3d', '3D Model'], ['laser-cut', 'Laser & Cut']].map(([m, lbl]) => (
-          <button key={m} onClick={() => onUpdate('productMode', m)} className="flex-1 text-[12px] py-1.5 rounded-sm transition"
+          <button key={m} onClick={() => onUpdate({ productMode: m })} className="flex-1 text-[12px] py-1.5 rounded-sm transition"
             style={o.productMode === m ? { background: '#15171C', color: '#fff' } : { color: 'rgba(21,23,28,0.6)' }}>{lbl}</button>
         ))}
       </div>
+      {isLC && (
+        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Laser &amp; Cut upload mode</span>
+          <select className={inputCls} value={o.laserMode || 'raw'} onChange={(e) => onUpdate('laserMode', e.target.value)}>
+            <option value="raw">Raw .lac, SVG, DXF, image, or AI source files</option>
+            <option value="lac">Bambu Suite .lac file + print profile</option>
+          </select>
+        </label>
+      )}
+      {isLC && o.laserMode === 'lac' && (
+        <MwSection title="Bambu Suite profile metadata" hint="auto-read · optional overrides" defaultOpen>
+          {lacFiles.length > 0 && (
+            <label className="text-[12px] space-y-1 block"><span>Primary Bambu Suite profile package</span>
+              <select className={inputCls} value={o.primaryLacFileId || lacFiles[0].id} onChange={(e) => onUpdate('primaryLacFileId', e.target.value)}>
+                {lacFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
+              </select>
+              <span className="text-[10px] opacity-50">Other Laser files, including additional .lac files, are uploaded as raw model files.</span>
+            </label>
+          )}
+          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>ModelPrep reads <span className="mp-mono">lacInfo</span>, plate data, and <span className="mp-mono">model2DInfo</span> from the .lac package locally. Fill these only when you need to override missing or incorrect package metadata.</div>
+          <label className="text-[12px] space-y-1 block"><span>Machine name override</span>
+            <input className={inputCls} value={laserInfo.machineName} placeholder="e.g. H2D Laser" onChange={(e) => setLaserInfo('machineName', e.target.value)} />
+          </label>
+          <label className="text-[12px] space-y-1 block"><span>Process type overrides <span className="opacity-50">(comma-separated)</span></span>
+            <input className={inputCls} value={laserInfo.processTypes} placeholder="cut, engrave" onChange={(e) => setLaserInfo('processTypes', e.target.value)} />
+          </label>
+          <label className="text-[12px] space-y-1 block"><span>Material IDs <span className="opacity-50">(comma-separated)</span></span>
+            <input className={inputCls} value={laserInfo.materialIds} onChange={(e) => setLaserInfo('materialIds', e.target.value)} />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="text-[12px] space-y-1"><span>Other tools</span><input className={inputCls} value={laserInfo.otherTools} onChange={(e) => setLaserInfo('otherTools', e.target.value)} /></label>
+            <label className="text-[12px] space-y-1"><span>Compatible devices</span><input className={inputCls} value={laserInfo.compatibleDevices} placeholder="comma-separated" onChange={(e) => setLaserInfo('compatibleDevices', e.target.value)} /></label>
+          </div>
+          <div className="pt-2 border-t space-y-2" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+            <div className="mp-mono text-[10px] uppercase tracking-[0.12em] opacity-55">Laser &amp; Cut profile</div>
+            <label className="text-[12px] space-y-1 block"><span>Profile name</span>
+              <input className={inputCls} maxLength={60} value={laserProfile.title} placeholder="e.g. 3mm plywood · cut and engrave" onChange={(e) => setLaserProfile('title', e.target.value)} />
+              <span className="text-[10px] opacity-50 block text-right">{laserProfile.title.length}/60</span>
+            </label>
+            <label className="text-[12px] space-y-1 block"><span>Profile description <span className="opacity-50">(optional)</span></span>
+              <textarea className={`${inputCls} min-h-20`} value={laserProfile.description} onChange={(e) => setLaserProfile('description', e.target.value)} />
+            </label>
+            <label className="text-[12px] space-y-1 block"><span>Profile visibility</span>
+              <select className={inputCls} value={laserProfile.visibility} onChange={(e) => setLaserProfile('visibility', e.target.value)}>
+                <option value="private">Private</option><option value="public">Public</option>
+              </select>
+            </label>
+            <label className="flex items-start gap-2 text-[12px]">
+              <input type="checkbox" className="mt-0.5" checked={!!laserProfile.useMainCover} onChange={(e) => setLaserProfile('useMainCover', e.target.checked)} />
+              <span>Use the main model cover as the profile cover.</span>
+            </label>
+            {!laserProfile.useMainCover && (
+              <div className="grid grid-cols-5 gap-1.5">
+                {(project?.images || []).map((image) => (
+                  <button key={image.id} type="button" onClick={() => setLaserProfile('coverImageId', image.id)} className="relative aspect-square overflow-hidden"
+                    style={{ outline: laserProfile.coverImageId === image.id ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: -1 }}>
+                    <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="space-y-1">
+              <span className="text-[12px]">Additional profile pictures · {(laserProfile.photoIds || []).length}/37</span>
+              <div className="grid grid-cols-5 gap-1.5">
+                {(project?.images || []).map((image) => {
+                  const selected = (laserProfile.photoIds || []).includes(image.id);
+                  return (
+                    <button key={image.id} type="button" onClick={() => setLaserProfile('photoIds', selected
+                      ? (laserProfile.photoIds || []).filter((id) => id !== image.id)
+                      : [...(laserProfile.photoIds || []), image.id].slice(0, 37))}
+                      className="relative aspect-square overflow-hidden"
+                      style={{ outline: selected ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: -1 }}>
+                      <img src={image.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: selected ? 1 : 0.55 }} />
+                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: '#FF5722' }}><Check size={10} color="#fff" /></span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </MwSection>
+      )}
       <div className="grid grid-cols-2 gap-2">
         {!isLC ? (
           <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Category</span>
+            <input className={`${inputCls} mb-1`} value={categoryQuery} onChange={(e) => setCategoryQuery(e.target.value)} placeholder="Search categories…" />
             <select className={inputCls} value={o.categoryId} onChange={(e) => onUpdate('categoryId', e.target.value)}>
-              {MW_CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              {visibleCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </label>
         ) : (
           <label className="text-[12px] space-y-1"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Source</span>
-            <select className={inputCls} value={o.modelSource} onChange={(e) => onUpdate('modelSource', e.target.value)}>
+            <select className={inputCls} value={o.modelSource} onChange={(e) => changeModelSource(e.target.value)}>
               <option value="original">Original</option><option value="remix">Remix</option>
             </select>
           </label>
@@ -5603,6 +6060,15 @@ function MakerWorldOptions({ opts, onUpdate }) {
         </label>
       </div>
 
+      {!isLC && profileFiles.length > 0 && (
+        <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Initial Bambu Studio print profile</span>
+          <select className={inputCls} value={o.primaryProfileFileId || profileFiles[0].id} onChange={(e) => onUpdate('primaryProfileFileId', e.target.value)}>
+            {profileFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
+          </select>
+          <span className="text-[10px] opacity-50">MakerWorld's new-design flow accepts one initial 3MF profile. Other 3MF files remain raw model files.</span>
+        </label>
+      )}
+
       <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>License</span>
         <select className={inputCls} value={o.license || ''} onChange={(e) => onUpdate('license', e.target.value)}>
           <option value="">Same as Details step</option>
@@ -5611,29 +6077,81 @@ function MakerWorldOptions({ opts, onUpdate }) {
         <span className="text-[10px] block" style={{ color: 'rgba(21,23,28,0.5)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
       </label>
 
-      {!isLC && (
-        <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
+      <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
+        {!isLC && (
           <label className="text-[12px] space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.6)' }}>Model source</span>
-            <select className={inputCls} value={o.modelSource} onChange={(e) => onUpdate('modelSource', e.target.value)}>
+            <select className={inputCls} value={o.modelSource} onChange={(e) => changeModelSource(e.target.value)}>
               <option value="original">Original design</option>
               <option value="remix">Remix of another model</option>
             </select>
           </label>
-          {o.modelSource === 'remix' && (
+        )}
+        {o.modelSource === 'remix' && (
             <div className="space-y-1">
-              <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Link the original model you remixed (search your own designs):</div>
-              <MwRelatedSearch cookie={cookie} type={0} selected={o.remixModel} onSelect={(v) => onUpdate('remixModel', v)} label="Search 3D models you remixed…" />
+              <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Paste any source URL, or search your own MakerWorld designs:</div>
+              <input className={inputCls} type="url" value={o.remixUrl || ''} placeholder="https://makerworld.com/en/models/… or another source"
+                onChange={(e) => onUpdate({ remixUrl: e.target.value, remixModel: null })} />
+              <MwRelatedSearch cookie={cookie} type={isLC ? 1 : 0} selected={o.remixModel}
+                onSelect={(value) => onUpdate({ remixModel: value, remixUrl: value ? `https://makerworld.com/en/models/${value.id}` : '' })}
+                label="Search your MakerWorld designs…" />
+              {!o.remixModel && (
+                <label className="text-[12px] space-y-1 block"><span>Original model license</span>
+                  <select className={inputCls} value={o.remixLicense || ''} onChange={(e) => onUpdate('remixLicense', e.target.value)}>
+                    <option value="">Choose the source license…</option>
+                    {MW_LICENSE_OPTIONS.map((licenseOption) => <option key={licenseOption.value} value={licenseOption.value}>{licenseOption.label}</option>)}
+                  </select>
+                </label>
+              )}
+              {o.remixLicense && !makerWorldLicenseAllowsRemix(o.remixLicense) && (
+                <div className="text-[11px]" style={{ color: '#B91C1C' }}>This license does not allow derivative/remix uploads.</div>
+              )}
+              <label className="text-[12px] space-y-1 block"><span>What did you change?</span>
+                <textarea className={`${inputCls} min-h-20`} value={o.remixDescription || ''} maxLength={2000}
+                  placeholder="Describe the parts, geometry, sizing, or print setup you changed."
+                  onChange={(e) => onUpdate('remixDescription', e.target.value)} />
+              </label>
             </div>
-          )}
-        </MwSection>
-      )}
+        )}
+      </MwSection>
       <MwSection title={isLC ? 'Linked 3D model' : 'Linked Laser & Cut model'} hint="optional" badge={o.relatedModel ? '1' : 0}>
         <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>{isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}</div>
         <MwRelatedSearch cookie={cookie} type={isLC ? 0 : 1} selected={o.relatedModel} onSelect={(v) => onUpdate('relatedModel', v)} label={isLC ? 'Search your 3D models…' : 'Search your Laser & Cut models…'} />
       </MwSection>
+      {cyberBrickPath && uploadCapabilities.data?.rcUpload === false && (
+        <div className="text-[11px] p-2 mp-card" style={{ background: 'rgba(255,182,39,0.10)', color: 'rgba(21,23,28,0.7)' }}>
+          CyberBrick upload is not enabled for this MakerWorld account.
+        </div>
+      )}
+      {cyberBrickPath && uploadCapabilities.data?.rcUpload !== false && (
+        <MwSection title="CyberBrick" hint="optional RC model" badge={o.cyberBrick ? cyberFiles.controlConfigs.length : 0}>
+          <label className="flex items-start gap-2 text-[12px]">
+            <input type="checkbox" className="mt-0.5" checked={!!o.cyberBrick} onChange={(e) => onUpdate('cyberBrick', e.target.checked)} />
+            <span>This model uses CyberBrick control files.</span>
+          </label>
+          {o.cyberBrick && (
+            <div className="space-y-2">
+              <label className="text-[12px] space-y-1 block"><span>Control configuration JSONs (required) · {cyberFiles.controlConfigs.length}</span>
+                <input type="file" multiple accept=".json,application/json" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('controlConfigs', e.target.files)} />
+              </label>
+              <label className="text-[12px] space-y-1 block"><span>Motion configuration JSONs (optional) · {cyberFiles.motionConfigs.length}</span>
+                <input type="file" multiple accept=".json,application/json" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('motionConfigs', e.target.files)} />
+              </label>
+              <label className="text-[12px] space-y-1 block"><span>Main controller JSON (optional)</span>
+                <input type="file" accept=".json,application/json" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('mainControlConfig', e.target.files)} />
+              </label>
+              <label className="text-[12px] space-y-1 block"><span>MicroPython files (optional) · {cyberFiles.microPython.length}</span>
+                <input type="file" multiple accept=".py,.mpy" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('microPython', e.target.files)} />
+              </label>
+            </div>
+          )}
+        </MwSection>
+      )}
+      {cyberBrickPath && uploadCapabilities.error && (
+        <div className="text-[10px]" style={{ color: '#B91C1C' }}>CyberBrick eligibility could not be verified: {uploadCapabilities.error}</div>
+      )}
       {!isLC && (
         <MwSection title="Bill of Materials" hint="kits · filaments · materials" badge={bomCount + otherParts.length || 0}>
-          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Pick Maker's Supply catalog items, or enter a Product ID. (Needs ≥1 kit/filament/material — "other parts" alone won't validate.)</div>
+          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>Pick Maker's Supply catalog items, enter a Product ID, or list free-text parts.</div>
           {!catalog ? (
             <button onClick={ensureCatalog} className="mp-btn text-[11px] py-1.5 px-3">Load BOM catalog</button>
           ) : (
@@ -5659,12 +6177,14 @@ function MakerWorldOptions({ opts, onUpdate }) {
               <div className="space-y-1.5">
                 <div className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.5)' }}>Other parts (free text)</div>
                 {otherParts.map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
-                    <span className="flex-1 truncate">{p.name} <span className="mp-mono opacity-50">×{p.quantity}</span></span>
+                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-[12px] mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
+                    <input className="mp-input text-[11px]" value={p.name} placeholder="Part name" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, name: e.target.value } : item))} />
+                    <input className="mp-input text-[11px]" type="number" min={1} value={p.quantity} onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, quantity: Math.max(1, Number(e.target.value) || 1) } : item))} />
+                    <input className="mp-input text-[11px]" value={p.note || ''} placeholder="Note (optional)" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, note: e.target.value } : item))} />
                     <button onClick={() => setOtherParts(arr => arr.filter((_, j) => j !== i))} className="opacity-50 hover:opacity-100"><X size={13} /></button>
                   </div>
                 ))}
-                <button onClick={() => setOtherParts(arr => [...arr, { name: 'Part', quantity: 1, note: '' }])} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"><Plus size={11} /> Add other part</button>
+                <button onClick={() => setOtherParts(arr => [...arr, { name: '', quantity: 1, note: '' }])} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"><Plus size={11} /> Add other part</button>
               </div>
             </>
           )}
@@ -5684,10 +6204,19 @@ function MakerWorldOptions({ opts, onUpdate }) {
         <div className="text-[10px] opacity-50">Docs are kept for this session (not saved with the project).</div>
       </MwSection>
       {!isLC && (
-        <label className="flex items-start gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
-          <input type="checkbox" checked={!!o.exclusive} onChange={(e) => onUpdate('exclusive', e.target.checked)} className="mt-0.5" />
-          <span>Join the <strong>Exclusive Model Program</strong> (this model is published exclusively on MakerWorld).</span>
-        </label>
+        <div className="space-y-1.5">
+          <label className="flex items-start gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            <input type="checkbox" disabled={o.modelSource === 'remix'} checked={!!o.exclusive}
+              onChange={(e) => onUpdate({ exclusive: e.target.checked, exclusiveTermsAccepted: false })} className="mt-0.5" />
+            <span>Join the <strong>Exclusive Model Program</strong> for this model.{o.modelSource === 'remix' ? ' Remixes are not eligible.' : ''}</span>
+          </label>
+          {o.exclusive && (
+            <label className="flex items-start gap-2 text-[12px] ml-5 mp-card p-2" style={{ background: 'rgba(255,105,0,0.06)' }}>
+              <input type="checkbox" className="mt-0.5" checked={!!o.exclusiveTermsAccepted} onChange={(e) => onUpdate('exclusiveTermsAccepted', e.target.checked)} />
+              <span>I have read and agree to MakerWorld's <a className="underline" href="https://makerworld.com/en/exclusive-model-program" target="_blank" rel="noopener noreferrer">Exclusive Model Program terms</a>, including the exclusivity obligation.</span>
+            </label>
+          )}
+        </div>
       )}
       {!isLC && (
         <label className="flex items-center gap-2 text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>
@@ -5696,7 +6225,7 @@ function MakerWorldOptions({ opts, onUpdate }) {
       )}
       {isLC && (
         <div className="text-[12px] p-2 mp-card" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.7)' }}>
-          Laser & Cut mode uploads your <span className="mp-mono">.lac/.svg/.dxf</span> files to the separate Laser & Cut product. Print-profile, BOM and community post don't apply.
+          Laser &amp; Cut accepts <span className="mp-mono">{MAKERWORLD_LASER_FORMATS.map((format) => `.${format}`).join(' ')}</span>. Bambu Suite .lac mode also creates a Laser &amp; Cut print profile; raw .lac files remain source files.
         </div>
       )}
       {!cookie && <div className="text-[11px]" style={{ color: '#B23A1A' }}>Connect MakerWorld (in Connections) to search for remix/linked models.</div>}
@@ -5802,7 +6331,7 @@ function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
 // old copy-paste clutter, and without diving into each step.
 function PlatformPreview({ platform, project, cover, setCurrentSection }) {
   const [open, setOpen] = useState(false);
-  const galleryImgs = project.images.filter(i => i.id !== project.coverImageId).slice(0, Math.max(0, platform.maxImages - 1));
+  const galleryImgs = project.images.filter(i => i.id !== project.coverImageId).slice(0, galleryCapacity(platform));
   const descHtml = mdToHtml(project.description || '');
   const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>{label}</button>;
   const lbl = (t) => <span className="text-[11px]" style={{ color: 'rgba(21,23,28,0.6)' }}>{t}</span>;

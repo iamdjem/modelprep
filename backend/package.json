@@ -2,11 +2,13 @@
   "name": "modelprep-backend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Cloudflare Worker backend for ModelPrep — Cults3D first.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/adapters/*.test.mjs src/*.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240924.0",

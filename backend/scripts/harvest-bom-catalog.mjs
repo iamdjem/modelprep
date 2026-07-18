@@ -5,7 +5,8 @@
 // _next/data (only /api/v1/* passes server-side). So the catalog can ONLY be harvested by
 // a REAL BROWSER holding a valid session — this script drives Playwright to do that
 // in-page (where Cloudflare is satisfied), then writes the bundled seed at
-// deploy/src/data/makerworld-bom-catalog.json.
+// deploy/src/data/makerworld-bom-catalog.json and the current submit-blocking
+// deploy/src/data/makerworld-forbidden-words.json policy seed.
 //
 // Requires: `npm i -D playwright` (+ a Chrome) and a MakerWorld session cookie:
 //   MW_COOKIE='token=…; cf_clearance=…; refreshToken=…' node backend/scripts/harvest-bom-catalog.mjs
@@ -50,5 +51,8 @@ try {
   const dest = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'deploy', 'src', 'data', 'makerworld-bom-catalog.json');
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify(out));
+  const forbiddenDest = path.join(path.dirname(dest), 'makerworld-forbidden-words.json');
+  fs.writeFileSync(forbiddenDest, JSON.stringify(Array.isArray(pp.forbiddenWords) ? pp.forbiddenWords : []));
   console.log(`wrote ${dest} (${(fs.statSync(dest).size / 1024).toFixed(0)}KB) — kits=${count(out.kits)} filaments=${count(out.filaments)} materials=${count(out.materials)} nodes`);
+  console.log(`wrote ${forbiddenDest} (${Array.isArray(pp.forbiddenWords) ? pp.forbiddenWords.length : 0} blocked terms)`);
 } finally { await ctx.close(); }

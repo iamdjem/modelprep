@@ -1,33 +1,35 @@
 # MakerWorld integration — HANDOFF
 
 Pick-up doc for the next agent continuing the MakerWorld upload integration in ModelPrep.
-Last updated: 2026-06-20. Read this first, then `makerworld-web-flow.md` (the API reference).
+Last updated: 2026-07-18. Read this first, then `makerworld-upload-flow-map.md` (the complete
+current path map) and `makerworld-web-flow.md` (the low-level API reference).
 
 ---
 
 ## TL;DR
 
-ModelPrep publishes 3D models to MakerWorld by **replaying MakerWorld's internal web API**
-with the user's session cookie (server-side, no browser at runtime). The **backend adapter +
-Worker routes are built and largely live-validated**. The main remaining work is the **frontend
-UI** (expose all options + a catalog picker), **deployment**, and a few **niche live
-verifications** (real 3mf publish, Laser&Cut publish, CyberBrick) that need a browser agent /
-special test assets.
+ModelPrep's MakerWorld upload implementation is complete locally for regular raw/`.3mf` and
+Laser raw/`.lac` modes. It includes account sign-in/refresh/capability checks, direct presigned
+uploads at MakerWorld's real 150/200 MB limits, draft-only saves, profile and optional-field UI,
+status/list/delete handling, and mirrored frontend/backend validation. The remaining work is
+**deployment** plus four controlled live checks that need special assets/account capability or
+would mutate the MakerWorld account. See `makerworld-upload-flow-map.md` for the exact boundary.
 
 ---
 
 ## How it works (architecture)
 
 ```
-ModelPrep React UI (deploy/)  →  user picks options, supplies MakerWorld session cookie
-   →  Cloudflare Worker (backend/)  forwards cookie as X-MW-Cookie, replays MakerWorld API:
-        POST /my/upload (presign) → PUT to AWS S3 → create draft → update → submit → (verify)
+ModelPrep React UI (deploy/)  →  user picks options and a saved MakerWorld account
+   → Cloudflare Worker (backend/) exchanges/refreshes auth and obtains a presigned upload URL
+   → browser PUTs bytes directly to MakerWorld S3
+   → Worker creates a regular draft or Laser draft2d → save-only OR update+submit → status/list
    →  model enters MakerWorld "verifying" review
 ```
 
-- **Auth:** MakerWorld is behind Bambu SSO + Cloudflare, so we CANNOT log in server-side. The
-  user supplies their own session cookie (`token` + `cf_clearance` [+ `refreshToken`]). The
-  Worker sends it as the `Cookie` header + `X-BBL-*` headers + a browser UA.
+- **Auth:** the Worker can exchange email/password (and, when requested, an emailed code) for
+  MakerWorld's token and refreshToken. Desktop/browser-session and token/cookie paste remain
+  fallbacks. The saved account secret is forwarded in `X-MW-Cookie` and replayed as `Cookie`.
 - **CRITICAL Cloudflare finding:** server-side fetches of MakerWorld `/api/v1/*` JSON endpoints
   **pass** (200), but HTML pages and `/_next/data` SSR **403 "Just a moment"** server-side. So
   the publish API works from the Worker, but the BOM catalog (SSR-only) can't be fetched
@@ -40,18 +42,23 @@ ModelPrep React UI (deploy/)  →  user picks options, supplies MakerWorld sessi
 ### Backend adapter — `backend/src/adapters/makerworld-web.ts`
 - Session/auth helpers, `mwHeaders`, `mwJson` (+ `mwErrDetail` for MakerWorld `{code,error}`).
 - `mwCheckSession` — session liveness (GET my/message/count → 200).
-- `mwUploadFile` — `POST /api/v1/design-user-service/my/upload` (presign) → `PUT` AWS S3 → returns `{url,key,size,cdnPrefix}`. Models AND images use `useType:"makerworld/model"`.
-- `mwSlicerCompatibility` — `GET /api/v1/iot-service/api/slicer/device/compatibility` (3mf).
-- `mwCreateDraft` / `mwUpdateDraft` / `mwPublish` (PUT clickWhich:"publish" + `POST …/draft/<id>/submit`) / `mwDelete` / `mwVerifySubmitted`.
+- `mwPresignUpload` + `mwUploadFile` — presign-only for direct browser PUT, plus the legacy
+  Worker-proxy upload. Models and images use `useType:"makerworld/model"`.
+- Native 3MF compatibility is detected while MakerWorld processes the upload. The obsolete standalone compatibility GET currently returns 400 and is intentionally not called; ModelPrep sends only user-selected additional overrides.
+- `mwCreateDraft` / `mwUpdateDraft` / `mwPublish` / `mwDelete` / `mwDraftStatus`.
 - `buildDraftPayload` — the full draft JSON (both paths + all optional sections).
 - `mwSuggestTags` (tag autocomplete), `mwListMyDesigns`.
 - BOM catalog: `mwFetchCatalog`, `mwFetchCatalogStandalone`, `BomCatalog`/`BomCatalogNode` types, `trimCatalogNode`, `mwBuildId`.
-- `mwSearchRelatedDesigns` (remix / related-model search), `mwRefreshToken`.
+- `mwSearchRelatedDesigns` (remix / related-model search), `mwRefreshToken`, and
+  `mwUploadCapabilities` (`rcUpload`/upload eligibility; JSON profile first, SSR fallback).
 - **Laser & Cut product** (`draft2d`): `mwCreateLaserCutDraft` / `mwUpdateLaserCutDraft` / `mwPublishLaserCut` / `mwDeleteLaserCut` + `buildLaserCutPayload` + `LaserCutPublishInput`.
-- Input types: `MakerWorldPublishInput` (covers `relatedModel`, `cyberBrick`, `remixOriginalIds`, `boms`, `designGuide/Other`, `communityPost`, `paidSetting`, `exclusive`, `printProfile`), `BomCatalogItem`, `RelatedModelRef`, `MwFileRef`, `CyberBrickInput`.
+- Input types: `MakerWorldPublishInput` (linked model, internal/external remix attribution, CyberBrick, BOM including free-text parts, docs, community post, Exclusive acknowledgement, raw-file metadata, and independent print-profile visibility/photos/compatibility), plus the `.lac`-aware `LaserCutPublishInput`, `BomCatalogItem`, `RelatedModelRef`, `MwFileRef`, and `CyberBrickInput`.
 
 ### Worker routes — `backend/src/index.ts` (auth via `X-MW-Cookie`; added to CORS allow-headers)
 - `GET  /api/v1/makerworld/web/check`
+- `POST /api/v1/makerworld/web/login` / `…/login-code`
+- `GET  /api/v1/makerworld/web/whoami` / `…/capabilities`
+- `POST /api/v1/makerworld/web/upload/presign` (JSON metadata; browser PUTs bytes to S3)
 - `POST /api/v1/makerworld/web/upload` (multipart `file`)
 - `POST /api/v1/makerworld/web/publish` (JSON `MakerWorldPublishInput`, `+draftOnly`)
 - `POST /api/v1/makerworld/web/delete` (`{id}`)
@@ -60,12 +67,15 @@ ModelPrep React UI (deploy/)  →  user picks options, supplies MakerWorld sessi
 - `GET  /api/v1/makerworld/web/bom-catalog` (R2 cache + best-effort refresh)
 - `GET  /api/v1/makerworld/web/related?type=0|1&keyword=`
 - `POST /api/v1/makerworld/web/refresh`
+- `GET  /api/v1/makerworld/web/draft-status?id=`
 - `POST /api/v1/makerworld/web/laser-cut/publish` / `…/laser-cut/delete`
+- `GET  /api/v1/makerworld/web/laser-cut/draft-status?id=`
 
-### Frontend — `deploy/src/App.jsx`
-- `MakerWorldUploadFlow` component (search "function MakerWorldUploadFlow") — connect via cookie
-  paste, category/visibility/license, covers+gallery upload, 3mf print-profile fields, community
-  post, publish + delete. Wired in the render switch (`platform.id === 'makerworld'`).
+### Frontend — `deploy/src/App.jsx` + `deploy/src/lib/makerworld*.js`
+- `MakerWorldUploadFlow` handles account selection, preflight, direct upload, draft save, publish,
+  status, list, and delete. `MakerWorldOptions` exposes all regular/Laser conditional fields.
+- `.lac` metadata parsing, forbidden-word checks, account capability checks, mode gating, and
+  transport/error handling are split into focused helper modules with tests.
 - **UI expansion DONE (2026-06-20):** product-mode toggle (3D Model ↔ Laser & Cut); collapsible
   advanced sections — Source/remix (modelSource + remix-original search via `/related?type=0`),
   Linked model (3D→link LC `type=1`, LC→link 3D `type=0`), **BOM picker** (`MwBomPicker` cascade
@@ -89,7 +99,9 @@ ModelPrep React UI (deploy/)  →  user picks options, supplies MakerWorld sessi
 ---
 
 ## What we LEARNED (key facts / gotchas)
-- **Cloudflare:** `/api/v1/*` works server-side; HTML/`_next/data` 403 server-side (catalog = browser-only). `cf_clearance` is required + UA-bound.
+- **Cloudflare:** `/api/v1/*` works server-side with the token. HTML/`_next/data` may still 403
+  without a browser cookie, so capability lookup prefers the JSON profile service and the BOM
+  catalog still has a browser-harvest fallback.
 - **Capture-only Cloudflare bypass:** decrypt the user's Chrome cookies (macOS Keychain) + inject into a stealth real-Chrome (remove `--enable-automation`/`--use-mock-keychain`/`--password-store=basic`). See `makerworld-capture-auth` memory.
 - **Two upload paths:** STL/CAD (2 steps) vs `.3mf` Bambu Studio (3 steps incl. Print Profile).
 - **File upload:** one endpoint, `useType:"makerworld/model"` for models AND images. `/process-files` + `/picsearch` are dead (400) — don't call them.
@@ -115,40 +127,42 @@ ModelPrep React UI (deploy/)  →  user picks options, supplies MakerWorld sessi
 - ❌ **Laser & Cut publish** fails at submit with an `.svg`-only draft (`[400]`); **needs a real `.lac`** to fill `lacFile`/`lacInfo`. LC create still works.
 - ✅ **Real .3mf publish VALIDATED (2026-06-20):** a sliced Bambu `.3mf` published private incl. a working **print profile** (1 plate, 3.6h, printer compat) — MakerWorld slices server-side on submit; no slicer-compat call needed. (The "Oops" error a tester hit was from manually clicking MakerWorld's "Add Print Profile" on an already-published model — not our bug.)
 - ✅ **Delete fixed:** published designs (private = instant publish) delete via `/design-service/design/<id>`, not the draft endpoint; `mwDelete` now falls back to it.
-- ◑ Implemented to captured spec, NOT fully live-tested: **token refresh** (didn't fire — would rotate token), **CyberBrick** (needs `rcUpload` account).
+- ◑ Implemented with automated coverage, NOT live-mutated in this pass: **token refresh**
+  (would rotate the saved token) and **CyberBrick** (the inspected account has `rcUpload:false`).
 
 ---
 
-## What is NOT implemented yet (remaining work)
-1. ~~**Frontend UI expansion**~~ **DONE (2026-06-20):** BOM picker, remix/related-model search, Laser&Cut linking + product mode, Documentation uploads, Exclusive toggle — all built in `MakerWorldUploadFlow` and `npm run build`-verified (catalog lazy code-split). Live end-to-end test of the NEW fields still pending (needs a session; the additive fields all map to validated backend inputs).
-2. **Deploy:** Worker is local-only (`wrangler dev`); deploy it (`cd backend && npx wrangler deploy`) + push the frontend. Add `X-MW-Cookie` already in CORS.
-3. **Production "Connect MakerWorld" UX:** cookie is HttpOnly → MVP = manual paste (built); better = a one-click **browser extension**.
-4. **Niche flows to finish/verify:** LC *publish* requirements + real `.lac` `lacInfo`; CyberBrick full publish (needs `rcUpload`); exact per-path client-side validation rules; token-refresh response shape; forbiddenWords client-side check (harvestable from SSR).
-5. **Catalog refresh automation:** schedule the harvest (or rely on best-effort Worker refresh + manual).
+## Remaining work after the 2026-07-18 parity pass
+1. **Deploy Worker first, then frontend:** deployment was not authorized in this pass. The new
+   frontend depends on `/upload/presign` and `/capabilities` being present on the Worker.
+2. **Live `.lac` submit:** needs a real Bambu Suite file and approval for private create→delete.
+3. **Raw Laser submit:** the historical SVG-only submit returned a generic 400; the corrected
+   payload is regression-tested but still needs private create→delete verification.
+4. **CyberBrick submit:** needs an account with `rcUpload=true`; the inspected current account
+   reports `false`, and ModelPrep now hides/blocks the option for that account.
+5. **Large-file CORS:** run one authenticated direct-S3 upload above 95 MB after deployment to
+   prove current MakerWorld bucket CORS from the production frontend origin.
+6. **Catalog/policy freshness:** keep the browser harvest available. It refreshes the bundled
+   BOM catalog and the 64-entry forbidden-word seed; MakerWorld submit remains authoritative.
 
 ---
 
-## Open questions for the browser agent (need a live session / special assets)
-1. Real **3mf publish** (private→delete) with a valid sliced Bambu `.3mf`: the print-profile/instances/plates the publish requires + slice flow + errors.
-2. **Laser & Cut publish** (private→delete): what `…/draft2d/<id>/submit` requires (covers? `lacInfo` machine/material/plates?) + the full LC publish body.
-3. Real **`.lac`** upload: what fills `instance.lacFile`/`lacInfo`.
-4. **CyberBrick:** is `userInfo.rcUpload` true? If so, capture a full CyberBrick publish.
-5. **Per-path client-side validation rules** (exact required fields + messages) for STL/3mf/remix/laser-cut.
-6. **Token refresh** response body shape.
-7. **Limits:** max tags; must `categoryId` be a leaf?
+## Open questions requiring special assets or account capability
+1. Does a current Bambu Suite `.lac` fixture populate any additional plate keys beyond the tolerant local JSON parser and captured `lacInfo`/`model2DInfo` contract?
+2. Does MakerWorld accept the captured raw SVG/DXF payload after all current cover/source fields are supplied, or is another generated `model2DInfo` field required?
+3. Can an `rcUpload`-enabled account confirm the CyberBrick control/motion/main-controller payload end to end?
 
 ## Decisions needed from the product owner
-- Deploy now? (needs Cloudflare/wrangler login + GH push.)
-- UI scope: full picker in one pass vs core-first.
-- Connect UX: browser extension vs paste MVP.
-- Test assets: a valid sliced `.3mf`, a `.lac`, and an `rcUpload`-enabled account.
+- Deploy now? (Worker first, then frontend; no deployment or Git publish was done here.)
+- Test assets/authority: a real `.lac`, an `rcUpload`-enabled account, a >95 MB safe fixture,
+  and approval for private create→delete validation.
 
 ---
 
 ## Quick commands
 ```bash
-cd /Users/alex/modelprep/backend && npx tsc --noEmit        # typecheck backend
-cd /Users/alex/modelprep/deploy  && npm run build           # build frontend
+cd /Users/alex/modelprep/backend && npm test && npm run typecheck
+cd /Users/alex/modelprep/deploy  && npm test && npm run build
 cd /Users/alex/modelprep/backend && npx wrangler dev --port 8787 --local   # run Worker locally
 # catalog refresh (needs playwright + a MakerWorld cookie):
 MW_COOKIE='token=…; cf_clearance=…' node backend/scripts/harvest-bom-catalog.mjs

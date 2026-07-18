@@ -28,15 +28,15 @@ MakerWorld sits behind **Bambu SSO + Cloudflare bot-management**. Original (fall
 - The **user supplies their own MakerWorld session cookie** (the browser obtains it; it's
   HttpOnly so a page can't read it — production needs a browser extension or a manual paste).
 - The Worker forwards it to the adapter as the `X-MW-Cookie` header — the full Cookie value,
-  minimally `token=…; cf_clearance=…` (include `refreshToken` for longevity).
-- Every authenticated request must send: that cookie **plus** `X-BBL-Client-Type: web`,
+  minimally `token=…` (include `refreshToken` for longevity; browser-capture fallback cookies
+  may also include `cf_clearance`).
+- Authenticated write requests send: that cookie **plus** `X-BBL-Client-Type: web`,
   `X-BBL-Client-Version: 00.00.00.01`, `X-BBL-App-Source: makerworld`,
-  `X-BBL-Client-Name: MakerWorld`, and a real browser `User-Agent`. Missing `cf_clearance`
-  or a mismatched UA ⇒ Cloudflare "Just a moment" challenge (the adapter detects this and
-  raises a clear "reconnect MakerWorld" error).
-- `token` ≈ 24 h, `refreshToken` ≈ 90 d. The apps' refresh endpoint
-  (`/v1/user-service/user/refreshtoken`) currently 404s — refresh path is TODO; meanwhile a
-  fresh cookie is required when `token` expires.
+  `X-BBL-Client-Name: MakerWorld`, and a browser `User-Agent`. Token-only auth works on the
+  JSON API; SSR HTML can still require Cloudflare browser state.
+- Token refresh is implemented at `POST /api/v1/user-service/user/refreshtoken` and exposed
+  through ModelPrep's `/makerworld/web/refresh` route. The UI stores the returned access token
+  and retains or replaces the refresh token.
 
 ## Domains
 
@@ -54,7 +54,7 @@ Chosen by the first wizard radio "Do you have a Bambu Studio .3mf?":
 ## API sequence
 
 ```text
-# per file (model, each cover/gallery image, and the .3mf):
+# per file (model, each cover/gallery image, and the .3mf/.lac):
 POST /api/v1/design-user-service/my/upload   {"useType":"makerworld/model","fileNames":["<name>.<ext>"]}
    → {"cdnPrefix":"https://makerworld.bblmw.com","urls":["<presigned AWS S3 PUT url>"]}
 PUT  <presigned url>   (raw bytes, NO auth header — signature is in the querystring) → 200
@@ -64,7 +64,8 @@ PUT  <presigned url>   (raw bytes, NO auth header — signature is in the querys
 POST   /api/v1/design-service/my/draft           {full model JSON, clickWhich:"next"}  → {"id"}
 PUT    /api/v1/design-service/my/draft/<id>       {full model JSON, clickWhich:"save"|"publish"}
 POST   /api/v1/design-service/my/draft/<id>/submit  {}     → publishes (model → "verifying"/review)
-DELETE /api/v1/design-service/my/draft/<id>       (works for drafts AND verifying/published)
+DELETE /api/v1/design-service/my/draft/<id>       (draft/verifying)
+DELETE /api/v1/design-service/design/<designId>   (published fallback)
 
 GET    /api/v1/search-service/suggest?keyword=<q>&type=design_tag   (tag autocomplete; categories = preloaded int tree)
 GET    /api/v1/design-service/my/design/published                  (list mine)
@@ -73,7 +74,8 @@ GET    /api/v1/design-service/my/design/published                  (list mine)
 ## Draft payload — field map (`buildDraftPayload` in the adapter)
 
 Core: `title`, `summary` (HTML description — **required to publish**), `categoryId` (int, **required**),
-`tags` (string[]), `cover` (4:3 url, **required**), `coverPortrait`/`profileCover` (3:4),
+`tags` (string[]), `cover` (4:3 url, **required**), `coverPortrait` (3:4 model cover),
+`profileCover` (independent print-profile cover),
 `designPictures` (gallery), `license` (string, derived from 4 radio groups — default
 "Standard Digital File License"), `nsfw`, `modelSource` (`original`|`remix`|`share`),
 `modelFiles[]` ({modelName,modelSize,modelType,modelUrl,thumbnailUrl,unikey,…}),
@@ -110,37 +112,49 @@ Optional sections (all supported as passthrough in the adapter):
 
 ## Adapter functions (`makerworld-web.ts`)
 
-`mwCheckSession`, `mwUploadFile`, `mwSlicerCompatibility`, `mwCreateDraft`, `mwUpdateDraft`,
+`mwCheckSession`, `mwUploadFile`, `mwCreateDraft`, `mwUpdateDraft`,
 `mwPublish` (create-save-with-publish + submit), `mwDelete`, `mwSuggestTags`, `mwListMyDesigns`.
 
 ## Worker routes (`index.ts`), auth via `X-MW-Cookie`
 
+- `POST /api/v1/makerworld/web/login` / `login-code` — token exchange and emailed-code step
 - `GET  /api/v1/makerworld/web/check` — session valid?
 - `GET  /api/v1/makerworld/web/whoami` — signed-in user profile for account labels. Adapter `mwWhoami` → `GET /api/v1/design-user-service/my/profile` → `{handle,name,uid,avatar}`. (Note: `/my/profile` AND `/my/preference` both return the profile; the `/my/user…` variants 404.)
-- `POST /api/v1/makerworld/web/upload` — multipart `file` (+ `useType`,`fileName`) → presign+PUT → `{url,key}`
+- `GET  /api/v1/makerworld/web/capabilities` — `rcUpload`, upload eligibility, default license
+- `POST /api/v1/makerworld/web/upload/presign` — `{fileName,size,useType}` → direct S3 grant;
+  browser PUT preserves MakerWorld's 150 MB `.3mf` / 200 MB other-file limits
+- `POST /api/v1/makerworld/web/upload` — <=95 MB compatibility proxy
 - `POST /api/v1/makerworld/web/publish` — JSON `MakerWorldPublishInput` (+ `draftOnly`) → create [+ publish] → `{id,status}`
 - `POST /api/v1/makerworld/web/delete` — `{id}`
 - `GET  /api/v1/makerworld/web/my-creations` — list
 - `GET  /api/v1/makerworld/web/suggest-tags?keyword=` — tag autocomplete
+- `GET  /api/v1/makerworld/web/draft-status?id=` — regular post-submit result
+- `GET  /api/v1/makerworld/web/related?type=0|1&keyword=` — own-design linking/remix search
+- `GET  /api/v1/makerworld/web/bom-catalog` — cached/harvested BOM tree
+- `POST /api/v1/makerworld/web/refresh` — rotate token
+- `POST /api/v1/makerworld/web/laser-cut/publish` / `laser-cut/delete`
+- `GET  /api/v1/makerworld/web/laser-cut/draft-status?id=`
 
 ## Upload entry points (4 found) — coverage
 
 - `/en/my/models/publish?type=original` — regular model (STL or .3mf). **Handled.**
 - `/en/my/models/publish?type=remix` — **same page/flow** as original, just `type=remix` → set `modelSource:'remix'` + link the original via `relateDesignInfo`/`original`. **Handled** (link resolution = pass the original model id).
-- `/en/my/laser-and-cut-models/publish?type=original` — **separate product**: "Bambu **Suite** file (`.lac`)", different endpoint namespace (`laser-and-cut-models`). **NOT implemented** (niche; its own flow — future work).
+- `/en/my/laser-and-cut-models/publish?type=original` — **separate product**: Bambu **Suite** file (`.lac`) or raw SVG/DXF/images/AI, different `draft2d` endpoint namespace. **Implemented in the app/adapter; create is live-verified. Final `.lac` submit still needs a real Bambu Suite fixture for non-destructive verification.**
 - `/en/my/models/import` — "Import from connected account — **Thangs / Thingiverse**". Imports *into* MakerWorld *from* other sites — the reverse of ModelPrep. **Out of scope.**
 
 ## Conditional fields (combinations)
 
 - **Laser & Cut model = Yes** (within a regular model) → reveals "Please add the related model" (search/link a laser-cut model) → `relateDesignInfo` with that model id.
-- **CyberBrick = Yes** → reveals **"Control Configuration Files (.json)"** upload → the `cyberBrick` block (`cyberBrickNeeded:true`, `controlConfig[]`, `motionConfig[]`, `mainControlConfig`, `controllerCover`, …). **NOT yet exposed as adapter input** (RC-model niche; the schema fields exist as passthrough — needs a capture of the cyberBrick payload to wire fully).
-- The adapter accepts `remixOriginalIds` (→ `relateDesignInfo`/`original`) covering remix + laser-cut linking; `cyberBrick`/`paidSetting`/`boms`/docs are passthrough.
+- **CyberBrick = Yes** → reveals **"Control Configuration Files (.json)"** upload → the `cyberBrick` block (`cyberBrickNeeded:true`, `controlConfig[]`, `motionConfig[]`, `mainControlConfig`, `controllerCover`, …). Exposed for both regular 3D and `.lac` Laser & Cut uploads; at least one control JSON is validated before draft creation. Account eligibility remains gated by `userInfo.rcUpload` on MakerWorld.
+- The adapter accepts resolved/internal/external remix sources, linked models, CyberBrick, independent model/profile visibility, BOM (including free-text parts), docs, raw-file notes/folders/protection, and Exclusive terms acknowledgement.
 
 ## Error handling & success verification
 
-- MakerWorld validates at **`POST /draft/<id>/submit`**: an incomplete/invalid draft returns **`400 {"code":400,"error":"…"}`** (the `PUT` accepts anything; submit is the gate).
+- MakerWorld validates at **`POST /draft/<id>/submit`**: an incomplete/invalid draft returns **`400 {"code":400,"error":"…"}`** (the `PUT` accepts anything; submit is the gate). ModelPrep now mirrors the known required fields, format/size limits, remix-license rules, profile confirmations, Exclusive terms, and CyberBrick requirements **before draft creation**.
 - `mwJson()` surfaces both HTTP errors and **200-with-`{code>=400}`** bodies, plus Cloudflare challenges, as clear exceptions; `mwPublish()` throws an actionable "publish rejected: [code] … Required: …" message (covers bad .3mf, forbidden words, empty/ON BOM).
-- `mwVerifySubmitted()` confirms the model entered the pipeline. **Final approval is an async review** ("verifying" → public) — not confirmable synchronously; a 200 submit = accepted-for-review.
+- A 200 submit means accepted for asynchronous review. ModelPrep then checks the known draft id
+  for `resultType/resultDesc` and checks the live list; it does not report absence from the
+  published list as success.
 - **Auto-cleanup on failure (worker routes):** both `/publish` and `/laser-cut/publish` create the draft, then publish. If publish/submit throws AFTER create, the route now **deletes the half-built draft** (`mwDelete`/`mwDeleteLaserCut`, best-effort) and returns `{error, message, draftId, cleanedUp}` so a failed publish never orphans a draft on the user's account. (Before this, every failed-submit test left an orphan — they hide on the SSR-only `/@<handle>/draft` + `…/laser-and-cut-models/draft` pages, NOT in any `my/design*/draft` JSON API, which all 404/405.)
 
 ## Verified corrections + added flows (2026-06-20, agent QA + live tests)
@@ -161,9 +175,12 @@ Optional sections (all supported as passthrough in the adapter):
   200 verifying → deleted.
 - **Related-model search:** `GET /api/v1/design-service/my/design/relate?relateDesignType=<0|1>&keyword=` → `{canUseDesign:[{id,title,cover,status,designType}]}` (0=3D, 1=Laser&Cut). Adapter: `mwSearchRelatedDesigns`. **Live-verified (35 results).**
 - **Token refresh:** current endpoint `POST /api/v1/user-service/user/refreshtoken` `{refreshToken}` (the apps' `/v1/...` 404s). refreshToken lives in an HttpOnly cookie. Adapter: `mwRefreshToken` (uses refreshToken from the supplied cookie).
-- **CyberBrick:** gated by `userInfo.rcUpload` (server-side eligibility; hidden otherwise). `.json` control configs upload via `/my/upload`. Adapter accepts a `cyberBrick` input → the `cyberBrick` block (controlConfig[] etc.). Not testable without an rcUpload account.
+- **CyberBrick:** gated by `userInfo.rcUpload`. ModelPrep reads this through `/capabilities`,
+  hides the section for ineligible accounts, mirrors the check in preflight, and rechecks in the
+  Worker before draft creation. `.json` control configs upload via `/my/upload`. The inspected
+  account reported `rcUpload:false`; final payload verification needs an eligible account.
 - **BOM catalog item:** `parentIds[]` + `quantity` are NOT in the catalog tree — the picker adds them when selecting a leaf (quantity = user; parentIds = ancestor path).
-- **✅ Real .3mf publish WORKS (live 2026-06-20, private).** A sliced Bambu Studio `.3mf` published end-to-end **including the print profile** — MakerWorld **slices the `.3mf` server-side on submit** and auto-generates plates/print-time/printer-compatibility (we do NOT need to call `mwSlicerCompatibility` or send plate data; sending `model3mf` + a `printProfile{title,isPrinterTested}` is enough). The published model showed `Print Profile (1): "0.2mm layer, 2 walls, 15% infill" · 1 plate · 3.6h` with printer compatibility detected. Caveat: do NOT then open MakerWorld's draft "Add Print Profile" page for an already-published model — it throws a generic "Oops" (the step is already done by our submit).
+- **✅ Real .3mf publish WORKS (live 2026-06-20, private).** A sliced Bambu Studio `.3mf` published end-to-end **including the print profile** — MakerWorld **slices the `.3mf` server-side on submit** and auto-generates plates/print-time/native-printer compatibility. The obsolete standalone compatibility GET returns 400 and is intentionally not used; sending `model3mf` plus the print profile is enough, and ModelPrep sends user-selected additional compatibility overrides in the draft. The published model showed `Print Profile (1): "0.2mm layer, 2 walls, 15% infill" · 1 plate · 3.6h`. Caveat: do NOT then open MakerWorld's draft "Add Print Profile" page for an already-published model — it throws a generic "Oops" (the step is already done by our submit).
 - **Delete endpoints differ by state:** drafts + "verifying" → `DELETE /design-service/my/draft/<draftId>`; a **fully-published design** (a PRIVATE model publishes instantly) → `DELETE /design-service/design/<designId>` (the draft endpoint 403s on it; design id ≠ draft id). `mwDelete` now tries draft first, then falls back to the published-design endpoint.
 - **UI-expansion fields live-validated (2026-06-20, via local Worker + capture-kit cookie, private→delete):**
   - ✅ **BOM** — the picker's `BomCatalogItem` shape (`{value,sku,title,label,image,pieces,handle,parentIds,quantity}` from a real `kits` catalog leaf) publishes + deletes cleanly.
@@ -171,8 +188,8 @@ Optional sections (all supported as passthrough in the adapter):
   - ✅ **Exclusive** — `exclusive:1` accepted.
   - ✅ **Related-model search** — `/related?type=0` returned 35 of the user's 3D designs.
   - ✅ **Remix link** — FIXED + validated (resolved `original[]` with link+designId+meta; see remix note above).
-  - ❌ **Laser & Cut publish** — `…/draft2d/<id>/submit` returns a generic `[400]` with an `.svg`-only draft (no `.lac`). LC `instance.lacFile`/`lacInfo` are empty in our payload → **needs a real `.lac` (Bambu Suite file) to fill `lacFile`+`lacInfo` (plates/machineName/materialIds)** before submit will pass. Create still 200s; the route auto-deletes the draft on the failed submit.
-- **Laser & Cut models (separate product) — IMPLEMENTED + create live-verified:** endpoints `…/my/draft2d`, `…/my/draft2d/<id>` (PUT), `…/my/draft2d/<id>/submit`, `DELETE …/my/draft2d/<id>`; SSR `…/laser-and-cut-models/drafts/<id>/edit.json`. Files (.lac/.svg/.dxf/images) via `/my/upload`. Body is **`{draft:{design:{…}, designSetting:{submitAsPrivate,syncToMWGlobal,postNeeded,postContent}, instance:{lacFile,lacInfo,lacCustomInfo,pictures}, extra:{draftSetting:{createWithLac}}, uploading:{…}, tempDetails:[], mode:"uploadFile", clickWhich, model2DInfo:{}}}`** — note `design.boms`/`design.steps` are OBJECTS (`{needed,…}`), `design.pictures` (not designPictures), `docBom/docGuide/docOther` (not design*). Adapter: `mwCreateLaserCutDraft`/`mwUpdateLaserCutDraft`/`mwPublishLaserCut`/`mwDeleteLaserCut`; Worker: `POST /api/v1/makerworld/web/laser-cut/{publish,delete}`.
+  - ⚠️ **Laser & Cut submit status** — the historical raw `.svg`-only submit returned generic `[400]`; create succeeded and cleanup worked. The current contract keeps raw files in `design.modelFiles`, sends `.lac` separately as `instance.lacFile`, sets `createWithLac`, and carries `lacInfo`/`lacCustomInfo`, `model2DInfo`, profile pictures/visibility, remix attribution, file metadata, docs, linking, and CyberBrick. The frontend reads plate/machine/process/material metadata from plain or ZIP-contained `.lac` JSON locally, allows manual machine/process overrides, and aborts before network upload if required plate/machine/process data is missing. Payload tests cover both raw and `.lac` shapes. A real `.lac` final submit was deliberately not performed during the 2026-07-18 fix because it would mutate the user's account and no local `.lac` fixture exists.
+- **Laser & Cut models (separate product) — IMPLEMENTED + create live-verified:** endpoints `…/my/draft2d`, `…/my/draft2d/<id>` (PUT), `…/my/draft2d/<id>/submit`, `DELETE …/my/draft2d/<id>`; SSR `…/laser-and-cut-models/drafts/<id>/edit.json`. Files (.lac/.svg/.dxf/images/AI) use `/my/upload`. Body is **`{draft:{design:{…}, designSetting:{submitAsPrivate,syncToMWGlobal,postNeeded,postContent}, instance:{lacFile,lacInfo,lacCustomInfo,pictures}, extra:{draftSetting:{createWithLac}}, uploading:{…}, tempDetails:[], mode:"uploadFile", clickWhich, model2DInfo:{}}}`** — note `design.boms`/`design.steps` are OBJECTS (`{needed,…}`), `design.pictures` (not designPictures), `docBom/docGuide/docOther` (not design*). Adapter: `mwCreateLaserCutDraft`/`mwUpdateLaserCutDraft`/`mwPublishLaserCut`/`mwDeleteLaserCut`; Worker: `POST /api/v1/makerworld/web/laser-cut/{publish,delete}`.
 
 ## Gotchas
 

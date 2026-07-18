@@ -3,13 +3,11 @@
 // from a Playwright capture; full request shapes + field map are documented in
 // /Users/alex/makerworld-capture/MAKERWORLD-FLOW.md.
 //
-// AUTH MODEL (differs from Cults): MakerWorld sits behind Bambu SSO + Cloudflare,
-// so we CANNOT log in server-side. Instead the USER supplies their already-
-// authenticated session cookies (token + cf_clearance + refreshToken), and this
-// adapter replays the API with them. The cookie is HttpOnly, so the frontend
-// obtains it via a browser extension / paste; the Worker forwards it here.
-// Every authenticated call needs the X-BBL-* headers + a real browser UA + the
-// cf_clearance cookie, or Cloudflare/Bambu rejects it.
+// AUTH MODEL (differs from Cults): the Worker can exchange email/password (plus
+// an emailed verification code when requested) for MakerWorld's token and
+// refreshToken, then replay the internal JSON API. Browser-session/cookie paste
+// remains a fallback and may include cf_clearance. Writes retain MakerWorld's
+// X-BBL-* headers and a browser UA for parity with the web app.
 //
 // Brittleness: undocumented internal endpoints. When one breaks, re-capture with
 // the kit in /Users/alex/makerworld-capture and update the matching function.
@@ -26,8 +24,8 @@ const BBL_HEADERS: Record<string, string> = {
 
 // -------------------- Session --------------------------------------------
 
-/** A user-supplied MakerWorld session. `cookie` is the full Cookie header value,
- *  minimally `token=…; cf_clearance=…` (refreshToken recommended for longevity). */
+/** A MakerWorld session represented as a Cookie header value. `token=…` is the
+ * minimum; refreshToken is recommended and browser fallbacks may add cf_clearance. */
 export interface MakerWorldSession {
   cookie: string;
 }
@@ -56,7 +54,7 @@ async function mwJson<T>(res: Response, what: string): Promise<T> {
     // A Cloudflare challenge ("Just a moment") means the cf_clearance cookie is
     // missing/expired or the UA didn't match — surface that distinctly.
     if (/just a moment|cf-chl|attention required/i.test(text)) {
-      throw new Error(`MakerWorld ${what}: Cloudflare challenge (HTTP ${res.status}) — session cookie/cf_clearance likely expired; reconnect MakerWorld.`);
+      throw new Error(`MakerWorld ${what}: Cloudflare challenge (HTTP ${res.status}) — the session or browser fallback cookie is no longer accepted; reconnect MakerWorld.`);
     }
     throw new Error(`MakerWorld ${what}: ${mwErrDetail(text, res.status)}`);
   }
@@ -133,6 +131,70 @@ export async function mwWhoami(session: MakerWorldSession): Promise<{ handle?: s
   return { handle: d.handle, name: d.name, uid: d.uid, avatar: d.avatar };
 }
 
+export interface MakerWorldUploadCapabilities {
+  /** MakerWorld only renders CyberBrick upload fields for accounts with this flag. */
+  rcUpload: boolean;
+  uploadAllowed: boolean;
+  defaultLicense?: string;
+}
+
+/** Extract the small, non-sensitive upload-capability subset from MakerWorld's
+ * server-rendered publish page. The capability is not exposed by the public
+ * profile endpoint; it lives in pageProps.userInfo/session.user. */
+export function parseMakerWorldUploadCapabilities(html: string): MakerWorldUploadCapabilities {
+  const match = /<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i.exec(html);
+  if (!match) throw new Error('MakerWorld upload capabilities: __NEXT_DATA__ was not present');
+  let data: {
+    props?: { pageProps?: {
+      userInfo?: { rcUpload?: boolean; defaultLicense?: string; bannedPermission?: { upload?: boolean } };
+      session?: { user?: { rcUpload?: boolean; defaultLicense?: string; bannedPermission?: { upload?: boolean } } };
+    } };
+  };
+  try { data = JSON.parse(match[1]); }
+  catch { throw new Error('MakerWorld upload capabilities: invalid __NEXT_DATA__ JSON'); }
+  const user = data.props?.pageProps?.userInfo ?? data.props?.pageProps?.session?.user;
+  if (!user || typeof user.rcUpload !== 'boolean') {
+    throw new Error('MakerWorld upload capabilities: rcUpload was not present');
+  }
+  return {
+    rcUpload: user.rcUpload,
+    uploadAllowed: user.bannedPermission?.upload !== true,
+    ...(user.defaultLicense ? { defaultLicense: user.defaultLicense } : {}),
+  };
+}
+
+/** Read account-specific upload eligibility without creating or changing a draft. */
+export async function mwUploadCapabilities(session: MakerWorldSession): Promise<MakerWorldUploadCapabilities> {
+  // Prefer the JSON profile service because it works with the token-only session
+  // issued by the Worker login flow. Some MakerWorld deployments return the full
+  // user record here, including rcUpload and bannedPermission.
+  for (const endpoint of ['profile', 'preference']) {
+    const profileRes = await fetch(`${MW_BASE}/api/v1/design-user-service/my/${endpoint}`, { headers: mwHeaders(session) });
+    if (!profileRes.ok) continue;
+    try {
+      const profileBody = await profileRes.json() as {
+        rcUpload?: boolean; defaultLicense?: string; bannedPermission?: { upload?: boolean };
+        userInfo?: { rcUpload?: boolean; defaultLicense?: string; bannedPermission?: { upload?: boolean } };
+      };
+      const profile = profileBody.userInfo ?? profileBody;
+      if (typeof profile.rcUpload === 'boolean') {
+        return {
+          rcUpload: profile.rcUpload,
+          uploadAllowed: profile.bannedPermission?.upload !== true,
+          ...(profile.defaultLicense ? { defaultLicense: profile.defaultLicense } : {}),
+        };
+      }
+    } catch { /* fall through to SSR pageProps */ }
+  }
+  // Browser-cookie fallback: SSR pageProps always contains the capability, but
+  // token-only sessions may be Cloudflare-blocked from HTML pages.
+  const res = await fetch(`${MW_BASE}/en/my/models/publish?type=original`, {
+    headers: mwHeaders(session, { Accept: 'text/html,application/xhtml+xml' }),
+  });
+  if (!res.ok) throw new Error(`MakerWorld upload capabilities: ${mwErrDetail(await res.text(), res.status)}`);
+  return parseMakerWorldUploadCapabilities(await res.text());
+}
+
 /** Post-submit status of a draft. `GET /design-service/my/draft/<id>` carries the slicing
  *  result (verified live 2026-06-22): `resultType != 0` ⇒ FAILED, with `resultDesc` the
  *  human reason (e.g. "The 3mf was not generated by Bambu Studio"); `resultType == 0` ⇒
@@ -172,6 +234,35 @@ export interface UploadedFile {
   cdnPrefix: string;
 }
 
+/** A short-lived MakerWorld S3 upload grant. The Worker may return this to the
+ * browser so large files go directly to MakerWorld's bucket instead of crossing
+ * Cloudflare's 100 MB Worker request-body boundary. */
+export interface PresignedUpload {
+  signedUrl: string;
+  key: string;
+  cdnPrefix: string;
+  url: string;
+}
+
+/** Ask MakerWorld for a one-file presigned S3 PUT. This is deliberately separate
+ * from mwUploadFile so browser clients can perform the byte upload directly. */
+export async function mwPresignUpload(
+  session: MakerWorldSession,
+  fileName: string,
+  useType = 'makerworld/model',
+): Promise<PresignedUpload> {
+  const presignRes = await fetch(`${MW_BASE}/api/v1/design-user-service/my/upload`, {
+    method: 'POST',
+    headers: mwHeaders(session, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ useType, fileNames: [fileName] }),
+  });
+  const data = await mwJson<{ cdnPrefix: string; urls: string[] }>(presignRes, 'presign');
+  const signedUrl = data.urls?.[0];
+  if (!signedUrl) throw new Error('MakerWorld presign: no signed url returned');
+  const key = new URL(signedUrl).pathname.replace(/^\//, '');
+  return { signedUrl, key, cdnPrefix: data.cdnPrefix, url: `${data.cdnPrefix}/${key}` };
+}
+
 /** Upload one file: POST /my/upload to get a presigned AWS S3 PUT url, then PUT the
  *  bytes (no auth header on the PUT — the signature is in the querystring).
  *  `useType` is "makerworld/model" for everything observed (models, images, 3mf). */
@@ -181,25 +272,17 @@ export async function mwUploadFile(
   bytes: ArrayBuffer | Uint8Array,
   useType = 'makerworld/model',
 ): Promise<UploadedFile> {
-  const presignRes = await fetch(`${MW_BASE}/api/v1/design-user-service/my/upload`, {
-    method: 'POST',
-    headers: mwHeaders(session, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ useType, fileNames: [fileName] }),
-  });
-  const data = await mwJson<{ cdnPrefix: string; urls: string[] }>(presignRes, 'presign');
-  const signedUrl = data.urls?.[0];
-  if (!signedUrl) throw new Error('MakerWorld presign: no signed url returned');
+  const presigned = await mwPresignUpload(session, fileName, useType);
 
-  const put = await fetch(signedUrl, {
+  const put = await fetch(presigned.signedUrl, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: bytes as BodyInit,
   });
   if (!put.ok) throw new Error(`MakerWorld S3 PUT failed: HTTP ${put.status}`);
 
-  const key = new URL(signedUrl).pathname.replace(/^\//, '');
   const size = bytes instanceof Uint8Array ? bytes.byteLength : (bytes as ArrayBuffer).byteLength;
-  return { name: fileName, size, key, cdnPrefix: data.cdnPrefix, url: `${data.cdnPrefix}/${key}` };
+  return { name: fileName, size, key: presigned.key, cdnPrefix: presigned.cdnPrefix, url: presigned.url };
 }
 
 /** The .3mf path: uploading the Bambu Studio file lets MakerWorld read the
@@ -208,11 +291,9 @@ export interface SlicerCompatibility {
   compatibility: { dev_setting_name: string; dev_model_name: string; dev_product_name: string; nozzle_diameter: number };
   other_compatibility: Array<{ dev_setting_name: string; dev_model_name: string; dev_product_name: string; nozzle_diameter: number }>;
 }
-export async function mwSlicerCompatibility(session: MakerWorldSession): Promise<SlicerCompatibility> {
-  const res = await fetch(`${MW_BASE}/api/v1/iot-service/api/slicer/device/compatibility`, { headers: mwHeaders(session) });
-  const data = await mwJson<{ compatibility: SlicerCompatibility['compatibility']; other_compatibility: SlicerCompatibility['other_compatibility'] }>(res, 'slicer compatibility');
-  return { compatibility: data.compatibility, other_compatibility: data.other_compatibility ?? [] };
-}
+// The old standalone GET /iot-service/api/slicer/device/compatibility now returns 400.
+// Do not call it: MakerWorld derives native compatibility while processing the uploaded
+// Bambu Studio 3MF. SlicerCompatibility remains as the shape for explicit overrides.
 
 // -------------------- Draft create / update / publish / delete -----------
 
@@ -224,6 +305,12 @@ export interface DraftModelFile {
   modelSize: number;
   modelType: string; // 'stl' | '3mf' | 'step' | …
   modelUrl: string;
+  /** Optional raw-file metadata exposed by MakerWorld's file editor. */
+  note?: string;
+  protected?: boolean;
+  relativePath?: string;
+  cdnPrefix?: string;
+  uploadKey?: string;
   thumbnailName?: string;
   thumbnailSize?: number;
   thumbnailUrl?: string;
@@ -235,6 +322,8 @@ export interface PrintProfile {
   description?: string; // profileSummary (HTML)
   pictureUrls: string[]; // ≥1 required
   isPrinterTested: boolean; // the "I've read Print Profile Guidelines" checkbox
+  realPhotoConfirmed?: boolean;
+  visibility?: 'public' | 'private';
   compatibility?: SlicerCompatibility['compatibility'];
   otherCompatibility?: SlicerCompatibility['other_compatibility'];
 }
@@ -309,10 +398,15 @@ export interface MakerWorldPublishInput {
 
   // optional sections (passthrough — see MAKERWORLD-FLOW.md field map)
   remixOriginalIds?: number[]; // when modelSource = 'remix'/'share' → original[] (3D, designType 0)
+  remixOriginalDesignType?: 0 | 1;
   resolvedOriginals?: OriginalRef[]; // pre-resolved remix originals (link+designId+meta); takes precedence over remixOriginalIds
+  remixSourceUrl?: string;
+  remixSourceLicense?: string;
+  remixDescription?: string;
   relatedModel?: RelatedModelRef; // "Laser & Cut model = Yes" → relateDesignInfo (link a LC model)
   cyberBrick?: CyberBrickInput; // CyberBrick (RC) models — needs account userInfo.rcUpload
   exclusive?: number; // Exclusive Model Program (0 = off)
+  exclusiveTermsAccepted?: boolean;
   // Bill of Materials: catalog items (kits/filaments/materials) + free-text other parts.
   boms?: { kits?: BomCatalogItem[]; filaments?: BomCatalogItem[]; materials?: BomCatalogItem[]; otherParts?: BomOtherPart[]; links?: unknown[] };
   designGuide?: Array<{ name: string; url: string; size: number }>; // Assembly Guide
@@ -323,7 +417,47 @@ export interface MakerWorldPublishInput {
 
 /** Build the full draft JSON the wizard PUT/POSTs. Most of this is fixed
  *  defaults captured from the real form; the input fields are mapped in. */
-function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | 'save' | 'publish', id?: number): Record<string, unknown> {
+type CompatibilityInput = Partial<SlicerCompatibility['compatibility']> & {
+  devModelName?: string; devProductName?: string; nozzleDiameter?: number;
+};
+
+function normalizeCompatibility(value?: CompatibilityInput): { devModelName: string; devProductName: string; nozzleDiameter: number } {
+  return {
+    devModelName: value?.dev_model_name ?? value?.devModelName ?? '',
+    devProductName: value?.dev_product_name ?? value?.devProductName ?? '',
+    nozzleDiameter: value?.nozzle_diameter ?? value?.nozzleDiameter ?? 0,
+  };
+}
+
+function buildCyberBrickPayload(input?: CyberBrickInput): Record<string, unknown> {
+  if (!input) return { cyberBrickNeeded: false, controlConfig: [], motionConfig: [], isOfficialController: true };
+  return {
+    cyberBrickNeeded: true,
+    controlConfig: input.controlConfig ?? [],
+    motionConfig: input.motionConfig ?? [],
+    mainControlConfig: input.mainControlConfig ?? { uniKey: '', name: '', size: 0, url: '' },
+    isOfficialController: input.isOfficialController ?? true,
+    controllerCover: input.controllerCover ?? { name: 'official controller', url: 'https://makerworld.bblmw.com/makerworld/cyberbrick/official_controller.png' },
+    switchCovers: input.switchCovers ?? [],
+    cyberBrickFramework: input.cyberBrickFramework ?? '',
+    originMicroPython: input.originMicroPython ?? [],
+    firmwareVersion: input.firmwareVersion ?? '',
+    creationProtection: input.creationProtection ?? '',
+  };
+}
+
+function buildOriginals(input: { resolvedOriginals?: OriginalRef[]; remixOriginalIds?: number[]; remixOriginalDesignType?: 0 | 1 }): Record<string, unknown>[] {
+  return (input.resolvedOriginals
+    ?? (input.remixOriginalIds ?? []).map((id): OriginalRef => ({ link: `${MW_BASE}/models/${id}`, designId: id, designType: input.remixOriginalDesignType ?? 0 })))
+    .map((o) => ({
+      link: o.link, author: o.author ?? '', homepage: o.homepage ?? '',
+      designId: o.designId, designType: o.designType ?? 0,
+      title: o.title ?? '', cover: o.cover ?? '', license: o.license ?? '',
+      insideOriginalInfo: null, relatedUid: 0, relatedUser: null,
+    }));
+}
+
+export function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | 'save' | 'publish', id?: number): Record<string, unknown> {
   const is3mf = !!input.model3mf;
   const modelFiles = (input.modelFiles ?? []).map((f) => ({
     isAutoGenerated: false,
@@ -333,7 +467,11 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     modelType: f.modelType,
     modelUrl: f.modelUrl,
     modelUpdateTime: new Date().toISOString(),
-    protected: false,
+    file: { path: f.relativePath || f.modelName },
+    note: f.note ?? '',
+    protected: f.protected ?? false,
+    cdnPrefix: f.cdnPrefix ?? '',
+    uploadKey: f.uploadKey ?? '',
     thumbnailName: f.thumbnailName ?? '',
     thumbnailSize: f.thumbnailSize ?? 0,
     thumbnailUrl: f.thumbnailUrl ?? '',
@@ -385,7 +523,7 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     // which is only a client-side state var). Items are {isRealLifePhoto, name, url};
     // `name` = the photo's filename; isRealLifePhoto defaults to 0 for uploads.
     auxiliaryPictures: (input.printProfile?.pictureUrls ?? []).map((url) => ({
-      isRealLifePhoto: 0,
+      isRealLifePhoto: input.printProfile?.realPhotoConfirmed ? 1 : 0,
       name: url.split('/').pop() ?? '',
       url,
     })),
@@ -397,14 +535,7 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     // (2026-06-20). A missing link ⇒ "originals url is empty"; a bare {id} ⇒ a third-party
     // fetch error. Prefer resolvedOriginals (full meta); fall back to building a minimal
     // MakerWorld-internal entry from the id if only remixOriginalIds was supplied.
-    original: (input.resolvedOriginals
-      ?? (input.remixOriginalIds ?? []).map((id): OriginalRef => ({ link: `${MW_BASE}/models/${id}`, designId: id, designType: 0 }))
-    ).map((o) => ({
-      link: o.link, author: o.author ?? '', homepage: o.homepage ?? '',
-      designId: o.designId, designType: o.designType ?? 0,
-      title: o.title ?? '', cover: o.cover ?? '', license: o.license ?? '',
-      insideOriginalInfo: null, relatedUid: 0, relatedUser: null,
-    })),
+    original: buildOriginals(input),
     relateDesignInfo: input.relatedModel
       ? { needRelate: true, id: input.relatedModel.id, designType: input.relatedModel.designType, title: input.relatedModel.title ?? '', cover: input.relatedModel.cover ?? '', status: input.relatedModel.status ?? 1 }
       : { needRelate: false, id: 0, designType: 1, title: '', cover: '', status: 0 },
@@ -412,7 +543,7 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     // --- visibility + action ---
     designSetting: { submitAsPrivate: (input.visibility ?? 'private') === 'private', makerLab: '', makerLabVersion: '' },
     instanceSetting: {
-      submitAsPrivate: (input.visibility ?? 'private') === 'private',
+      submitAsPrivate: (input.printProfile?.visibility ?? input.visibility ?? 'private') === 'private',
       isPrinterPresetChanged: false,
       isPrinterTested: input.printProfile?.isPrinterTested ?? false,
       isDonateToAuthor: false,
@@ -425,22 +556,21 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
 
     // --- compatibility (.3mf path) ---
     compatibility: input.printProfile?.compatibility
-      ? {
-          devModelName: input.printProfile.compatibility.dev_model_name,
-          devProductName: input.printProfile.compatibility.dev_product_name,
-          nozzleDiameter: input.printProfile.compatibility.nozzle_diameter,
-        }
+      ? normalizeCompatibility(input.printProfile.compatibility)
       : { devModelName: '', devProductName: '', nozzleDiameter: 0 },
-    otherCompatibility: input.printProfile?.otherCompatibility ?? [],
+    otherCompatibility: (input.printProfile?.otherCompatibility ?? []).map(normalizeCompatibility),
     unsupportedDevModels: [],
     printer,
 
     // --- BOM --- (boms/filaments/materials = catalog items; otherParts = free text)
-    bomsNeeded: !!input.boms,
+    bomsNeeded: !!input.boms && [
+      input.boms.kits, input.boms.filaments, input.boms.materials,
+      input.boms.otherParts?.filter((part) => part.name.trim()), input.boms.links,
+    ].some((items) => (items?.length ?? 0) > 0),
     boms: input.boms?.kits ?? [],
     bomsOfFilaments: input.boms?.filaments ?? [],
     bomsOfMaterials: input.boms?.materials ?? [],
-    bomsOfOtherPartList: input.boms?.otherParts ?? [],
+    bomsOfOtherPartList: input.boms?.otherParts?.filter((part) => part.name.trim()) ?? [],
     bomsLinks: input.boms?.links ?? [],
 
     // --- community post (opt-in) ---
@@ -452,21 +582,7 @@ function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'next' | '
     exclusive: input.exclusive ?? 0,
     isAIGC: false,
     syncToMWGlobal: true,
-    cyberBrick: input.cyberBrick
-      ? {
-          cyberBrickNeeded: true,
-          controlConfig: input.cyberBrick.controlConfig ?? [],
-          motionConfig: input.cyberBrick.motionConfig ?? [],
-          mainControlConfig: input.cyberBrick.mainControlConfig ?? { uniKey: '', name: '', size: 0, url: '' },
-          isOfficialController: input.cyberBrick.isOfficialController ?? true,
-          controllerCover: input.cyberBrick.controllerCover ?? { name: 'official controller', url: 'https://makerworld.bblmw.com/makerworld/cyberbrick/official_controller.png' },
-          switchCovers: input.cyberBrick.switchCovers ?? [],
-          cyberBrickFramework: input.cyberBrick.cyberBrickFramework ?? '',
-          originMicroPython: input.cyberBrick.originMicroPython ?? [],
-          firmwareVersion: input.cyberBrick.firmwareVersion ?? '',
-          creationProtection: input.cyberBrick.creationProtection ?? '',
-        }
-      : { cyberBrickNeeded: false, controlConfig: [], motionConfig: [], isOfficialController: true },
+    cyberBrick: buildCyberBrickPayload(input.cyberBrick),
     details: [],
     tempDetails: [],
   };
@@ -519,18 +635,6 @@ export async function mwPublish(session: MakerWorldSession, id: number, input: M
       : 'title, 4:3 + 3:4 covers, category, description, license';
     throw new Error(`MakerWorld publish rejected: ${detail}. Required: ${reqs}. (Also: a bad .3mf, forbidden words, or an empty/ON Bill-of-Materials can block it.)`);
   }
-}
-
-/** Verify a just-submitted model is actually in MakerWorld's pipeline (not silently
- *  dropped). Submit returning 200 is the success signal; final approval is an async
- *  review ("verifying" → public), which we can't confirm synchronously. */
-export async function mwVerifySubmitted(session: MakerWorldSession, id: number): Promise<boolean> {
-  try {
-    const res = await fetch(`${MW_BASE}/api/v1/design-service/my/design/published`, { headers: mwHeaders(session) });
-    if (!res.ok) return true; // can't check → trust the 200 submit
-    const body = await res.text();
-    return body.includes(String(id)) || true; // best-effort; presence confirms, absence may just mean still verifying
-  } catch { return true; }
 }
 
 /** Delete a draft / model (works for drafts and verifying/published records). */
@@ -662,14 +766,14 @@ export async function mwSearchRelatedDesigns(session: MakerWorldSession, relateD
 
 /** Resolve a remix original (a MakerWorld-internal model id) into the full `original[]`
  *  entry MakerWorld needs (link + designId + title/author/homepage/cover/license). */
-export async function mwFetchOriginalRef(session: MakerWorldSession, id: number): Promise<OriginalRef> {
+export async function mwFetchOriginalRef(session: MakerWorldSession, id: number, designType: 0 | 1 = 0): Promise<OriginalRef> {
   const res = await fetch(`${MW_BASE}/api/v1/design-service/design/${id}`, { headers: mwHeaders(session) });
   const d = await mwJson<{ title?: string; coverUrl?: string; license?: string; designCreator?: { name?: string; handle?: string } }>(res, 'fetch remix original');
   const handle = d.designCreator?.handle;
   return {
     link: `${MW_BASE}/models/${id}`,
     designId: id,
-    designType: 0,
+    designType,
     title: d.title ?? '',
     author: d.designCreator?.name ?? '',
     homepage: handle ? `${MW_BASE}/@${handle}` : '',
@@ -682,7 +786,13 @@ export async function mwFetchOriginalRef(session: MakerWorldSession, id: number)
  *  Current endpoint (the apps' /v1/... one 404s): POST /api/v1/user-service/user/refreshtoken
  *  with {refreshToken}. Returns the new token bundle (the real refreshToken value lives in an
  *  HttpOnly cookie, so this only works if the user supplied refreshToken in X-MW-Cookie). */
-export async function mwRefreshToken(session: MakerWorldSession): Promise<{ token?: string; refreshToken?: string; expiresIn?: number } | null> {
+export interface MwRefreshOutcome {
+  token: string;
+  refreshToken?: string;
+  expiresIn?: number;
+}
+
+export async function mwRefreshToken(session: MakerWorldSession): Promise<MwRefreshOutcome | null> {
   const m = session.cookie.match(/(?:^|;\s*)refreshToken=([^;]+)/);
   if (!m) return null; // refreshToken not in the supplied cookie
   const res = await fetch(`${MW_BASE}/api/v1/user-service/user/refreshtoken`, {
@@ -690,7 +800,16 @@ export async function mwRefreshToken(session: MakerWorldSession): Promise<{ toke
     headers: mwHeaders(session, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ refreshToken: decodeURIComponent(m[1]) }),
   });
-  return mwJson(res, 'refresh token');
+  const data = await mwJson<{ token?: string; accessToken?: string; refreshToken?: string; expiresIn?: number; expireIn?: number }>(res, 'refresh token');
+  const token = data.accessToken || data.token || '';
+  if (!token) throw new Error('MakerWorld refresh token: response did not include a new access token');
+  let refreshToken = data.refreshToken;
+  if (!refreshToken) {
+    const setCookie = res.headers.get('set-cookie') || '';
+    const match = /(?:^|[;,\s])refreshToken=([^;,\s]+)/.exec(setCookie);
+    if (match) refreshToken = match[1];
+  }
+  return { token, refreshToken, expiresIn: data.expiresIn ?? data.expireIn };
 }
 
 // -------------------- Laser & Cut models (separate product, draft2d) -----
@@ -708,33 +827,66 @@ export interface LaserCutPublishInput {
   visibility?: 'public' | 'private';
   nsfw?: boolean;
   tags?: string[];
-  modelFiles: DraftModelFile[];          // .lac / .svg / .dxf / image files
+  modelFiles?: DraftModelFile[];         // raw .lac/.svg/.dxf/.ai/image source files
+  lacFile?: MwFileRef;                   // Bambu Suite package (separate from raw files)
+  lacInfo?: { plates: unknown[]; processTypes: string[]; machineName: string; materialIds: string[] };
+  lacCustomInfo?: { otherTools: string; compatibleDevicesSelected: string[] };
+  profilePictures?: string[];
+  profileTitle?: string;
+  profileDescription?: string;
+  profileVisibility?: 'public' | 'private';
   pictures?: string[];                   // cover + gallery image urls (LC uses `pictures`)
+  remixOriginalIds?: number[];
+  remixOriginalDesignType?: 0 | 1;
+  resolvedOriginals?: OriginalRef[];
+  remixSourceUrl?: string;
+  remixSourceLicense?: string;
+  remixDescription?: string;
   relatedModel?: RelatedModelRef;        // link a 3D model (designType 0)
+  cyberBrick?: CyberBrickInput;
   docBom?: MwFileRef[]; docGuide?: MwFileRef[]; docOther?: MwFileRef[];
   paidSetting?: { isPaid: boolean; crowdfunding: number };
+  model2DInfo?: Record<string, unknown>;
 }
 
-function buildLaserCutPayload(input: LaserCutPublishInput, clickWhich: 'next' | 'save' | 'publish'): Record<string, unknown> {
+/** Post-submit status for a Laser & Cut draft. MakerWorld exposes the same
+ * resultType/resultDesc contract on draft2d as it does for regular drafts. */
+export async function mwLaserCutDraftStatus(session: MakerWorldSession, id: number | string): Promise<DraftStatus | null> {
+  const res = await fetch(`${MW_BASE}/api/v1/design-service/my/draft2d/${id}`, { headers: mwHeaders(session) });
+  if (!res.ok) return null;
+  const d = await res.json() as { resultType?: number; resultDesc?: string; resultPlate?: number; title?: string; profileTitle?: string };
+  const code = d.resultType ?? 0;
+  return {
+    outcome: code !== 0 ? 'failed' : 'pending',
+    code,
+    reason: d.resultDesc ?? '',
+    plate: d.resultPlate,
+    title: d.title,
+    profileTitle: d.profileTitle,
+  };
+}
+
+export function buildLaserCutPayload(input: LaserCutPublishInput, clickWhich: 'next' | 'save' | 'publish'): Record<string, unknown> {
   const priv = (input.visibility ?? 'private') === 'private';
-  const hasLac = input.modelFiles.some((f) => /lac$/i.test(f.modelType));
   const design = {
     title: input.title,
     modelSource: input.modelSource ?? 'original',
-    modelFiles: input.modelFiles.map((f) => ({
-      file: { path: f.modelName }, thumbnailName: f.thumbnailName ?? '', thumbnailSize: f.thumbnailSize ?? 0, thumbnailUrl: f.thumbnailUrl ?? '',
+    remixDescription: input.remixDescription ?? '',
+    modelFiles: (input.modelFiles ?? []).map((f) => ({
+      file: { path: f.relativePath || f.modelName }, thumbnailName: f.thumbnailName ?? '', thumbnailSize: f.thumbnailSize ?? 0, thumbnailUrl: f.thumbnailUrl ?? '',
       modelName: f.modelName, modelSize: f.modelSize, modelUrl: f.modelUrl, modelType: f.modelType,
-      isAutoGenerated: false, unikey: crypto.randomUUID(), note: '', modelUpdateTime: new Date().toISOString(),
-      cdnPrefix: 'https://makerworld.bblmw.com', uploadStatus: null,
+      isAutoGenerated: false, unikey: crypto.randomUUID(), note: f.note ?? '', protected: f.protected ?? false,
+      modelUpdateTime: new Date().toISOString(), cdnPrefix: f.cdnPrefix ?? 'https://makerworld.bblmw.com',
+      uploadKey: f.uploadKey ?? '', uploadStatus: null,
     })),
     pictures: (input.pictures ?? []).map((url) => ({ url })),
-    original: [], tags: input.tags ?? [],
+    original: buildOriginals(input), tags: input.tags ?? [],
     docBom: input.docBom ?? [], docGuide: input.docGuide ?? [], docOther: input.docOther ?? [],
     nsfw: input.nsfw ?? false,
     boms: { needed: false, makersSupplies: [], filaments: [], otherParts: [], materials: [] },
     steps: { needed: false, steps: [] },
     isAIGC: false,
-    cyberBrick: { cyberBrickNeeded: false, controlConfig: [], motionConfig: [], mainControlConfig: { uniKey: '', name: '', size: 0, url: '' }, isOfficialController: true, controllerCover: { name: 'official controller', url: 'https://makerworld.bblmw.com/makerworld/cyberbrick/official_controller.png' }, switchCovers: [], cyberBrickFramework: '', originMicroPython: [], firmwareVersion: '', creationProtection: '' },
+    cyberBrick: buildCyberBrickPayload(input.cyberBrick),
     relateDesignInfo: input.relatedModel
       ? { needRelate: true, id: input.relatedModel.id, designType: input.relatedModel.designType, title: input.relatedModel.title ?? '', cover: input.relatedModel.cover ?? '', status: input.relatedModel.status ?? 1 }
       : { needRelate: false, id: 0, designType: 0, title: '', cover: '', status: 0 },
@@ -745,12 +897,22 @@ function buildLaserCutPayload(input: LaserCutPublishInput, clickWhich: 'next' | 
     draft: {
       design,
       designSetting: { submitAsPrivate: priv, syncToMWGlobal: true, postNeeded: false, postContent: '' },
-      instance: { pictures: [], lacFile: { name: '', size: 0, url: '' }, lacInfo: { plates: [], processTypes: [], machineName: '', materialIds: [] }, lacCustomInfo: { otherTools: '', compatibleDevicesSelected: [] } },
-      extra: { draftSetting: { createWithLac: hasLac } },
+      instance: {
+        title: input.profileTitle ?? '',
+        summary: input.profileDescription ?? '',
+        submitAsPrivate: (input.profileVisibility ?? input.visibility ?? 'private') === 'private',
+        pictures: (input.profilePictures ?? []).map((url) => ({ url })),
+        lacFile: input.lacFile
+          ? { name: input.lacFile.name, size: input.lacFile.size, url: input.lacFile.url }
+          : { name: '', size: 0, url: '' },
+        lacInfo: input.lacInfo ?? { plates: [], processTypes: [], machineName: '', materialIds: [] },
+        lacCustomInfo: input.lacCustomInfo ?? { otherTools: '', compatibleDevicesSelected: [] },
+      },
+      extra: { draftSetting: { createWithLac: !!input.lacFile } },
       tempDetails: [], mode: 'uploadFile',
       uploading: { lac: '', raw: false, plates: false, cover: false, appCover: false, designPictures: false, acccessories: false, profilePictures: false, rcMpy: false, rcControlConfig: false, rcMotionFile: false, rcMainControlConfig: '', rcControllerCover: false, rcSwitchesCover: false },
       clickWhich,
-      model2DInfo: {},
+      model2DInfo: input.model2DInfo ?? {},
     },
   };
 }
@@ -772,5 +934,9 @@ export async function mwPublishLaserCut(session: MakerWorldSession, id: number, 
 }
 export async function mwDeleteLaserCut(session: MakerWorldSession, id: number): Promise<void> {
   const res = await fetch(`${MW_BASE}/api/v1/design-service/my/draft2d/${id}`, { method: 'DELETE', headers: mwHeaders(session) });
-  if (!res.ok) throw new Error(`MakerWorld delete laser-cut: HTTP ${res.status}`);
+  if (res.ok) return;
+  // A private Laser & Cut design may already be a published design by the time
+  // the user presses delete. Match the regular flow's published-design fallback.
+  const published = await fetch(`${MW_BASE}/api/v1/design-service/design/${id}`, { method: 'DELETE', headers: mwHeaders(session) });
+  if (!published.ok) throw new Error(`MakerWorld delete laser-cut: HTTP ${res.status} (draft2d) / ${published.status} (published design)`);
 }

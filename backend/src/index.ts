@@ -30,6 +30,7 @@ import {
   mwCheckSession,
   mwLogin,
   mwLoginWithCode,
+  mwPresignUpload,
   mwUploadFile,
   mwCreateDraft,
   mwPublish,
@@ -39,17 +40,19 @@ import {
   mwSuggestTags,
   mwFetchCatalogStandalone,
   mwSearchRelatedDesigns,
-  mwFetchOriginalRef,
   mwWhoami,
+  mwUploadCapabilities,
   mwRefreshToken,
   mwCreateLaserCutDraft,
   mwPublishLaserCut,
   mwDeleteLaserCut,
+  mwLaserCutDraftStatus,
   type MakerWorldSession,
   type MakerWorldPublishInput,
   type BomCatalog,
   type LaserCutPublishInput,
 } from './adapters/makerworld-web';
+import { resolveMakerWorldRemix, validateLaserCutPublish, validateMakerWorldPublish } from './makerworld-validation';
 import { stageFile, serveFile } from './r2';
 import { generateListing, generateListingOpenAICompat, OPENAI_COMPAT_BASE, type ListingImage } from './adapters/ai-listing';
 import type { PublishPayload } from './types';
@@ -58,6 +61,7 @@ import type { PublishPayload } from './types';
 // default for Workers Free / Paid is 100 MB; we cap at 95 MB so the JSON
 // response can fit in the remaining headroom.
 const MAX_UPLOAD_BYTES = 95 * 1024 * 1024;
+const MAX_MW_DIRECT_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 // Origins allowed to call the Worker. Anything not in this list gets no
 // CORS headers — fetch() from those origins will fail in the browser. The
@@ -667,16 +671,15 @@ export default {
     }
 
     // ==================== MakerWorld WEB flow ============================
-    // Auth = the user's own MakerWorld session, forwarded as the full Cookie
-    // header value in `X-MW-Cookie` (minimally `token=…; cf_clearance=…`).
-    // We cannot log in server-side (Bambu SSO + Cloudflare), so the cookie is
-    // supplied by the browser (extension/paste). See backend/docs/makerworld-web-flow.md.
+    // Auth = the user's MakerWorld token/session, forwarded as the full Cookie
+    // header value in `X-MW-Cookie` (minimally `token=…`; refreshToken recommended).
+    // The Worker login routes obtain it directly; browser-session/paste is a fallback.
     const getMwSession = (): MakerWorldSession | null => {
       const cookie = req.headers.get('X-MW-Cookie');
       return cookie ? { cookie } : null;
     };
     const mwAuthError = () =>
-      json({ error: 'missing_makerworld_session', hint: 'Send X-MW-Cookie with your MakerWorld session (token=…; cf_clearance=…).' }, { status: 401 });
+      json({ error: 'missing_makerworld_session', hint: 'Send X-MW-Cookie with your MakerWorld session (at minimum token=…).' }, { status: 401 });
 
     // POST /api/v1/makerworld/web/login {account, password} — real email/password sign-in.
     // The Worker (server-side, no CORS/cf_clearance constraint) exchanges credentials for a
@@ -724,6 +727,14 @@ export default {
     if (path === '/api/v1/makerworld/web/whoami' && req.method === 'GET') {
       const s = getMwSession(); if (!s) return mwAuthError();
       try { const me = await mwWhoami(s); return json({ ok: !!me, ...(me || {}) }); }
+      catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/capabilities — account-specific upload flags.
+    // In particular, MakerWorld hides CyberBrick unless userInfo.rcUpload is true.
+    if (path === '/api/v1/makerworld/web/capabilities' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      try { return json({ ok: true, ...(await mwUploadCapabilities(s)) }); }
       catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
     }
 
@@ -783,9 +794,33 @@ export default {
       catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
     }
 
+    // POST /api/v1/makerworld/web/upload/presign — JSON {fileName,size,useType?}.
+    // Returns MakerWorld's short-lived S3 PUT URL so the browser can upload bytes
+    // directly. This preserves MakerWorld's 150/200 MB limits without crossing
+    // Cloudflare's 100 MB Worker request-body ceiling.
+    if (path === '/api/v1/makerworld/web/upload/presign' && req.method === 'POST') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      let body: { fileName?: string; size?: number; useType?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      const fileName = body.fileName?.trim() ?? '';
+      const size = Number(body.size ?? 0);
+      if (!fileName) return json({ error: 'missing_file_name' }, { status: 400 });
+      if (!Number.isFinite(size) || size < 0) return json({ error: 'invalid_file_size' }, { status: 400 });
+      const useType = body.useType || 'makerworld/model';
+      if (useType !== 'makerworld/model') return json({ error: 'invalid_use_type' }, { status: 400 });
+      const maxBytes = /\.3mf$/i.test(fileName) ? 150 * 1024 * 1024 : MAX_MW_DIRECT_UPLOAD_BYTES;
+      if (size > maxBytes) return json({ error: 'file_too_large', maxBytes, gotBytes: size }, { status: 413 });
+      try {
+        const presigned = await mwPresignUpload(s, fileName, useType);
+        return json({ ok: true, size, ...presigned });
+      } catch (err) {
+        return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 });
+      }
+    }
+
     // POST /api/v1/makerworld/web/upload — multipart `file` (+ optional `useType`,
-    // `fileName`). Presigns + PUTs to MakerWorld's S3, returns the CDN url to
-    // reference in a draft. The browser uploads each model/cover/3mf file this way.
+    // `fileName`). Compatibility proxy for files below the Worker body ceiling;
+    // new clients use /upload/presign + a direct S3 PUT.
     if (path === '/api/v1/makerworld/web/upload' && req.method === 'POST') {
       const s = getMwSession(); if (!s) return mwAuthError();
       const contentType = req.headers.get('content-type') || '';
@@ -800,6 +835,7 @@ export default {
         if (file.size > MAX_UPLOAD_BYTES) return json({ error: 'file_too_large', maxBytes: MAX_UPLOAD_BYTES }, { status: 413 });
         const fileName = (form.get('fileName') as string) || file.name;
         const useType = (form.get('useType') as string) || 'makerworld/model';
+        if (useType !== 'makerworld/model') return json({ error: 'invalid_use_type' }, { status: 400 });
         const uploaded = await mwUploadFile(s, fileName, await file.arrayBuffer(), useType);
         return json({ ok: true, ...uploaded });
       } catch (err) {
@@ -815,19 +851,24 @@ export default {
       let input: MakerWorldPublishInput & { draftOnly?: boolean };
       try { input = await req.json() as MakerWorldPublishInput & { draftOnly?: boolean }; }
       catch { return json({ error: 'bad_json' }, { status: 400 }); }
-      if (!input?.title || !input?.coverUrl) {
-        return json({ error: 'missing_fields', hint: 'Need at least title + coverUrl. To publish (not draft): also categoryId, description, coverPortraitUrl; .3mf models need printProfile.' }, { status: 400 });
+      const validationErrors = input.draftOnly
+        ? [!input?.title?.trim() ? 'title is required' : '', !input?.coverUrl ? 'coverUrl is required' : ''].filter(Boolean)
+        : validateMakerWorldPublish(input);
+      try { validationErrors.push(...await resolveMakerWorldRemix(s, input)); }
+      catch (err) { return json({ error: 'remix_lookup_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+      if (input.cyberBrick) {
+        try {
+          const capabilities = await mwUploadCapabilities(s);
+          if (!capabilities.rcUpload) validationErrors.push('CyberBrick upload is not enabled for this MakerWorld account');
+        } catch (err) {
+          return json({ error: 'capability_check_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 });
+        }
       }
-      // Resolve remix originals to their full {link,designId,meta} entries (a bare id
-      // fails MakerWorld's submit). Best-effort: if a lookup fails, fall back to the id.
-      if (input.modelSource === 'remix' && input.remixOriginalIds?.length && !input.resolvedOriginals) {
-        try { input.resolvedOriginals = await Promise.all(input.remixOriginalIds.map((id) => mwFetchOriginalRef(s, id))); }
-        catch { /* fall back to remixOriginalIds in buildDraftPayload */ }
-      }
+      if (validationErrors.length) return json({ error: 'invalid_publish', issues: validationErrors }, { status: 400 });
       let createdId = 0;
       try {
         createdId = await mwCreateDraft(s, input);
-        if (input.draftOnly) return json({ ok: true, id: createdId, status: 'draft' });
+        if (input.draftOnly) return json({ ok: true, id: createdId, status: 'draft', url: `https://makerworld.com/en/my/models/drafts/${createdId}/edit` });
         await mwPublish(s, createdId, input);
         return json({ ok: true, id: createdId, status: 'verifying', url: `https://makerworld.com/en/my/models/drafts/${createdId}/edit` });
       } catch (err) {
@@ -863,8 +904,28 @@ export default {
     // in the supplied cookie (extends a ~24h session toward the ~90d refresh window).
     if (path === '/api/v1/makerworld/web/refresh' && req.method === 'POST') {
       const s = getMwSession(); if (!s) return mwAuthError();
-      try { const r = await mwRefreshToken(s); return r ? json({ ok: true, refreshed: true, token: r.token ? 'present' : 'absent' }) : json({ ok: false, error: 'no_refresh_token', hint: 'Include refreshToken in X-MW-Cookie.' }, { status: 400 }); }
+      try {
+        const r = await mwRefreshToken(s);
+        if (!r) return json({ ok: false, error: 'no_refresh_token', hint: 'Include refreshToken in X-MW-Cookie.' }, { status: 400 });
+        const existingRefresh = /(?:^|;\s*)refreshToken=([^;]+)/.exec(s.cookie)?.[1];
+        const refreshToken = r.refreshToken || existingRefresh;
+        const cookie = `token=${r.token}` + (refreshToken ? `; refreshToken=${refreshToken}` : '');
+        return json({ ok: true, refreshed: true, cookie, expiresIn: r.expiresIn });
+      }
       catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // GET /api/v1/makerworld/web/laser-cut/draft-status?id=<draftId> — the
+    // Laser & Cut counterpart to the regular post-submit result check.
+    if (path === '/api/v1/makerworld/web/laser-cut/draft-status' && req.method === 'GET') {
+      const s = getMwSession(); if (!s) return mwAuthError();
+      const id = url.searchParams.get('id');
+      if (!id) return json({ error: 'missing_id' }, { status: 400 });
+      try {
+        const status = await mwLaserCutDraftStatus(s, id);
+        if (!status) return json({ ok: false, error: 'not_found' }, { status: 404 });
+        return json({ ok: true, ...status });
+      } catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
     }
 
     // POST /api/v1/makerworld/web/laser-cut/publish — Laser & Cut models (separate product;
@@ -873,11 +934,24 @@ export default {
       const s = getMwSession(); if (!s) return mwAuthError();
       let input: LaserCutPublishInput & { draftOnly?: boolean };
       try { input = await req.json() as LaserCutPublishInput & { draftOnly?: boolean }; } catch { return json({ error: 'bad_json' }, { status: 400 }); }
-      if (!input?.title || !input?.modelFiles?.length) return json({ error: 'missing_fields', hint: 'Need title + modelFiles[] (.lac/.svg/.dxf).' }, { status: 400 });
+      const validationErrors = input.draftOnly
+        ? [!input?.title?.trim() ? 'title is required' : '', !input?.lacFile && !input?.modelFiles?.length ? 'a .lac or raw model file is required' : ''].filter(Boolean)
+        : validateLaserCutPublish(input);
+      try { validationErrors.push(...await resolveMakerWorldRemix(s, input)); }
+      catch (err) { return json({ error: 'remix_lookup_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+      if (input.cyberBrick) {
+        try {
+          const capabilities = await mwUploadCapabilities(s);
+          if (!capabilities.rcUpload) validationErrors.push('CyberBrick upload is not enabled for this MakerWorld account');
+        } catch (err) {
+          return json({ error: 'capability_check_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 });
+        }
+      }
+      if (validationErrors.length) return json({ error: 'invalid_publish', issues: validationErrors }, { status: 400 });
       let lcId = 0;
       try {
         lcId = await mwCreateLaserCutDraft(s, input);
-        if (input.draftOnly) return json({ ok: true, id: lcId, status: 'draft', kind: 'laser-cut' });
+        if (input.draftOnly) return json({ ok: true, id: lcId, status: 'draft', kind: 'laser-cut', url: `https://makerworld.com/en/my/laser-and-cut-models/drafts/${lcId}/edit` });
         await mwPublishLaserCut(s, lcId, input);
         return json({ ok: true, id: lcId, status: 'verifying', kind: 'laser-cut' });
       } catch (err) {

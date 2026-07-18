@@ -100,7 +100,12 @@ export function formatBytes(b) {
 export function fileExt(name) { return (name.split('.').pop() || '').toLowerCase(); }
 
 export function isModelFile(name) {
-  return ['stl', '3mf', 'obj', 'step', 'stp', 'amf', 'gcode', 'scad', 'dxf', 'svg', 'glb', 'fbx', 'blend'].includes(fileExt(name));
+  return [
+    '3ds', '3mf', 'amf', 'blend', 'dwg', 'dxf', 'f3d', 'factory', 'fbx',
+    'fcstd', 'gcode', 'glb', 'iges', 'ipt', 'obj', 'ply', 'rsdoc', 'scad',
+    'shape', 'shapr', 'skp', 'sldasm', 'sldprt', 'slvs', 'step', 'stl',
+    'studio3', 'stp', 'stpz', 'svg', 'x3d',
+  ].includes(fileExt(name));
 }
 
 export function isProfile(name) { return fileExt(name) === '3mf'; }
