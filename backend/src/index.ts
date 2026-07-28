@@ -71,6 +71,7 @@ import {
   type PrintablesSession,
   type PrintablesUploadRequest,
 } from './adapters/printables-web';
+import { PRINTABLES_META_SNAPSHOT } from './adapters/printables-meta-snapshot';
 import { stageFile, serveFile } from './r2';
 import { generateListing, generateListingOpenAICompat, OPENAI_COMPAT_BASE, type ListingImage } from './adapters/ai-listing';
 import type { PublishPayload } from './types';
@@ -1045,7 +1046,25 @@ export default {
           },
         });
       } catch (err) {
-        return printablesFailed(err);
+        const data = {
+          ok: true,
+          ...PRINTABLES_META_SNAPSHOT,
+          metaSource: 'snapshot',
+          metaWarning: err instanceof Error ? err.message : String(err),
+        };
+        const cacheResponse = new Response(JSON.stringify(data), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=300, s-maxage=3600',
+          },
+        });
+        ctx.waitUntil(caches.default.put(cacheKey, cacheResponse));
+        return json(data, {
+          headers: {
+            'Cache-Control': 'public, max-age=300, s-maxage=3600',
+            'X-ModelPrep-Cache': 'SNAPSHOT',
+          },
+        });
       }
     }
 

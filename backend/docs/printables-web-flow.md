@@ -83,6 +83,9 @@ HTTP 429 is a rate-limit condition and must be surfaced separately. GraphQL
 `errors` and mutation `errors { field messages }` must both reach the user.
 The public category/license response is cached at the Worker edge for 24 hours;
 its CORS headers are reconstructed per request rather than stored in the cache.
+A bundled snapshot from the last live audit is served for one hour when the
+upstream taxonomy is throttled or unavailable, so publishing setup remains
+usable while still retrying live metadata after the shorter fallback TTL.
 
 ## Form requirements
 

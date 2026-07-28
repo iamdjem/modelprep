@@ -6,6 +6,18 @@ import {
   printablesUpdateModel,
   validatePrintablesUploadRequest,
 } from './printables-web.ts';
+import { PRINTABLES_META_SNAPSHOT } from './printables-meta-snapshot.ts';
+
+test('bundled Printables taxonomy fallback preserves the audited category and license coverage', () => {
+  assert.equal(PRINTABLES_META_SNAPSHOT.categories.length, 89);
+  assert.equal(PRINTABLES_META_SNAPSHOT.licenses.length, 22);
+  assert.equal(
+    new Set(PRINTABLES_META_SNAPSHOT.categories.map((category) => category.id)).size,
+    89,
+  );
+  assert.ok(PRINTABLES_META_SNAPSHOT.categories.some((category) => category.id === '36'));
+  assert.ok(PRINTABLES_META_SNAPSHOT.licenses.some((license) => license.id === '3'));
+});
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
