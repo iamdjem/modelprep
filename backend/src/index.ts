@@ -1008,11 +1008,14 @@ export default {
         error: 'missing_printables_session',
         hint: 'Connect Printables in the desktop app and retry.',
       }, { status: 401 });
-    const printablesFailed = (err: unknown) =>
-      json({
+    const printablesFailed = (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn('[printables] upstream request failed:', message);
+      return json({
         error: 'printables_failed',
-        message: err instanceof Error ? err.message : String(err),
+        message,
       }, { status: 502 });
+    };
 
     // Public, read-only taxonomy used by the options UI.
     if (path === '/api/v1/printables/meta' && req.method === 'GET') {

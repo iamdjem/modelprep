@@ -65,10 +65,11 @@ test('presign sends the live printFileUpload2 shape and session only in Cookie',
 });
 
 test('model update preserves Printables lower-case authorship and draft flag', async (t) => {
-  let sent;
+  const sent = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (_url, init) => {
-    sent = JSON.parse(init.body);
+    const request = JSON.parse(init.body);
+    sent.push(request);
     return jsonResponse({
       data: {
         modelUpdate: {
@@ -83,6 +84,7 @@ test('model update preserves Printables lower-case authorship and draft flag', a
 
   await printablesUpdateModel({ cookie: 'sessionid=x' }, {
     name: 'Dragon',
+    tags: ['dragon', 'print in place'],
     draft: true,
     authorship: 'author',
     aiGenerated: false,
@@ -90,10 +92,11 @@ test('model update preserves Printables lower-case authorship and draft flag', a
     stls: [{ id: 'stl-1', name: 'dragon.stl' }],
   });
 
-  assert.equal(sent.variables.authorship, 'author');
-  assert.equal(sent.variables.draft, true);
-  assert.deepEqual(sent.variables.images, [{ id: 'image-1' }]);
-  assert.deepEqual(sent.variables.stls, [{ id: 'stl-1', name: 'dragon.stl' }]);
+  assert.equal(sent[0].variables.authorship, 'author');
+  assert.equal(sent[0].variables.draft, true);
+  assert.deepEqual(sent[0].variables.tags, ['dragon', 'printinplace']);
+  assert.deepEqual(sent[0].variables.images, [{ id: 'image-1' }]);
+  assert.deepEqual(sent[0].variables.stls, [{ id: 'stl-1', name: 'dragon.stl' }]);
 });
 
 test('file-size validation implements Printables normal and archive caps', () => {

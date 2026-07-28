@@ -823,6 +823,7 @@ async function loadDemoAssets(base) {
 // description, tags, category, license and per-platform settings; files/images
 // are re-added by the user.
 const AUTOSAVE_KEY = 'modelprep:autosave:v1';
+const AUTOSAVE_HANDLED_KEY = 'modelprep:autosave:handled:v1';
 function serializeProjectMeta(p) {
   return {
     name: p.name, title: p.title, description: p.description,
@@ -830,6 +831,23 @@ function serializeProjectMeta(p) {
     platforms: p.platforms,
     savedAt: Date.now(),
   };
+}
+function autosaveFingerprint(saved) {
+  if (!saved) return '';
+  return JSON.stringify({
+    name: saved.name || '',
+    title: saved.title || '',
+    description: saved.description || '',
+    tags: saved.tags || [],
+    category: saved.category || '',
+    license: saved.license || '',
+    platforms: saved.platforms || {},
+  });
+}
+function markAutosaveHandled(saved) {
+  try {
+    localStorage.setItem(AUTOSAVE_HANDLED_KEY, autosaveFingerprint(saved));
+  } catch (e) { /* private mode */ }
 }
 function projectHasContent(p) {
   return !!(p.title || p.description || p.tags.length ||
@@ -1081,20 +1099,27 @@ export default function App() {
     let saved;
     try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || 'null'); } catch (e) { saved = null; }
     if (!saved || (!saved.title && !saved.description && !(saved.tags || []).length)) return;
+    let handledFingerprint = '';
+    try { handledFingerprint = localStorage.getItem(AUTOSAVE_HANDLED_KEY) || ''; } catch (e) { /* private mode */ }
+    if (handledFingerprint === autosaveFingerprint(saved)) return;
     setDialog({
       kind: 'confirm',
       title: 'Restore text & settings?',
       message: `We saved your text${saved.title ? ` for “${saved.title}”` : ''} — title, description, tags, category, license and platform settings. We could NOT save your model files, images, or print profiles, so you'll need to re-add those.`,
       confirmLabel: 'Restore text & settings',
-      onConfirm: () => updateProject({
-        name: saved.name || 'Untitled Project',
-        title: saved.title || '',
-        description: saved.description || '',
-        tags: saved.tags || [],
-        category: saved.category || '',
-        license: saved.license || 'ccbync',
-        platforms: saved.platforms || initialProject.platforms,
-      }),
+      onCancel: () => markAutosaveHandled(saved),
+      onConfirm: () => {
+        markAutosaveHandled(saved);
+        updateProject({
+          name: saved.name || 'Untitled Project',
+          title: saved.title || '',
+          description: saved.description || '',
+          tags: saved.tags || [],
+          category: saved.category || '',
+          license: saved.license || 'ccbync',
+          platforms: saved.platforms || initialProject.platforms,
+        });
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1172,6 +1197,7 @@ export default function App() {
   const newProject = () => {
     const reset = () => {
       try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
+      try { localStorage.removeItem(AUTOSAVE_HANDLED_KEY); } catch (e) { /* ignore */ }
       setDemoActive(false);
       stashedProject.current = null;
       setProject({ ...initialProject, platforms: applyDefaultPlatforms(initialProject.platforms), name: 'Untitled Project' });
@@ -1275,14 +1301,15 @@ function Modal({ dialog, onClose }) {
   const [value, setValue] = useState('');
   const inputRef = useRef(null);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') cancel(); };
     document.addEventListener('keydown', onKey);
     if (kind === 'prompt') setTimeout(() => inputRef.current?.focus(), 30);
     return () => document.removeEventListener('keydown', onKey);
   }, [kind, onClose]);
+  const cancel = () => { dialog.onCancel?.(); onClose(); };
   const confirm = () => { dialog.onConfirm?.(kind === 'prompt' ? value : undefined); onClose(); };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.55)' }} onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.55)' }} onMouseDown={cancel}>
       <div className="mp-card w-full max-w-md p-5" style={{ background: '#EDE9DE' }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 className="mp-display text-[22px] leading-none mb-2">{title}</h3>
         {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(21,23,28,0.7)' }}>{message}</p>}
@@ -1298,7 +1325,7 @@ function Modal({ dialog, onClose }) {
           />
         )}
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="mp-btn mp-btn-ghost text-[13px] py-2 px-3">Cancel</button>
+          <button onClick={cancel} className="mp-btn mp-btn-ghost text-[13px] py-2 px-3">Cancel</button>
           <button
             onClick={confirm}
             disabled={kind === 'prompt' && !value.trim()}

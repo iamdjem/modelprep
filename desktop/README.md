@@ -51,7 +51,10 @@ fallback separately from MakerWorld in `persist:printables`.
   sessions with Electron `safeStorage`; and brokers authenticated Worker requests so the raw
   MakerWorld token never enters the remotely loaded renderer or its `localStorage`. It also
   owns the isolated Printables/Prusa OAuth session and injects it only into
-  `/api/v1/printables/web/*` Worker requests.
+  `/api/v1/printables/web/*` renderer requests. On desktop, the main process
+  validates those route names and replays the corresponding GraphQL operation
+  directly from the user's network, avoiding Printables throttling of
+  Cloudflare-to-Cloudflare requests.
 - `preload.js` — exposes a minimal `window.modelprepDesktop` API to the web app, which
   feature-detects it to show the one-click sign-in (see `MakerWorldUploadFlow` in
   `deploy/src/App.jsx`).

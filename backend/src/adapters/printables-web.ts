@@ -275,7 +275,21 @@ export async function printablesPollUploads(session: PrintablesSession, ids: str
   }`, { ids }, session);
 }
 
+function normalizeTagName(value: unknown) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function canonicalPrintablesTags(tags: string[] = []) {
+  return Array.from(new Set(
+    tags.map(normalizeTagName).filter(Boolean),
+  ));
+}
+
 export async function printablesUpdateModel(session: PrintablesSession, input: PrintablesModelUpdateInput) {
+  const variables = {
+    ...input,
+    tags: canonicalPrintablesTags(input.tags),
+  };
   const data = await graphQl<{
     modelUpdate: {
       ok: boolean;
@@ -305,7 +319,7 @@ export async function printablesUpdateModel(session: PrintablesSession, input: P
       output { id slug name datePublished }
     }
   }
-  ${ERROR_FRAGMENT}`, input as Record<string, unknown>, session);
+  ${ERROR_FRAGMENT}`, variables as Record<string, unknown>, session);
   return data.modelUpdate;
 }
 
@@ -370,7 +384,7 @@ export async function printablesListMyModels(session: PrintablesSession) {
       cursor?: string | null;
     };
   }>(`query ModelPrepMyModels($userId: ID!) {
-    drafts(limit: 100, offset: 0) {
+    drafts {
       id name slug datePublished draftReason
       image { filePath }
     }

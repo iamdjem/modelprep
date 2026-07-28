@@ -10,6 +10,7 @@ const { app, BrowserWindow, ipcMain, session, shell, safeStorage } = require('el
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { validateWorkerUrl } = require('./auth-bridge');
+const { handlePrintablesRequest, printablesWhoamiDirect } = require('./printables-direct');
 
 // The app renders multiple <canvas> cover previews; GPU-accelerated canvas can crash the
 // renderer with EXC_BAD_ACCESS/SIGBUS on some Macs. Software rendering is plenty fast here
@@ -103,12 +104,15 @@ async function readPrintablesBrowserCookie() {
 
 async function validatePrintablesCookie(cookie) {
   if (!cookie) return null;
-  const response = await fetch(`${WORKER_URL}/api/v1/printables/web/whoami`, {
-    headers: { 'X-Printables-Cookie': cookie },
-  });
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => null);
-  return data?.ok ? data : null;
+  try {
+    return await printablesWhoamiDirect(cookie);
+  } catch (error) {
+    console.error(
+      '[printables-auth] direct whoami failed:',
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
 }
 
 async function readPrintablesCookie() {
@@ -358,13 +362,7 @@ ipcMain.handle('printables:request', async (_event, request = {}) => {
     };
   }
   const url = validateWorkerUrl(request.url, WORKER_URL, 'printables');
-  const headers = { ...(request.headers || {}), 'X-Printables-Cookie': cookie };
-  const response = await fetch(url, {
-    method: request.method || 'GET',
-    headers,
-    body: await rebuildBody(request.bodyType, request.body),
-  });
-  return workerResponse(response);
+  return handlePrintablesRequest({ ...request, url }, cookie);
 });
 
 ipcMain.handle('printables:disconnect', async () => {

@@ -51,9 +51,14 @@ popups in the same partition, validates the session with a read-only `me` query,
 and stores an encrypted cookie fallback with Electron `safeStorage`.
 
 The renderer receives only `desktop-managed-printables-session-v1`. It sends
-requests to the Electron main process, which restricts destinations to the
-configured ModelPrep Worker and `/api/v1/printables/web/*`, then injects
-`X-Printables-Cookie`. Raw cookies do not enter `localStorage`.
+Worker-shaped `/api/v1/printables/web/*` requests to the Electron main process,
+which validates the route and replays the corresponding GraphQL operation
+directly from the user's network. This avoids Printables throttling
+Cloudflare-to-Cloudflare requests. Raw cookies do not enter `localStorage`.
+
+The Worker routes remain useful as a documented reference and non-desktop
+diagnostic surface, but the supported authenticated desktop path does not
+depend on Worker egress to `api.printables.com`.
 
 Web-only ModelPrep cannot securely capture the first-party session and should
 direct users to the desktop app.
@@ -95,7 +100,9 @@ usable while still retrying live metadata after the shorter fallback TTL.
 - summary: required for publish, maximum 120 characters
 - description: rich HTML/Tiptap content, not Markdown
 - main category: required; query the live category tree, do not hardcode it
-- tags: lower-case letters, numbers, and spaces; 1–25 characters per tag
+- tag labels: lower-case letters and numbers, 1–25 characters per tag
+- despite its GraphQL `ID` scalar, `modelUpdate.tags` accepts canonical tag
+  labels, not numeric database IDs; ModelPrep removes separators before saving
 - license: required; query live licenses, filtering non-selectable/store-only
   choices where applicable
 - authorship: required enum, exactly `author`, `remix`, or `reupload`
