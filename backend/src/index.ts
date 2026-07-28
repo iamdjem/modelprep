@@ -53,6 +53,24 @@ import {
   type LaserCutPublishInput,
 } from './adapters/makerworld-web';
 import { resolveMakerWorldRemix, validateLaserCutPublish, validateMakerWorldPublish } from './makerworld-validation';
+import { allowMakerWorldLogin } from './makerworld-auth';
+import {
+  printablesDeleteModel,
+  printablesFinishUpload,
+  printablesListMyModels,
+  printablesMeta,
+  printablesModelStatus,
+  printablesPollUploads,
+  printablesPresignUpload,
+  printablesRequestPublish,
+  printablesResolveRemix,
+  printablesUpdateModel,
+  printablesWhoami,
+  validatePrintablesUploadRequest,
+  type PrintablesModelUpdateInput,
+  type PrintablesSession,
+  type PrintablesUploadRequest,
+} from './adapters/printables-web';
 import { stageFile, serveFile } from './r2';
 import { generateListing, generateListingOpenAICompat, OPENAI_COMPAT_BASE, type ListingImage } from './adapters/ai-listing';
 import type { PublishPayload } from './types';
@@ -90,7 +108,7 @@ function corsHeadersFor(req: Request): Record<string, string> {
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     // Per-request auth headers — add new ones here whenever a route accepts
     // them (browsers strictly enforce this list on CORS preflight).
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cults-Username, X-Cults-Api-Key, X-Cults-Email, X-Cults-Password, X-MW-Cookie',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Cults-Username, X-Cults-Api-Key, X-Cults-Email, X-Cults-Password, X-MW-Cookie, X-Printables-Cookie',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
@@ -691,9 +709,12 @@ export default {
       let body: { account?: string; password?: string };
       try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
       if (!body.account || !body.password) return json({ error: 'missing_credentials', hint: 'Send {account, password}.' }, { status: 400 });
+      if (!(await allowMakerWorldLogin(env, body.account))) {
+        return json({ ok: false, error: 'Too many sign-in attempts. Wait a minute or use the MakerWorld window.' }, { status: 429 });
+      }
       try {
         const r = await mwLogin(body.account, body.password);
-        if (!r.ok) return json({ ok: false, needCode: true });
+        if (!r.ok) return json({ ok: false, needCode: true, ...(r.tfaKey ? { tfaKey: r.tfaKey } : {}) });
         const cookie = `token=${r.token}` + (r.refreshToken ? `; refreshToken=${r.refreshToken}` : '');
         return json({ ok: true, cookie, userId: r.userId, expireIn: r.expireIn });
       } catch (err) {
@@ -703,11 +724,14 @@ export default {
 
     // Step 2 — POST {account, code} to complete sign-in with the emailed verification code.
     if (path === '/api/v1/makerworld/web/login-code' && req.method === 'POST') {
-      let body: { account?: string; code?: string };
+      let body: { account?: string; code?: string; tfaKey?: string };
       try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
       if (!body.account || !body.code) return json({ error: 'missing_code', hint: 'Send {account, code}.' }, { status: 400 });
+      if (!(await allowMakerWorldLogin(env, body.account))) {
+        return json({ ok: false, error: 'Too many verification attempts. Wait a minute or use the MakerWorld window.' }, { status: 429 });
+      }
       try {
-        const r = await mwLoginWithCode(body.account, body.code);
+        const r = await mwLoginWithCode(body.account, body.code, body.tfaKey);
         if (!r.ok) return json({ ok: false, error: 'Code not accepted — check it and try again.' }, { status: 401 });
         const cookie = `token=${r.token}` + (r.refreshToken ? `; refreshToken=${r.refreshToken}` : '');
         return json({ ok: true, cookie, userId: r.userId, expireIn: r.expireIn });
@@ -968,6 +992,163 @@ export default {
       if (!id) return json({ error: 'missing_id' }, { status: 400 });
       try { await mwDeleteLaserCut(s, id); return json({ ok: true, id, deleted: true, kind: 'laser-cut' }); }
       catch (err) { return json({ error: 'mw_failed', message: err instanceof Error ? err.message : String(err) }, { status: 502 }); }
+    }
+
+    // ==================== Printables WEB flow ============================
+    // Printables' create form uses first-party GraphQL plus direct presigned
+    // uploads. The Electron main process owns the browser session and adds the
+    // cookie here; the renderer stores only an opaque account marker.
+    const getPrintablesSession = (): PrintablesSession | null => {
+      const cookie = req.headers.get('X-Printables-Cookie');
+      return cookie ? { cookie } : null;
+    };
+    const printablesAuthError = () =>
+      json({
+        error: 'missing_printables_session',
+        hint: 'Connect Printables in the desktop app and retry.',
+      }, { status: 401 });
+    const printablesFailed = (err: unknown) =>
+      json({
+        error: 'printables_failed',
+        message: err instanceof Error ? err.message : String(err),
+      }, { status: 502 });
+
+    // Public, read-only taxonomy used by the options UI.
+    if (path === '/api/v1/printables/meta' && req.method === 'GET') {
+      try { return json({ ok: true, ...(await printablesMeta()) }); }
+      catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/check' && req.method === 'GET') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      try {
+        const user = await printablesWhoami(s);
+        return json({ ok: !!user, user });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/whoami' && req.method === 'GET') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      try {
+        const user = await printablesWhoami(s);
+        if (!user) return json({ ok: false, error: 'not_authenticated' }, { status: 401 });
+        return json({ ok: true, ...user });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/upload/presign' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: PrintablesUploadRequest & { size?: number };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      const issues = validatePrintablesUploadRequest(body, body.size);
+      if (issues.length) return json({ error: 'invalid_upload', issues }, { status: 400 });
+      try {
+        const upload = await printablesPresignUpload(s, body);
+        if (!upload.ok || !upload.fileUpload?.id || !upload.uploadData?.url) {
+          return json({ error: 'printables_upload_rejected', issues: upload.errors }, { status: 400 });
+        }
+        return json({ ...upload, ok: true });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/upload/finish' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: { fileUploadId?: string; crc32c?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!body.fileUploadId) return json({ error: 'missing_file_upload_id' }, { status: 400 });
+      try {
+        const finished = await printablesFinishUpload(s, body.fileUploadId, body.crc32c);
+        if (!finished.ok) return json({ error: 'printables_finish_rejected', issues: finished.errors }, { status: 400 });
+        return json({ ...finished, ok: true });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/upload/status' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: { ids?: string[] };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      const ids = (body.ids ?? []).filter((id) => typeof id === 'string' && id);
+      if (!ids.length) return json({ error: 'missing_ids' }, { status: 400 });
+      try { return json({ ok: true, ...(await printablesPollUploads(s, ids)) }); }
+      catch (err) { return printablesFailed(err); }
+    }
+
+    // Save a partial draft (draft:true), or save the complete public-ready
+    // metadata (draft:false). Publishing itself remains a separate explicit
+    // action below because some accounts require approval.
+    if (path === '/api/v1/printables/web/model' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: PrintablesModelUpdateInput;
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      try {
+        const updated = await printablesUpdateModel(s, body);
+        if (!updated.ok || !updated.output?.id) {
+          return json({ error: 'printables_model_rejected', issues: updated.errors }, { status: 400 });
+        }
+        return json({ ...updated, ok: true });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/publish' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: { id?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!body.id) return json({ error: 'missing_id' }, { status: 400 });
+      try {
+        const published = await printablesRequestPublish(s, body.id);
+        if (!published.ok) return json({ error: 'printables_publish_rejected', issues: published.errors }, { status: 400 });
+        return json({ ...published, ok: true });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/status' && req.method === 'GET') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      const id = url.searchParams.get('id');
+      if (!id) return json({ error: 'missing_id' }, { status: 400 });
+      try {
+        const model = await printablesModelStatus(s, id);
+        if (!model) return json({ ok: false, error: 'not_found' }, { status: 404 });
+        const state = model.datePublished
+          ? 'live'
+          : model.publishRequests?.some((request) => /pending|requested/i.test(request.status))
+            ? 'pending'
+            : 'draft';
+        return json({ ok: true, state, model });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/my-models' && req.method === 'GET') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      try {
+        const models = await printablesListMyModels(s);
+        return json({
+          ok: true,
+          drafts: models.drafts,
+          published: models.published.items,
+          cursor: models.published.cursor ?? null,
+        });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/delete' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: { id?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!body.id) return json({ error: 'missing_id' }, { status: 400 });
+      try {
+        const deleted = await printablesDeleteModel(s, body.id);
+        if (!deleted.ok) return json({ error: 'printables_delete_rejected', issues: deleted.errors }, { status: 400 });
+        return json({ ok: true, id: body.id, deleted: true });
+      } catch (err) { return printablesFailed(err); }
+    }
+
+    if (path === '/api/v1/printables/web/remix/resolve' && req.method === 'POST') {
+      const s = getPrintablesSession(); if (!s) return printablesAuthError();
+      let body: { value?: string };
+      try { body = await req.json(); } catch { return json({ error: 'bad_json' }, { status: 400 }); }
+      if (!body.value?.trim()) return json({ error: 'missing_value' }, { status: 400 });
+      try { return json({ ok: true, ...(await printablesResolveRemix(s, body.value.trim())) }); }
+      catch (err) { return printablesFailed(err); }
     }
 
     // -------------------- R2: stage a file from the frontend --------------

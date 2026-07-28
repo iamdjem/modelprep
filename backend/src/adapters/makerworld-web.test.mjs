@@ -1,9 +1,47 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildDraftPayload, buildLaserCutPayload, mwDraftStatus, mwLaserCutDraftStatus, mwPresignUpload, mwRefreshToken,
+  buildDraftPayload, buildLaserCutPayload, mwDraftStatus, mwLaserCutDraftStatus, mwLogin, mwLoginWithCode, mwPresignUpload, mwRefreshToken,
   mwUploadCapabilities, parseMakerWorldUploadCapabilities,
 } from './makerworld-web.ts';
+
+test('MakerWorld login preserves the verification key and sends it with the email code', async () => {
+  const previousFetch = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    if (bodies.length === 1) {
+      return new Response(JSON.stringify({ loginType: 'verifyCode', tfaKey: 'challenge-key' }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ accessToken: 'access', userId: 'user', expireIn: 60 }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    assert.deepEqual(await mwLogin('person@example.com', 'password'), {
+      ok: false, needCode: true, tfaKey: 'challenge-key',
+    });
+    assert.deepEqual(await mwLoginWithCode('person@example.com', '123456', 'challenge-key'), {
+      ok: true, token: 'access', userId: 'user', expireIn: 60, refreshToken: undefined,
+    });
+    assert.deepEqual(bodies[1], { account: 'person@example.com', code: '123456', tfaKey: 'challenge-key' });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('MakerWorld login surfaces CAPTCHA as a desktop-window fallback', async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ code: 403, error: 'GeeTest captcha required' }), {
+    status: 403, headers: { 'Content-Type': 'application/json' },
+  });
+  try {
+    await assert.rejects(
+      mwLogin('person@example.com', 'password'),
+      /CAPTCHA.*MakerWorld window/i,
+    );
+  } finally { globalThis.fetch = previousFetch; }
+});
 
 test('regular payload preserves raw-file, profile, compatibility, BOM, and CyberBrick settings', () => {
   const payload = buildDraftPayload({

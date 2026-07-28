@@ -10,6 +10,21 @@ import {
   makerWorldLicenseAllowsRemix, makerWorldPrimaryProfile, makerWorldPublishIssues, readLacMetadata,
 } from './lib/makerworld.js';
 import { makerWorldResponseError, uploadMakerWorldFile } from './lib/makerworld-upload.js';
+import {
+  DESKTOP_MAKERWORLD_SECRET,
+  isDesktopMakerWorldSession,
+  makerWorldFetch,
+} from './lib/makerworld-auth.js';
+import {
+  DESKTOP_PRINTABLES_SECRET,
+  isDesktopPrintablesSession,
+  printablesFetch,
+} from './lib/printables-auth.js';
+import {
+  printablesResponseError,
+  uploadPrintablesFile,
+  waitForPrintablesUploads,
+} from './lib/printables-upload.js';
 import makerWorldCategoryTree from './data/makerworld-categories.json';
 import makerWorldForbiddenWords from './data/makerworld-forbidden-words.json';
 import {
@@ -60,7 +75,7 @@ function VersionBanner() {
 
 const UPLOAD_URLS = {
   makerworld:  'https://makerworld.com/en/my/models/publish?type=original',
-  printables:  'https://www.printables.com/model/new',
+  printables:  'https://www.printables.com/model/create',
   cults:       'https://cults3d.com/en/upload',
   mmf:         'https://www.myminifactory.com/object/new',
   thingiverse: 'https://www.thingiverse.com/upload',
@@ -98,7 +113,7 @@ function downloadTextFile(text, filename) {
 // Platforms whose description box is a rich-text/WYSIWYG editor (not a raw-HTML
 // or markdown field). Pasting HTML *source* into these shows literal tags, so we
 // copy rendered content as rich text instead — paste keeps the formatting.
-const RICH_TEXT_PLATFORMS = ['makerworld'];
+const RICH_TEXT_PLATFORMS = ['makerworld', 'printables'];
 function isRichTextPlatform(id) { return RICH_TEXT_PLATFORMS.includes(id); }
 
 // Copy rendered HTML to the clipboard as rich text (with a plain-text fallback),
@@ -142,6 +157,8 @@ async function copyPlainText(text) {
   } catch (e) { return false; }
 }
 
+const PRINTABLES_FORMATS = ['3dm', '3ds', '3dxml', '3mf', 'ai', 'amf', 'asm', 'bgcode', 'blend', 'cdr', 'csv', 'ctb', 'dwg', 'dxf', 'easm', 'f3d', 'f3z', 'factory', 'fcstd', 'gcode', 'gif', 'heic', 'heif', 'iges', 'igs', 'ini', 'ino', 'ipt', 'jpeg', 'jpg', 'lys', 'lyt', 'obj', 'par', 'pdf', 'ply', 'png', 'prt', 'py', 'rsdoc', 'scad', 'shape', 'shapr', 'skp', 'sl1', 'sl1s', 'sldasm', 'sldprt', 'slvs', 'step', 'stl', 'stp', 'studio3', 'svg', 'txt', 'webp', 'zip', 'zpr'];
+
 const PLATFORMS = [
   {
     id: 'makerworld', name: 'MakerWorld', org: 'Bambu Lab', dot: '#FF6900',
@@ -160,11 +177,11 @@ const PLATFORMS = [
   {
     id: 'printables', name: 'Printables', org: 'Prusa Research', dot: '#FA6831',
     covers: [{ id: 'cover', label: 'Cover', w: 1920, h: 1440, aspect: '4:3' }],
-    descFormat: 'markdown', maxImages: 25, maxFileMb: 500, maxTotalMb: 2000,
-    formats: ['stl', '3mf', 'obj', 'step', 'zip'], hasApi: false, apiSupport: 'manual',
-    fields: [], note: 'High file limits. Markdown description. Active contests.',
-    // titleMax + tag rules read from Printables' shipped publish-form JS; tagMax/descMax not exposed.
-    limits: { titleMax: 255, tagCharMax: 25, tagPattern: /^[a-z0-9]+$/, tagHint: 'lowercase letters/numbers, no spaces' },
+    descFormat: 'html', maxImages: 25, maxFileMb: 1024, maxTotalMb: null,
+    formats: PRINTABLES_FORMATS,
+    hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Real desktop upload through Printables’ first-party form contract. Drafts stay unpublished; Publish is public.',
+    limits: { titleMax: 255, tagCharMax: 25, tagPattern: /^[a-z0-9\s]+$/, tagHint: 'lowercase letters, numbers and spaces' },
   },
   {
     id: 'cults', name: 'Cults3D', org: 'Independent', dot: '#F79E2E',
@@ -615,7 +632,7 @@ const initialProject = {
   profiles: [],
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-    printables: { enabled: true },
+    printables: { enabled: true, categoryId: '', licenseId: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip' },
     cults: { enabled: true, price: 0, free: true, visibility: 'secret' },
     mmf: { enabled: true, price: 0, free: true },
     thingiverse: { enabled: true },
@@ -683,7 +700,7 @@ function buildDemoProject() {
     profiles,
     platforms: {
       makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-      printables: { enabled: true },
+      printables: { enabled: true, categoryId: '36', licenseId: '3', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip' },
       cults: { enabled: true, price: 4.5, free: false },
       mmf: { enabled: true, price: 0, free: true },
       thingiverse: { enabled: true },
@@ -940,7 +957,7 @@ async function importFolderToProject(fileList) {
   // Model + reference files (skip the meta text files we already consumed).
   const taken = new Set();
   const buildFiles = files
-    .filter(f => !consumed.has(f) && (isModelFile(baseOf(f)) || isMakerWorldLaserFile(baseOf(f)) || ['pdf', 'txt', 'md', 'zip'].includes(fileExt(baseOf(f)))))
+    .filter(f => !consumed.has(f) && (isModelFile(baseOf(f)) || isMakerWorldLaserFile(baseOf(f)) || PRINTABLES_FORMATS.includes(fileExt(baseOf(f))) || fileExt(baseOf(f)) === 'md'))
     .map((f) => { const name = uniqueFileName(baseOf(f), taken); taken.add(name.toLowerCase());
       return { id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, size: f.size, type: f.type,
         isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
@@ -1635,7 +1652,7 @@ function Sidebar({ currentSection, setCurrentSection, completion }) {
 
 // Largest "total package" allowance across platforms — anything over this is
 // rejected everywhere, so we block the upload outright rather than just warn.
-const MAX_BUILD_FILE_MB = 500;
+const MAX_BUILD_FILE_MB = 1024;
 
 // Pre-flight: validate the project against ONE platform's real requirements before publish,
 // so the user is told what won't pass instead of finding out after a failed upload.
@@ -1650,7 +1667,9 @@ function platformPreflight(platform, project) {
   const errors = [], warnings = [];
   const lim = platform.limits || {};
   const MB = 1024 * 1024;
-  const modelFiles = project.files.filter(f => f.isModel);
+  const modelFiles = platform.id === 'printables'
+    ? project.files.filter((file) => platform.formats.includes(fileExt(file.name)) && !file.isImage)
+    : project.files.filter(f => f.isModel);
 
   if (!modelFiles.length) errors.push('No model file to upload (add an .stl/.3mf in Files).');
   for (const f of modelFiles) {
@@ -1676,6 +1695,24 @@ function platformPreflight(platform, project) {
 
   const cults = project.platforms?.cults;
   if (platform.id === 'cults' && cults && !cults.free && !(cults.price > 0)) warnings.push('Marked paid but the price is 0.');
+  const printables = project.platforms?.printables;
+  if (platform.id === 'printables' && printables) {
+    if (!printables.categoryId) errors.push('Choose a Printables category in Platforms.');
+    if (printables.aiGenerated == null) errors.push('Answer whether AI was used in Platforms.');
+    if ((printables.authorship === 'remix' || printables.authorship === 'reupload') && !printables.remixParents?.[0]) {
+      errors.push('Add the original model/source for this remix or reupload.');
+    }
+    if (printables.authorship === 'remix' && !printables.remixDescription?.trim()) {
+      errors.push('Describe what changed in the remix.');
+    }
+    const invalidTags = project.tags.filter((tag) => !/^[a-z0-9\s]{1,25}$/.test(String(tag)));
+    if (invalidTags.length) warnings.push(`${invalidTags.length} tag(s) will be normalized to Printables’ lowercase letters/numbers/spaces rule.`);
+    if (printables.zipMode === 'archive') {
+      for (const file of modelFiles.filter((entry) => fileExt(entry.name) === 'zip')) {
+        if (file.size > 256 * MB) errors.push(`${file.name} exceeds Printables’ 256MB retained-ZIP limit.`);
+      }
+    }
+  }
   return { errors, warnings };
 }
 
@@ -1686,7 +1723,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   const handleFiles = (fileList) => {
     const arr = Array.from(fileList);
     const supported = arr.filter(f => isModelFile(f.name) || isMakerWorldLaserFile(f.name)
-      || ['pdf', 'txt', 'md', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'zip'].includes(fileExt(f.name)));
+      || PRINTABLES_FORMATS.includes(fileExt(f.name)) || fileExt(f.name) === 'md');
 
     // #1 — reject single files larger than any platform will accept.
     const tooBig = supported.filter(f => f.size / 1024 / 1024 > MAX_BUILD_FILE_MB);
@@ -1777,7 +1814,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".3ds,.3mf,.ai,.amf,.bmp,.dwg,.dxf,.f3d,.factory,.fbx,.fcstd,.gcode,.glb,.iges,.ipt,.jpg,.jpeg,.lac,.obj,.ply,.png,.rsdoc,.scad,.shape,.shapr,.skp,.sldasm,.sldprt,.slvs,.step,.stl,.studio3,.stp,.stpz,.svg,.webp,.x3d,.pdf,.txt,.md,.zip,.gif"
+          accept={[...new Set([...PRINTABLES_FORMATS, 'bmp', 'fbx', 'glb', 'lac', 'md', 'stpz', 'x3d'])].map((extension) => `.${extension}`).join(',')}
           onChange={(e) => handleFiles(e.target.files)}
           className="hidden"
         />
@@ -2365,9 +2402,11 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       const makerWorldAccount = project.platforms?.makerworld?.enabled ? getActive('makerworld') : null;
       if (makerWorldAccount?.secret) {
         const keyword = tagInput.trim() || project.title.trim() || 'model';
-        const response = await fetch(`${WORKER_URL}/api/v1/makerworld/web/suggest-tags?keyword=${encodeURIComponent(keyword)}`, {
-          headers: { 'X-MW-Cookie': makerWorldAccount.secret },
-        });
+        const response = await makerWorldFetch(
+          `${WORKER_URL}/api/v1/makerworld/web/suggest-tags?keyword=${encodeURIComponent(keyword)}`,
+          { headers: { 'X-MW-Cookie': makerWorldAccount.secret } },
+          makerWorldAccount.secret,
+        );
         const data = await response.json().catch(() => ({}));
         if (response.ok) suggestions = (data.suggestions || []).map((item) => item.text).filter(Boolean);
       }
@@ -3457,7 +3496,7 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
           <div className="grid grid-cols-3 gap-2 my-3 text-[12px]">
             <Stat label="Max images" value={platform.maxImages} />
             <Stat label="File size cap" value={`${platform.maxFileMb}MB`} />
-            <Stat label="Total cap" value={`${platform.maxTotalMb}MB`} />
+            <Stat label="Total cap" value={platform.maxTotalMb ? `${platform.maxTotalMb}MB` : 'Not published'} />
           </div>
 
           <div className="mb-3">
@@ -3536,6 +3575,9 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
           {platform.id === 'makerworld' && state.enabled && (
             <MakerWorldOptions opts={state} project={project} onUpdate={onUpdate} />
           )}
+          {platform.id === 'printables' && state.enabled && (
+            <PrintablesOptions opts={state} onUpdate={onUpdate} />
+          )}
           {platform.id === 'cults' && state.enabled && (
             <div className="mt-3">
               <Label>Visibility</Label>
@@ -3547,6 +3589,106 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function PrintablesOptions({ opts, onUpdate }) {
+  const [metaState, setMetaState] = useState({ categories: [], licenses: [], error: '' });
+  useEffect(() => {
+    let active = true;
+    fetch(`${WORKER_URL}/api/v1/printables/meta`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.message || data.error || `HTTP ${response.status}`);
+        return data;
+      })
+      .then((data) => {
+        if (active) setMetaState({ categories: data.categories || [], licenses: data.licenses || [], error: '' });
+      })
+      .catch((error) => {
+        if (active) setMetaState({ categories: [], licenses: [], error: error instanceof Error ? error.message : String(error) });
+      });
+    return () => { active = false; };
+  }, []);
+  const categories = metaState.categories.filter((category) => category.level !== 0);
+  const licenses = metaState.licenses.filter((license) =>
+    license.isSelectable !== false && license.freeModels !== false);
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <Label>Printables category (required)</Label>
+          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+            <option value="">Choose from live taxonomy…</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.path?.length > 1 ? `${category.path[0].name} › ` : ''}{category.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label>Printables license (required)</Label>
+          <select className="mp-input" value={opts.licenseId || ''} onChange={(event) => onUpdate('licenseId', event.target.value)}>
+            <option value="">Use mapped project license</option>
+            {licenses.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
+          </select>
+        </div>
+      </div>
+      {metaState.error && (
+        <p className="text-[11px]" style={{ color: '#b91c1c' }}>
+          Live Printables options could not load: {metaState.error}. Deploy/start the Worker before publishing.
+        </p>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div>
+          <Label>Authorship</Label>
+          <select className="mp-input" value={opts.authorship || 'author'} onChange={(event) => onUpdate('authorship', event.target.value)}>
+            <option value="author">I am the original author</option>
+            <option value="remix">This is a remix</option>
+            <option value="reupload">This is a reupload</option>
+          </select>
+        </div>
+        <div>
+          <Label>AI used? (required)</Label>
+          <select className="mp-input" value={opts.aiGenerated == null ? '' : String(opts.aiGenerated)} onChange={(event) => onUpdate('aiGenerated', event.target.value === '' ? null : event.target.value === 'true')}>
+            <option value="">Choose yes or no…</option>
+            <option value="false">No</option>
+            <option value="true">Yes</option>
+          </select>
+        </div>
+      </div>
+      {(opts.authorship === 'remix' || opts.authorship === 'reupload') && (
+        <div className="space-y-2">
+          <div>
+            <Label>{opts.authorship === 'remix' ? 'Original model URL or Printables ID' : 'Original source URL'}</Label>
+            <input
+              className="mp-input"
+              value={opts.remixParents?.[0] || ''}
+              onChange={(event) => onUpdate('remixParents', event.target.value ? [event.target.value] : [])}
+              placeholder="https://www.printables.com/model/…"
+            />
+          </div>
+          {opts.authorship === 'remix' && (
+            <div>
+              <Label>What did you change?</Label>
+              <textarea className="mp-input" rows={3} value={opts.remixDescription || ''} onChange={(event) => onUpdate('remixDescription', event.target.value)} />
+            </div>
+          )}
+        </div>
+      )}
+      <div>
+        <Label>ZIP handling</Label>
+        <div className="flex gap-3 text-xs">
+          <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.zipMode || 'unzip') === 'unzip'} onChange={() => onUpdate('zipMode', 'unzip')} /> Unpack into model files</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.zipMode === 'archive'} onChange={() => onUpdate('zipMode', 'archive')} /> Keep ZIP as Other file (256 MiB max)</label>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-3 text-xs">
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} /> NSFW</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.politicalContent} onChange={(event) => onUpdate('politicalContent', event.target.checked)} /> Political content</label>
+      </div>
     </div>
   );
 }
@@ -3886,7 +4028,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
   const [uploadSignal, setUploadSignal] = useState(0);
   // Platforms with a real one-click upload: hide all the manual .zip/copy-paste prep
   // (it's redundant) and show only the live upload flow. Others keep the manual package.
-  const hasRealUpload = platform.id === 'cults' || platform.id === 'makerworld';
+  const hasRealUpload = platform.id === 'cults' || platform.id === 'makerworld' || platform.id === 'printables';
 
   // React to the parent's expand-all / collapse-all broadcasts.
   useEffect(() => { if (expandSignal > 0) setExpanded(true); }, [expandSignal]);
@@ -4162,7 +4304,8 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
           {/* Real upload (live). Other API platforms still simulated until their flows land. */}
           {platform.id === 'cults' && <CultsUploadFlow platform={platform} project={project} />}
           {platform.id === 'makerworld' && <MakerWorldUploadFlow platform={platform} project={project} />}
-          {platform.hasApi && platform.id !== 'cults' && platform.id !== 'makerworld' && <MockUploadFlow platform={platform} project={project} startSignal={uploadSignal} />}
+          {platform.id === 'printables' && <PrintablesUploadFlow platform={platform} project={project} />}
+          {platform.hasApi && platform.id !== 'cults' && platform.id !== 'makerworld' && platform.id !== 'printables' && <MockUploadFlow platform={platform} project={project} startSignal={uploadSignal} />}
 
           {/* Manual workflow hint — only for platforms without a real upload. */}
           {!hasRealUpload && (
@@ -4415,7 +4558,11 @@ function useMakerWorldCapabilities(cookie, enabled = true) {
     let active = true;
     if (!enabled || !cookie) { setState({ data: null, error: '', loading: false }); return () => { active = false; }; }
     setState({ data: null, error: '', loading: true });
-    fetch(`${WORKER_URL}/api/v1/makerworld/web/capabilities`, { headers: { 'X-MW-Cookie': cookie } })
+    makerWorldFetch(
+      `${WORKER_URL}/api/v1/makerworld/web/capabilities`,
+      { headers: { 'X-MW-Cookie': cookie } },
+      cookie,
+    )
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.ok) throw new Error(makerWorldResponseError(data, response.status, 'Could not check MakerWorld upload eligibility'));
@@ -4857,6 +5004,411 @@ function CultsUploadFlow({ platform, project }) {
 }
 
 // =====================================================================
+// REAL Printables upload flow — first-party GraphQL contract, with direct
+// presigned storage uploads. The desktop main process owns the session.
+// Saving a draft is unpublished; publishing is always an explicit second
+// button and is not inferred from a successful model update.
+// =====================================================================
+const PRINTABLES_LICENSE_MAP = {
+  cc0: '7',
+  ccby: '1',
+  ccbysa: '2',
+  ccbynd: '8',
+  ccbync: '3',
+  ccbyncsa: '4',
+  standard: '13',
+};
+
+function PrintablesUploadFlow({ platform, project }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
+  const active = accounts.getActive('printables');
+  const secret = active?.secret || '';
+  const options = project.platforms?.printables || {};
+  const simulate = !!project.__demo && !active;
+  const [status, setStatus] = useState(active || simulate ? 'connected' : 'idle');
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const [modelId, setModelId] = useState('');
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [models, setModels] = useState(null);
+  const [modelsError, setModelsError] = useState('');
+  const [modelsLoading, setModelsLoading] = useState(false);
+
+  useEffect(() => {
+    setStatus((current) => {
+      if ((active || simulate) && current === 'idle') return 'connected';
+      if (!active && !simulate && current === 'connected') return 'idle';
+      return current;
+    });
+  }, [active, simulate]);
+
+  const workerRequest = async (route, body, method = 'POST') => {
+    const response = await printablesFetch(
+      `${WORKER_URL}/api/v1/printables/web/${route}`,
+      {
+        method,
+        headers: body == null ? {} : { 'Content-Type': 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+      },
+      secret,
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(printablesResponseError(data, response.status, `Printables ${route} failed`));
+    }
+    return data;
+  };
+
+  const imageFile = async (image, index) => {
+    const blob = await fetch(image.dataUrl).then((response) => response.blob());
+    const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+    return new File([blob], `${String(index + 1).padStart(2, '0')}-${slugify(image.alt || 'model-image')}.${extension}`, {
+      type: blob.type || 'image/jpeg',
+    });
+  };
+
+  const cleanModelFile = (file) => ({
+    id: String(file.id),
+    folder: file.folder || '',
+    name: file.name,
+    note: file.note || '',
+  });
+  const cleanGcode = (file) => ({
+    ...cleanModelFile(file),
+    weight: file.weight ?? null,
+    material: file.material?.id ?? file.material ?? null,
+    printer: file.printer?.id ?? file.printer ?? null,
+    nozzleDiameter: file.nozzleDiameter ?? null,
+    layerHeight: file.layerHeight ?? null,
+    printDuration: file.printDuration ?? null,
+    excludeFromTotalSum: !!file.excludeFromTotalSum,
+  });
+
+  const validate = () => {
+    const issues = [];
+    const cover = project.images.find((image) => image.id === project.coverImageId) || project.images[0];
+    const modelFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
+    if (!project.title.trim()) issues.push('Add a model title in Details.');
+    if (!mdToPlain(project.description).trim()) issues.push('Add a description in Details.');
+    if (!cover) issues.push('Choose at least one model image.');
+    if (!modelFiles.length) issues.push('Add at least one Printables-supported model file.');
+    if (!options.categoryId) issues.push('Choose a Printables category in Platforms.');
+    if (options.aiGenerated == null) issues.push('Answer whether AI was used in Platforms.');
+    if ((options.authorship === 'remix' || options.authorship === 'reupload') && !options.remixParents?.[0]) {
+      issues.push('Add the original model/source URL in Platforms.');
+    }
+    if (options.authorship === 'remix' && !options.remixDescription?.trim()) {
+      issues.push('Describe what changed in this remix.');
+    }
+    return issues;
+  };
+
+  const submit = async (publish) => {
+    const issues = validate();
+    if (issues.length) {
+      setError(issues.join(' '));
+      setStatus('error');
+      return;
+    }
+    if (simulate) {
+      setStatus('uploading');
+      setProgress(publish ? 'Simulating Printables publish…' : 'Simulating Printables draft…');
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setResult({ id: 'demo', state: publish ? 'simulated-public' : 'simulated-draft', demo: true });
+      setStatus('done');
+      setProgress('');
+      return;
+    }
+    if (!secret) return;
+    setStatus('uploading');
+    setError('');
+    setResult(null);
+    try {
+      const cover = project.images.find((image) => image.id === project.coverImageId) || project.images[0];
+      const orderedImages = [
+        cover,
+        ...project.images.filter((image) => image.id !== cover.id),
+      ].slice(0, platform.maxImages);
+      const modelFiles = project.files.filter((file) =>
+        file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
+      const uploadIds = [];
+
+      for (let index = 0; index < orderedImages.length; index += 1) {
+        setProgress(`Uploading image ${index + 1} of ${orderedImages.length}…`);
+        const source = orderedImages[index];
+        const file = await imageFile(source, index);
+        const uploaded = await uploadPrintablesFile({
+          workerUrl: WORKER_URL,
+          secret,
+          file,
+          imageWidth: source.naturalW,
+          imageHeight: source.naturalH,
+        });
+        uploadIds.push(uploaded.id);
+      }
+      for (let index = 0; index < modelFiles.length; index += 1) {
+        setProgress(`Uploading model file ${index + 1} of ${modelFiles.length}…`);
+        const source = modelFiles[index];
+        const file = source.blob instanceof File && source.blob.name === source.name
+          ? source.blob
+          : new File([source.blob], source.name, { type: source.type || 'application/octet-stream' });
+        const uploaded = await uploadPrintablesFile({
+          workerUrl: WORKER_URL,
+          secret,
+          file,
+          unzip: fileExt(source.name) === 'zip' ? options.zipMode !== 'archive' : true,
+        });
+        uploadIds.push(uploaded.id);
+      }
+
+      setProgress('Printables is inspecting the uploaded files…');
+      const processed = await waitForPrintablesUploads({
+        workerUrl: WORKER_URL,
+        secret,
+        ids: uploadIds,
+      });
+      const images = processed.flatMap((upload) => upload.images || []);
+      const stls = processed.flatMap((upload) => upload.stls || []);
+      const slas = processed.flatMap((upload) => upload.slas || []);
+      const gcodes = processed.flatMap((upload) => upload.gcodes || []);
+      const otherFiles = processed.flatMap((upload) => upload.otherFiles || []);
+      if (!images.length) throw new Error('Printables finished processing but returned no gallery images.');
+      if (![stls, slas, gcodes, otherFiles].some((files) => files.length)) {
+        throw new Error('Printables finished processing but returned no model files.');
+      }
+
+      setProgress(publish ? 'Saving complete model metadata…' : 'Saving unpublished draft…');
+      const summary = mdToPlain(project.description).replace(/\s+/g, ' ').trim().slice(0, 120);
+      const normalizedTags = project.tags
+        .map((tag) => String(tag).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 25))
+        .filter(Boolean);
+      const update = await workerRequest('model', {
+        ...(modelId ? { id: modelId } : {}),
+        name: project.title.trim().slice(0, 255),
+        summary,
+        description: mdToHtml(project.description),
+        category: String(options.categoryId),
+        license: String(options.licenseId || PRINTABLES_LICENSE_MAP[project.license] || '13'),
+        tags: normalizedTags,
+        draft: !publish,
+        mainImage: String(images[0].id),
+        authorship: options.authorship || 'author',
+        remixParents: options.remixParents || [],
+        remixDescription: options.authorship === 'remix' ? options.remixDescription : null,
+        nsfw: !!options.nsfw,
+        aiGenerated: !!options.aiGenerated,
+        politicalContent: !!options.politicalContent,
+        images: images.map((image) => ({ id: String(image.id) })),
+        stls: stls.map(cleanModelFile),
+        slas: slas.map(cleanModelFile),
+        gcodes: gcodes.map(cleanGcode),
+        otherFiles: otherFiles.map(cleanModelFile),
+      });
+      const id = String(update.output.id);
+      setModelId(id);
+      if (!publish) {
+        setResult({
+          id,
+          state: 'draft',
+          url: `https://www.printables.com/model/${id}/edit`,
+        });
+        setStatus('done');
+        return;
+      }
+
+      setProgress('Requesting public publication…');
+      const publishRequest = await workerRequest('publish', { id });
+      setProgress('Checking Printables publication status…');
+      const statusResponse = await printablesFetch(
+        `${WORKER_URL}/api/v1/printables/web/status?id=${encodeURIComponent(id)}`,
+        {},
+        secret,
+      );
+      const statusData = await statusResponse.json().catch(() => ({}));
+      if (!statusResponse.ok || !statusData.ok) {
+        throw new Error(printablesResponseError(statusData, statusResponse.status, 'Printables status check failed'));
+      }
+      const slug = statusData.model?.slug || update.output.slug || '';
+      const publishedState = statusData.state === 'live'
+        ? 'live'
+        : publishRequest.output?.status
+          ? 'pending'
+          : statusData.state;
+      setResult({
+        id,
+        state: publishedState,
+        url: publishedState === 'live'
+          ? `https://www.printables.com/model/${id}${slug ? `-${slug}` : ''}`
+          : `https://www.printables.com/model/${id}/edit`,
+      });
+      setStatus('done');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setStatus('error');
+    } finally {
+      setProgress('');
+    }
+  };
+
+  const deleteResult = async () => {
+    if (!result?.id || result.demo) {
+      setResult(null);
+      setStatus('connected');
+      return;
+    }
+    // eslint-disable-next-line no-alert
+    if (!confirm(`Permanently delete Printables model ${result.id}? This cannot be undone.`)) return;
+    setStatus('uploading');
+    setProgress('Deleting Printables model…');
+    try {
+      await workerRequest('delete', { id: result.id });
+      setResult(null);
+      setModelId('');
+      setStatus('connected');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setStatus('error');
+    } finally { setProgress(''); }
+  };
+
+  const loadModels = async () => {
+    if (simulate) {
+      setModels({ drafts: [], published: [] });
+      return;
+    }
+    setModelsLoading(true);
+    setModelsError('');
+    try {
+      const data = await workerRequest('my-models', null, 'GET');
+      setModels({ drafts: data.drafts || [], published: data.published || [] });
+    } catch (cause) {
+      setModelsError(cause instanceof Error ? cause.message : String(cause));
+      setModels({ drafts: [], published: [] });
+    } finally { setModelsLoading(false); }
+  };
+  const toggleModels = () => {
+    const next = !modelsOpen;
+    setModelsOpen(next);
+    if (next && models === null) loadModels();
+  };
+  const deleteListedModel = async (item) => {
+    // eslint-disable-next-line no-alert
+    if (!confirm(`Permanently delete "${item.name || item.id}" from Printables? This cannot be undone.`)) return;
+    setModelsError('');
+    try {
+      await workerRequest('delete', { id: String(item.id) });
+      await loadModels();
+    } catch (cause) {
+      setModelsError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  return (
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="mp-card p-3" style={{ background: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="mp-display tracking-wide text-[14px]">PRINTABLES UPLOAD</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#FA6831', color: '#fff' }}>Real</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>desktop session</span>
+        </div>
+        {status === 'idle' && (
+          <>
+            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(21,23,28,0.65)' }}>Connect Printables through its real Prusa Account window to upload.</p>
+            <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Printables</button>
+          </>
+        )}
+        {status === 'connected' && (
+          <>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
+              <StatusDot status={active?.status || 'connected'} /> {simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(21,23,28,0.55)' }}>manage</button>
+            </div>
+            <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.62)' }}>
+              <strong>Save draft</strong> uploads an unpublished model only you can edit. <strong>Publish public</strong> submits a real public listing (or an approval request when Printables requires review).
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => submit(false)} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Save size={13} /> Save unpublished draft</button>
+              <button onClick={() => submit(true)} className="mp-btn text-xs py-2 px-3"><Send size={13} /> Publish public (LIVE)</button>
+              <button onClick={toggleModels} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">
+                {modelsOpen ? 'Hide my models' : 'My Printables models'}
+              </button>
+            </div>
+            {modelsOpen && (
+              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(21,23,28,0.03)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em]">
+                    Drafts and published models
+                  </span>
+                  <button onClick={loadModels} disabled={modelsLoading} className="mp-mono text-[10px] uppercase tracking-[0.12em] disabled:opacity-40">
+                    {modelsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+                {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
+                {modelsLoading && models === null && <div className="text-[11px]"><Loader size={11} className="mp-spin inline mr-1" />Loading…</div>}
+                {models && models.drafts.length === 0 && models.published.length === 0 && !modelsLoading && (
+                  <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>No models found.</div>
+                )}
+                {models && [...models.drafts.map((item) => ({ ...item, state: 'draft' })), ...models.published.map((item) => ({ ...item, state: 'live' }))].map((item) => {
+                  const href = item.state === 'live'
+                    ? `https://www.printables.com/model/${item.id}${item.slug ? `-${item.slug}` : ''}`
+                    : `https://www.printables.com/model/${item.id}/edit`;
+                  const imageSrc = item.image?.filePath
+                    ? (item.image.filePath.startsWith('http') ? item.image.filePath : `https://media.printables.com/${item.image.filePath.replace(/^\/+/, '')}`)
+                    : '';
+                  return (
+                    <div key={`${item.state}-${item.id}`} className="flex items-center gap-2 p-1.5 mb-1" style={{ background: '#fff' }}>
+                      {imageSrc && <img src={imageSrc} alt="" width={34} height={34} style={{ objectFit: 'cover' }} />}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] truncate">{item.name || `Model ${item.id}`}</div>
+                        <div className="mp-mono text-[10px] uppercase" style={{ color: item.state === 'live' ? '#3a8d68' : '#d97706' }}>{item.state}</div>
+                      </div>
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="mp-mono text-[10px] uppercase">Open</a>
+                      <button onClick={() => deleteListedModel(item)} className="mp-mono text-[10px] uppercase" style={{ color: '#b91c1c' }}>Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+        {status === 'uploading' && (
+          <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>
+        )}
+        {status === 'done' && (
+          <>
+            <div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}>
+              <Check size={14} />
+              {result?.demo
+                ? `Simulation complete — nothing was uploaded (${result.state}).`
+                : result?.state === 'live'
+                  ? 'Confirmed live on Printables.'
+                  : result?.state === 'pending'
+                    ? 'Publication requested; Printables approval is pending.'
+                    : 'Unpublished Printables draft saved.'}
+            </div>
+            {!result?.demo && result?.url && (
+              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FA6831]">{result.url}</a>
+            )}
+            <div className="flex gap-3 flex-wrap">
+              <button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">Upload another</button>
+              <button onClick={deleteResult} className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: '#b91c1c' }}>{result?.demo ? 'Clear simulated result' : 'Delete this model'}</button>
+            </div>
+          </>
+        )}
+        {status === 'error' && (
+          <>
+            <div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
+            <button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
 // ACCOUNT CONNECTIONS — centralized multi-account sign-in (Settings modal)
 // =====================================================================
 const ACCT_STATUS = {
@@ -4921,7 +5473,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
         <div className="p-4 space-y-3 max-h-[68vh] overflow-auto">
           {tab === 'accounts' && (
             <>
-              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sign in to your publishing platforms once. Add multiple accounts per platform and choose which is active — that's the account ModelPrep publishes with. Stored only in this browser.</p>
+              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sign in to your publishing platforms once. Choose which account ModelPrep publishes with. Desktop MakerWorld and Printables sessions are encrypted outside the page; browser-only credentials stay in this browser profile.</p>
               {CONNECTABLE.map((id) => <PlatformConnections key={id} platform={meta(id)} />)}
               <div className="mp-card p-3" style={{ background: 'rgba(21,23,28,0.03)' }}>
                 <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>Coming soon</div>
@@ -4984,8 +5536,11 @@ function SettingsDefaults() {
 // About tab — build info + a hard reset for the locally-stored settings/accounts.
 function SettingsAbout({ onClose }) {
   const acc = useAccounts();
-  const clearAll = () => {
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+  const clearAll = async () => {
     try {
+      if (desktop?.disconnectMakerWorld) await desktop.disconnectMakerWorld();
+      if (desktop?.disconnectPrintables) await desktop.disconnectPrintables();
       for (const id of CONNECTABLE) for (const a of acc.getAccounts(id)) acc.removeAccount(id, a.id);
       localStorage.removeItem(AI_CONFIG_KEY);
       localStorage.removeItem(DEFAULT_PLATFORMS_KEY);
@@ -4999,7 +5554,9 @@ function SettingsAbout({ onClose }) {
         <div className="mp-mono text-[12px]">{BUILD_LABEL}</div>
       </div>
       <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>
-        Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.
+        {desktop
+          ? 'MakerWorld and Printables sessions are encrypted in the desktop app; other sign-ins and AI settings are saved in this browser profile. Clearing removes them from this device.'
+          : 'Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.'}
       </p>
       <button onClick={clearAll} className="mp-btn mp-btn-ghost text-xs py-2 px-3" style={{ color: '#b91c1c' }}>
         <Trash2 size={13} /> Clear saved accounts &amp; AI settings
@@ -5015,21 +5572,46 @@ function PlatformConnections({ platform }) {
   const [adding, setAdding] = useState(false);
   const [refreshingId, setRefreshingId] = useState(null);
   const [accountNotice, setAccountNotice] = useState('');
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const showForm = adding || accounts.length === 0;
+  useEffect(() => {
+    if (platform.id !== 'makerworld' || !desktop?.storeMakerWorldSession) return;
+    for (const account of accounts) {
+      if (typeof account.secret !== 'string' || isDesktopMakerWorldSession(account.secret)) continue;
+      desktop.storeMakerWorldSession(account.secret)
+        .then((result) => {
+          if (result?.ok) acc.updateAccount('makerworld', account.id, { secret: DESKTOP_MAKERWORLD_SECRET, status: 'connected' });
+        })
+        .catch(() => {});
+      break;
+    }
+  }, [platform.id, accounts, desktop, acc]);
   const refreshMakerWorld = async (account) => {
     setRefreshingId(account.id); setAccountNotice('');
     try {
-      const response = await fetch(`${WORKER_URL}/api/v1/makerworld/web/refresh`, {
+      const response = await makerWorldFetch(`${WORKER_URL}/api/v1/makerworld/web/refresh`, {
         method: 'POST', headers: { 'X-MW-Cookie': account.secret },
-      });
+      }, account.secret);
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.cookie) throw new Error(makerWorldResponseError(data, response.status, 'Session refresh failed'));
-      acc.updateAccount('makerworld', account.id, { secret: data.cookie, status: 'connected' });
+      acc.updateAccount('makerworld', account.id, {
+        secret: isDesktopMakerWorldSession(account.secret) ? DESKTOP_MAKERWORLD_SECRET : data.cookie,
+        status: 'connected',
+      });
       setAccountNotice(`Refreshed ${account.label}.`);
     } catch (error) {
       acc.updateAccount('makerworld', account.id, { status: 'reconnect' });
       setAccountNotice(error instanceof Error ? error.message : String(error));
     } finally { setRefreshingId(null); }
+  };
+  const removePlatformAccount = async (account) => {
+    if (platform.id === 'makerworld' && desktop?.disconnectMakerWorld && isDesktopMakerWorldSession(account.secret)) {
+      try { await desktop.disconnectMakerWorld(); } catch { /* still remove the local marker */ }
+    }
+    if (platform.id === 'printables' && desktop?.disconnectPrintables && isDesktopPrintablesSession(account.secret)) {
+      try { await desktop.disconnectPrintables(); } catch { /* still remove the local marker */ }
+    }
+    acc.removeAccount(platform.id, account.id);
   };
   return (
     <section className="mp-card p-3 space-y-2">
@@ -5050,7 +5632,7 @@ function PlatformConnections({ platform }) {
               {refreshingId === a.id ? 'refreshing…' : 'refresh session'}
             </button>
           )}
-          <button onClick={() => acc.removeAccount(platform.id, a.id)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
+          <button onClick={() => removePlatformAccount(a)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
         </div>
       ))}
       {accountNotice && <div className="text-[11px]" style={{ color: accountNotice.startsWith('Refreshed') ? '#1a7f37' : '#B91C1C' }}>{accountNotice}</div>}
@@ -5072,27 +5654,91 @@ function ConnectForm({ platform, onDone, canCancel }) {
   const [cookie, setCookie] = useState('');
   const [code, setCode] = useState('');
   const [needCode, setNeedCode] = useState(false); // MakerWorld emailed a verification code
+  const [tfaKey, setTfaKey] = useState('');
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const inputCls = 'mp-card text-[13px] p-2 w-full';
 
   const finishMw = async (rawCookie) => {
     setBusy(true); setErr('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/check`, { headers: { 'X-MW-Cookie': rawCookie } });
+      const res = await makerWorldFetch(
+        `${WORKER_URL}/api/v1/makerworld/web/check`,
+        { headers: { 'X-MW-Cookie': rawCookie } },
+        rawCookie,
+      );
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error('Session not valid — sign in again or paste a current MakerWorld token.');
       // Auto-label from the MakerWorld profile (handle/name); a typed label overrides it.
       let autoLabel = label.trim();
       if (!autoLabel) {
         try {
-          const me = await (await fetch(`${WORKER_URL}/api/v1/makerworld/web/whoami`, { headers: { 'X-MW-Cookie': rawCookie } })).json();
+          const me = await (await makerWorldFetch(
+            `${WORKER_URL}/api/v1/makerworld/web/whoami`,
+            { headers: { 'X-MW-Cookie': rawCookie } },
+            rawCookie,
+          )).json();
           if (me?.handle) autoLabel = me.name ? `${me.name} (@${me.handle})` : `@${me.handle}`;
         } catch { /* fall back below */ }
+      }
+      if (isDesktopMakerWorldSession(rawCookie)) {
+        for (const account of acc.getAccounts('makerworld')) acc.removeAccount('makerworld', account.id);
       }
       acc.addAccount('makerworld', { label: autoLabel || 'MakerWorld', secret: rawCookie, status: 'connected' });
       onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
+
+  if (platform.id === 'printables') {
+    const connectPrintables = async () => {
+      setBusy(true); setErr('');
+      try {
+        if (!desktop?.connectPrintables) {
+          throw new Error('Printables one-click sign-in requires the ModelPrep desktop app.');
+        }
+        const result = await desktop.connectPrintables();
+        if (!result?.ok) throw new Error(result?.error || 'Printables sign-in was cancelled.');
+        const response = await printablesFetch(
+          `${WORKER_URL}/api/v1/printables/web/whoami`,
+          {},
+          DESKTOP_PRINTABLES_SECRET,
+        );
+        const user = await response.json().catch(() => ({}));
+        if (!response.ok || !user.ok) {
+          throw new Error(printablesResponseError(user, response.status, 'Printables session check failed'));
+        }
+        for (const account of acc.getAccounts('printables')) acc.removeAccount('printables', account.id);
+        const handle = user.handle || result.user?.handle;
+        const publicName = user.publicUsername || result.user?.publicUsername;
+        const accountLabel = label.trim() || (handle ? (publicName ? `${publicName} (@${handle})` : `@${handle}`) : 'Printables');
+        acc.addAccount('printables', {
+          label: accountLabel,
+          secret: DESKTOP_PRINTABLES_SECRET,
+          status: 'connected',
+        });
+        onDone();
+      } catch (error) {
+        setErr(error instanceof Error ? error.message : String(error));
+      } finally { setBusy(false); }
+    };
+    return (
+      <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Account name (optional — defaults to your @handle)" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <button disabled={busy || !desktop?.connectPrintables} onClick={connectPrintables} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">
+          {busy ? 'Waiting for Printables sign-in…' : 'Sign in via Printables window (desktop)'}
+        </button>
+        {!desktop?.connectPrintables && (
+          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
+            Open this project in ModelPrep Desktop to sign in through Prusa Account. ModelPrep does not ask for or store your Printables password.
+          </p>
+        )}
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+          The real Printables/Prusa OAuth page opens in an isolated window. Its session is encrypted by the desktop app and never enters page storage.
+        </p>
+        {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+        {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
+      </div>
+    );
+  }
 
   if (platform.id === 'cults') {
     return (
@@ -5114,49 +5760,75 @@ function ConnectForm({ platform, onDone, canCancel }) {
   const loginMw = async () => {
     setBusy(true); setErr('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/login`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: email.trim(), password: pass }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data.needCode) { setNeedCode(true); setBusy(false); setErr(''); return; } // MakerWorld emailed an OTP
-      if (!res.ok || !data.ok || !data.cookie) throw new Error(data.error || `Sign-in failed (HTTP ${res.status}).`);
-      await finishMw(data.cookie); // validates the token + saves the account
+      let status;
+      let data;
+      if (desktop?.loginMakerWorld) {
+        const result = await desktop.loginMakerWorld({ account: email.trim(), password: pass });
+        status = result.status;
+        data = result.data || {};
+      } else {
+        const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/login`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: email.trim(), password: pass }),
+        });
+        status = res.status;
+        data = await res.json().catch(() => ({}));
+      }
+      if (data.needCode) {
+        setTfaKey(data.tfaKey || '');
+        setNeedCode(true); setBusy(false); setErr(''); return;
+      }
+      if (status < 200 || status >= 300 || !data.ok || (!desktop && !data.cookie)) throw new Error(data.error || `Sign-in failed (HTTP ${status}).`);
+      await finishMw(desktop ? DESKTOP_MAKERWORLD_SECRET : data.cookie);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
   };
   const loginMwCode = async () => {
     setBusy(true); setErr('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/login-code`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: email.trim(), code: code.trim() }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok || !data.cookie) throw new Error(data.error || `Code not accepted (HTTP ${res.status}).`);
-      await finishMw(data.cookie);
+      let status;
+      let data;
+      if (desktop?.loginMakerWorld) {
+        const result = await desktop.loginMakerWorld({ account: email.trim(), code: code.trim(), tfaKey });
+        status = result.status;
+        data = result.data || {};
+      } else {
+        const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/login-code`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: email.trim(), code: code.trim(), ...(tfaKey ? { tfaKey } : {}) }),
+        });
+        status = res.status;
+        data = await res.json().catch(() => ({}));
+      }
+      if (status < 200 || status >= 300 || !data.ok || (!desktop && !data.cookie)) throw new Error(data.error || `Code not accepted (HTTP ${status}).`);
+      await finishMw(desktop ? DESKTOP_MAKERWORLD_SECRET : data.cookie);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); }
   };
   return (
     <div className="space-y-1.5">
       <input className={inputCls} placeholder="Account name (optional — defaults to your @handle)" value={label} onChange={(e) => setLabel(e.target.value)} />
       {desktop && (
-        <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok || !r.cookie) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(r.cookie); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in via MakerWorld window (desktop)'}</button>
+        <button disabled={busy} onClick={async () => { setBusy(true); setErr(''); try { const r = await desktop.connectMakerWorld(); if (!r?.ok) throw new Error(r?.error || 'Sign-in cancelled.'); await finishMw(DESKTOP_MAKERWORLD_SECRET); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false); } }} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for sign-in…' : 'Sign in via MakerWorld window (desktop)'}</button>
       )}
-      <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={needCode} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
-      {!needCode && <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />}
-      {!needCode ? (
-        <button disabled={!email.trim() || !pass || busy} onClick={loginMw} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Signing in…' : 'Sign in to MakerWorld'}</button>
-      ) : (
-        <>
-          <div className="text-[11px]" style={{ color: '#3a8d68' }}>MakerWorld emailed a verification code to <strong>{email}</strong>. Enter it to finish signing in:</div>
-          <input className={inputCls} placeholder="Verification code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && code.trim()) loginMwCode(); }} />
-          <div className="flex gap-2">
-            <button disabled={!code.trim() || busy} onClick={loginMwCode} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Verifying…' : 'Verify & connect'}</button>
-            <button disabled={busy} onClick={() => { setNeedCode(false); setCode(''); setErr(''); }} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Back</button>
-          </div>
-        </>
-      )}
-      <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Email + password go to the Worker only to exchange for a sign-in token (lasts ~180 days); the password is never stored. A one-time email code is required because sign-in happens from our server.</p>
+      <details>
+        <summary className="text-[11px] cursor-pointer font-medium" style={{ color: 'rgba(21,23,28,0.6)' }}>Advanced fallback: email + password</summary>
+        <div className="mt-1.5 space-y-1.5">
+          <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={needCode} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
+          {!needCode && <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />}
+          {!needCode ? (
+            <button disabled={!email.trim() || !pass || busy} onClick={loginMw} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Signing in…' : 'Sign in to MakerWorld'}</button>
+          ) : (
+            <>
+              <div className="text-[11px]" style={{ color: '#3a8d68' }}>MakerWorld emailed a verification code to <strong>{email}</strong>. Enter it to finish signing in:</div>
+              <input className={inputCls} placeholder="Verification code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && code.trim()) loginMwCode(); }} />
+              <div className="flex gap-2">
+                <button disabled={!code.trim() || busy} onClick={loginMwCode} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Verifying…' : 'Verify & connect'}</button>
+                <button disabled={busy} onClick={() => { setNeedCode(false); setCode(''); setTfaKey(''); setErr(''); }} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Back</button>
+              </div>
+            </>
+          )}
+          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Your password is sent over HTTPS to the ModelPrep Worker only for MakerWorld’s token exchange and is never stored. MakerWorld may require an emailed code or block server-side login with a CAPTCHA; use the MakerWorld window if that happens.</p>
+        </div>
+      </details>
       <details>
         <summary className="text-[11px] cursor-pointer" style={{ color: 'rgba(21,23,28,0.5)' }}>Trouble signing in? Paste a session cookie instead</summary>
         <div className="mt-1.5 space-y-1.5">
@@ -5188,9 +5860,9 @@ let _mwCatalogCache = null;
 async function loadMwCatalog(cookie = '') {
   if (_mwCatalogCache) return _mwCatalogCache;
   try {
-    const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/bom-catalog`, {
+    const res = await makerWorldFetch(`${WORKER_URL}/api/v1/makerworld/web/bom-catalog`, {
       headers: cookie ? { 'X-MW-Cookie': cookie } : {},
-    });
+    }, cookie);
     const data = await res.json();
     if (res.ok && data?.catalog) {
       _mwCatalogCache = data.catalog;
@@ -5280,7 +5952,11 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
   const search = async () => {
     setBusy(true); setErr(''); setResults(null);
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/related?type=${type}&keyword=${encodeURIComponent(q)}`, { headers: { 'X-MW-Cookie': cookie } });
+      const res = await makerWorldFetch(
+        `${WORKER_URL}/api/v1/makerworld/web/related?type=${type}&keyword=${encodeURIComponent(q)}`,
+        { headers: { 'X-MW-Cookie': cookie } },
+        cookie,
+      );
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || 'Search failed');
       setResults(data.designs || []);
@@ -5360,7 +6036,11 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
     setLoading(true); setErr('');
     try {
       const endpoint = kind === 'laser-cut' ? 'related?type=1&keyword=' : 'my-creations';
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${endpoint}`, { headers: { 'X-MW-Cookie': cookie } });
+      const res = await makerWorldFetch(
+        `${WORKER_URL}/api/v1/makerworld/web/${endpoint}`,
+        { headers: { 'X-MW-Cookie': cookie } },
+        cookie,
+      );
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Failed to load');
       setModels(Array.isArray(data.designs) ? data.designs.map((model) => ({
@@ -5468,7 +6148,13 @@ function MakerWorldUploadFlow({ platform, project }) {
   const disconnect = () => { if (active) acc.removeAccount('makerworld', active.id); setStatus('idle'); setResult(null); };
 
   const uploadOne = async (fileOrBlob, name) => {
-    return uploadMakerWorldFile({ workerUrl: WORKER_URL, cookie, file: fileOrBlob, name });
+    return uploadMakerWorldFile({
+      workerUrl: WORKER_URL,
+      cookie,
+      file: fileOrBlob,
+      name,
+      fetchImpl: (url, options) => makerWorldFetch(url, options, cookie),
+    });
   };
 
   const publish = async (draftOnly = false) => {
@@ -5683,9 +6369,9 @@ function MakerWorldUploadFlow({ platform, project }) {
       setProgressMsg(draftOnly
         ? 'Saving MakerWorld draft…'
         : (isLC ? 'Creating Laser & Cut draft + publishing…' : (has3mf ? 'Creating draft + print profile + publishing…' : 'Creating draft + publishing…')));
-      const res = await fetch(endpoint, {
+      const res = await makerWorldFetch(endpoint, {
         method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(input),
-      });
+      }, cookie);
       const data = await res.json();
       if (!res.ok || !data.id) throw new Error(makerWorldResponseError(data, res.status, 'MakerWorld publish failed'));
       setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + 1 + (model3mf || lacFile ? 1 : 0), visibility, draftOnly });
@@ -5700,7 +6386,11 @@ function MakerWorldUploadFlow({ platform, project }) {
     setStatus('deleting'); setErrorMsg('');
     try {
       const delPath = result.kind === 'laser-cut' ? 'laser-cut/delete' : 'delete';
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${delPath}`, { method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: result.designId || result.id }) });
+      const res = await makerWorldFetch(
+        `${WORKER_URL}/api/v1/makerworld/web/${delPath}`,
+        { method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: result.designId || result.id }) },
+        cookie,
+      );
       const data = await res.json();
       if (!res.ok || !data.deleted) throw new Error(data?.message || data?.error || `Delete failed (HTTP ${res.status})`);
       setResult(null); setStatus('connected'); setLiveCheck(null);
@@ -5717,7 +6407,11 @@ function MakerWorldUploadFlow({ platform, project }) {
       // 1. Did slicing/verification FAIL? draft-status carries the exact reason
       //    (e.g. "The 3mf was not generated by Bambu Studio"). resultType != 0 = failed.
       const statusPath = result.kind === 'laser-cut' ? 'laser-cut/draft-status' : 'draft-status';
-      const sres = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${statusPath}?id=${result.id}`, { headers: { 'X-MW-Cookie': cookie } });
+      const sres = await makerWorldFetch(
+        `${WORKER_URL}/api/v1/makerworld/web/${statusPath}?id=${result.id}`,
+        { headers: { 'X-MW-Cookie': cookie } },
+        cookie,
+      );
       const sdata = await sres.json().catch(() => ({}));
       if (sres.ok && sdata.ok && sdata.outcome === 'failed') {
         setLiveCheck({ loading: false, failed: true, reason: sdata.reason || `Verification failed (code ${sdata.code})`, profileTitle: sdata.profileTitle });
@@ -5740,7 +6434,11 @@ function MakerWorldUploadFlow({ platform, project }) {
       }
       // 2. Not failed → confirm it's actually live (in the published list) vs still verifying.
       const listPath = result.kind === 'laser-cut' ? 'related?type=1&keyword=' : 'my-creations';
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${listPath}`, { headers: { 'X-MW-Cookie': cookie } });
+      const res = await makerWorldFetch(
+        `${WORKER_URL}/api/v1/makerworld/web/${listPath}`,
+        { headers: { 'X-MW-Cookie': cookie } },
+        cookie,
+      );
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Status check failed');
       const found = (data.designs || []).find((m) => String(m.id) === String(result.designId || result.id));

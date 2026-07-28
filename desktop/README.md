@@ -1,16 +1,16 @@
 # ModelPrep Desktop
 
-The ModelPrep desktop app — wraps the ModelPrep web app and adds a real **in-app
-"Sign in to MakerWorld"** that captures your session legitimately. No browser extension,
-no copying cookies by hand.
+The ModelPrep desktop app wraps the web app and adds real, isolated sign-in
+windows for **MakerWorld** and **Printables**. No browser extension and no
+copying Printables cookies by hand.
 
 ## Why a desktop app (and not the website)
 
 A **website** is forbidden by the browser from reading another site's login session
-(same-origin policy + `HttpOnly` cookies), and MakerWorld's Cloudflare blocks server-side
-login. A **desktop app** is allowed to: it opens MakerWorld's real login page in an embedded
-window, you sign in normally, and the app reads the resulting session and hands it to the
-ModelPrep app. Uploads then run through the same Cloudflare Worker as the website.
+(same-origin policy + `HttpOnly` cookies). A **desktop app** can open each
+platform's real login page in an embedded, platform-isolated session. The main
+process uses that session to broker requests to the ModelPrep Worker; raw
+cookies never enter the remotely loaded renderer.
 
 ## Run it (development)
 
@@ -37,12 +37,21 @@ it at a local dev build instead: `MODELPREP_URL=http://localhost:5173 npm start`
    (Loading the homepage + using MakerWorld's own Sign In mirrors the MakerStats iOS app —
    there is no standalone `/en/login` page; it 404s.)
 
+For Printables, Settings → Accounts → Printables opens
+`printables.com/model/create`. Printables redirects to its real Prusa Account
+OAuth/PKCE page as needed, including social-account popups. The app validates
+the completed session with a read-only profile query and stores its encrypted
+fallback separately from MakerWorld in `persist:printables`.
+
 ## Files
 
-- `main.js` — Electron main process. Opens the login window with the **same User-Agent the
+- `main.js` — Electron main process. Opens the MakerWorld login window with the **same User-Agent the
   Worker uses** (so the `cf_clearance` it earns is valid for the Worker's server-side replay),
-  in a persistent session partition; polls for the session cookies; exposes `mw:connect` /
-  `mw:status` / `mw:disconnect` over IPC.
+  in a persistent session partition; polls for the session cookies; encrypts Worker-issued
+  sessions with Electron `safeStorage`; and brokers authenticated Worker requests so the raw
+  MakerWorld token never enters the remotely loaded renderer or its `localStorage`. It also
+  owns the isolated Printables/Prusa OAuth session and injects it only into
+  `/api/v1/printables/web/*` Worker requests.
 - `preload.js` — exposes a minimal `window.modelprepDesktop` API to the web app, which
   feature-detects it to show the one-click sign-in (see `MakerWorldUploadFlow` in
   `deploy/src/App.jsx`).
@@ -74,7 +83,11 @@ Connect API key can notarize but cannot create that cert. Current build is **arm
 
 ## Notes
 
-- The captured session is stored only in the ModelPrep app's own `localStorage` (key
-  `modelprep:makerworld-cookie`) — the same place the website's paste flow stores it.
+- Desktop MakerWorld and Printables sessions are encrypted under Electron's app data and
+  requests are restricted to their own `/api/v1/<platform>/web/*` path on the configured
+  ModelPrep Worker. The renderer stores only opaque desktop-managed account markers. Existing desktop
+  `localStorage` sessions migrate into secure storage the next time Settings opens.
+- Email/password is an advanced fallback. It preserves MakerWorld's `tfaKey` through the
+  emailed-code step and surfaces CAPTCHA challenges as a prompt to use the MakerWorld window.
 - If sign-in is rejected after logging in, the session may need the Cloudflare check
   re-solved — click **Sign in to MakerWorld** again.

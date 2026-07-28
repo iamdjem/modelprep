@@ -16,7 +16,13 @@ export default defineConfig({
   plugins: [
     react(),
     // Emit dist/version.json so the running app can detect when a newer build is live.
-    { name: 'emit-version', closeBundle() { writeFileSync(resolve(__dirname, 'dist/version.json'), JSON.stringify({ commit, time: buildTime })); } },
+    {
+      name: 'emit-version',
+      apply: 'build',
+      closeBundle() {
+        writeFileSync(resolve(__dirname, 'dist/version.json'), JSON.stringify({ commit, time: buildTime }));
+      },
+    },
   ],
   define: {
     __BUILD_COMMIT__: JSON.stringify(commit),

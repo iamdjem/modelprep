@@ -83,6 +83,9 @@ export type MwLoginOutcome =
   | { ok: false; needCode: true; tfaKey?: string };
 
 function interpretLogin(data: Record<string, unknown>, text: string, res: Response): MwLoginOutcome {
+  if (/geetest|captcha/i.test(`${data.error ?? ''} ${data.message ?? ''} ${text}`)) {
+    throw new Error('MakerWorld requires a CAPTCHA for this sign-in. Use the MakerWorld window instead; server-side CAPTCHA completion is not supported.');
+  }
   const token = (data.accessToken as string) || (data.token as string) || '';
   if (token) {
     let refreshToken = (data.refreshToken as string) || undefined;
@@ -113,8 +116,8 @@ export function mwLogin(account: string, password: string): Promise<MwLoginOutco
   return mwPostLogin({ account, password });
 }
 /** Step 2: complete the sign-in with the emailed verification code. */
-export function mwLoginWithCode(account: string, code: string): Promise<MwLoginOutcome> {
-  return mwPostLogin({ account, code });
+export function mwLoginWithCode(account: string, code: string, tfaKey?: string): Promise<MwLoginOutcome> {
+  return mwPostLogin({ account, code, ...(tfaKey ? { tfaKey } : {}) });
 }
 
 /** Quick liveness/auth check: GET my message count. 200 = session valid. */

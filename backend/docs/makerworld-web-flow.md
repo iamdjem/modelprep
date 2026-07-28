@@ -23,6 +23,17 @@ private → delete) through the adapter itself.
 > (client-side) MAY trigger on suspicious/repeat attempts — surface the error + offer the
 > cookie-paste / desktop fallback. The legacy cookie-capture text below remains valid as a fallback.
 
+Production hardening:
+
+- `/login` and `/login-code` share a Cloudflare Rate Limiting binding keyed by a normalized,
+  SHA-256-hashed account identifier (6 attempts/minute).
+- `tfaKey` returned by MakerWorld's first step is preserved and returned with the emailed code.
+- GeeTest/CAPTCHA responses are not automated; the UI directs the user to the desktop
+  MakerWorld window.
+- The desktop app encrypts the resulting session with Electron `safeStorage` and brokers only
+  allowlisted MakerWorld Worker routes. The hosted web fallback still stores its own session
+  in that browser profile.
+
 MakerWorld sits behind **Bambu SSO + Cloudflare bot-management**. Original (fallback) flow:
 
 - The **user supplies their own MakerWorld session cookie** (the browser obtains it; it's

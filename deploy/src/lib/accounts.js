@@ -3,8 +3,9 @@
 // Shape in localStorage under `modelprep:accounts`:
 //   { [platform]: { accounts: [{ id, label, secret, status, addedAt }], activeId } }
 //
-// - `secret` is whatever that platform needs to act as the user: MakerWorld → the
-//   session cookie string; Cults → { email, password }. Stored only in this browser.
+// - `secret` is whatever that platform needs to act as the user: MakerWorld web →
+//   the session cookie string; MakerWorld desktop → an opaque main-process marker;
+//   Cults → { email, password }. Web secrets are stored only in this browser.
 // - `status`: 'connected' | 'reconnect' | 'error' | 'unknown'.
 // - One account per platform is "active" (activeId) — that's what the publish step uses.
 // Multiple accounts per platform are supported (add/switch/remove), with isolation:
@@ -13,7 +14,7 @@ import { useSyncExternalStore } from 'react';
 
 const KEY = 'modelprep:accounts';
 // Platforms with a real sign-in today; everything else is "coming soon" in the UI.
-export const CONNECTABLE = ['makerworld', 'cults'];
+export const CONNECTABLE = ['makerworld', 'printables', 'cults'];
 
 const uid = () => 'a_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 

@@ -14,6 +14,15 @@ compatibility_date = "2025-05-01"
 binding = "STAGING"
 bucket_name = "modelprep-staging"
 
+# Protect MakerWorld's credential-exchange endpoint from repeated account attacks.
+[[ratelimits]]
+name = "MAKERWORLD_LOGIN_RATE_LIMITER"
+namespace_id = "90009021"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60
+
 # KV namespace for short-lived tokens (bio-verification, etc.). Uncomment when needed:
 # `wrangler kv namespace create TOKENS`
 # [[kv_namespaces]]

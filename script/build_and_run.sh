@@ -11,7 +11,9 @@ PREVIEW_HOST="localhost"
 PREVIEW_PORT="4173"
 PREVIEW_URL="http://$PREVIEW_HOST:$PREVIEW_PORT"
 PREVIEW_LOG="${TMPDIR:-/tmp}/modelprep-vite-preview.log"
+APP_LOG="${TMPDIR:-/tmp}/modelprep-desktop.log"
 PREVIEW_SERVICE="io.makerstats.modelprep.preview"
+APP_SERVICE="io.makerstats.modelprep.local"
 NODE_BIN="$(command -v node)"
 VITE_CLI="$ROOT_DIR/deploy/node_modules/vite/bin/vite.js"
 
@@ -19,6 +21,7 @@ VITE_CLI="$ROOT_DIR/deploy/node_modules/vite/bin/vite.js"
 # either exact main executable so LaunchServices cannot focus the stale copy.
 pkill -f "^(/Applications/ModelPrep.app|$APP_BUNDLE)/Contents/MacOS/$APP_NAME$" >/dev/null 2>&1 || true
 launchctl remove "$PREVIEW_SERVICE" >/dev/null 2>&1 || true
+launchctl remove "$APP_SERVICE" >/dev/null 2>&1 || true
 
 npm --prefix "$ROOT_DIR/deploy" run build
 npm --prefix "$ROOT_DIR/desktop" run dist -- --dir --mac --arm64
@@ -35,12 +38,10 @@ done
 /usr/bin/curl --silent --fail "$PREVIEW_URL/version.json" >/dev/null
 
 open_app() {
-  # LaunchServices inherits the user launchd environment reliably. `open --env`
-  # is ignored on some macOS builds, which silently falls back to the live site.
-  launchctl setenv MODELPREP_URL "$PREVIEW_URL"
-  /usr/bin/open -n "$APP_BUNDLE"
-  sleep 1
-  launchctl unsetenv MODELPREP_URL
+  # LaunchServices may substitute /Applications/ModelPrep.app because both bundles share
+  # an identifier. Execute the exact local binary so QA cannot focus or relaunch a stale copy.
+  launchctl submit -l "$APP_SERVICE" -o "$APP_LOG" -e "$APP_LOG" -- \
+    /usr/bin/env MODELPREP_URL="$PREVIEW_URL" "$APP_BINARY"
 }
 
 case "$MODE" in
@@ -60,8 +61,14 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    sleep 2
-    pgrep -x "$APP_NAME" >/dev/null
+    for _ in {1..20}; do
+      if pgrep -f "^$APP_BINARY$" >/dev/null; then
+        exit 0
+      fi
+      sleep 0.1
+    done
+    echo "Local ModelPrep process did not remain running; see $APP_LOG" >&2
+    exit 1
     ;;
   *)
     echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2

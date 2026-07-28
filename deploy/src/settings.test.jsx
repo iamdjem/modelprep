@@ -14,6 +14,7 @@ import App from './App.jsx';
 beforeEach(() => {
   cleanup();
   localStorage.clear();
+  delete window.modelprepDesktop;
   // VersionBanner + connect checks poll the network; stub it so they no-op in jsdom.
   vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('no network in test'))));
 });
@@ -30,7 +31,30 @@ describe('Unified Settings page', () => {
 
     // Accounts tab (default) shows the connectable platforms.
     expect(screen.getByText('MakerWorld')).toBeInTheDocument();
+    expect(screen.getByText('Printables')).toBeInTheDocument();
     expect(screen.getByText('Cults3D')).toBeInTheDocument();
+  });
+
+  it('makes the MakerWorld window primary on desktop and keeps password login advanced', async () => {
+    window.modelprepDesktop = {
+      isDesktop: true,
+      connectMakerWorld: vi.fn(),
+      requestMakerWorld: vi.fn(),
+      storeMakerWorldSession: vi.fn(),
+      disconnectMakerWorld: vi.fn(),
+      connectPrintables: vi.fn(),
+      requestPrintables: vi.fn(),
+      disconnectPrintables: vi.fn(),
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /settings/i }));
+
+    expect(screen.getByRole('button', { name: /sign in via makerworld window/i })).toBeInTheDocument();
+    const fallback = screen.getByText(/advanced fallback: email \+ password/i).closest('details');
+    expect(fallback).not.toHaveAttribute('open');
+    expect(screen.getByRole('button', { name: /sign in via printables window/i })).toBeEnabled();
+    expect(screen.getByText(/real Printables\/Prusa OAuth page opens/i)).toBeInTheDocument();
   });
 
   it('moves the AI config into Settings and persists it across runs', async () => {

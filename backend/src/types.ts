@@ -12,6 +12,7 @@ export interface Env {
   CULTS_EMAIL?: string;
   CULTS_PASSWORD?: string;
   STAGING: R2Bucket;            // bound from [[r2_buckets]] in wrangler.toml
+  MAKERWORLD_LOGIN_RATE_LIMITER: RateLimit;
   // TOKENS?: KVNamespace;      // enable when KV namespace is bound
   // Anthropic API key for AI listing generation (vision over the user's photos).
   // Set via `wrangler secret put ANTHROPIC_API_KEY`. Optional — when absent, the
