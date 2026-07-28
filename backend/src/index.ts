@@ -144,7 +144,7 @@ function getCreds(req: Request, env: Env): { username: string; apiKey: string } 
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
     const path = url.pathname;
     const json = makeJson(req);
@@ -1015,8 +1015,38 @@ export default {
 
     // Public, read-only taxonomy used by the options UI.
     if (path === '/api/v1/printables/meta' && req.method === 'GET') {
-      try { return json({ ok: true, ...(await printablesMeta()) }); }
-      catch (err) { return printablesFailed(err); }
+      // Printables rate-limits its public GraphQL endpoint. Cache only the
+      // origin-independent JSON payload, then reconstruct the response through
+      // makeJson() so the requesting origin receives the correct CORS headers.
+      const cacheKey = new Request(`${url.origin}/__modelprep-cache/printables-meta-v1`);
+      const cached = await caches.default.match(cacheKey);
+      if (cached) {
+        const data = await cached.json();
+        return json(data, {
+          headers: {
+            'Cache-Control': 'public, max-age=300, s-maxage=86400',
+            'X-ModelPrep-Cache': 'HIT',
+          },
+        });
+      }
+      try {
+        const data = { ok: true, ...(await printablesMeta()) };
+        const cacheResponse = new Response(JSON.stringify(data), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=300, s-maxage=86400',
+          },
+        });
+        ctx.waitUntil(caches.default.put(cacheKey, cacheResponse));
+        return json(data, {
+          headers: {
+            'Cache-Control': 'public, max-age=300, s-maxage=86400',
+            'X-ModelPrep-Cache': 'MISS',
+          },
+        });
+      } catch (err) {
+        return printablesFailed(err);
+      }
     }
 
     if (path === '/api/v1/printables/web/check' && req.method === 'GET') {
