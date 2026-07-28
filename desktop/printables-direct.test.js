@@ -118,3 +118,56 @@ test('desktop model list uses the current argument-free drafts query', async () 
   assert.doesNotMatch(calls[1].query, /drafts\s*\(/);
   assert.deepEqual(JSON.parse(result.body).drafts, [{ id: '1793654', name: 'Dragon' }]);
 });
+
+test('desktop remix resolver converts a Printables URL to its model ID', async () => {
+  const calls = [];
+  const result = await handlePrintablesRequest({
+    url: 'https://worker.example/api/v1/printables/web/remix/resolve',
+    method: 'POST',
+    bodyType: 'text',
+    body: JSON.stringify({ value: 'https://www.printables.com/model/192914-example' }),
+  }, 'sessionid=private', async (_url, init) => {
+    const request = JSON.parse(init.body);
+    calls.push(request);
+    return graphQlResponse({ data: { model: { id: '192914', license: { disallowRemixing: null } } } });
+  });
+
+  assert.equal(result.status, 200);
+  assert.equal(calls[0].variables.id, '192914');
+  assert.match(calls[0].query, /disallowRemixing/);
+});
+
+test('desktop status route returns complete metadata and asset readback', async () => {
+  const calls = [];
+  const result = await handlePrintablesRequest({
+    url: 'https://worker.example/api/v1/printables/web/status?id=1793654',
+    method: 'GET',
+    bodyType: 'none',
+  }, 'sessionid=private', async (_url, init) => {
+    const request = JSON.parse(init.body);
+    calls.push(request);
+    return graphQlResponse({
+      data: {
+        model: {
+          id: '1793654',
+          summary: 'Dragon',
+          images: [{ id: '1' }],
+          stls: [{ id: '2', name: 'dragon.stl' }],
+          slas: [],
+          gcodes: [],
+          otherFiles: [],
+          datePublished: null,
+          publishRequests: [],
+        },
+      },
+    });
+  });
+
+  assert.equal(result.status, 200);
+  const body = JSON.parse(result.body);
+  assert.equal(body.state, 'draft');
+  assert.equal(body.model.images.length, 1);
+  for (const field of ['summary', 'authorship', 'category', 'license', 'tags', 'images', 'stls', 'slas', 'gcodes', 'otherFiles']) {
+    assert.match(calls[0].query, new RegExp(`\\b${field}\\b`));
+  }
+});

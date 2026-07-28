@@ -110,7 +110,9 @@ export function isModelFile(name) {
 
 export function isProfile(name) { return fileExt(name) === '3mf'; }
 
-export function isImageFile(name) { return ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(fileExt(name)); }
+export function isImageFile(name) {
+  return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'heif'].includes(fileExt(name));
+}
 
 export function slugify(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';

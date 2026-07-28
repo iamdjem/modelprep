@@ -213,7 +213,23 @@ async function publishModel(cookie, id, fetchImpl) {
 async function modelStatus(cookie, id, fetchImpl) {
   const data = await graphQl(cookie, `query ModelPrepModelStatus($id: ID!) {
     model: print(id: $id) {
-      id slug name datePublished draftReason publishApprovalRequired
+      id slug name summary description authorship
+      nsfw aiGenerated politicalContent datePublished draftReason publishApprovalRequired
+      category { id name }
+      license { id name disallowRemixing }
+      tags { id name }
+      image { id filePath order }
+      images { id filePath order }
+      stls { id name folder note order }
+      slas { id name folder note order layerHeight printDuration }
+      gcodes {
+        id name folder note order weight layerHeight nozzleDiameter printDuration excludeFromTotalSum
+        material { id name }
+        printer { id name }
+      }
+      otherFiles { id name folder note order }
+      remixParents { id parentPrintId url }
+      remixDescription
       publishRequests { id status created }
     }
   }`, { id }, fetchImpl);
@@ -250,13 +266,19 @@ async function deleteModel(cookie, id, fetchImpl) {
 }
 
 async function resolveRemix(cookie, value, fetchImpl) {
-  if (/^\d+$/.test(value.trim())) {
+  const trimmed = value.trim();
+  const modelUrl = trimmed.match(/^https:\/\/(?:www\.)?printables\.com\/(?:model|education)\/(\d+)(?:[/?#-]|$)/i);
+  const printId = /^\d+$/.test(trimmed) ? trimmed : modelUrl?.[1];
+  if (printId) {
     return graphQl(
       cookie,
       `query ModelPrepRemixById($id: ID!) {
-        model: print(id: $id) { id name slug }
+        model: print(id: $id) {
+          id name slug
+          license { id name disallowRemixing }
+        }
       }`,
-      { id: value.trim() },
+      { id: printId },
       fetchImpl,
     );
   }
@@ -265,7 +287,7 @@ async function resolveRemix(cookie, value, fetchImpl) {
       url author image title
       license { id name disallowRemixing }
     }
-  }`, { url: value }, fetchImpl);
+  }`, { url: trimmed }, fetchImpl);
 }
 
 function uploadValidation(input) {

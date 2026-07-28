@@ -67,6 +67,8 @@ describe('file type detection', () => {
   it('classifies images incl webp/gif', () => {
     expect(isImageFile('cover.webp')).toBe(true);
     expect(isImageFile('clip.gif')).toBe(true);
+    expect(isImageFile('iphone.HEIC')).toBe(true);
+    expect(isImageFile('iphone.heif')).toBe(true);
     expect(isImageFile('model.stl')).toBe(false);
   });
   it('fileExt is lowercase and tail-only', () => {

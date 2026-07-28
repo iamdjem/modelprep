@@ -11,6 +11,14 @@ describe('Printables upload helpers', () => {
       { issues: [{ field: 'summary', messages: ['This field is required.'] }] },
       400,
       'failed',
-    )).toBe('This field is required.');
+    )).toBe('summary: This field is required.');
+  });
+
+  it('turns an expired desktop session into a reconnect instruction', () => {
+    expect(printablesResponseError(
+      { error: 'missing_printables_session' },
+      401,
+      'failed',
+    )).toMatch(/session expired.*settings.*sign in again/i);
   });
 });

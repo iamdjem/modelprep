@@ -6,13 +6,13 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test auth-bridge.test.js printables-direct.test.js",
+    "test": "node --test auth-bridge.test.js printables-direct.test.js printables-session-cache.test.js",
     "dist": "electron-builder"
   },
   "build": {
     "appId": "io.makerstats.modelprep",
     "productName": "ModelPrep",
-    "files": ["main.js", "preload.js", "auth-bridge.js", "printables-direct.js", "icon.png"],
+    "files": ["main.js", "preload.js", "auth-bridge.js", "printables-direct.js", "printables-session-cache.js", "icon.png"],
     "mac": {
       "category": "public.app-category.graphics-design",
       "target": "dmg",

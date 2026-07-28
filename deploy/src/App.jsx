@@ -25,6 +25,17 @@ import {
   uploadPrintablesFile,
   waitForPrintablesUploads,
 } from './lib/printables-upload.js';
+import {
+  applyPrintablesFileSettings,
+  buildPrintablesSummary,
+  normalizePrintablesTags,
+  parsePrintablesRemixSource,
+  publishVerifiedPrintablesModel,
+  printablesReadbackMismatches,
+  validatePrintablesModel,
+  waitForPrintablesPublication,
+} from './lib/printables-model.js';
+import { convertHeicFileToJpeg, isHeicFile } from './lib/heic.js';
 import makerWorldCategoryTree from './data/makerworld-categories.json';
 import makerWorldForbiddenWords from './data/makerworld-forbidden-words.json';
 import {
@@ -632,7 +643,7 @@ const initialProject = {
   profiles: [],
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-    printables: { enabled: true, categoryId: '', licenseId: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip' },
+    printables: { enabled: true, categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip' },
     cults: { enabled: true, price: 0, free: true, visibility: 'secret' },
     mmf: { enabled: true, price: 0, free: true },
     thingiverse: { enabled: true },
@@ -666,6 +677,7 @@ function buildDemoProject() {
     name, size, type,
     isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
     isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' },
+    printables: { note: '', folder: '' },
     blob: new Blob([`ModelPrep demo placeholder — ${name}`], { type: type || 'application/octet-stream' }),
   });
   const files = [
@@ -700,7 +712,7 @@ function buildDemoProject() {
     profiles,
     platforms: {
       makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-      printables: { enabled: true, categoryId: '36', licenseId: '3', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip' },
+      printables: { enabled: true, categoryId: '36', licenseId: '3', summary: 'A print-in-place articulated desk dragon with poseable wings and tail.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip' },
       cults: { enabled: true, price: 4.5, free: false },
       mmf: { enabled: true, price: 0, free: true },
       thingiverse: { enabled: true },
@@ -979,7 +991,8 @@ async function importFolderToProject(fileList) {
     .map((f) => { const name = uniqueFileName(baseOf(f), taken); taken.add(name.toLowerCase());
       return { id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, size: f.size, type: f.type,
         isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
-        isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' }, blob: f }; });
+        isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' },
+        printables: { note: '', folder: '' }, blob: f }; });
   if (buildFiles.length) {
     patch.files = buildFiles;
     const models = buildFiles.filter(f => f.isModel).length;
@@ -1732,8 +1745,10 @@ function platformPreflight(platform, project) {
     if (printables.authorship === 'remix' && !printables.remixDescription?.trim()) {
       errors.push('Describe what changed in the remix.');
     }
-    const invalidTags = project.tags.filter((tag) => !/^[a-z0-9\s]{1,25}$/.test(String(tag)));
-    if (invalidTags.length) warnings.push(`${invalidTags.length} tag(s) will be normalized to Printables’ lowercase letters/numbers/spaces rule.`);
+    const normalizedTags = normalizePrintablesTags(project.tags);
+    if (normalizedTags.length !== project.tags.length || normalizedTags.some((tag, index) => tag !== project.tags[index])) {
+      warnings.push('Printables tags will be normalized to unique lowercase letters and numbers (separators are removed).');
+    }
     if (printables.zipMode === 'archive') {
       for (const file of modelFiles.filter((entry) => fileExt(entry.name) === 'zip')) {
         if (file.size > 256 * MB) errors.push(`${file.name} exceeds Printables’ 256MB retained-ZIP limit.`);
@@ -1773,6 +1788,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         isImage: isImageFile(f.name),
         isLaserCut: isMakerWorldLaserFile(f.name),
         makerWorld: { note: '', openSource: true, folderPath: '' },
+        printables: { note: '', folder: '' },
         blob: f,  // keep the actual File so we can include it in ZIP exports
       };
     });
@@ -1800,6 +1816,11 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   const updateMakerWorldFile = (id, patch) => updateProject({
     files: project.files.map((file) => file.id === id
       ? { ...file, makerWorld: { note: '', openSource: true, folderPath: '', ...(file.makerWorld || {}), ...patch } }
+      : file),
+  });
+  const updatePrintablesFile = (id, patch) => updateProject({
+    files: project.files.map((file) => file.id === id
+      ? { ...file, printables: { note: '', folder: '', ...(file.printables || {}), ...patch } }
       : file),
   });
 
@@ -1908,7 +1929,8 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           <div className="space-y-2">
             {project.files.map(f => (
               <FileRow key={f.id} file={f} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)}
-                onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)} />
+                onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)}
+                onUpdatePrintables={(patch) => updatePrintablesFile(f.id, patch)} />
             ))}
           </div>
         </div>
@@ -1927,7 +1949,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
-function FileRow({ file, onRemove, onRename, onUpdateMakerWorld }) {
+export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdatePrintables }) {
   const isProf = file.isProfile;
   const isImg = file.isImage;
   const ext = fileExt(file.name);
@@ -1935,7 +1957,9 @@ function FileRow({ file, onRemove, onRename, onUpdateMakerWorld }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(baseName);
   const supportsMakerWorld = isMakerWorldRegularFile(file.name) || isMakerWorldLaserFile(file.name);
+  const supportsPrintables = PRINTABLES_FORMATS.includes(ext) && !isImg;
   const makerWorld = { note: '', openSource: true, folderPath: '', ...(file.makerWorld || {}) };
+  const printables = { note: '', folder: '', ...(file.printables || {}) };
 
   const startEdit = () => { setDraft(baseName); setEditing(true); };
   const commit = () => {
@@ -2016,6 +2040,24 @@ function FileRow({ file, onRemove, onRename, onUpdateMakerWorld }) {
             <input type="checkbox" checked={makerWorld.openSource} onChange={(e) => onUpdateMakerWorld({ openSource: e.target.checked })} />
             Open Source — allow the raw file to be downloaded
           </label>
+        </details>
+      )}
+      {supportsPrintables && (
+        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.55)' }}>Printables file settings</summary>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+            <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
+              <input className="mp-input text-[12px]" value={printables.folder}
+                placeholder="parts/large" onChange={(e) => onUpdatePrintables({ folder: e.target.value.replace(/^\/+|\/+$/g, '') })} />
+            </label>
+            <label className="text-[11px] space-y-1"><span>File note (optional)</span>
+              <input className="mp-input text-[12px]" value={printables.note} maxLength={500}
+                placeholder="Print this part twice" onChange={(e) => onUpdatePrintables({ note: e.target.value })} />
+            </label>
+          </div>
+          <p className="text-[10px] mt-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>
+            Printables file order follows the file order shown above.
+          </p>
         </details>
       )}
     </div>
@@ -2768,7 +2810,14 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
     const rejectedType = all.length - candidates.length;
     const additions = [];
     let failed = 0;
-    for (const file of candidates) {
+    for (const sourceFile of candidates) {
+      let file = sourceFile;
+      try {
+        file = await convertHeicFileToJpeg(sourceFile);
+      } catch (e) {
+        failed++;
+        continue;
+      }
       const dataUrl = await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => resolve(e.target.result);
@@ -2784,14 +2833,14 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           naturalW: img.naturalWidth,
           naturalH: img.naturalHeight,
           focal: { x: 0.5, y: 0.5 },
-          alt: file.name.replace(/\.[^.]+$/, ''),
+          alt: sourceFile.name.replace(/\.[^.]+$/, ''),
         });
       } catch (e) { failed++; }
     }
 
     // Surface what happened so a drop never silently does nothing.
     if (!additions.length) {
-      if (rejectedType && !failed) setImgNotice("Those files aren't recognized as images. Use JPG, PNG, WebP or GIF.");
+      if (rejectedType && !failed) setImgNotice("Those files aren't recognized as images. Use JPG, PNG, WebP, GIF, HEIC or HEIF.");
       else if (failed) setImgNotice(`Couldn't read ${failed} file${failed === 1 ? '' : 's'} — it may be corrupt or an unsupported format.`);
       else setImgNotice('No images found in that drop.');
       return;
@@ -2898,7 +2947,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
               <button onClick={() => fileInputRef.current?.click()} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
                 <Plus size={11} /> Add
               </button>
-              <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
+              <input ref={fileInputRef} type="file" multiple accept="image/*,.heic,.heif" onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
             </div>
 
             <p className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1" style={{ color: 'rgba(21,23,28,0.4)' }}>
@@ -3620,7 +3669,7 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
   );
 }
 
-function PrintablesOptions({ opts, onUpdate }) {
+export function PrintablesOptions({ opts, onUpdate }) {
   const [metaState, setMetaState] = useState({ categories: [], licenses: [], error: '' });
   useEffect(() => {
     let active = true;
@@ -3643,6 +3692,19 @@ function PrintablesOptions({ opts, onUpdate }) {
     license.isSelectable !== false && license.freeModels !== false);
   return (
     <div className="mt-3 space-y-3">
+      <div>
+        <Label>Printables summary (required, 120 characters)</Label>
+        <input
+          className="mp-input"
+          maxLength={120}
+          value={opts.summary || ''}
+          onChange={(event) => onUpdate('summary', event.target.value)}
+          placeholder="Short listing summary; falls back to the description"
+        />
+        <div className="mp-mono text-[10px] mt-1" style={{ color: 'rgba(21,23,28,0.45)' }}>
+          {(opts.summary || '').length}/120 · leave blank to derive it from the description
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <Label>Printables category (required)</Label>
@@ -5096,14 +5158,8 @@ function PrintablesUploadFlow({ platform, project }) {
     });
   };
 
-  const cleanModelFile = (file) => ({
-    id: String(file.id),
-    folder: file.folder || '',
-    name: file.name,
-    note: file.note || '',
-  });
-  const cleanGcode = (file) => ({
-    ...cleanModelFile(file),
+  const cleanGcode = (file, source) => ({
+    ...applyPrintablesFileSettings(file, source),
     weight: file.weight ?? null,
     material: file.material?.id ?? file.material ?? null,
     printer: file.printer?.id ?? file.printer ?? null,
@@ -5114,22 +5170,16 @@ function PrintablesUploadFlow({ platform, project }) {
   });
 
   const validate = () => {
-    const issues = [];
     const cover = project.images.find((image) => image.id === project.coverImageId) || project.images[0];
     const modelFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
-    if (!project.title.trim()) issues.push('Add a model title in Details.');
-    if (!mdToPlain(project.description).trim()) issues.push('Add a description in Details.');
-    if (!cover) issues.push('Choose at least one model image.');
-    if (!modelFiles.length) issues.push('Add at least one Printables-supported model file.');
-    if (!options.categoryId) issues.push('Choose a Printables category in Platforms.');
-    if (options.aiGenerated == null) issues.push('Answer whether AI was used in Platforms.');
-    if ((options.authorship === 'remix' || options.authorship === 'reupload') && !options.remixParents?.[0]) {
-      issues.push('Add the original model/source URL in Platforms.');
-    }
-    if (options.authorship === 'remix' && !options.remixDescription?.trim()) {
-      issues.push('Describe what changed in this remix.');
-    }
-    return issues;
+    return validatePrintablesModel({
+      title: project.title,
+      summary: options.summary,
+      description: mdToPlain(project.description),
+      images: cover ? project.images : [],
+      files: modelFiles,
+      options,
+    });
   };
 
   const submit = async (publish) => {
@@ -5159,8 +5209,8 @@ function PrintablesUploadFlow({ platform, project }) {
         ...project.images.filter((image) => image.id !== cover.id),
       ].slice(0, platform.maxImages);
       const modelFiles = project.files.filter((file) =>
-        file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
-      const uploadIds = [];
+        file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage && !isHeicFile(file.name));
+      const uploadRecords = [];
 
       for (let index = 0; index < orderedImages.length; index += 1) {
         setProgress(`Uploading image ${index + 1} of ${orderedImages.length}…`);
@@ -5173,7 +5223,7 @@ function PrintablesUploadFlow({ platform, project }) {
           imageWidth: source.naturalW,
           imageHeight: source.naturalH,
         });
-        uploadIds.push(uploaded.id);
+        uploadRecords.push({ id: uploaded.id, kind: 'image', source, order: index });
       }
       for (let index = 0; index < modelFiles.length; index += 1) {
         setProgress(`Uploading model file ${index + 1} of ${modelFiles.length}…`);
@@ -5185,33 +5235,66 @@ function PrintablesUploadFlow({ platform, project }) {
           workerUrl: WORKER_URL,
           secret,
           file,
+          folder: source.printables?.folder || '',
           unzip: fileExt(source.name) === 'zip' ? options.zipMode !== 'archive' : true,
         });
-        uploadIds.push(uploaded.id);
+        uploadRecords.push({ id: uploaded.id, kind: 'file', source, order: index });
       }
 
       setProgress('Printables is inspecting the uploaded files…');
       const processed = await waitForPrintablesUploads({
         workerUrl: WORKER_URL,
         secret,
-        ids: uploadIds,
+        ids: uploadRecords.map((record) => record.id),
       });
-      const images = processed.flatMap((upload) => upload.images || []);
-      const stls = processed.flatMap((upload) => upload.stls || []);
-      const slas = processed.flatMap((upload) => upload.slas || []);
-      const gcodes = processed.flatMap((upload) => upload.gcodes || []);
-      const otherFiles = processed.flatMap((upload) => upload.otherFiles || []);
+      const recordById = new Map(uploadRecords.map((record) => [String(record.id), record]));
+      const images = processed
+        .flatMap((upload) => (upload.images || []).map((image) => ({
+          ...image,
+          order: recordById.get(String(upload.id))?.order ?? image.order ?? 0,
+        })))
+        .sort((left, right) => left.order - right.order);
+      const collectFiles = (key) => processed
+        .flatMap((upload) => {
+          const record = recordById.get(String(upload.id));
+          return (upload[key] || []).map((file, childIndex) => ({
+            file,
+            source: record?.source,
+            order: (record?.order ?? 0) * 1000 + childIndex,
+          }));
+        })
+        .sort((left, right) => left.order - right.order);
+      const stls = collectFiles('stls');
+      const slas = collectFiles('slas');
+      const gcodes = collectFiles('gcodes');
+      const otherFiles = collectFiles('otherFiles');
       if (!images.length) throw new Error('Printables finished processing but returned no gallery images.');
       if (![stls, slas, gcodes, otherFiles].some((files) => files.length)) {
         throw new Error('Printables finished processing but returned no model files.');
       }
 
       setProgress(publish ? 'Saving complete model metadata…' : 'Saving unpublished draft…');
-      const summary = mdToPlain(project.description).replace(/\s+/g, ' ').trim().slice(0, 120);
-      const normalizedTags = project.tags
-        .map((tag) => String(tag).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 25))
-        .filter(Boolean);
-      const update = await workerRequest('model', {
+      const summary = buildPrintablesSummary(options.summary, mdToPlain(project.description));
+      const normalizedTags = normalizePrintablesTags(project.tags);
+      let remixParents = [];
+      if (options.authorship === 'remix' || options.authorship === 'reupload') {
+        const parsed = parsePrintablesRemixSource(options.remixParents?.[0]);
+        setProgress('Validating the original model/source…');
+        const resolved = await workerRequest('remix/resolve', { value: options.remixParents[0] });
+        if (parsed.type === 'printables' && String(resolved.model?.id || '') !== parsed.id) {
+          throw new Error('Printables could not resolve that source model. Check its URL/ID and license.');
+        }
+        if (parsed.type === 'external' && !resolved.remixUrlInfo?.url) {
+          throw new Error('Printables could not inspect that external source URL.');
+        }
+        const restriction = resolved.model?.license?.disallowRemixing || resolved.remixUrlInfo?.license?.disallowRemixing;
+        if (restriction && restriction !== 'allow') {
+          throw new Error(`The source license does not allow this ${options.authorship}.`);
+        }
+        remixParents = [parsed.id];
+        setProgress(publish ? 'Saving complete model metadata…' : 'Saving unpublished draft…');
+      }
+      const modelPayload = {
         ...(modelId ? { id: modelId } : {}),
         name: project.title.trim().slice(0, 255),
         summary,
@@ -5219,50 +5302,60 @@ function PrintablesUploadFlow({ platform, project }) {
         category: String(options.categoryId),
         license: String(options.licenseId || PRINTABLES_LICENSE_MAP[project.license] || '13'),
         tags: normalizedTags,
-        draft: !publish,
+        // The live website always creates a real draft first. A brand-new
+        // model cannot enter public mode in the same modelUpdate mutation.
+        draft: true,
         mainImage: String(images[0].id),
         authorship: options.authorship || 'author',
-        remixParents: options.remixParents || [],
+        remixParents,
         remixDescription: options.authorship === 'remix' ? options.remixDescription : null,
         nsfw: !!options.nsfw,
         aiGenerated: !!options.aiGenerated,
         politicalContent: !!options.politicalContent,
         images: images.map((image) => ({ id: String(image.id) })),
-        stls: stls.map(cleanModelFile),
-        slas: slas.map(cleanModelFile),
-        gcodes: gcodes.map(cleanGcode),
-        otherFiles: otherFiles.map(cleanModelFile),
-      });
+        stls: stls.map((entry) => applyPrintablesFileSettings(entry.file, entry.source)),
+        slas: slas.map((entry) => applyPrintablesFileSettings(entry.file, entry.source)),
+        gcodes: gcodes.map((entry) => cleanGcode(entry.file, entry.source)),
+        otherFiles: otherFiles.map((entry) => applyPrintablesFileSettings(entry.file, entry.source)),
+      };
+      const update = await workerRequest('model', modelPayload);
       const id = String(update.output.id);
       setModelId(id);
+      setProgress('Verifying saved metadata and files…');
+      const readback = await workerRequest(`status?id=${encodeURIComponent(id)}`, null, 'GET');
+      const mismatches = printablesReadbackMismatches(modelPayload, readback.model);
+      if (mismatches.length) {
+        throw new Error(`Printables saved the model, but verification found: ${mismatches.join('; ')}`);
+      }
       if (!publish) {
         setResult({
           id,
           state: 'draft',
           url: `https://www.printables.com/model/${id}/edit`,
+          verified: true,
         });
         setStatus('done');
         return;
       }
 
-      setProgress('Requesting public publication…');
-      const publishRequest = await workerRequest('publish', { id });
-      setProgress('Checking Printables publication status…');
-      const statusResponse = await printablesFetch(
-        `${WORKER_URL}/api/v1/printables/web/status?id=${encodeURIComponent(id)}`,
-        {},
-        secret,
-      );
-      const statusData = await statusResponse.json().catch(() => ({}));
-      if (!statusResponse.ok || !statusData.ok) {
-        throw new Error(printablesResponseError(statusData, statusResponse.status, 'Printables status check failed'));
-      }
+      const approvalRequired = !!readback.model?.publishApprovalRequired;
+      setProgress(approvalRequired
+        ? 'Requesting Printables publication approval…'
+        : 'Publishing the verified Printables draft…');
+      const publication = await publishVerifiedPrintablesModel({
+        request: workerRequest,
+        id,
+        modelPayload,
+        readbackModel: readback.model,
+      });
+      setProgress('Waiting for Printables to confirm publication…');
+      const statusData = await waitForPrintablesPublication({
+        request: workerRequest,
+        id,
+        strategy: publication.strategy,
+      });
       const slug = statusData.model?.slug || update.output.slug || '';
-      const publishedState = statusData.state === 'live'
-        ? 'live'
-        : publishRequest.output?.status
-          ? 'pending'
-          : statusData.state;
+      const publishedState = statusData.state;
       setResult({
         id,
         state: publishedState,

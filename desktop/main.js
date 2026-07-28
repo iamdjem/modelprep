@@ -11,6 +11,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { validateWorkerUrl } = require('./auth-bridge');
 const { handlePrintablesRequest, printablesWhoamiDirect } = require('./printables-direct');
+const { createPrintablesSessionCache } = require('./printables-session-cache');
 
 // The app renders multiple <canvas> cover previews; GPU-accelerated canvas can crash the
 // renderer with EXC_BAD_ACCESS/SIGBUS on some Macs. Software rendering is plenty fast here
@@ -30,6 +31,7 @@ const WORKER_URL = process.env.MODELPREP_WORKER_URL || 'https://modelprep-backen
 const MW_PARTITION = 'persist:makerworld'; // persistent session so cf_clearance survives
 const PRINTABLES_PARTITION = 'persist:printables';
 const WANT = ['token', 'cf_clearance', 'refreshToken'];
+const printablesAuthCache = createPrintablesSessionCache();
 
 function mwSession() { return session.fromPartition(MW_PARTITION); }
 function printablesSession() { return session.fromPartition(PRINTABLES_PARTITION); }
@@ -115,12 +117,23 @@ async function validatePrintablesCookie(cookie) {
   }
 }
 
-async function readPrintablesCookie() {
+async function readPrintablesContext({ force = false } = {}) {
   const browserCookie = await readPrintablesBrowserCookie();
-  if (browserCookie && await validatePrintablesCookie(browserCookie)) return browserCookie;
   const stored = await readEncryptedPrintablesSession();
-  if (stored && await validatePrintablesCookie(stored)) return stored;
+  const candidates = [...new Set([browserCookie, stored].filter(Boolean))];
+  for (const cookie of candidates) {
+    const identity = await printablesAuthCache.validate(
+      cookie,
+      validatePrintablesCookie,
+      { force },
+    );
+    if (identity) return { cookie, identity };
+  }
   return null;
+}
+
+async function readPrintablesCookie(options) {
+  return (await readPrintablesContext(options))?.cookie ?? null;
 }
 
 async function rebuildBody(bodyType, body) {
@@ -322,9 +335,8 @@ ipcMain.handle('mw:disconnect', async () => {
 });
 
 ipcMain.handle('printables:status', async () => {
-  const cookie = await readPrintablesCookie();
-  if (!cookie) return { connected: false };
-  const identity = await validatePrintablesCookie(cookie);
+  const context = await readPrintablesContext({ force: true });
+  const identity = context?.identity;
   return {
     connected: !!identity,
     user: identity ? {
@@ -336,16 +348,16 @@ ipcMain.handle('printables:status', async () => {
 });
 
 ipcMain.handle('printables:connect', async (event) => {
-  const existing = await readPrintablesCookie();
+  const existing = await readPrintablesContext({ force: true });
   if (existing) {
-    await storeEncryptedPrintablesSession(existing);
-    const identity = await validatePrintablesCookie(existing);
-    return { ok: true, user: identity };
+    await storeEncryptedPrintablesSession(existing.cookie);
+    return { ok: true, user: existing.identity };
   }
   const parent = BrowserWindow.fromWebContents(event.sender);
   try {
     const { cookie, identity } = await openPrintablesLoginAndCapture(parent);
     await storeEncryptedPrintablesSession(cookie);
+    await printablesAuthCache.validate(cookie, async () => identity, { force: true });
     return { ok: true, user: identity };
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : String(err) };
@@ -362,12 +374,17 @@ ipcMain.handle('printables:request', async (_event, request = {}) => {
     };
   }
   const url = validateWorkerUrl(request.url, WORKER_URL, 'printables');
-  return handlePrintablesRequest({ ...request, url }, cookie);
+  const result = await handlePrintablesRequest({ ...request, url }, cookie);
+  if (result.status === 401 || /user_is_not_authenticated|token_is_expired|session is no longer authorized/i.test(result.body)) {
+    printablesAuthCache.clear();
+  }
+  return result;
 });
 
 ipcMain.handle('printables:disconnect', async () => {
   await printablesSession().clearStorageData();
   await clearEncryptedPrintablesSession();
+  printablesAuthCache.clear();
   return { ok: true };
 });
 

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRINTABLES_LIMITS,
+  printablesModelStatus,
   printablesPresignUpload,
+  printablesResolveRemix,
   printablesUpdateModel,
   validatePrintablesUploadRequest,
 } from './printables-web.ts';
@@ -17,6 +19,41 @@ test('bundled Printables taxonomy fallback preserves the audited category and li
   );
   assert.ok(PRINTABLES_META_SNAPSHOT.categories.some((category) => category.id === '36'));
   assert.ok(PRINTABLES_META_SNAPSHOT.licenses.some((license) => license.id === '3'));
+});
+
+test('model status requests complete metadata and every asset collection for readback verification', async (t) => {
+  const sent = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    sent.push(JSON.parse(init.body));
+    return jsonResponse({ data: { model: { id: '123', images: [], stls: [], slas: [], gcodes: [], otherFiles: [] } } });
+  };
+  t.after(() => { globalThis.fetch = original; });
+
+  await printablesModelStatus({ cookie: 'sessionid=x' }, '123');
+
+  for (const field of ['summary', 'authorship', 'aiGenerated', 'politicalContent', 'category', 'license', 'tags', 'images', 'stls', 'slas', 'gcodes', 'otherFiles', 'remixParents']) {
+    assert.match(sent[0].query, new RegExp(`\\b${field}\\b`));
+  }
+});
+
+test('remix resolver converts current Printables URLs to model IDs and preserves external URLs', async (t) => {
+  const sent = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(init.body);
+    sent.push(request);
+    return request.query.includes('ModelPrepRemixById')
+      ? jsonResponse({ data: { model: { id: request.variables.id, license: { disallowRemixing: null } } } })
+      : jsonResponse({ data: { remixUrlInfo: { url: request.variables.url } } });
+  };
+  t.after(() => { globalThis.fetch = original; });
+
+  await printablesResolveRemix({ cookie: 'sessionid=x' }, 'https://www.printables.com/model/192914-example');
+  await printablesResolveRemix({ cookie: 'sessionid=x' }, 'https://example.com/original');
+
+  assert.equal(sent[0].variables.id, '192914');
+  assert.equal(sent[1].variables.url, 'https://example.com/original');
 });
 
 function jsonResponse(body, status = 200) {

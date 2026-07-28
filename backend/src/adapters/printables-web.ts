@@ -347,6 +347,23 @@ export async function printablesModelStatus(session: PrintablesSession, id: stri
       id: string;
       slug?: string;
       name?: string;
+      summary?: string;
+      description?: string;
+      authorship?: string;
+      nsfw?: boolean;
+      aiGenerated?: boolean;
+      politicalContent?: boolean;
+      category?: { id: string; name?: string } | null;
+      license?: { id: string; name?: string; disallowRemixing?: boolean | string } | null;
+      tags?: Array<{ id: string; name: string }>;
+      image?: { id: string; filePath?: string; order?: number } | null;
+      images?: Array<{ id: string; filePath?: string; order?: number }>;
+      stls?: PrintablesFileInput[];
+      slas?: PrintablesFileInput[];
+      gcodes?: PrintablesFileInput[];
+      otherFiles?: PrintablesFileInput[];
+      remixParents?: Array<{ id: string; parentPrintId?: string; url?: string }>;
+      remixDescription?: string | null;
       datePublished?: string | null;
       draftReason?: string | null;
       publishApprovalRequired?: boolean;
@@ -354,7 +371,23 @@ export async function printablesModelStatus(session: PrintablesSession, id: stri
     } | null;
   }>(`query ModelPrepModelStatus($id: ID!) {
     model: print(id: $id) {
-      id slug name datePublished draftReason publishApprovalRequired
+      id slug name summary description authorship
+      nsfw aiGenerated politicalContent datePublished draftReason publishApprovalRequired
+      category { id name }
+      license { id name disallowRemixing }
+      tags { id name }
+      image { id filePath order }
+      images { id filePath order }
+      stls { id name folder note order }
+      slas { id name folder note order layerHeight printDuration }
+      gcodes {
+        id name folder note order weight layerHeight nozzleDiameter printDuration excludeFromTotalSum
+        material { id name }
+        printer { id name }
+      }
+      otherFiles { id name folder note order }
+      remixParents { id parentPrintId url }
+      remixDescription
       publishRequests { id status created }
     }
   }`, { id }, session);
@@ -412,10 +445,25 @@ export async function printablesDeleteModel(session: PrintablesSession, id: stri
 }
 
 export async function printablesResolveRemix(session: PrintablesSession, value: string) {
-  if (/^\d+$/.test(value.trim())) {
-    return graphQl<{ model?: { id: string; name?: string; slug?: string } | null }>(
-      `query ModelPrepRemixById($id: ID!) { model: print(id: $id) { id name slug } }`,
-      { id: value.trim() },
+  const trimmed = value.trim();
+  const modelUrl = trimmed.match(/^https:\/\/(?:www\.)?printables\.com\/(?:model|education)\/(\d+)(?:[/?#-]|$)/i);
+  const printId = /^\d+$/.test(trimmed) ? trimmed : modelUrl?.[1];
+  if (printId) {
+    return graphQl<{
+      model?: {
+        id: string;
+        name?: string;
+        slug?: string;
+        license?: { id?: string; name?: string; disallowRemixing?: boolean | string };
+      } | null;
+    }>(
+      `query ModelPrepRemixById($id: ID!) {
+        model: print(id: $id) {
+          id name slug
+          license { id name disallowRemixing }
+        }
+      }`,
+      { id: printId },
       session,
     );
   }
@@ -425,14 +473,14 @@ export async function printablesResolveRemix(session: PrintablesSession, value: 
       author?: string;
       image?: string;
       title?: string;
-      license?: { id?: string; name?: string; disallowRemixing?: string };
+      license?: { id?: string; name?: string; disallowRemixing?: boolean | string };
     } | null;
   }>(`query ModelPrepRemixByUrl($url: String!) {
     remixUrlInfo(url: $url) {
       url author image title
       license { id name disallowRemixing }
     }
-  }`, { url: value }, session);
+  }`, { url: trimmed }, session);
 }
 
 export const PRINTABLES_LIMITS = {

@@ -2,9 +2,17 @@ import { printablesFetch } from './printables-auth.js';
 
 export function printablesResponseError(data, status, fallback) {
   const issues = Array.isArray(data?.issues)
-    ? data.issues.flatMap((issue) => issue?.messages || issue).filter(Boolean)
+    ? data.issues.flatMap((issue) => {
+      if (typeof issue === 'string') return [issue];
+      const messages = Array.isArray(issue?.messages) ? issue.messages : [];
+      return messages.map((message) => issue.field ? `${issue.field}: ${message}` : message);
+    }).filter(Boolean)
     : [];
-  return issues.join('; ') || data?.message || data?.error || `${fallback} (HTTP ${status})`;
+  const code = data?.error;
+  if (code === 'missing_printables_session' || code === 'not_authenticated') {
+    return 'Printables session expired. Open Settings, remove the stale Printables account, and sign in again.';
+  }
+  return issues.join('; ') || data?.message || code || `${fallback} (HTTP ${status})`;
 }
 let crcTable;
 function crc32cTable() {

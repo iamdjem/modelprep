@@ -10,11 +10,12 @@ GraphQL endpoint: `https://api.printables.com/graphql/`
 
 ## Status and safety boundary
 
-This document is the canonical ModelPrep record for Printables model uploads. The
-live account, create form, shipped JavaScript, GraphQL operations, category and
-license queries were inspected with an authenticated browser. No draft was
-created, no file was uploaded, and nothing was published or deleted during the
-audit. Those are account mutations and require an explicit live-test confirmation.
+This document is the canonical ModelPrep record for Printables model uploads.
+The live account, complete create/edit form DOM, shipped JavaScript, GraphQL
+operations, category and license queries were inspected with an authenticated
+browser. Two disposable private drafts were subsequently created through the
+packaged ModelPrep app and independently read back from Printables. No public
+model was created or deleted in this validation pass.
 
 Implementation status:
 
@@ -24,8 +25,15 @@ Implementation status:
 - [x] Direct-storage presign/finish/poll contract
 - [x] Electron persistent Printables session design
 - [x] Frontend account, options, upload, draft, publish, and status design
-- [ ] Dedicated-account live draft round trip
+- [x] Dedicated-account live author draft round trip
+- [x] Dedicated-account live remix/flags draft round trip
+- [x] Full metadata, gallery, file, category, license, and remix readback
+- [x] Website-parity draft-first publication branching
+- [x] Browser-side HEIC/HEIF to JPEG conversion
+- [x] Automated author/remix/reupload, direct/approval publish, file-setting,
+      upload, authentication-cache, and readback tests
 - [ ] Dedicated-account live public publish and delete round trip
+- [ ] Live retained-ZIP, G-code, SLA, and converted-HEIC upload matrix
 - [ ] Re-audit on upstream GraphQL client-version changes
 
 Printables does not advertise this as a stable third-party upload API. ModelPrep
@@ -138,8 +146,10 @@ Accepted model-page extensions observed in the live upload input:
 ```
 
 Images accept GIF, JPEG/JPG, PNG, WebP, HEIC, and HEIF. The web client converts
-HEIC/HEIF to JPEG before upload. A ZIP may be unpacked into model files or kept
-as one Other file (`unzip: false`).
+HEIC/HEIF to JPEG before upload. ModelPrep mirrors that behavior in the browser
+before preview or upload; the converter is dynamically loaded only for HEIC or
+HEIF input. A ZIP may be unpacked into model files or kept as one Other file
+(`unzip: false`).
 
 The audited client did not expose a definitive server-side gallery-count or
 total-package cap. ModelPrep conservatively keeps the existing 25-image UI cap
@@ -274,21 +284,30 @@ mutation ModelUpdate(
 }
 ```
 
-Use `draft: true` for an unpublished draft. A public submission is two explicit
-steps: save the complete model with `draft: false`, then:
+The first-party client always creates a complete model with `draft: true`.
+Printables rejects a brand-new `modelUpdate` submitted directly with
+`draft: false` (`print_is_not_in_readonly_draft_mode`). After the draft is
+saved and read back, publishing takes one of two branches:
 
-```graphql
-mutation PrintPublishRequest($printId: ID!) {
-  printPublishRequest(printId: $printId) {
-    ok
-    errors { field messages }
-    output { id status created }
+- when `publishApprovalRequired` is false, update the existing model ID with the
+  same complete payload and `draft: false`;
+- when `publishApprovalRequired` is true, keep the verified draft and call:
+
+  ```graphql
+  mutation PrintPublishRequest($printId: ID!) {
+    printPublishRequest(printId: $printId) {
+      ok
+      errors { field messages }
+      output { id status created }
+    }
   }
-}
-```
+  ```
 
-Some accounts require approval. Do not report “live” from a successful request
-alone; read back `datePublished` and the publish-request state.
+Do not report “live” from either mutation alone. Read back `datePublished`,
+`draftReason`, and the publish-request state. ModelPrep performs a full metadata
+and asset readback before it enters either publication branch, then polls the
+publication readback for up to 10 attempts. A normal-account publish must reach
+`live`; only an approval-gated account may complete locally in `pending`.
 
 ## Status, edit, remix, lists, and delete
 
@@ -372,20 +391,49 @@ Desktop-session routes:
 - `POST /api/v1/printables/web/remix/resolve`
 - `POST /api/v1/printables/web/delete`
 
-## Release and live-test plan
+## Live validation evidence
+
+Validation was performed through the locally signed packaged Electron app, then
+read independently from the authenticated Printables GraphQL endpoint.
+
+| Case | Model ID | Result |
+|---|---:|---|
+| Existing baseline author draft | `1793654` | Private draft; 16 ordered images, two STL files and one 3MF, category, license, tags, author and AI=false confirmed |
+| Enhanced author draft | `1793728` | Private draft; explicit summary, 16 ordered images, three inspected model files, category 36, license 3, tags, author, AI=false, NSFW=false and political=false confirmed |
+| Remix/flag draft | `1793734` | Private draft; source model 192914 resolved, remix description stored, 16 images, three inspected model files, AI=true, NSFW=true and political=true confirmed |
+
+The first enhanced attempt also provided a useful negative contract test:
+Printables' current file input objects reject an `order` field. ModelPrep now
+preserves file and image order by array order and sends only accepted file
+fields. A first publication attempt confirmed that new models must be saved as
+drafts before publishing; the flow was corrected to the branch documented
+above.
+
+The corrected public branch has not yet been exercised live because the
+Electron Printables session expired before the final run. The real Prusa login
+window is the only supported recovery path; credentials must never be entered
+or stored by ModelPrep. Drafts `1793728` and `1793734` remain private and should
+only be permanently deleted after explicit user confirmation.
+
+HEIC conversion was exercised separately in a real Chromium renderer using a
+308,292-byte HEIC fixture. It produced a valid 600,075-byte JPEG with preserved
+2400 by 1600 dimensions. This verifies local conversion, but the converted JPEG
+has not yet completed the authenticated Printables storage/processing cycle.
+
+## Remaining live-test and release plan
 
 1. Run Worker adapter tests and TypeScript checks.
 2. Run desktop bridge tests, frontend tests, and a production build.
 3. In the packaged app, connect the dedicated Printables account through the
    real Prusa/Printables sign-in window and confirm the account handle.
-4. With explicit confirmation, create one clearly labelled unpublished draft
-   using one image and one small STL/3MF.
-5. Read it back by ID; verify files, image order, HTML, tags, category, license,
-   authorship, AI flag, and draft state.
-6. With separate explicit confirmation, publish that test model, poll until
+4. Create one clearly labelled public-cycle test as a verified private draft,
+   then use the corrected publication branch and poll until
    `datePublished` is present, open the resulting Printables URL, then delete it.
-7. Re-run remix/reupload and retained-ZIP cases with disposable drafts.
-8. Deploy the Worker before deploying the frontend/desktop bundle.
+5. Exercise retained ZIP, unpacked ZIP, G-code, SLA, and converted HEIC with
+   disposable private drafts and verify the resulting asset collections.
+6. With explicit confirmation, permanently delete disposable drafts `1793728`,
+   `1793734`, and the public-cycle model.
+7. Re-audit the live form when `Graphql-Client-Version` changes.
 
 ## Official references
 
