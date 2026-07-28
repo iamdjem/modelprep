@@ -1025,8 +1025,11 @@ export default {
         const data = await cached.json();
         return json(data, {
           headers: {
-            'Cache-Control': 'public, max-age=300, s-maxage=86400',
-            'X-ModelPrep-Cache': 'HIT',
+            'Cache-Control': cached.headers.get('Cache-Control')
+              ?? 'public, max-age=300, s-maxage=86400',
+            'X-ModelPrep-Cache': data && typeof data === 'object' && 'metaSource' in data
+              ? 'SNAPSHOT-HIT'
+              : 'HIT',
           },
         });
       }
