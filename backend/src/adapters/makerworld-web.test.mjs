@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  buildDraftPayload, buildLaserCutPayload, mwLaserCutDraftStatus, mwPresignUpload, mwRefreshToken,
+  buildDraftPayload, buildLaserCutPayload, mwDraftStatus, mwLaserCutDraftStatus, mwPresignUpload, mwRefreshToken,
   mwUploadCapabilities, parseMakerWorldUploadCapabilities,
 } from './makerworld-web.ts';
 
@@ -100,6 +100,32 @@ test('Laser & Cut draft status exposes MakerWorld rejection details', async () =
   try {
     assert.deepEqual(await mwLaserCutDraftStatus({ cookie: 'token=test' }, 123), {
       outcome: 'failed', code: 42, reason: 'Invalid laser profile', plate: undefined, title: 'Box', profileTitle: undefined,
+      status: undefined, designId: undefined, profileId: undefined,
+    });
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('regular draft status exposes the published design and profile ids', async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    resultType: 0,
+    status: 1,
+    designId: 3104770,
+    profileId: 3500162,
+    title: 'Articulating Desk Dragon — Print-in-Place',
+    profileTitle: 'desk-dragon-bambu',
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  try {
+    assert.deepEqual(await mwDraftStatus({ cookie: 'token=test' }, 9000902), {
+      outcome: 'live',
+      code: 0,
+      reason: '',
+      plate: undefined,
+      title: 'Articulating Desk Dragon — Print-in-Place',
+      profileTitle: 'desk-dragon-bambu',
+      status: 1,
+      designId: 3104770,
+      profileId: 3500162,
     });
   } finally { globalThis.fetch = previousFetch; }
 });

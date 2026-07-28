@@ -1,8 +1,21 @@
 # Demo assets
 
-The demo (toggle **Demo** in the app header) populates itself with real, on-topic
-3D-print photos (from Wikimedia Commons) and a real, uploadable model file so a
-connected user can do a genuine private publish.
+The demo (toggle **Demo** in the app header) loads a bundled, purpose-built desk-dragon
+gallery and a real, uploadable model file. Its 16 images use landscape, portrait, and
+square source shapes with edge landmarks and off-center focal points, making the
+per-platform 4:3, 1:1, and 3:4 crop behavior easy to compare.
+
+The images are optimized WebP demo renders and do not depend on Wikimedia Commons,
+Unsplash, or another runtime image service. They are synthetic demonstration assets,
+not photographs of a physical print.
+
+The source-shape mix is deliberate: six wide images, five portraits, and five squares.
+The gallery covers the hero, front, side, rear, overhead, hand-held scale, printer-bed
+context, shelf display, dimensional tools, wing/tail articulation, and layer-detail views.
+All images are at least 1500 px on their short edge and the complete set is about 5 MB.
+
+Use these for the UI demo or a private upload-path test. Replace them with real photos
+of the physical print before publishing a real public MakerWorld listing.
 
 ## Optional: enable the full print-profile demo
 

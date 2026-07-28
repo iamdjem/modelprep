@@ -695,79 +695,64 @@ function buildDemoProject() {
   };
 }
 
-// ---- Demo: REAL assets (so the demo can actually publish + show real cropping) ----
-// Real photos demonstrate the per-platform cropping far better than label cards, and a
-// real model file means a connected user can do a genuine private publish from the demo.
-
-// Primary source: real photos of ACTUAL 3D prints from Wikimedia Commons (free, no key,
-// CORS-enabled). On-topic by construction — these look like what users really publish.
-const COMMONS_CATEGORIES = ['3D_printed_objects', '3D_printed_art'];
-// Skip Commons files that aren't appealing printed objects (medical/bioprint/diagrams/etc.).
-const COMMONS_SKIP = /(bioprint|tissue|skin|organ|cell|medical|diagram|schematic|microscop|scan|x-ray|pen art|drawing|graph|chart|\blogo\b|\bmap\b|patent|poster)/i;
-
-async function fetchCommonsPrintUrls(limit) {
-  const urls = [];
-  for (const cat of COMMONS_CATEGORIES) {
-    if (urls.length >= limit) break;
-    const api = `https://commons.wikimedia.org/w/api.php?action=query&generator=categorymembers&gcmtitle=Category:${cat}&gcmtype=file&gcmlimit=40&prop=imageinfo&iiprop=url&iiurlwidth=1600&format=json&origin=*`;
-    try {
-      const d = await fetch(api).then((r) => r.json());
-      for (const p of Object.values(d?.query?.pages || {})) {
-        const u = p?.imageinfo?.[0]?.thumburl; const title = p?.title || '';
-        if (!u || COMMONS_SKIP.test(title)) continue;
-        if (!/\.(jpe?g|png)/i.test(u.split('?')[0])) continue;
-        urls.push(u);
-      }
-    } catch { /* try next category / fall back */ }
-  }
-  return urls.slice(0, limit);
-}
-
-async function buildImageFromUrl(url, i) {
-  try {
-    const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http'); return r.blob(); });
-    const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
-    const img = await loadImageFromDataUrl(dataUrl);
-    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}`, real: true };
-  } catch { return null; }
-}
-
-// Build `count` demo images: on-topic 3D-print photos first, then Unsplash, then samples.
-// Real photos are sorted first so the cover/app-cover land on an actual print, not a sample.
-async function loadDemoImages(count) {
-  const onTopic = await fetchCommonsPrintUrls(count + 6).catch(() => []);
-  const built = await Promise.all(Array.from({ length: count }, async (_, i) => {
-    if (onTopic[i]) { const img = await buildImageFromUrl(onTopic[i], i); if (img) return img; }
-    return fetchDemoImage(i); // Unsplash varied → generated sample
-  }));
-  return built.sort((a, b) => (b.real ? 1 : 0) - (a.real ? 1 : 0));
-}
-
-// Secondary source: real photos on the Unsplash CDN (CORS-enabled, no API key) at varied
-// aspect ratios. Used only when an on-topic Commons photo for that slot fails to load.
-const DEMO_PHOTO_IDS = [
-  '1635776062127-d379bfcba9f8', '1610890716171-6b1bb98ffd09', '1612817159949-195b6eb9e31a',
-  '1581092160562-40aa08e78837', '1581092918056-0c4c3acd3789', '1518770660439-4636190af475',
-  '1530124566582-a618bc2615dc',
+// ---- Demo: bundled crop-focused assets ---------------------------------------
+// A coherent landscape / portrait / square set makes the focal-point behavior obvious
+// and stays deterministic offline. Each composition has useful landmarks near the edges,
+// so switching between 4:3, 1:1, and 3:4 visibly changes what remains in frame.
+const DEMO_IMAGE_ASSETS = [
+  { file: 'desk-dragon-landscape.webp', alt: 'Desk dragon — wide workshop hero', focal: { x: 0.66, y: 0.38 } },
+  { file: 'desk-dragon-portrait.webp', alt: 'Desk dragon — portrait product shot', focal: { x: 0.64, y: 0.34 } },
+  { file: 'desk-dragon-detail.webp', alt: 'Desk dragon — print detail', focal: { x: 0.68, y: 0.36 } },
+  { file: 'desk-dragon-rear.webp', alt: 'Desk dragon — rear articulation', focal: { x: 0.58, y: 0.30 } },
+  { file: 'desk-dragon-hand-scale.webp', alt: 'Desk dragon — hand-held scale', focal: { x: 0.62, y: 0.30 } },
+  { file: 'desk-dragon-wing-detail.webp', alt: 'Desk dragon — wing mechanism', focal: { x: 0.62, y: 0.34 } },
+  { file: 'desk-dragon-tail-detail.webp', alt: 'Desk dragon — tail articulation', focal: { x: 0.68, y: 0.30 } },
+  { file: 'desk-dragon-front.webp', alt: 'Desk dragon — front view', focal: { x: 0.50, y: 0.34 } },
+  { file: 'desk-dragon-side.webp', alt: 'Desk dragon — side profile', focal: { x: 0.33, y: 0.32 } },
+  { file: 'desk-dragon-printer-bed.webp', alt: 'Desk dragon — printer-bed context', focal: { x: 0.65, y: 0.36 } },
+  { file: 'desk-dragon-overhead.webp', alt: 'Desk dragon — overhead articulation', focal: { x: 0.70, y: 0.30 } },
+  { file: 'desk-dragon-measure.webp', alt: 'Desk dragon — dimensional scale', focal: { x: 0.68, y: 0.34 } },
+  { file: 'desk-dragon-shelf.webp', alt: 'Desk dragon — shelf display', focal: { x: 0.27, y: 0.44 } },
+  { file: 'desk-dragon-low-angle.webp', alt: 'Desk dragon — low-angle hero', focal: { x: 0.42, y: 0.34 } },
+  { file: 'desk-dragon-rear-wings.webp', alt: 'Desk dragon — rear wing spread', focal: { x: 0.58, y: 0.40 } },
+  { file: 'desk-dragon-material.webp', alt: 'Desk dragon — layer and material detail', focal: { x: 0.61, y: 0.30 } },
 ];
-// Rotate source aspect ratios so cropping to each platform's target is obvious.
-const DEMO_PHOTO_DIMS = [[1600, 1200], [1200, 1600], [1500, 1500], [1920, 1080], [1080, 1440]];
 
-async function fetchDemoImage(i) {
-  const id = DEMO_PHOTO_IDS[i % DEMO_PHOTO_IDS.length];
-  const [w, h] = DEMO_PHOTO_DIMS[i % DEMO_PHOTO_DIMS.length];
-  const url = `https://images.unsplash.com/photo-${id}?w=${w}&h=${h}&fit=crop&auto=format&q=70`;
-  try {
-    const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http ' + r.status); return r.blob(); });
-    const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
-    const img = await loadImageFromDataUrl(dataUrl);
-    return { id: 'demoimg_' + i, dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 }, alt: `Print photo ${i + 1}`, real: true };
-  } catch {
-    // Fallback: a generated sample at the same aspect so the demo always fills up.
-    const tints = [['#FF5722', '#FFB627', '#1A1A1A'], ['#3A86FF', '#4FB286', '#1A1A1A'], ['#9B5DE5', '#F15BB5', '#1A1A1A']];
-    const dataUrl = makeSampleImage(`PHOTO ${i + 1}`, tints[i % tints.length]);
-    return { id: 'demoimg_' + i, dataUrl, naturalW: w, naturalH: h, focal: { x: 0.5, y: 0.5 }, alt: `Print photo ${i + 1}`, real: false };
-  }
+async function loadDemoImages() {
+  const built = await Promise.all(DEMO_IMAGE_ASSETS.map(async (asset, i) => {
+    try {
+      const url = `${import.meta.env.BASE_URL}demo/${asset.file}`;
+      const blob = await fetch(url).then((r) => { if (!r.ok) throw new Error('http ' + r.status); return r.blob(); });
+      const dataUrl = await new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      });
+      const img = await loadImageFromDataUrl(dataUrl);
+      return {
+        id: 'demoimg_' + i,
+        dataUrl,
+        naturalW: img.naturalWidth,
+        naturalH: img.naturalHeight,
+        focal: asset.focal,
+        alt: asset.alt,
+        demoAsset: true,
+      };
+    } catch {
+      const dataUrl = makeSampleImage(`PHOTO ${i + 1}`);
+      return {
+        id: 'demoimg_' + i,
+        dataUrl,
+        naturalW: 2400,
+        naturalH: 1800,
+        focal: asset.focal,
+        alt: asset.alt,
+        demoAsset: true,
+      };
+    }
+  }));
+  return built;
 }
 
 // A valid ASCII STL of a cube — a real, uploadable model file.
@@ -784,15 +769,15 @@ function makeCubeStl(s = 20) {
   return new Blob([out], { type: 'model/stl' });
 }
 
-// Build the real-asset patch for the demo: real photos (filled to `count`) + real model
-// files. MakerWorld's .3mf path REQUIRES a genuine Bambu-Studio 3mf ("not generated by
+// Build the bundled-asset patch for the demo: crop-focused images + real model files.
+// MakerWorld's .3mf path REQUIRES a genuine Bambu-Studio 3mf ("not generated by
 // Bambu Studio" → publish fails), and we can't synthesize one. So:
 //   • if a real Bambu .3mf is bundled at public/demo/desk-dragon-bambu.3mf → use it (the
 //     full print-profile flow is demoed AND a connected user can really publish it);
 //   • otherwise → STL-only (drop the 3mf + profiles) so the real publish actually succeeds.
-async function loadDemoAssets(base, count = 16) {
-  const images = await loadDemoImages(count);
-  const cover = images.find((im) => im.real) || images[0];
+async function loadDemoAssets(base) {
+  const images = await loadDemoImages();
+  const cover = images[0];
   const realMf = await fetch(`${import.meta.env.BASE_URL}demo/desk-dragon-bambu.3mf`)
     .then((r) => (r.ok ? r.blob() : null)).catch(() => null);
 
@@ -1009,8 +994,8 @@ export default function App() {
       setProject(base);           // show placeholders instantly
       setDemoActive(true);
       setCurrentSection('files');
-      // Upgrade to REAL assets (photos + STL/3MF) in the background so the demo shows
-      // genuine per-platform cropping and a connected user can really publish from it.
+      // Upgrade to bundled crop-focused images + STL/3MF in the background so the demo
+      // stays deterministic and makes each platform's framing visibly different.
       setDemoLoading(true);
       loadDemoAssets(base)
         .then((assets) => setProject((p) => p.__demo ? { ...p, ...assets } : p))
@@ -1574,8 +1559,8 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
       {demoActive && (
         <div className="text-center py-1.5 px-4 mp-mono text-[12px] uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ background: '#3A86FF', color: '#fff' }}>
           {demoLoading
-            ? <><Loader size={12} className="animate-spin" /> Loading real demo photos &amp; model — per-platform cropping in a moment…</>
-            : <><Sparkles size={12} /> Demo data loaded — real photos + model. Explore the flow; click “Exit demo” to restore your work.</>}
+            ? <><Loader size={12} className="animate-spin" /> Loading 16 crop-focused demo renders &amp; model…</>
+            : <><Sparkles size={12} /> Demo data loaded — 16 landscape, portrait &amp; square renders. Compare the crops; click “Exit demo” to restore your work.</>}
         </div>
       )}
     </header>
@@ -5715,7 +5700,7 @@ function MakerWorldUploadFlow({ platform, project }) {
     setStatus('deleting'); setErrorMsg('');
     try {
       const delPath = result.kind === 'laser-cut' ? 'laser-cut/delete' : 'delete';
-      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${delPath}`, { method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: result.id }) });
+      const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${delPath}`, { method: 'POST', headers: { 'X-MW-Cookie': cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: result.designId || result.id }) });
       const data = await res.json();
       if (!res.ok || !data.deleted) throw new Error(data?.message || data?.error || `Delete failed (HTTP ${res.status})`);
       setResult(null); setStatus('connected'); setLiveCheck(null);
@@ -5725,7 +5710,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   // Post-submit verification: a submit returns "verifying" — this confirms whether the
   // model actually became LIVE (appears in the published list) vs. still in review/rejected.
   const checkLive = async () => {
-    if (simulate) { setLiveCheck({ loading: false, live: true, model: { id: result?.id, title: project.title, status: 1 } }); return; }
+    if (simulate) { setLiveCheck({ loading: false, error: 'This was a simulation; no MakerWorld listing exists to check.' }); return; }
     if (!cookie || !result?.id || result.draftOnly) return;
     setLiveCheck({ loading: true });
     try {
@@ -5738,12 +5723,27 @@ function MakerWorldUploadFlow({ platform, project }) {
         setLiveCheck({ loading: false, failed: true, reason: sdata.reason || `Verification failed (code ${sdata.code})`, profileTitle: sdata.profileTitle });
         return;
       }
+      if (sres.ok && sdata.ok && sdata.outcome === 'live' && sdata.designId) {
+        const liveUrl = result.kind === 'laser-cut'
+          ? result.url
+          : `https://makerworld.com/en/models/${sdata.designId}${sdata.profileId ? `#profileId-${sdata.profileId}` : ''}`;
+        const model = {
+          id: sdata.designId,
+          title: sdata.title || project.title,
+          status: sdata.status || 1,
+          url: liveUrl,
+          profileId: sdata.profileId,
+        };
+        setResult((current) => ({ ...current, status: 'live', designId: sdata.designId, profileId: sdata.profileId, url: liveUrl }));
+        setLiveCheck({ loading: false, live: true, model });
+        return;
+      }
       // 2. Not failed → confirm it's actually live (in the published list) vs still verifying.
       const listPath = result.kind === 'laser-cut' ? 'related?type=1&keyword=' : 'my-creations';
       const res = await fetch(`${WORKER_URL}/api/v1/makerworld/web/${listPath}`, { headers: { 'X-MW-Cookie': cookie } });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Status check failed');
-      const found = (data.designs || []).find((m) => String(m.id) === String(result.id));
+      const found = (data.designs || []).find((m) => String(m.id) === String(result.designId || result.id));
       setLiveCheck({ loading: false, live: !!found, model: found });
     } catch (e) { setLiveCheck({ loading: false, error: e instanceof Error ? e.message : String(e) }); }
   };
@@ -5763,7 +5763,7 @@ function MakerWorldUploadFlow({ platform, project }) {
         <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
           <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.55)' }}><StatusDot status="unknown" /> {platform.name} — not connected</div>
           <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Connections</strong>.</p>
-          <button onClick={openConnections} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
+          <button onClick={() => openConnections('accounts')} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
         </div>
       ) : (
         <>
@@ -5774,11 +5774,11 @@ function MakerWorldUploadFlow({ platform, project }) {
                 <select value={active.id} onChange={(e) => acc.setActive('makerworld', e.target.value)} className="mp-card text-[12px] p-1 max-w-[160px]">
                   {mwAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                 </select>
-              ) : <strong className="truncate">{active.label}</strong>}
+              ) : <strong className="truncate">{active.label}{simulate ? ' (simulation only)' : ''}</strong>}
             </span>
             <span className="flex items-center gap-2 flex-shrink-0">
-              <button onClick={openConnections} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>manage</button>
-              <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>disconnect</button>
+              <button onClick={() => openConnections('accounts')} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>manage</button>
+              {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>disconnect</button>}
             </span>
           </div>
 
@@ -5833,10 +5833,10 @@ function MakerWorldUploadFlow({ platform, project }) {
                   ? (result.draftOnly ? 'Simulated draft save (demo) — ' : 'Simulated publish (demo) — ')
                   : (result.draftOnly ? 'Saved to MakerWorld — ' : 'Submitted to MakerWorld — ')}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
-              {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Demo mode — nothing was actually uploaded. Exit demo and connect a real account to publish for real.</div>}
-              {result.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-[12px] underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
+              {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Nothing was uploaded. Connect a real account in Settings, then publish again—you can stay in Demo mode.</div>}
+              {result.url && !result.demo && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-[12px] underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
               {/* Post-submit verification — a 200 submit = "accepted for review", not "live". */}
-              {!result.draftOnly && (
+              {!result.demo && !result.draftOnly && (
                 <div className="space-y-1">
                   <button onClick={checkLive} disabled={liveCheck?.loading} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{liveCheck?.loading ? 'Checking…' : 'Check if it went live'}</button>
                   {liveCheck && !liveCheck.loading && (
@@ -5856,7 +5856,7 @@ function MakerWorldUploadFlow({ platform, project }) {
                   )}
                 </div>
               )}
-              <button onClick={del} disabled={status === 'deleting'} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{status === 'deleting' ? 'Deleting…' : (result.draftOnly ? 'Delete this draft' : 'Delete this listing')}</button>
+              <button onClick={del} disabled={status === 'deleting'} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">{result.demo ? 'Clear simulated result' : (status === 'deleting' ? 'Deleting…' : (result.draftOnly ? 'Delete this draft' : 'Delete this listing'))}</button>
             </div>
           )}
 
