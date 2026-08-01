@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">ModelPrep cube</title>
+  <defs>
+    <linearGradient id="bg" x1="64" y1="0" x2="64" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5E626B"/>
+      <stop offset="0.48" stop-color="#24272E"/>
+      <stop offset="1" stop-color="#15171C"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)"/>
+  <path d="M64 27 96 45.5 64 64 32 45.5 64 27Z" fill="#FFF"/>
+  <path d="M32 45.5 64 64v37L32 82.5v-37Z" fill="#C9CAD1"/>
+  <path d="M96 45.5 64 64v37l32-18.5v-37Z" fill="#E5E5EA"/>
+</svg>

@@ -21,6 +21,66 @@ import {
   printablesFetch,
 } from './lib/printables-auth.js';
 import {
+  cultsFetch,
+  desktopCultsAccountId,
+  desktopCultsSecret,
+  isDesktopCultsSession,
+} from './lib/cults-auth.js';
+import {
+  DESKTOP_NEXPRINT_SECRET,
+  isDesktopNexprintSession,
+  nexprintFetch,
+} from './lib/nexprint-auth.js';
+import { nexprintResponseError, uploadNexprintFile } from './lib/nexprint-upload.js';
+import {
+  DESKTOP_CREALITY_SECRET,
+  crealityFetch,
+  isDesktopCrealitySession,
+} from './lib/creality-auth.js';
+import { crealityResponseError, uploadCrealityFile } from './lib/creality-upload.js';
+import {
+  CREALITY_CATEGORIES,
+  CREALITY_INSTRUCTION_FORMATS,
+  CREALITY_LICENSE_MAP,
+  CREALITY_LICENSES,
+  CREALITY_MODEL_FORMATS,
+  crealityRawModelFiles,
+  crealityUsesRenderedModelCover,
+} from './lib/creality.js';
+import {
+  DESKTOP_MAKERONLINE_SECRET,
+  isDesktopMakerOnlineSession,
+  makerOnlineFetch,
+} from './lib/makeronline-auth.js';
+import { makerOnlineResponseError, uploadMakerOnlineFile } from './lib/makeronline-upload.js';
+import { DESKTOP_MAKEROAD_SECRET, isDesktopMakerRoadSession, makerRoadFetch } from './lib/makeroad-auth.js';
+import { makerRoadResponseError, uploadMakerRoadFile } from './lib/makeroad-upload.js';
+import { MAKEROAD_DOCUMENT_FORMATS, MAKEROAD_LICENSES, MAKEROAD_MODEL_FORMATS, normalizeMakerRoadCategoryPath } from './lib/makeroad.js';
+import { DESKTOP_THANGS_SECRET, isDesktopThangsSession, thangsFetch } from './lib/thangs-auth.js';
+import { thangsResponseError, uploadThangsFile } from './lib/thangs-upload.js';
+import { flattenThangsCategories, selectThangsSourceFiles, THANGS_CATEGORIES } from './lib/thangs.js';
+import { DESKTOP_THINGIVERSE_SECRET, isDesktopThingiverseSession, thingiverseFetch } from './lib/thingiverse-auth.js';
+import { thingiverseResponseError, uploadThingiverseFile } from './lib/thingiverse-upload.js';
+import { THINGIVERSE_CATEGORIES, THINGIVERSE_LICENSES } from './lib/thingiverse.js';
+import {
+  DESKTOP_MYMINIFACTORY_SECRET,
+  isDesktopMyMiniFactorySession,
+  myMiniFactoryFetch,
+} from './lib/myminifactory-auth.js';
+import { myMiniFactoryResponseError, uploadMyMiniFactoryFile } from './lib/myminifactory-upload.js';
+import {
+  flattenMyMiniFactoryCategories,
+  MYMINIFACTORY_CATEGORY_TREE,
+  waitForMyMiniFactoryReadback,
+} from './lib/myminifactory.js';
+import {
+  flattenMakerOnlineCategories,
+  MAKERONLINE_DOCUMENT_FORMATS,
+  MAKERONLINE_LICENSE_MAP,
+  MAKERONLINE_LICENSES,
+  MAKERONLINE_MODEL_FORMATS,
+} from './lib/makeronline.js';
+import {
   printablesResponseError,
   uploadPrintablesFile,
   waitForPrintablesUploads,
@@ -35,16 +95,37 @@ import {
   validatePrintablesModel,
   waitForPrintablesPublication,
 } from './lib/printables-model.js';
+import {
+  advancePublishBatch,
+  batchPublishIntent,
+  createPublishBatch,
+  DESKTOP_PUBLISH_CONCURRENCY,
+  LIVE_PUBLISH_PLATFORM_IDS,
+  orderedPlatformImages,
+  publishBatchSummary,
+  publishReceiptLabel,
+  retryFailedPublishBatch,
+} from './lib/batch-publish.js';
 import { convertHeicFileToJpeg, isHeicFile } from './lib/heic.js';
+import {
+  cultsGalleryVideos,
+  isGalleryVideoFile,
+  makerWorldVideo,
+  makerWorldVideoIssues,
+  readVideoDuration,
+} from './lib/gallery-media.js';
 import makerWorldCategoryTree from './data/makerworld-categories.json';
 import makerWorldForbiddenWords from './data/makerworld-forbidden-words.json';
 import {
   Upload, Download, Copy, Image as ImageIcon, FileText, Check, Sparkles,
   Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronDown, ChevronUp,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
-  Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut, Settings
+  Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut, Settings,
+  PanelLeftClose, PanelLeftOpen, Video, RefreshCw
 } from 'lucide-react';
-import { useAccounts, getActive, CONNECTABLE } from './lib/accounts.js';
+import {
+  useAccounts, getAccounts, getActive, setStatus, CONNECTABLE, rehydrateDesktopAccount,
+} from './lib/accounts.js';
 
 // Lets any component open the Connections (accounts) modal without prop-threading.
 const ConnectionsCtx = createContext(() => {});
@@ -53,8 +134,11 @@ const useOpenConnections = () => useContext(ConnectionsCtx);
 // Build stamp (injected by vite.config.js) — shows exactly which version is running.
 const BUILD_COMMIT = (typeof __BUILD_COMMIT__ !== 'undefined' ? __BUILD_COMMIT__ : 'dev');
 const BUILD_TIME = (typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '');
+const BUILD_DATE_LABEL = BUILD_TIME
+  ? new Date(BUILD_TIME).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  : 'Development build';
 const BUILD_LABEL = BUILD_TIME
-  ? `${BUILD_COMMIT} · ${new Date(BUILD_TIME).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+  ? `${BUILD_COMMIT} · ${BUILD_DATE_LABEL}`
   : BUILD_COMMIT;
 
 // Polls the deployed version.json; shows a banner when a newer build is live so you
@@ -88,11 +172,13 @@ const UPLOAD_URLS = {
   makerworld:  'https://makerworld.com/en/my/models/publish?type=original',
   printables:  'https://www.printables.com/model/create',
   cults:       'https://cults3d.com/en/upload',
-  mmf:         'https://www.myminifactory.com/object/new',
+  mmf:         'https://www.myminifactory.com/upload/object',
   thingiverse: 'https://www.thingiverse.com/upload',
   thangs:      'https://thangs.com/3d-model/upload',
   nexprint:    'https://www.nexprint.com/en/upload',
-  creality:    'https://www.crealitycloud.com/createWork',
+  creality:    'https://www.crealitycloud.com/create-model-new?editType=editModel',
+  makeronline: 'https://www.makeronline.com/en/upload',
+  makeroad:    'https://www.makeroad.com/printable_3D_model/upload',
 };
 
 // How each platform expects tags pasted into its UI
@@ -105,7 +191,59 @@ const TAG_FORMATS = {
   thangs:      { sep: ', ', hashtag: false },
   nexprint:    { sep: ', ', hashtag: false },
   creality:    { sep: ', ', hashtag: false },
+  makeronline: { sep: ', ', hashtag: false },
+  makeroad:    { sep: ', ', hashtag: false },
 };
+
+const NEXPRINT_MODEL_FORMATS = [
+  '3ds', '3mf', 'amf', 'blend', 'dwg', 'dxf', 'elesat', 'f3d', 'f3z',
+  'factory', 'fcstd', 'iges', 'ipt', 'obj', 'ply', 'py', 'rsdoc', 'scad',
+  'shape', 'shapr', 'skp', 'sldasm', 'sldprt', 'slvs', 'step', 'stl',
+  'stp', 'studio3', 'zpr', 'stpz',
+];
+const NEXPRINT_ATTACHMENT_FORMATS = [
+  'ai', 'bgcode', 'cdr', 'csv', 'ctb', 'gcode', 'goo', 'ini', 'ino',
+  'lys', 'lyt', 'pdf', 'svg', 'txt', 'zip',
+];
+const NEXPRINT_LICENSES = [
+  { id: 0, name: 'CC BY' },
+  { id: 1, name: 'CC BY-SA' },
+  { id: 2, name: 'CC BY-NC' },
+  { id: 3, name: 'CC BY-NC-SA' },
+  { id: 4, name: 'CC BY-ND' },
+  { id: 5, name: 'CC BY-NC-ND' },
+  { id: 6, name: 'CC0' },
+  { id: 7, name: 'Standard Digital File License' },
+];
+const NEXPRINT_LICENSE_MAP = {
+  ccby: 0, ccbysa: 1, ccbync: 2, ccbyncsa: 3, ccbynd: 4, cc0: 6, standard: 7,
+};
+
+const MYMINIFACTORY_MODEL_FORMATS = [
+  'x3g', 'gcode', 'stl', 'scad', 'fbx', '3dc', '3ds', 'ac', 'asc', 'bvh',
+  'blend', 'geo', 'dae', 'dwf', 'dw', 'x', 'gra', 'mu', 'kmz', 'lwo', 'lwz',
+  'flt', 'iv', 'osg', 'osgt', 'osgb', 'ive', 'ply', 'shp', 'vpk', 'wrl',
+  'wrz', 'dxf', 'pdf', 'obj', 'sdf', 'mtl', '3mf', 'jpeg', 'step', 'skp',
+  'thing', 'zup', 'amf', 'fcstd', 'f3d', 'bmp', 'glb', 'gltf', 'jpg', 'png',
+  'chitubox', 'lyt', 'lys',
+];
+const MYMINIFACTORY_LICENSES = [
+  { id: 1, name: 'CC0' },
+  { id: 2, name: 'CC BY' },
+  { id: 3, name: 'CC BY-SA' },
+  { id: 4, name: 'CC BY-NC' },
+  { id: 5, name: 'CC BY-NC-SA' },
+  { id: 6, name: 'CC BY-ND' },
+  { id: 7, name: 'CC BY-NC-ND' },
+  { id: 8, name: 'MMF Exclusive · Remix · Commercial' },
+  { id: 9, name: 'MMF Exclusive · Remix · Noncommercial' },
+  { id: 10, name: 'MMF Exclusive · No remix · Commercial' },
+  { id: 11, name: 'MMF Exclusive · No remix · Noncommercial' },
+  { id: 13, name: 'MMF · Remix · Commercial' },
+  { id: 14, name: 'MMF · Remix · Noncommercial' },
+  { id: 15, name: 'MMF · No remix · Commercial' },
+  { id: 16, name: 'MMF · No remix · Noncommercial' },
+];
 
 function formatTagsFor(platformId, tags) {
   const fmt = TAG_FORMATS[platformId] || { sep: ', ', hashtag: false };
@@ -124,7 +262,7 @@ function downloadTextFile(text, filename) {
 // Platforms whose description box is a rich-text/WYSIWYG editor (not a raw-HTML
 // or markdown field). Pasting HTML *source* into these shows literal tags, so we
 // copy rendered content as rich text instead — paste keeps the formatting.
-const RICH_TEXT_PLATFORMS = ['makerworld', 'printables'];
+const RICH_TEXT_PLATFORMS = ['makerworld', 'printables', 'nexprint', 'creality', 'makeronline', 'mmf'];
 function isRichTextPlatform(id) { return RICH_TEXT_PLATFORMS.includes(id); }
 
 // Copy rendered HTML to the clipboard as rich text (with a plain-text fallback),
@@ -187,8 +325,9 @@ const PLATFORMS = [
   },
   {
     id: 'printables', name: 'Printables', org: 'Prusa Research', dot: '#FA6831',
-    covers: [{ id: 'cover', label: 'Cover', w: 1920, h: 1440, aspect: '4:3' }],
-    descFormat: 'html', maxImages: 25, maxFileMb: 1024, maxTotalMb: null,
+    covers: [{ id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
+    descFormat: 'html', maxImages: null, maxFileMb: 1024, maxTotalMb: null,
     formats: PRINTABLES_FORMATS,
     hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: [], note: 'Real desktop upload through Printables’ first-party form contract. Drafts stay unpublished; Publish is public.',
@@ -196,60 +335,91 @@ const PLATFORMS = [
   },
   {
     id: 'cults', name: 'Cults3D', org: 'Independent', dot: '#F79E2E',
-    covers: [{ id: 'cover', label: 'Cover', w: 1500, h: 1500, aspect: '1:1' }],
+    covers: [{ id: 'cover', label: 'Original media', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
     // Verified from Cults's web upload form (May 2026): 40 accepted file types,
     // 1 GB per file, images max 10 MB / 8000×8000 px, jpg/png/webp + webm/mp4 video.
-    descFormat: 'markdown', maxImages: 20, maxFileMb: 1000, maxTotalMb: 2000,
+    descFormat: 'markdown', maxImages: null, maxFileMb: 1024, maxTotalMb: null,
     formats: ['3ds', '3mf', 'ai', 'amf', 'bin', 'blend', 'bmp', 'curaprofile', 'dae', 'doc', 'dst', 'dwg', 'dxf', 'eps', 'f3d', 'f3z', 'fcstd', 'fff', 'gbr', 'gbx', 'gcode', 'ini', 'mtl', 'obj', 'pdf', 'ply', 'ppt', 'psd', 'rcp', 'scad', 'skp', 'sldasm', 'sldprt', 'step', 'stl', 'stp', 'svg', 'txt', 'x3d', 'zip'],
     hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: ['price'], note: 'GraphQL API. Paid marketplace, 80% creator share. Accepts video (mp4/webm). Real-photo emphasis: place prints first in gallery.',
+    fields: ['price'], note: 'Direct desktop upload through Cults3D’s authenticated first-party Rails/S3 flow. Paid marketplace, 80% creator share. Accepts video (mp4/webm). Real-photo emphasis: place prints first in gallery.',
   },
   {
     id: 'mmf', name: 'MyMiniFactory', org: 'SoulCrafted', dot: '#4FB286',
     covers: [{ id: 'cover', label: 'Cover', w: 1920, h: 1440, aspect: '4:3' }],
-    descFormat: 'html', maxImages: 20, maxFileMb: 100, maxTotalMb: 500,
-    formats: ['stl', 'obj', '3mf', 'zip'], hasApi: true, apiSupport: 'oneclick',
-    fields: ['price'], note: 'REST + OAuth2. Curated, test print before publish.',
+    // The authenticated form exposes no image-count cap. Keep the verified
+    // 100 MiB object-file cap, but do not invent a gallery limit.
+    descFormat: 'html', maxImages: null, maxFileMb: 100, maxTotalMb: null,
+    formats: MYMINIFACTORY_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Direct desktop upload through MyMiniFactory’s authenticated first-party form. Private is the safe default; public remains explicit and enters MyMiniFactory review.',
+    limits: { tagMax: 20 },
   },
   {
-    id: 'thingiverse', name: 'Thingiverse', org: 'MyMiniFactory', dot: '#248BFB',
-    covers: [{ id: 'cover', label: 'Cover', w: 1600, h: 1200, aspect: '4:3' }],
-    descFormat: 'plain', maxImages: 20, maxFileMb: 100, maxTotalMb: 250,
-    formats: ['stl', '3mf', 'obj', 'scad', 'dxf', 'svg', 'pdf'], hasApi: true, apiSupport: 'oneclick',
-    fields: [], note: 'OAuth2 REST API. Largest legacy library.',
+    id: 'thingiverse', name: 'Thingiverse', org: 'Thingiverse', dot: '#248BFB',
+    covers: [{ id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
+    descFormat: 'markdown', maxImages: null, maxFileMb: null, maxTotalMb: null,
+    formats: ['stl', 'obj', '3mf', 'scad', 'jpg', 'jpeg', 'txt', 'amf', 'dae', '3ds', 'x3d', 'blend', 'ply', 'fcstd', 'dxf', 'ai', 'svg', 'cdr', 'ps', 'eps', 'epsi', 'sch', 'brd', 'png', 'gif', 'doc', 'docx'], hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Full draft/publish flow with files, media, taxonomy, license, optional metadata and readback. Draft is the safe default; public publish remains explicit.',
   },
   {
     id: 'thangs', name: 'Thangs', org: 'Physna', dot: '#3A86FF',
-    covers: [{ id: 'cover', label: 'Cover', w: 1920, h: 1440, aspect: '4:3' }],
-    descFormat: 'html', maxImages: 15, maxFileMb: 100, maxTotalMb: 500,
-    formats: ['stl', '3mf', 'obj', 'step', 'blend', 'fbx', 'glb'], hasApi: false, apiSupport: 'addon',
-    fields: [], note: 'Search engine + repo. Ships Blender addon for upload.',
+    covers: [{ id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
+    descFormat: 'html', maxImages: null, maxFileMb: null, maxTotalMb: null,
+    formats: ['stl', '3mf', 'step', 'stp', 'obj', 'glb', 'fbx', 'blend', 'usdz', 'gltf'], hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Direct desktop upload through Thangs’ authenticated signed-storage flow. New uploads stay private unless public is explicitly selected.',
   },
   {
     id: 'nexprint', name: 'Nexprint', org: 'Elegoo', dot: '#FFB627',
-    covers: [{ id: 'cover', label: 'Cover', w: 1920, h: 1440, aspect: '4:3' }],
-    descFormat: 'markdown', maxImages: 12, maxFileMb: 100, maxTotalMb: 250,
-    formats: ['3mf', 'stl', 'obj', 'step', 'amf'], hasApi: false, apiSupport: 'manual',
-    fields: ['contestEntry'], note: 'New (Aug 2025), $1M creator fund, $5 per approved model.',
-    // All read directly from Nexprint's production front-end bundles (hard-coded constants).
-    limits: { titleMax: 80, tagMax: 10, tagCharMax: 50, descMax: 10000 },
+    covers: [{ id: 'cover', label: 'Cover', w: 2000, h: 1500, aspect: '4:3' }],
+    descFormat: 'html', maxImages: 10, maxFileMb: 2048, maxTotalMb: null,
+    formats: NEXPRINT_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Direct desktop upload through Nexprint’s authenticated first-party web flow. Draft-first by default; videos are not accepted by the current form.',
+    // Verified against the signed-in upload page and production front-end bundle on 2026-07-31.
+    limits: { titleMax: 80, tagMax: 20, tagCharMax: 50, descMax: 10000 },
   },
   {
     id: 'creality', name: 'Creality Cloud', org: 'Creality', dot: '#E63946',
+    covers: [
+      { id: 'web', label: 'Web cover', w: 1600, h: 1200, aspect: '4:3' },
+      { id: 'app', label: 'App cover', w: 1200, h: 1600, aspect: '3:4' },
+    ],
+    descFormat: 'html', maxImages: 10, maxFileMb: 2048, maxTotalMb: null,
+    formats: CREALITY_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Direct desktop upload through Creality Cloud’s authenticated first-party web flow. Private-first for new uploads; existing drafts can be edited; public is explicit.',
+    limits: { titleMax: 60, tagMax: 20 },
+  },
+  {
+    id: 'makeronline', name: 'MakerOnline', org: 'Anycubic', dot: '#111827',
     covers: [{ id: 'cover', label: 'Cover', w: 1600, h: 1200, aspect: '4:3' }],
-    descFormat: 'html', maxImages: 15, maxFileMb: 100, maxTotalMb: 300,
-    formats: ['stl', '3mf', 'obj', 'step'], hasApi: false, apiSupport: 'manual',
-    fields: [], note: 'Manufacturer-tied, large Creality user base.',
+    descFormat: 'html', maxImages: 20, maxFileMb: 500, maxTotalMb: null,
+    formats: MAKERONLINE_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Direct desktop upload through MakerOnline’s authenticated first-party web flow. Draft-first; public publishing is explicit. Supports raw models, documentation, and optional .3mf print profiles.',
+    // Verified against the signed-in upload page and production Nuxt bundle on 2026-07-31.
+    limits: { titleMax: 100, tagMax: 20, tagCharMax: 20, descMax: 9000 },
+  },
+  {
+    id: 'makeroad', name: 'MakerRoad', org: 'ELEGOO', dot: '#7C3AED',
+    // The live form recommends 1:1 but does not require a crop. Preserve the
+    // creator's original image bytes/aspect and show the recommendation only.
+    covers: [{ id: 'cover', label: 'Original image (1:1 recommended)', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
+    descFormat: 'html', maxImages: 10, maxFileMb: null, maxTotalMb: null,
+    formats: MAKEROAD_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    fields: [], note: 'Direct desktop save through MakerRoad’s authenticated first-party flow. Private Save is the safe default; publishing is an explicit review submission.',
+    limits: { titleMax: 60 },
   },
 ];
 
 // MakerWorld's live form counts "Model Pictures" separately from the two cover
 // crops, while the other platforms' maxImages values include their cover.
 function galleryCapacity(platform) {
+  if (!Number.isFinite(platform.maxImages)) return Number.POSITIVE_INFINITY;
   return platform.id === 'makerworld' ? platform.maxImages : Math.max(0, platform.maxImages - 1);
 }
 
-// Cults3D, MyMiniFactory, Thingiverse, Thangs and Creality Cloud expose NO documented
+// Cults3D, MyMiniFactory, Thingiverse and Thangs expose NO documented
 // title/tag length caps (their APIs declare the fields as bare strings). We deliberately
 // leave their `limits` unset rather than invent numbers — so they impose no cap until a
 // value is verified from their authenticated upload form (same approach as the MW capture).
@@ -288,10 +458,10 @@ const LICENSES = [
 const SECTIONS = [
   { id: 'files',     label: 'Files',     icon: Folder,    description: 'Upload your STL and 3MF files' },
   { id: 'details',   label: 'Details',   icon: FileText,  description: 'Title, description, tags, category, license' },
-  { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover and gallery photos with per-platform crops' },
+  { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover, gallery photos and compatible model videos' },
   { id: 'profiles',  label: 'Profiles',  icon: Layers,    description: 'Print profile per 3MF, with own description' },
   { id: 'platforms', label: 'Platforms', icon: Globe,     description: 'Choose where to publish and platform-specific options' },
-  { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Review and (mock) upload to each platform' },
+  { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Publish once to selected platforms or individually' },
 ];
 
 const SAMPLE_DESCRIPTION = `# Articulating Desk Dragon
@@ -446,6 +616,8 @@ function generateMetadataText(platform, project, platformState, tagString) {
 
 function generateReadme(platform, project, descExt, imageCount, fileCount) {
   const uploadUrl = (typeof UPLOAD_URLS !== 'undefined' ? UPLOAD_URLS[platform.id] : '') || '';
+  const originalMedia = !!platform.preserveOriginalImages;
+  const galleryVideos = platform.id === 'cults' ? cultsGalleryVideos(project.media || []) : [];
   const lines = [
     `${platform.name.toUpperCase()} UPLOAD PACKAGE`,
     '='.repeat(40),
@@ -459,8 +631,13 @@ function generateReadme(platform, project, descExt, imageCount, fileCount) {
     '',
     `WHAT IS IN THIS FOLDER`,
     '-'.repeat(40),
-    `- ${platform.covers.length} cover image(s), named 01_cover_*.jpg`,
-    `- ${Math.min(Math.max(0, imageCount - 1), galleryCapacity(platform))} gallery image(s), named 02_gallery_*.jpg, 03_gallery_*.jpg, ...`,
+    originalMedia
+      ? `- 1 original cover image, named 01_cover_original.*`
+      : `- ${platform.covers.length} cover image(s), named 01_cover_*.jpg`,
+    originalMedia
+      ? `- ${Math.min(Math.max(0, imageCount - 1), galleryCapacity(platform))} original gallery image(s), retaining their source formats`
+      : `- ${Math.min(Math.max(0, imageCount - 1), galleryCapacity(platform))} gallery image(s), named 02_gallery_*.jpg, 03_gallery_*.jpg, ...`,
+    ...(galleryVideos.length ? [`- gallery_media/ folder with ${galleryVideos.length} typed video file(s)`] : []),
     isRichTextPlatform(platform.id)
       ? `- description.html (rendered — open in a browser, select all, copy, then paste into ${platform.name}'s visual editor; do NOT paste the raw HTML)`
       : `- description.${descExt} (in ${platform.descFormat} format, ready to paste)`,
@@ -474,7 +651,9 @@ function generateReadme(platform, project, descExt, imageCount, fileCount) {
     '-'.repeat(40),
     `1. Open ${uploadUrl} in your browser.`,
     `2. Drag the contents of the files/ folder into the model files slot.`,
-    `3. Drag 01_cover_*.jpg into the cover image slot.`,
+    originalMedia
+      ? `3. Drag 01_cover_original.* into the cover image slot.`
+      : `3. Drag 01_cover_*.jpg into the cover image slot.`,
     `4. Drag the gallery images (02_*, 03_*, ...) into the gallery, in order.`,
     `5. Open metadata.txt, copy and paste the title field.`,
     isRichTextPlatform(platform.id)
@@ -509,13 +688,20 @@ async function buildPlatformZip(JSZip, platform, project, cover, onProgress = ()
 
   // 1. Main cover(s) cropped to each of the platform's cover dimensions.
   if (cover) {
-    onProgress('Cropping cover');
-    const coverImg = await loadImageFromDataUrl(cover.dataUrl);
-    for (const c of platform.covers) {
-      const canvas = cropToCanvas(coverImg, c.w, c.h, cover.focal);
-      const blob = await canvasToBlob(canvas);
-      const label = platform.covers.length > 1 ? `cover_${c.id}` : 'cover';
-      zip.file(`${String(counter++).padStart(2, '0')}_${label}_${c.w}x${c.h}.jpg`, blob);
+    if (platform.preserveOriginalImages) {
+      onProgress('Adding original cover');
+      const blob = await fetch(cover.dataUrl).then((response) => response.blob());
+      const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      zip.file(`${String(counter++).padStart(2, '0')}_cover_original.${ext}`, blob);
+    } else {
+      onProgress('Cropping cover');
+      const coverImg = await loadImageFromDataUrl(cover.dataUrl);
+      for (const c of platform.covers) {
+        const canvas = cropToCanvas(coverImg, c.w, c.h, cover.focal);
+        const blob = await canvasToBlob(canvas);
+        const label = platform.covers.length > 1 ? `cover_${c.id}` : 'cover';
+        zip.file(`${String(counter++).padStart(2, '0')}_${label}_${c.w}x${c.h}.jpg`, blob);
+      }
     }
   }
 
@@ -523,11 +709,26 @@ async function buildPlatformZip(JSZip, platform, project, cover, onProgress = ()
   const others = project.images.filter(i => i.id !== project.coverImageId);
   const galleryLimit = Math.min(others.length, galleryCapacity(platform));
   for (let i = 0; i < galleryLimit; i++) {
-    onProgress(`Cropping gallery ${i + 1}/${galleryLimit}`);
-    const galImg = await loadImageFromDataUrl(others[i].dataUrl);
-    const canvas = cropToCanvas(galImg, main.w, main.h, others[i].focal);
-    const blob = await canvasToBlob(canvas);
-    zip.file(`${String(counter++).padStart(2, '0')}_gallery_${String(i + 1).padStart(2, '0')}_${main.w}x${main.h}.jpg`, blob);
+    if (platform.preserveOriginalImages) {
+      onProgress(`Adding original gallery ${i + 1}/${galleryLimit}`);
+      const blob = await fetch(others[i].dataUrl).then((response) => response.blob());
+      const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      zip.file(`${String(counter++).padStart(2, '0')}_gallery_${String(i + 1).padStart(2, '0')}_original.${ext}`, blob);
+    } else {
+      onProgress(`Cropping gallery ${i + 1}/${galleryLimit}`);
+      const galImg = await loadImageFromDataUrl(others[i].dataUrl);
+      const canvas = cropToCanvas(galImg, main.w, main.h, others[i].focal);
+      const blob = await canvasToBlob(canvas);
+      zip.file(`${String(counter++).padStart(2, '0')}_gallery_${String(i + 1).padStart(2, '0')}_${main.w}x${main.h}.jpg`, blob);
+    }
+  }
+
+  // Cults3D keeps videos as ordered illustration media; never squeeze them
+  // through the image crop pipeline or send WebM to incompatible platforms.
+  const galleryVideos = platform.id === 'cults' ? cultsGalleryVideos(project.media || []) : [];
+  if (galleryVideos.length) {
+    const mediaFolder = zip.folder('gallery_media');
+    for (const video of galleryVideos) if (video.blob) mediaFolder.file(video.name, video.blob);
   }
 
   // 3. Per-profile covers — each 3MF profile that opted for its own image.
@@ -537,11 +738,18 @@ async function buildPlatformZip(JSZip, platform, project, cover, onProgress = ()
     for (const prof of profileCovers) {
       const pimg = project.images.find(im => im.id === prof.coverImageId);
       if (!pimg) continue;
-      onProgress(`Cropping profile cover: ${prof.name}`);
-      const loaded = await loadImageFromDataUrl(pimg.dataUrl);
-      const canvas = cropToCanvas(loaded, main.w, main.h, pimg.focal);
-      const blob = await canvasToBlob(canvas);
-      pfolder.file(`${slugify(prof.name) || 'profile'}_${main.w}x${main.h}.jpg`, blob);
+      if (platform.preserveOriginalImages) {
+        onProgress(`Adding original profile cover: ${prof.name}`);
+        const blob = await fetch(pimg.dataUrl).then((response) => response.blob());
+        const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+        pfolder.file(`${slugify(prof.name) || 'profile'}_original.${ext}`, blob);
+      } else {
+        onProgress(`Cropping profile cover: ${prof.name}`);
+        const loaded = await loadImageFromDataUrl(pimg.dataUrl);
+        const canvas = cropToCanvas(loaded, main.w, main.h, pimg.focal);
+        const blob = await canvasToBlob(canvas);
+        pfolder.file(`${slugify(prof.name) || 'profile'}_${main.w}x${main.h}.jpg`, blob);
+      }
     }
   }
 
@@ -634,6 +842,7 @@ const initialProject = {
   name: 'Untitled Project',
   files: [],
   images: [],
+  media: [],
   coverImageId: null,
   title: '',
   description: '',
@@ -643,20 +852,79 @@ const initialProject = {
   profiles: [],
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-    printables: { enabled: true, categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip' },
+    printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip' },
     cults: { enabled: true, price: 0, free: true, visibility: 'secret' },
-    mmf: { enabled: true, price: 0, free: true },
-    thingiverse: { enabled: true },
-    thangs: { enabled: true },
-    nexprint: { enabled: false, contestEntry: '' },
-    creality: { enabled: false },
+    mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: 5, printingTips: '', timeFrom: 0, timeTo: 50, dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
+    thingiverse: { enabled: true, publication: 'draft', summary: '', categoryId: '', license: 'cc-nc', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
+    thangs: { enabled: true, publication: 'private', structure: 'single', units: 'mm', primaryFileId: '', category: '', allowRemix: true, aiGenerated: false, feedbackEnabled: true, folderId: '', workspaceId: '', resumeDraftId: '', accessTypeId: '', planIds: [], dependencies: [], versionNotes: '', marketplace: false, price: 0, license: 'CC BY-NC' },
+    nexprint: {
+      enabled: false,
+      publication: 'draft',
+      originalityType: 1,
+      sourceUrl: '',
+      sourceModelId: '',
+      categoryId: '',
+      licenseType: 2,
+      nsfw: false,
+      aiGenerated: false,
+      hasBom: false,
+      bom: [],
+      collectionIds: [],
+      activityIds: [],
+      worldFirstRelease: false,
+    },
+    creality: {
+      enabled: false,
+      publication: 'private',
+      categoryId: '',
+      license: 'CC BY-NC',
+      modelSource: 1,
+      sourceUrl: '',
+      nsfw: false,
+    },
+    makeronline: {
+      enabled: false,
+      publication: 'draft',
+      source: 1,
+      originalUrl: '',
+      license: 3,
+      categoryId: '',
+      permission: 2,
+      printMethod: 3,
+      aiHelp: false,
+      nsfw: false,
+      includePrintProfile: true,
+      printTitle: '',
+      printDescription: '',
+      relatedKits: false,
+      storeKitIds: [],
+      syncChina: false,
+      exclusive: false,
+    },
+    makeroad: {
+      enabled: false, publication: 'draft', uploadType: 1, referUrl: '', categoryIds: [],
+      printMethods: ['FDM'], printerIds: [], materialIds: [], colorIds: [],
+      licenseIndex: 2, aiGenerated: false, nsfw: false, visibility: 'private',
+      scheduled: false, planTime: '', payType: 'free', payValue: 0, termsAccepted: false,
+    },
   },
 };
 
-// --- Demo data ---------------------------------------------------------------
-// A fully-populated project so users can click through what a finished, filled-in
-// project looks like (files, cropped images, profiles, every field, platforms),
-// then toggle off to return to their own work.
+function mergePlatformDefaults(savedPlatforms = {}) {
+  const merged = {};
+  for (const [id, defaults] of Object.entries(initialProject.platforms)) {
+    merged[id] = { ...defaults, ...(savedPlatforms?.[id] || {}) };
+  }
+  for (const [id, value] of Object.entries(savedPlatforms || {})) {
+    if (!merged[id]) merged[id] = value;
+  }
+  return merged;
+}
+
+// --- Real upload test data ----------------------------------------------------
+// A fully-populated, private/draft-first project for exercising the real desktop
+// publishers. Loading it never uploads by itself; the Publish button remains the
+// single explicit mutation boundary.
 function buildDemoProject() {
   const tints = [
     ['#FF5722', '#FFB627', '#1A1A1A'],
@@ -700,7 +968,7 @@ function buildDemoProject() {
     parsed: mockParseThreeMF('desk-dragon-bambu.3mf'),
   }));
   return {
-    name: 'Articulating Desk Dragon (demo)',
+    name: 'Articulating Desk Dragon — Real Upload Test',
     files,
     images,
     coverImageId: images[0].id,
@@ -712,15 +980,76 @@ function buildDemoProject() {
     profiles,
     platforms: {
       makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-      printables: { enabled: true, categoryId: '36', licenseId: '3', summary: 'A print-in-place articulated desk dragon with poseable wings and tail.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip' },
-      cults: { enabled: true, price: 4.5, free: false },
-      mmf: { enabled: true, price: 0, free: true },
-      thingiverse: { enabled: true },
-      thangs: { enabled: false },
-      nexprint: { enabled: true, contestEntry: 'creator-fund' },
-      creality: { enabled: false },
+      printables: { enabled: true, publication: 'draft', categoryId: '36', licenseId: '3', summary: 'A print-in-place articulated desk dragon with poseable wings and tail.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip' },
+      // Keep the cross-platform certification fixture free so the shared
+      // CC BY-NC license remains valid on Cults. Paid Cults listings require
+      // CULTS CU and are certified as a separate optional branch.
+      cults: { enabled: true, price: 0, free: true },
+      mmf: { enabled: true, publication: 'private', categoryIds: [60, 462], licenseId: 5, printingTips: 'Print-in-place. No supports required.', timeFrom: 3, timeTo: 5, dimensions: '120 × 75 × 45', dimensionsUnit: 0, technology: 'FDM', materialQuantity: '45 g', supportFree: true, remix: false, remixParentIds: [], confirmOriginalNoAi: true },
+      thingiverse: { enabled: true, publication: 'draft', summary: 'A print-in-place articulated desk dragon.', categoryId: '124', license: 'cc-nc', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
+      thangs: {
+        ...initialProject.platforms.thangs,
+        enabled: true,
+        publication: 'private',
+        structure: 'single',
+        primaryFileId: 'demofile_desk-dragon-S.stl',
+        category: 'Toys & Games/Articulated',
+        versionNotes: 'ModelPrep private single-part certification upload.',
+      },
+      nexprint: {
+        enabled: true,
+        publication: 'draft',
+        originalityType: 1,
+        sourceUrl: '',
+        sourceModelId: '',
+        categoryId: '1422473859006468',
+        licenseType: 2,
+        nsfw: false,
+        aiGenerated: false,
+        hasBom: true,
+        bom: [{ materialName: 'PLA filament', materialNum: 1, materialRemark: 'Any color' }],
+        collectionIds: [],
+        activityIds: [],
+        worldFirstRelease: false,
+      },
+      creality: {
+        enabled: true,
+        publication: 'private',
+        categoryId: '6007',
+        license: 'CC BY-NC',
+        modelSource: 1,
+        sourceUrl: '',
+        nsfw: false,
+      },
+      makeronline: {
+        enabled: true,
+        publication: 'draft',
+        source: 1,
+        originalUrl: '',
+        license: 3,
+        categoryId: '104',
+        permission: 2,
+        printMethod: 3,
+        aiHelp: false,
+        nsfw: false,
+        includePrintProfile: true,
+        printTitle: 'Desk Dragon — Bambu A1 Mini',
+        printDescription: '0.2 mm PLA profile with 15% gyroid infill and no supports.',
+        relatedKits: false,
+        storeKitIds: [],
+        syncChina: false,
+        exclusive: false,
+      },
+      makeroad: {
+        ...initialProject.platforms.makeroad,
+        enabled: true,
+        publication: 'draft',
+        categoryIds: [],
+        categoryPaths: ["Games & Toys › Kids' Toys"],
+        visibility: 'private',
+      },
     },
-    __demo: true, // when NOT connected, publish flows simulate; when connected, real publish
+    __testProject: true,
   };
 }
 
@@ -805,7 +1134,9 @@ function makeCubeStl(s = 20) {
 //     full print-profile flow is demoed AND a connected user can really publish it);
 //   • otherwise → STL-only (drop the 3mf + profiles) so the real publish actually succeeds.
 async function loadDemoAssets(base) {
-  const images = await loadDemoImages();
+  // Ten images exercise every crop while remaining inside MakerRoad's strict
+  // 3–10 image window, so the same fixture can be sent to all destinations.
+  const images = (await loadDemoImages()).slice(0, 10);
   const cover = images[0];
   const realMf = await fetch(`${import.meta.env.BASE_URL}demo/desk-dragon-bambu.3mf`)
     .then((r) => (r.ok ? r.blob() : null)).catch(() => null);
@@ -826,7 +1157,19 @@ async function loadDemoAssets(base) {
     });
     profiles = [];
   }
-  return { images, coverImageId: cover.id, files, profiles };
+  return {
+    images,
+    coverImageId: cover.id,
+    files,
+    profiles,
+    platforms: {
+      ...base.platforms,
+      makeronline: {
+        ...base.platforms.makeronline,
+        includePrintProfile: !!realMf,
+      },
+    },
+  };
 }
 
 // --- Autosave (localStorage) -------------------------------------------------
@@ -844,17 +1187,61 @@ function serializeProjectMeta(p) {
     savedAt: Date.now(),
   };
 }
+
+function canonicalAutosaveValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalAutosaveValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalAutosaveValue(value[key])]),
+  );
+}
+
+function meaningfulPlatformSettings(platforms = {}) {
+  const meaningful = {};
+  for (const id of Object.keys(platforms || {}).sort()) {
+    const settings = platforms[id];
+    if (!settings || typeof settings !== 'object') continue;
+    const defaults = initialProject.platforms[id] || {};
+    const differences = {};
+    for (const key of Object.keys(settings).sort()) {
+      if (JSON.stringify(canonicalAutosaveValue(settings[key])) !== JSON.stringify(canonicalAutosaveValue(defaults[key]))) {
+        differences[key] = settings[key];
+      }
+    }
+    if (Object.keys(differences).length) meaningful[id] = differences;
+  }
+  return meaningful;
+}
+
 function autosaveFingerprint(saved) {
   if (!saved) return '';
-  return JSON.stringify({
+  return JSON.stringify(canonicalAutosaveValue({
+    version: 2,
     name: saved.name || '',
     title: saved.title || '',
     description: saved.description || '',
     tags: saved.tags || [],
     category: saved.category || '',
     license: saved.license || '',
-    platforms: saved.platforms || {},
-  });
+    // Restoring merges newly introduced platform defaults into old snapshots.
+    // Default-valued fields are not user edits and must not make the same
+    // snapshot look new on the next launch.
+    platforms: meaningfulPlatformSettings(saved.platforms),
+  }));
+}
+function autosaveWasHandled(saved, handledFingerprint) {
+  const fingerprint = autosaveFingerprint(saved);
+  if (handledFingerprint === fingerprint) return true;
+  // v1 stored the fingerprint object directly. Re-fingerprint it using the v2
+  // canonical rules so upgrades do not resurrect an already handled prompt.
+  try {
+    const legacy = JSON.parse(handledFingerprint || 'null');
+    if (legacy && !legacy.version && autosaveFingerprint(legacy) === fingerprint) {
+      localStorage.setItem(AUTOSAVE_HANDLED_KEY, fingerprint);
+      return true;
+    }
+  } catch (e) { /* malformed/old storage: offer recovery normally */ }
+  return false;
 }
 function markAutosaveHandled(saved) {
   try {
@@ -1017,6 +1404,10 @@ function buildImportSummaryText(s) {
 export default function App() {
   const [project, dispatchProject] = useReducer(projectReducer, initialProject);
   const [currentSection, setCurrentSection] = useState('files');
+  const workspaceMainRef = useRef(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('modelprep.sidebarCollapsed') === 'true'; } catch (error) { return false; }
+  });
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [dialog, setDialog] = useState(null); // styled prompt/confirm modal
@@ -1026,9 +1417,125 @@ export default function App() {
   const openSettings = (tab = 'accounts') => { setSettingsTab(tab); setShowConnections(true); };
   const stashedProject = useRef(null);
 
-  // Demo mode: fill the whole project with sample data so users can click through
-  // a finished UI, then toggle off to restore their own work. We stash the real
-  // project on enter and never autosave while demo is on (see autosave effect).
+  useEffect(() => {
+    const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop)
+      ? window.modelprepDesktop
+      : null;
+    if (!desktop?.discoverAccounts) return undefined;
+    let cancelled = false;
+    desktop.discoverAccounts()
+      .then((result) => {
+        if (cancelled || !result?.ok || !Array.isArray(result.accounts)) return;
+        const available = new Map(CONNECTABLE.map((platform) => [platform, new Set()]));
+        for (const account of result.accounts) {
+          if (account?.platform === 'makerworld') {
+            available.get('makerworld').add(DESKTOP_MAKERWORLD_SECRET);
+            rehydrateDesktopAccount('makerworld', {
+              label: account.label || 'MakerWorld',
+              secret: DESKTOP_MAKERWORLD_SECRET,
+            });
+          } else if (account?.platform === 'printables') {
+            available.get('printables').add(DESKTOP_PRINTABLES_SECRET);
+            rehydrateDesktopAccount('printables', {
+              label: account.label || 'Printables',
+              secret: DESKTOP_PRINTABLES_SECRET,
+            });
+          } else if (account?.platform === 'cults' && account.accountId) {
+            const secret = desktopCultsSecret(account.accountId);
+            available.get('cults').add(secret);
+            rehydrateDesktopAccount('cults', {
+              label: account.label || 'Cults3D',
+              secret,
+            });
+          } else if (account?.platform === 'nexprint') {
+            available.get('nexprint').add(DESKTOP_NEXPRINT_SECRET);
+            rehydrateDesktopAccount('nexprint', {
+              label: account.label || 'Nexprint',
+              secret: DESKTOP_NEXPRINT_SECRET,
+            });
+          } else if (account?.platform === 'creality') {
+            available.get('creality').add(DESKTOP_CREALITY_SECRET);
+            rehydrateDesktopAccount('creality', {
+              label: account.label || 'Creality Cloud',
+              secret: DESKTOP_CREALITY_SECRET,
+            });
+          } else if (account?.platform === 'makeronline') {
+            available.get('makeronline').add(DESKTOP_MAKERONLINE_SECRET);
+            rehydrateDesktopAccount('makeronline', {
+              label: account.label || 'MakerOnline',
+              secret: DESKTOP_MAKERONLINE_SECRET,
+            });
+          } else if (account?.platform === 'mmf') {
+            available.get('mmf').add(DESKTOP_MYMINIFACTORY_SECRET);
+            rehydrateDesktopAccount('mmf', {
+              label: account.label || 'MyMiniFactory',
+              secret: DESKTOP_MYMINIFACTORY_SECRET,
+            });
+          } else if (account?.platform === 'makeroad') {
+            available.get('makeroad').add(DESKTOP_MAKEROAD_SECRET);
+            rehydrateDesktopAccount('makeroad', { label: account.label || 'MakerRoad', secret: DESKTOP_MAKEROAD_SECRET });
+          } else if (account?.platform === 'thangs') {
+            available.get('thangs').add(DESKTOP_THANGS_SECRET);
+            rehydrateDesktopAccount('thangs', { label: account.label || 'Thangs', secret: DESKTOP_THANGS_SECRET });
+          } else if (account?.platform === 'thingiverse') {
+            available.get('thingiverse').add(DESKTOP_THINGIVERSE_SECRET);
+            rehydrateDesktopAccount('thingiverse', { label: account.label || 'Thingiverse', secret: DESKTOP_THINGIVERSE_SECRET });
+          }
+        }
+        for (const platform of CONNECTABLE) {
+          for (const account of getAccounts(platform)) {
+            const isOpaqueDesktopAccount = (
+              (platform === 'makerworld' && isDesktopMakerWorldSession(account.secret))
+              || (platform === 'printables' && isDesktopPrintablesSession(account.secret))
+              || (platform === 'cults' && isDesktopCultsSession(account.secret))
+              || (platform === 'nexprint' && isDesktopNexprintSession(account.secret))
+              || (platform === 'creality' && isDesktopCrealitySession(account.secret))
+              || (platform === 'makeronline' && isDesktopMakerOnlineSession(account.secret))
+              || (platform === 'mmf' && isDesktopMyMiniFactorySession(account.secret))
+              || (platform === 'makeroad' && isDesktopMakerRoadSession(account.secret))
+              || (platform === 'thangs' && isDesktopThangsSession(account.secret))
+              || (platform === 'thingiverse' && isDesktopThingiverseSession(account.secret))
+            );
+            if (isOpaqueDesktopAccount && !available.get(platform).has(account.secret)) {
+              if (typeof desktop.recoverAccount === 'function') {
+                setStatus(platform, account.id, 'checking');
+                const accountId = platform === 'cults' ? desktopCultsAccountId(account.secret) : '';
+                desktop.recoverAccount(platform, accountId)
+                  .then((recovery) => {
+                    if (cancelled) return;
+                    if (recovery?.ok) {
+                      rehydrateDesktopAccount(platform, {
+                        label: desktopIdentityLabel(platform, recovery.user, account.label),
+                        secret: account.secret,
+                      });
+                    } else setStatus(platform, account.id, 'reconnect');
+                  })
+                  .catch(() => { if (!cancelled) setStatus(platform, account.id, 'reconnect'); });
+              } else setStatus(platform, account.id, 'reconnect');
+            }
+          }
+        }
+      })
+      .catch(() => { /* Settings still offers normal sign-in when discovery fails. */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // A step change is a navigation event. Always restore the workspace to the
+  // beginning so a long previous step cannot leave the next one half-hidden.
+  useEffect(() => {
+    if (workspaceMainRef.current) workspaceMainRef.current.scrollTop = 0;
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+    try { workspaceMainRef.current?.focus?.({ preventScroll: true }); } catch (e) { /* older WebViews */ }
+  }, [currentSection]);
+
+  useEffect(() => {
+    try { localStorage.setItem('modelprep.sidebarCollapsed', String(sidebarCollapsed)); } catch (error) { /* storage unavailable */ }
+  }, [sidebarCollapsed]);
+
+  // Test-project mode fills the project with bundled sample files and metadata.
+  // It remains excluded from autosave so exiting restores the user's own project,
+  // but publish actions are real and still require an explicit button press.
   const [demoLoading, setDemoLoading] = useState(false);
   const toggleDemo = () => {
     if (!demoActive) {
@@ -1046,7 +1553,7 @@ export default function App() {
       // stays deterministic and makes each platform's framing visibly different.
       setDemoLoading(true);
       loadDemoAssets(base)
-        .then((assets) => setProject((p) => p.__demo ? { ...p, ...assets } : p))
+        .then((assets) => setProject((p) => p.__testProject ? { ...p, ...assets } : p))
         .catch(() => { /* keep placeholders */ })
         .finally(() => setDemoLoading(false));
     } else {
@@ -1114,7 +1621,7 @@ export default function App() {
     if (!saved || (!saved.title && !saved.description && !(saved.tags || []).length)) return;
     let handledFingerprint = '';
     try { handledFingerprint = localStorage.getItem(AUTOSAVE_HANDLED_KEY) || ''; } catch (e) { /* private mode */ }
-    if (handledFingerprint === autosaveFingerprint(saved)) return;
+    if (autosaveWasHandled(saved, handledFingerprint)) return;
     setDialog({
       kind: 'confirm',
       title: 'Restore text & settings?',
@@ -1130,7 +1637,7 @@ export default function App() {
           tags: saved.tags || [],
           category: saved.category || '',
           license: saved.license || 'ccbync',
-          platforms: saved.platforms || initialProject.platforms,
+          platforms: mergePlatformDefaults(saved.platforms),
         });
       },
     });
@@ -1184,7 +1691,7 @@ export default function App() {
       apply();
     }
   };
-  const isDirty = () => project.files.length || project.images.length || project.title || project.description || project.tags.length || Object.values(project.platforms).some(p => p.enabled);
+  const isDirty = () => project.files.length || project.images.length || (project.media || []).length || project.title || project.description || project.tags.length || Object.values(project.platforms).some(p => p.enabled);
   // Folder import: infer a whole project from a chosen folder, then land on Details
   // for review. Replaces the current project (with confirmation if it has content).
   const importFolder = (fileList) => {
@@ -1240,7 +1747,7 @@ export default function App() {
         backgroundImage: 'repeating-linear-gradient(0deg, rgba(21,23,28,0.022) 0px, rgba(21,23,28,0.022) 1px, transparent 1px, transparent 7px)',
         zIndex: 0,
       }} />
-      <div className="relative z-10">
+      <div className="relative z-10 min-h-screen flex flex-col">
 
       <TopHeader
         project={project}
@@ -1259,41 +1766,51 @@ export default function App() {
       />
       <VersionBanner />
 
-      {/* No forced full-viewport height — the content area is exactly as tall as its
-          content, so SectionNav (Back/Next) flows right after the content instead of
-          being pushed to the bottom edge against the status bar. The outer min-h-screen
-          div keeps the background full-height on short pages. */}
-      <div className="flex flex-col lg:flex-row max-w-[1760px] 2xl:max-w-[2200px] mx-auto">
+      {/* Fill the viewport below the header. Short steps keep Back/Next aligned
+          directly above the fixed status bar; long steps retain sticky navigation. */}
+      <div className="flex flex-1 flex-col lg:flex-row w-full max-w-[1760px] 2xl:max-w-[2200px] mx-auto">
         <Sidebar
           currentSection={currentSection}
           setCurrentSection={setCurrentSection}
           completion={completion}
+          collapsed={sidebarCollapsed}
+          setCollapsed={setSidebarCollapsed}
         />
 
-        <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-x-hidden pb-20">
-          {currentSection === 'files' && (
-            <FilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
-          )}
-          {currentSection === 'details' && (
-            <DetailsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
-          )}
-          {currentSection === 'images' && (
-            <ImagesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
-          )}
-          {currentSection === 'profiles' && (
-            <ProfilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
-          )}
-          {currentSection === 'platforms' && (
-            <PlatformsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
-          )}
-          {currentSection === 'publish' && (
-            <PublishSection
-              project={project}
-              allReady={allReady}
-              completion={completion}
-              setCurrentSection={setCurrentSection}
-            />
-          )}
+        <main
+          ref={workspaceMainRef}
+          data-testid="workspace-main"
+          tabIndex={-1}
+          aria-label={`${SECTIONS.find((section) => section.id === currentSection)?.label || 'Project'} step`}
+          className="flex flex-1 flex-col min-w-0 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 lg:pt-5 overflow-x-hidden"
+          style={{ paddingBottom: 0 }}
+        >
+          <div data-testid="section-content" className="mp-section-content flex flex-1 flex-col min-h-0">
+            {currentSection === 'files' && (
+              <FilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+            )}
+            {currentSection === 'details' && (
+              <DetailsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+            )}
+            {currentSection === 'images' && (
+              <ImagesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+            )}
+            {currentSection === 'profiles' && (
+              <ProfilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+            )}
+            {currentSection === 'platforms' && (
+              <PlatformsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+            )}
+            {currentSection === 'publish' && (
+              <PublishSection
+                key={project.__testProject ? 'test' : 'project'}
+                project={project}
+                allReady={allReady}
+                completion={completion}
+                setCurrentSection={setCurrentSection}
+              />
+            )}
+          </div>
         </main>
       </div>
 
@@ -1322,9 +1839,9 @@ function Modal({ dialog, onClose }) {
   const cancel = () => { dialog.onCancel?.(); onClose(); };
   const confirm = () => { dialog.onConfirm?.(kind === 'prompt' ? value : undefined); onClose(); };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.55)' }} onMouseDown={cancel}>
+    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.55)' }} onMouseDown={cancel}>
       <div className="mp-card w-full max-w-md p-5" style={{ background: '#EDE9DE' }} onMouseDown={(e) => e.stopPropagation()}>
-        <h3 className="mp-display text-[22px] leading-none mb-2">{title}</h3>
+        <h3 id="modelprep-dialog-title" className="mp-display text-[22px] leading-none mb-2">{title}</h3>
         {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(21,23,28,0.7)' }}>{message}</p>}
         {kind === 'prompt' && (
           <input
@@ -1363,7 +1880,7 @@ function StatusBar({ project, completion, currentSection }) {
     : allDone ? { label: 'READY TO PUBLISH', color: '#4FB286' }
     : { label: 'IN PROGRESS', color: '#FFB627' };
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-20 border-t" style={{
+    <div data-testid="status-bar" className="fixed bottom-0 left-0 right-0 z-20 border-t" style={{
       background: '#15171C',
       color: '#EDE9DE',
       borderColor: '#15171C',
@@ -1382,7 +1899,7 @@ function StatusBar({ project, completion, currentSection }) {
         </div>
         <div className="hidden sm:flex items-center gap-5 mp-mono text-[12px] uppercase tracking-[0.15em]">
           <span>FILES <span style={{ color: '#FF5722' }}>{project.files.length}</span></span>
-          <span>IMG <span style={{ color: '#FF5722' }}>{project.images.length}</span></span>
+          <span>MEDIA <span style={{ color: '#FF5722' }}>{project.images.length + (project.media || []).length}</span></span>
           <span>SIZE <span style={{ color: '#FF5722' }}>{formatBytes(totalSize)}</span></span>
           <span>TARGETS <span style={{ color: '#FF5722' }}>{enabledCount}/{PLATFORMS.length}</span></span>
         </div>
@@ -1472,6 +1989,7 @@ function GlobalStyles() {
       .mp-btn-ghost:hover:not(:disabled) { background: #15171C; color: #EDE9DE; border-color: #15171C; }
 
       .mp-card { background: #FFFFFF; border: 1px solid rgba(21,23,28,0.12); }
+      .mp-section-content > * { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 
       /* Workshop-style status pill */
       .mp-pill { font-family: 'JetBrains Mono'; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; padding: 3px 8px; border-radius: 0; display: inline-flex; align-items: center; }
@@ -1512,23 +2030,18 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
 
   return (
     <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'rgba(21,23,28,0.1)', background: 'rgba(237,233,222,0.92)' }}>
-      <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 sm:gap-4">
-        <div className="flex items-center gap-3 min-w-0 w-full sm:w-auto">
-          <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 relative" style={{ background: '#15171C' }}>
-            {/* Layer-stack icon: 4 horizontal bars stacked, mimicking print layers */}
-            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-              <rect x="3" y="3"  width="16" height="2" fill="#FF5722" />
-              <rect x="3" y="7"  width="16" height="2" fill="#EDE9DE" opacity="0.4" />
-              <rect x="3" y="11" width="16" height="2" fill="#EDE9DE" opacity="0.6" />
-              <rect x="3" y="15" width="16" height="2" fill="#EDE9DE" opacity="0.85" />
-            </svg>
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-2.5">
+      <div data-testid="top-header-layout" className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3 flex flex-col xl:flex-row xl:flex-nowrap xl:items-center xl:justify-between gap-3 xl:gap-4">
+        <div data-testid="top-header-brand" className="flex items-center gap-3 min-w-0 w-full xl:w-auto xl:max-w-[360px] 2xl:max-w-[520px]">
+          <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-11 h-11 flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2.5 min-w-0">
               <h1 className="mp-display text-[26px] leading-none">ModelPrep</h1>
-              <span className="hidden sm:inline mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.45)' }} title={`Build ${BUILD_COMMIT}${BUILD_TIME ? ' · ' + new Date(BUILD_TIME).toISOString() : ''}`}>v0.3 · {BUILD_LABEL}</span>
+              <span className="hidden sm:inline mp-mono text-[10px] uppercase tracking-[0.16em] whitespace-nowrap" style={{ color: 'rgba(21,23,28,0.45)' }}>v0.3</span>
             </div>
-            <div className="flex items-center gap-1.5 mt-1">
+            <div data-testid="visible-build-stamp" className="mp-mono text-[9px] sm:text-[10px] uppercase tracking-[0.13em] whitespace-nowrap mt-0.5" style={{ color: 'rgba(21,23,28,0.45)' }} title={BUILD_TIME ? new Date(BUILD_TIME).toISOString() : BUILD_DATE_LABEL}>
+              Build {BUILD_COMMIT} · {BUILD_DATE_LABEL}
+            </div>
+            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
               {editingName ? (
                 <input
                   autoFocus
@@ -1543,7 +2056,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
               ) : (
                 <button
                   onClick={() => setEditingName(true)}
-                  className="mp-mono text-[13px] flex items-center gap-1 group max-w-[280px] sm:max-w-none truncate"
+                  className="mp-mono text-[13px] flex items-center gap-1 group min-w-0 max-w-full truncate"
                   style={{ color: 'rgba(21,23,28,0.6)' }}
                 >
                   ▸ {project.name}
@@ -1554,7 +2067,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
           </div>
         </div>
 
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto min-w-0">
+        <div data-testid="top-header-actions" className="grid grid-cols-2 sm:flex sm:flex-wrap xl:flex-nowrap xl:justify-end items-center gap-2 w-full xl:w-auto min-w-0">
           <ConnectionsButton onOpen={onOpenConnections} />
           <div className="relative" ref={templatesRef}>
             <button onClick={() => setShowTemplates(s => !s)} className="mp-btn mp-btn-ghost text-xs py-2 px-3" aria-haspopup="true" aria-expanded={showTemplates}>
@@ -1590,9 +2103,9 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
             className="mp-btn text-xs py-2 px-3"
             style={demoActive ? { background: '#3A86FF', borderColor: '#3A86FF' } : { background: 'transparent', color: '#15171C', border: '1px solid rgba(21,23,28,0.25)' }}
             aria-pressed={demoActive}
-            title={demoActive ? 'Exit demo and restore your data' : 'Fill the app with sample data to explore'}
+            title={demoActive ? 'Exit the real upload test and restore your data' : 'Load a private/draft-first project for real upload testing'}
           >
-            <Sparkles size={13} /> {demoActive ? 'Exit demo' : 'Demo'}
+            <Sparkles size={13} /> {demoActive ? 'Exit test' : 'Real upload test'}
           </button>
           <button
             onClick={() => folderRef.current?.click()}
@@ -1617,7 +2130,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
         <div className="text-center py-1.5 px-4 mp-mono text-[12px] uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ background: '#3A86FF', color: '#fff' }}>
           {demoLoading
             ? <><Loader size={12} className="animate-spin" /> Loading 16 crop-focused demo renders &amp; model…</>
-            : <><Sparkles size={12} /> Demo data loaded — 16 landscape, portrait &amp; square renders. Compare the crops; click “Exit demo” to restore your work.</>}
+            : <><Sparkles size={12} /> Real test project loaded — no upload has started. All destinations use private, secret, or draft settings; go to Publish when you are ready.</>}
         </div>
       )}
     </header>
@@ -1628,15 +2141,66 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
 // SIDEBAR
 // =====================================================================
 
-function Sidebar({ currentSection, setCurrentSection, completion }) {
+function Sidebar({ currentSection, setCurrentSection, completion, collapsed, setCollapsed }) {
+  const activeIndex = Math.max(0, SECTIONS.findIndex((section) => section.id === currentSection));
   return (
-    <aside className="w-full lg:w-64 flex-shrink-0 border-b lg:border-b-0 lg:border-r" style={{ borderColor: 'rgba(21,23,28,0.15)', minHeight: '100%' }}>
-      <nav className="py-3 px-2 lg:py-6 lg:px-3 lg:sticky lg:top-[81px]">
-        <div className="hidden lg:flex mp-mono text-[11px] uppercase tracking-[0.25em] px-3 mb-3 items-center gap-2" style={{ color: 'rgba(21,23,28,0.45)' }}>
-          <span>┌─ JOB SHEET</span>
-          <div className="flex-1 mp-tickrule" />
+    <aside
+      data-testid="project-sidebar"
+      className={`w-full ${collapsed ? 'lg:w-20' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r`}
+      style={{ borderColor: 'rgba(21,23,28,0.15)', minHeight: '100%' }}
+    >
+      <nav aria-label="Project steps" className={`py-3 px-3 lg:py-5 ${collapsed ? 'lg:px-2' : 'lg:px-3'} lg:sticky lg:top-[81px]`}>
+        <div className="lg:hidden flex items-center gap-3">
+          <details className="min-w-0 flex-1 relative">
+            <span className="mp-mono text-[10px] uppercase tracking-[0.16em] block mb-1" style={{ color: 'rgba(21,23,28,0.5)' }}>
+              Step {activeIndex + 1} of {SECTIONS.length}
+            </span>
+            <summary className="mp-input-sm w-full cursor-pointer list-none flex items-center justify-between gap-2">
+              <span>{String(activeIndex + 1).padStart(2, '0')} · {SECTIONS[activeIndex].label}</span>
+              <ChevronDown size={14} />
+            </summary>
+            <div className="absolute top-full left-0 right-0 z-30 mp-card mt-1 p-1 shadow-lg">
+              {SECTIONS.map((section, index) => (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={(event) => {
+                    setCurrentSection(section.id);
+                    event.currentTarget.closest('details')?.removeAttribute('open');
+                  }}
+                  aria-current={section.id === currentSection ? 'step' : undefined}
+                  className="w-full text-left px-2.5 py-2 flex items-center gap-2 text-[12px]"
+                  style={{ background: section.id === currentSection ? '#15171C' : 'transparent', color: section.id === currentSection ? '#EDE9DE' : '#15171C' }}
+                >
+                  <span className="mp-mono opacity-55">{String(index + 1).padStart(2, '0')}</span>
+                  <span className="flex-1">{section.label}</span>
+                  {completion[section.id] && <Check size={12} style={{ color: '#4FB286' }} />}
+                </button>
+              ))}
+            </div>
+          </details>
+          <div className="mp-mono text-[11px] uppercase tracking-[0.12em] pt-5" style={{ color: completion[currentSection] ? '#247255' : 'rgba(21,23,28,0.45)' }}>
+            {completion[currentSection] ? 'Complete' : 'In progress'}
+          </div>
         </div>
-        <div className="flex lg:block gap-1 lg:gap-0 overflow-x-auto lg:overflow-visible">
+        <div className={`hidden lg:flex mb-3 items-center gap-2 ${collapsed ? 'justify-center' : 'px-3'}`} style={{ color: 'rgba(21,23,28,0.45)' }}>
+          {!collapsed && (
+            <>
+              <span className="mp-mono text-[11px] uppercase tracking-[0.25em]">┌─ JOB SHEET</span>
+              <div className="flex-1 mp-tickrule" />
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-8 h-8 flex items-center justify-center flex-shrink-0 hover:bg-[rgba(21,23,28,0.08)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5722]"
+            aria-label={collapsed ? 'Expand project steps' : 'Collapse project steps'}
+            title={collapsed ? 'Expand project steps' : 'Collapse project steps'}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        </div>
+        <div className="hidden lg:block">
         {SECTIONS.map((s, i) => {
           const Icon = s.icon;
           const done = completion[s.id];
@@ -1647,7 +2211,8 @@ function Sidebar({ currentSection, setCurrentSection, completion }) {
               onClick={() => setCurrentSection(s.id)}
               aria-current={active ? 'step' : undefined}
               aria-label={`Step ${i + 1}: ${s.label}${done ? ' (complete)' : ''}`}
-              className="flex-shrink-0 w-[210px] lg:w-full text-left p-3 mb-0.5 flex items-start gap-3 transition-colors group relative"
+              title={collapsed ? `${String(i + 1).padStart(2, '0')} · ${s.label} — ${s.description}` : undefined}
+              className={`flex-shrink-0 w-[210px] lg:w-full text-left p-3 mb-0.5 flex transition-colors group relative ${collapsed ? 'justify-center' : 'items-start gap-3'}`}
               style={{
                 background: active ? '#15171C' : 'transparent',
                 color: active ? '#EDE9DE' : '#15171C',
@@ -1664,7 +2229,7 @@ function Sidebar({ currentSection, setCurrentSection, completion }) {
                   </div>
                 )}
               </div>
-              <div className="min-w-0 flex-1">
+              <div className={collapsed ? 'hidden' : 'min-w-0 flex-1'}>
                 <div className="flex items-baseline gap-2">
                   <span className="mp-mono text-[11px] tracking-[0.15em] opacity-50">{String(i + 1).padStart(2, '0')}/</span>
                   <span className="mp-display text-[17px] leading-none">{s.label}</span>
@@ -1677,7 +2242,7 @@ function Sidebar({ currentSection, setCurrentSection, completion }) {
           );
         })}
         </div>
-        <div className="hidden lg:flex mp-mono text-[11px] uppercase tracking-[0.25em] px-3 mt-3 items-center gap-2" style={{ color: 'rgba(21,23,28,0.45)' }}>
+        <div className={`${collapsed ? 'hidden' : 'hidden lg:flex'} mp-mono text-[11px] uppercase tracking-[0.25em] px-3 mt-3 items-center gap-2`} style={{ color: 'rgba(21,23,28,0.45)' }}>
           <span>└─</span>
           <div className="flex-1 mp-tickrule" />
         </div>
@@ -1692,7 +2257,7 @@ function Sidebar({ currentSection, setCurrentSection, completion }) {
 
 // Largest "total package" allowance across platforms — anything over this is
 // rejected everywhere, so we block the upload outright rather than just warn.
-const MAX_BUILD_FILE_MB = 1024;
+const MAX_BUILD_FILE_MB = 2048;
 
 // Pre-flight: validate the project against ONE platform's real requirements before publish,
 // so the user is told what won't pass instead of finding out after a failed upload.
@@ -1702,12 +2267,13 @@ function platformPreflight(platform, project) {
     return makerWorldPublishIssues(project, { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) }, {
       cyberControlCount: mwRuntimeCyberBrick.controlConfigs.length,
       forbiddenWords: makerWorldForbiddenWords,
+      videoIssues: makerWorldVideoIssues(project.media || []),
     });
   }
   const errors = [], warnings = [];
   const lim = platform.limits || {};
   const MB = 1024 * 1024;
-  const modelFiles = platform.id === 'printables'
+  const modelFiles = platform.id === 'printables' || platform.id === 'nexprint' || platform.id === 'creality' || platform.id === 'makeronline' || platform.id === 'mmf' || platform.id === 'makeroad' || platform.id === 'thangs'
     ? project.files.filter((file) => platform.formats.includes(fileExt(file.name)) && !file.isImage)
     : project.files.filter(f => f.isModel);
 
@@ -1755,6 +2321,137 @@ function platformPreflight(platform, project) {
       }
     }
   }
+  const nexprint = project.platforms?.nexprint;
+  if (platform.id === 'nexprint' && nexprint) {
+    if (!nexprint.categoryId) errors.push('Choose a Nexprint category in Platforms.');
+    if (![0, 1, 2, 3, 4, 5, 6, 7].includes(Number(nexprint.licenseType))) {
+      errors.push('Choose a Nexprint license in Platforms.');
+    }
+    if (![1, 2, 3].includes(Number(nexprint.originalityType || 1))) {
+      errors.push('Choose whether the Nexprint model is original, adapted, or a reprint.');
+    }
+    if (Number(nexprint.originalityType || 1) !== 1
+      && !String(nexprint.sourceUrl || '').trim()
+      && !String(nexprint.sourceModelId || '').trim()) {
+      errors.push('Adapted and reprinted Nexprint models require the original URL or Nexprint model ID.');
+    }
+    const bom = nexprint.hasBom ? (nexprint.bom || []) : [];
+    if (bom.length > 100) errors.push('Nexprint accepts at most 100 BOM rows.');
+    if (bom.some((row) => !String(row.materialName || '').trim() || !(Number(row.materialNum) > 0))) {
+      errors.push('Every Nexprint BOM row needs a material name and positive quantity.');
+    }
+    const attachments = project.files.filter((file) => NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(file.name)));
+    if (modelFiles.length > 100) errors.push('Nexprint accepts at most 100 model files per listing.');
+    if (attachments.length > 100) errors.push('Nexprint accepts at most 100 attachment files.');
+    if (project.tags.length > 20) errors.push('Nexprint accepts at most 20 tags.');
+    if (project.tags.some((tag) => [...String(tag)].length > 50)) errors.push('Nexprint tags may not exceed 50 characters.');
+    if ([...mdToHtml(project.description)].length > 10000) errors.push('The rendered Nexprint description exceeds 10,000 characters.');
+    if (project.files.some((file) => fileExt(file.name) === 'mp4' || fileExt(file.name) === 'webm')) {
+      warnings.push('Nexprint’s current upload form has no video field; video files will not upload.');
+    }
+    if (nexprint.aiGenerated && !project.tags.some((tag) => /ai[-\s]?generated/i.test(tag))) {
+      warnings.push('ModelPrep will add the required “AI-generated” tag to the Nexprint listing.');
+    }
+  }
+  const creality = project.platforms?.creality;
+  if (platform.id === 'creality' && creality) {
+    if (!creality.categoryId) errors.push('Choose a Creality Cloud category in Platforms.');
+    const crealityLicense = creality.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL';
+    if (!CREALITY_LICENSES.some((license) => license.value === crealityLicense)) {
+      errors.push('Choose a Creality Cloud license in Platforms.');
+    }
+    if (Number(creality.modelSource || 1) !== 1) {
+      errors.push('Remix and Non-original Creality uploads need native source attribution/proof; use Original for direct upload or finish the source fields on Creality Cloud.');
+    }
+    const instructions = project.files.filter((file) => CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name)));
+    if (project.tags.length > 20) errors.push('Creality Cloud accepts at most 20 tags.');
+    if (instructions.length) warnings.push(`${instructions.length} compatible instruction file${instructions.length === 1 ? '' : 's'} will upload with the model.`);
+    if (project.files.some((file) => ['mp4', 'webm'].includes(fileExt(file.name)))) {
+      warnings.push('The current Creality model form has no direct video upload; add a YouTube link in the rich description instead.');
+    }
+  }
+  const makeronline = project.platforms?.makeronline;
+  if (platform.id === 'makeronline' && makeronline) {
+    if (!makeronline.categoryId) errors.push('Choose a MakerOnline leaf category in Platforms.');
+    const makerOnlineLicense = Number(makeronline.license ?? MAKERONLINE_LICENSE_MAP[project.license] ?? 3);
+    if (!MAKERONLINE_LICENSES.some((license) => license.value === makerOnlineLicense)) {
+      errors.push('Choose a MakerOnline license in Platforms.');
+    }
+    if (![1, 2].includes(Number(makeronline.source || 1))) errors.push('Choose Original or Remix for MakerOnline.');
+    if (Number(makeronline.source || 1) === 2 && !String(makeronline.originalUrl || '').trim()) {
+      errors.push('MakerOnline remixes require the original work URL.');
+    }
+    if (Number(makeronline.source || 1) === 2 && [5, 6].includes(makerOnlineLicense)) {
+      errors.push('MakerOnline remixes cannot use a NoDerivatives license.');
+    }
+    if (![1, 2].includes(Number(makeronline.permission || 2))) errors.push('Choose Public or Private permission for MakerOnline.');
+    if (makeronline.publication === 'public' && Number(makeronline.permission || 2) !== 1) errors.push('Public MakerOnline publishing requires Public model permission.');
+    if (![1, 2, 3].includes(Number(makeronline.printMethod || 3))) errors.push('Choose FDM, Resin, or Both for MakerOnline.');
+    if (project.images.length > 20) warnings.push('MakerOnline uploads only the first 20 ordered model images.');
+    if (project.tags.length > 20) errors.push('MakerOnline accepts at most 20 tags.');
+    if (project.tags.some((tag) => [...String(tag)].length > 20)) errors.push('MakerOnline tags may not exceed 20 characters.');
+    if ([...mdToPlain(project.description)].length > 9000) errors.push('The MakerOnline description exceeds 9,000 text characters.');
+    if (modelFiles.length > 100) errors.push('MakerOnline accepts at most 100 raw model files.');
+    const documentation = project.files.filter((file) => MAKERONLINE_DOCUMENT_FORMATS.includes(fileExt(file.name)) && !MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
+    if (documentation.length > 50) errors.push('MakerOnline accepts at most 50 documentation files.');
+    if (makeronline.relatedKits && !(makeronline.storeKitIds || []).length) errors.push('Choose at least one MakerOnline Creative Kit.');
+    if (makeronline.syncChina && (Number(makeronline.permission || 2) !== 1 || makeronline.nsfw)) {
+      errors.push('MakerOnline China sync requires a public, non-NSFW model.');
+    }
+    const profileFiles = project.files.filter((file) => fileExt(file.name) === '3mf' && file.blob);
+    if (makeronline.includePrintProfile && Number(makeronline.printMethod || 3) !== 2 && !profileFiles.length) {
+      errors.push('MakerOnline print profiles are enabled, but no .3mf profile file is available.');
+    }
+    if (Number(makeronline.printMethod || 3) === 2 && makeronline.includePrintProfile) {
+      warnings.push('MakerOnline omits print profiles for Resin listings; the raw model files still upload.');
+    }
+    if (makeronline.exclusive && !makeronline.exclusiveEligible) errors.push('This MakerOnline account is not currently eligible for exclusive submission.');
+  }
+  const mmf = project.platforms?.mmf;
+  if (platform.id === 'mmf' && mmf) {
+    if (!['private', 'public'].includes(mmf.publication || 'private')) errors.push('Choose Private or Public visibility for MyMiniFactory.');
+    if (!Array.isArray(mmf.categoryIds) || !mmf.categoryIds.length) errors.push('Choose a MyMiniFactory category in Platforms.');
+    if (!MYMINIFACTORY_LICENSES.some((license) => license.id === Number(mmf.licenseId || 5))) errors.push('Choose a MyMiniFactory license in Platforms.');
+    if (!mmf.confirmOriginalNoAi) errors.push('Confirm MyMiniFactory’s original, no-generative-AI, and Terms declaration in Platforms.');
+    if (mmf.remix && !(mmf.remixParentIds || []).length) errors.push('MyMiniFactory remixes require at least one parent object ID.');
+    if (project.tags.length > 20) errors.push('MyMiniFactory accepts at most 20 tags.');
+    if (modelFiles.length > 500) errors.push('MyMiniFactory accepts at most 500 object files.');
+    if (project.images.some((image) => !image.dataUrl)) errors.push('Every MyMiniFactory image must be available for upload.');
+  }
+  const makeroad = project.platforms?.makeroad;
+  if (platform.id === 'makeroad' && makeroad) {
+    const makerRoadCategoryCount = (makeroad.categoryIds || []).length || (makeroad.categoryPaths || []).length;
+    if (makerRoadCategoryCount < 1 || makerRoadCategoryCount > 3) errors.push('Choose 1 to 3 MakerRoad categories in Platforms.');
+    if (project.images.length < 3 || project.images.length > 10) errors.push('MakerRoad requires 3 to 10 ordered images.');
+    if (modelFiles.length > 80) errors.push('MakerRoad accepts at most 80 model files.');
+    const profiles = project.files.filter((file) => fileExt(file.name) === '3mf' && file.blob);
+    if (profiles.length > 10) errors.push('MakerRoad accepts at most 10 print configurations.');
+    const docs = project.files.filter((file) => MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(file.name)));
+    if (docs.length > 5) errors.push('MakerRoad accepts at most 5 instruction documents.');
+    if (!(makeroad.printMethods || []).length) errors.push('Choose at least one MakerRoad print method.');
+    if (Number(makeroad.uploadType || 1) === 2 && !String(makeroad.referUrl || '').trim()) errors.push('MakerRoad remixes require the original model URL.');
+    if (makeroad.scheduled && !makeroad.planTime) errors.push('Choose a MakerRoad scheduled publication time.');
+    if (makeroad.payType !== 'free' && !(Number(makeroad.payValue) > 0)) errors.push('MakerRoad paid downloads require a positive value.');
+    if (makeroad.publication === 'publish' && !makeroad.termsAccepted) errors.push('Accept MakerRoad’s current terms before public submission.');
+  }
+  const thangs = project.platforms?.thangs;
+  if (platform.id === 'thangs' && thangs) {
+    if (!['single', 'bulk', 'multipart', 'assembly'].includes(thangs.structure || 'single')) errors.push('Choose a valid Thangs model structure.');
+    if (thangs.resumeDraftId && !/^\d+$/.test(String(thangs.resumeDraftId))) errors.push('Thangs recovery draft ID must be numeric.');
+    if (thangs.structure === 'single' && thangs.primaryFileId && !modelFiles.some((file) => file.id === thangs.primaryFileId)) errors.push('Choose an available primary Thangs model file.');
+    if (modelFiles.length > 1 && !thangs.primaryFileId) errors.push('Choose a primary Thangs model part.');
+    if (modelFiles.some((file) => file.size > 250 * MB)) errors.push('Thangs model files may not exceed 250 MB; move oversized files to references.');
+    if (project.files.some((file) => /["/\\:$#&@?\n\t*<>%]/.test(file.name))) errors.push('One or more filenames contain characters Thangs rejects.');
+    if (thangs.marketplace && !(Number(thangs.price) > 0)) errors.push('Thangs marketplace listings require a positive price.');
+  }
+  const thingiverse = project.platforms?.thingiverse;
+  if (platform.id === 'thingiverse' && thingiverse) {
+    if (!thingiverse.summary?.trim()) errors.push('Add the required Thingiverse summary.');
+    if (!thingiverse.categoryId) errors.push('Choose a Thingiverse category ID.');
+    if (!THINGIVERSE_LICENSES.includes(thingiverse.license)) errors.push('Choose a Thingiverse license.');
+    if (thingiverse.remix && !String(thingiverse.sourceThingId || '').trim()) errors.push('Thingiverse remixes require a source Thing ID.');
+    if (thingiverse.publication === 'publish' && !thingiverse.termsAccepted) errors.push('Accept Thingiverse’s current terms before publish.');
+  }
   return { errors, warnings };
 }
 
@@ -1765,7 +2462,16 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   const handleFiles = (fileList) => {
     const arr = Array.from(fileList);
     const supported = arr.filter(f => isModelFile(f.name) || isMakerWorldLaserFile(f.name)
-      || PRINTABLES_FORMATS.includes(fileExt(f.name)) || fileExt(f.name) === 'md');
+      || PRINTABLES_FORMATS.includes(fileExt(f.name))
+      || NEXPRINT_MODEL_FORMATS.includes(fileExt(f.name))
+      || NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(f.name))
+      || CREALITY_MODEL_FORMATS.includes(fileExt(f.name))
+      || CREALITY_INSTRUCTION_FORMATS.includes(fileExt(f.name))
+      || MAKERONLINE_MODEL_FORMATS.includes(fileExt(f.name))
+      || MAKERONLINE_DOCUMENT_FORMATS.includes(fileExt(f.name))
+      || MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(f.name))
+      || MYMINIFACTORY_MODEL_FORMATS.includes(fileExt(f.name))
+      || fileExt(f.name) === 'md');
 
     // #1 — reject single files larger than any platform will accept.
     const tooBig = supported.filter(f => f.size / 1024 / 1024 > MAX_BUILD_FILE_MB);
@@ -1838,18 +2544,18 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   const totalSize = project.files.reduce((s, f) => s + f.size, 0);
 
   return (
-    <div className="max-w-7xl">
+    <div className="w-full min-w-0">
       <SectionHeader
         number="01"
         title="Drop your files"
-        subtitle="Add 3D model files, Bambu Studio 3MF profiles, or Laser & Cut source files. MakerWorld-specific file notes and open-source settings stay attached to each file."
+        subtitle="Add model files, print profiles, and source files. Platform-specific settings stay attached."
       />
 
       <div
         role="button"
         tabIndex={0}
         aria-label="Upload build files — drop here or press Enter to browse"
-        className="mp-blueprint border-2 border-dashed py-16 px-6 text-center cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#FF5722]"
+        className={`mp-blueprint border-2 border-dashed cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#FF5722] ${project.files.length ? 'p-3 text-left' : 'py-16 px-6 text-center'}`}
         style={{ borderColor: 'rgba(21,23,28,0.25)' }}
         onMouseEnter={(e) => e.currentTarget.style.borderColor = '#FF5722'}
         onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(21,23,28,0.25)'}
@@ -1866,16 +2572,33 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           onChange={(e) => handleFiles(e.target.files)}
           className="hidden"
         />
-        <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#15171C' }}>
-          <Upload size={22} strokeWidth={2.5} style={{ color: '#FF5722' }} />
-        </div>
-        <h2 className="mp-display text-[36px] leading-none mb-2">Load build files</h2>
-        <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
-        <div className="inline-flex items-center gap-1.5 mp-mono text-[12px] uppercase tracking-[0.2em] flex-wrap justify-center" style={{ color: 'rgba(21,23,28,0.5)' }}>
-          {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
-            <span key={ext} className="mp-pill" style={{ background: 'rgba(21,23,28,0.06)' }}>.{ext}</span>
-          ))}
-        </div>
+        {project.files.length ? (
+          <div className="flex items-center gap-3">
+            <div className="inline-flex items-center justify-center w-10 h-10 flex-shrink-0" style={{ background: '#15171C' }}>
+              <Plus size={17} strokeWidth={2.5} style={{ color: '#FF5722' }} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="mp-display text-[20px] leading-none">Add more build files</h2>
+              <p className="mp-body text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.62)' }}>Drop files here or click to browse · max {MAX_BUILD_FILE_MB}MB each</p>
+            </div>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.14em] ml-auto hidden sm:block" style={{ color: 'rgba(21,23,28,0.45)' }}>
+              {project.files.length} loaded
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#15171C' }}>
+              <Upload size={22} strokeWidth={2.5} style={{ color: '#FF5722' }} />
+            </div>
+            <h2 className="mp-display text-[36px] leading-none mb-2">Load build files</h2>
+            <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
+            <div className="inline-flex items-center gap-1.5 mp-mono text-[12px] uppercase tracking-[0.2em] flex-wrap justify-center" style={{ color: 'rgba(21,23,28,0.5)' }}>
+              {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
+                <span key={ext} className="mp-pill" style={{ background: 'rgba(21,23,28,0.06)' }}>.{ext}</span>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       {notice && (
@@ -2064,9 +2787,9 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
   );
 }
 
-// Common per-file cap across most platforms (Cults, MMF, Thingiverse, Thangs,
-// Nexprint, Creality). MakerWorld allows 150MB/profile + 250MB total; Printables
-// is far higher. We warn early so testers don't download packages that get rejected.
+// Conservative compatibility warning for platforms with smaller/unknown caps.
+// Nexprint itself accepts 2 GiB model/attachment files; each platform preflight
+// remains authoritative.
 const COMMON_FILE_MB = 100;
 
 function FileSizeWarnings({ files, totalSize }) {
@@ -2406,8 +3129,10 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const openSettings = useOpenConnections();
   const aiProvider = getAiConfig().provider;
   const [licenseFilter, setLicenseFilter] = useState('all');
+  const [showLicenseChooser, setShowLicenseChooser] = useState(false);
 
   const visibleLicenses = LICENSES.filter(l => matchesLicenseFilter(l, licenseFilter));
+  const selectedLicense = LICENSES.find((license) => license.id === project.license);
 
   // Strictest limits across the platforms the user is actually targeting (all of them
   // until any are enabled, so we warn against the tightest possible case up front).
@@ -2495,11 +3220,11 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   };
 
   return (
-    <div className="max-w-7xl">
+    <div className="w-full min-w-0">
       <SectionHeader
         number="02"
         title="Project details"
-        subtitle="Title, description, tags, category, and license. These get formatted three ways for the different platforms."
+        subtitle="Set shared metadata; ModelPrep adapts it for each publishing platform."
       />
 
       {/* ✨ AI generate — reads the photos (+ an optional one-line hint) and fills in
@@ -2620,7 +3345,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                 {descOver && ` · over ${lim.descMaxBy}'s limit`}
               </span>
               <span className="mp-mono text-[12px]" style={{ color: 'rgba(21,23,28,0.4)' }}>
-                Markdown for Printables/Cults/Nexprint · HTML for MakerWorld/MMF/Thangs/Creality · Plain for Thingiverse
+                Formatted for MakerWorld/Printables/Nexprint · Markdown for Cults · HTML for MMF/Thangs/Creality · Plain for Thingiverse
               </span>
             </div>
           </div>
@@ -2675,45 +3400,82 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
           <div>
             <Label>License</Label>
-            <div className="flex flex-wrap gap-1.5 mb-2.5">
-              {LICENSE_FILTERS.map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setLicenseFilter(f.id)}
-                  className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-1 transition"
-                  style={{
-                    background: licenseFilter === f.id ? '#15171C' : 'rgba(21,23,28,0.06)',
-                    color: licenseFilter === f.id ? '#EDE9DE' : 'rgba(21,23,28,0.65)',
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            <div className="space-y-1.5">
-              {visibleLicenses.length === 0 && (
-                <p className="text-[13px] py-2" style={{ color: 'rgba(21,23,28,0.5)' }}>No license matches that combination.</p>
-              )}
-              {visibleLicenses.map(l => (
-                <label key={l.id} className="flex items-start gap-2.5 mp-card p-2.5 cursor-pointer transition" style={{
-                  borderColor: project.license === l.id ? '#FF5722' : 'rgba(21,23,28,0.1)',
-                  background: project.license === l.id ? 'rgba(255,87,34,0.04)' : '#FFFFFF',
-                }}>
-                  <input type="radio" name="license" value={l.id} checked={project.license === l.id} onChange={() => updateProject({ license: l.id })} className="mt-0.5" style={{ accentColor: '#FF5722' }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold leading-tight">{l.name}</div>
-                    <div className="flex gap-2 mt-1">
-                      <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(21,23,28,0.4)' }}>
-                        {l.commercial ? '$ commercial' : 'non-commercial'}
+            <div className="mp-card p-3" style={{ borderColor: '#FF5722', background: 'rgba(255,87,34,0.035)' }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold leading-tight">{selectedLicense?.name || project.license}</div>
+                  {selectedLicense && (
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.commercial ? '#247255' : 'rgba(21,23,28,0.5)' }}>
+                        {selectedLicense.commercial ? 'Commercial use allowed' : 'Non-commercial'}
                       </span>
-                      <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(21,23,28,0.4)' }}>
-                        {l.derivatives ? '↻ remix ok' : 'no derivatives'}
+                      <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.derivatives ? '#247255' : 'rgba(21,23,28,0.5)' }}>
+                        {selectedLicense.derivatives ? 'Remixes allowed' : 'No derivatives'}
                       </span>
                     </div>
-                  </div>
-                </label>
-              ))}
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowLicenseChooser((open) => !open)}
+                  aria-expanded={showLicenseChooser}
+                  className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2.5 min-h-[36px] flex-shrink-0"
+                >
+                  {showLicenseChooser ? 'Close' : 'Change'}
+                </button>
+              </div>
             </div>
+            {showLicenseChooser && (
+              <div className="mt-2">
+                <div className="flex flex-wrap gap-1.5 mb-2.5">
+                  {LICENSE_FILTERS.map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => setLicenseFilter(f.id)}
+                      className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-1 transition"
+                      style={{
+                        background: licenseFilter === f.id ? '#15171C' : 'rgba(21,23,28,0.06)',
+                        color: licenseFilter === f.id ? '#EDE9DE' : 'rgba(21,23,28,0.65)',
+                      }}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                  {visibleLicenses.length === 0 && (
+                    <p className="text-[13px] py-2" style={{ color: 'rgba(21,23,28,0.5)' }}>No license matches that combination.</p>
+                  )}
+                  {visibleLicenses.map(l => (
+                    <label key={l.id} className="flex items-start gap-2.5 mp-card p-2.5 cursor-pointer transition" style={{
+                      borderColor: project.license === l.id ? '#FF5722' : 'rgba(21,23,28,0.1)',
+                      background: project.license === l.id ? 'rgba(255,87,34,0.04)' : '#FFFFFF',
+                    }}>
+                      <input
+                        type="radio"
+                        name="license"
+                        value={l.id}
+                        checked={project.license === l.id}
+                        onChange={() => { updateProject({ license: l.id }); setShowLicenseChooser(false); }}
+                        className="mt-0.5"
+                        style={{ accentColor: '#FF5722' }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold leading-tight">{l.name}</div>
+                        <div className="flex gap-2 mt-1">
+                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(21,23,28,0.4)' }}>
+                            {l.commercial ? '$ commercial' : 'non-commercial'}
+                          </span>
+                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(21,23,28,0.4)' }}>
+                            {l.derivatives ? '↻ remix ok' : 'no derivatives'}
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2745,8 +3507,8 @@ function FormatTabs({ description }) {
     setCopied(ok ? 'ok' : 'fail'); setTimeout(() => setCopied(null), 1600);
   };
   const tabs = [
-    { k: 'md',    label: 'Markdown',  platforms: ['Printables', 'Cults3D', 'Nexprint'] },
-    { k: 'rich',  label: 'Formatted', platforms: ['MakerWorld'] },
+    { k: 'md',    label: 'Markdown',  platforms: ['Cults3D'] },
+    { k: 'rich',  label: 'Formatted', platforms: ['MakerWorld', 'Printables', 'Nexprint'] },
     { k: 'html',  label: 'HTML',      platforms: ['MyMiniFactory', 'Thangs', 'Creality'] },
     { k: 'plain', label: 'Plain',     platforms: ['Thingiverse'] },
   ];
@@ -2798,9 +3560,41 @@ function FormatTabs({ description }) {
 
 function ImagesSection({ project, updateProject, setCurrentSection }) {
   const fileInputRef = useRef(null);
+  const videoInputRef = useRef(null);
   const [activeImageId, setActiveImageId] = useState(null);
-  const [showPlatformPreviews, setShowPlatformPreviews] = useState(true);
+  const [imageWorkspace, setImageWorkspace] = useState('gallery');
+  const [cropPlatformId, setCropPlatformId] = useState('makerworld');
   const [imgNotice, setImgNotice] = useState(null); // string | null
+
+  const handleVideoFiles = async (fileList) => {
+    const candidates = Array.from(fileList || []).filter(isGalleryVideoFile);
+    if (!candidates.length) {
+      setImgNotice('No supported videos found. Use MP4 or MOV for MakerWorld; Cults3D also accepts WebM.');
+      return;
+    }
+    const additions = [];
+    const failures = [];
+    for (const file of candidates) {
+      try {
+        const duration = await readVideoDuration(file);
+        additions.push({
+          id: 'media_' + Date.now() + '_' + additions.length + '_' + Math.random().toString(36).slice(2, 7),
+          kind: 'video', name: file.name, size: file.size, type: file.type,
+          duration, blob: file, previewUrl: URL.createObjectURL(file),
+        });
+      } catch {
+        failures.push(file.name);
+      }
+    }
+    if (additions.length) updateProject({ media: [...(project.media || []), ...additions] });
+    setImgNotice(failures.length ? `Added ${additions.length} video(s). Could not read: ${failures.join(', ')}.` : null);
+  };
+
+  const removeVideo = (id) => {
+    const item = (project.media || []).find((entry) => entry.id === id);
+    if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    updateProject({ media: (project.media || []).filter((entry) => entry.id !== id) });
+  };
 
   const handleImageFiles = async (fileList) => {
     const all = Array.from(fileList);
@@ -2910,13 +3704,14 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
   };
 
   const activeImage = project.images.find(i => i.id === activeImageId) || project.images[0];
+  const cropPlatform = PLATFORMS.find((platform) => platform.id === cropPlatformId) || PLATFORMS[0];
 
   return (
-    <div className="max-w-7xl">
+    <div className="w-full min-w-0">
       <SectionHeader
         number="03"
-        title="Cover and gallery images"
-        subtitle={<>Drop images, set the focal point so every platform's crop keeps what matters in frame.<br />MakerWorld supports one cover plus up to 16 model pictures.</>}
+        title="Cover, gallery and video"
+        subtitle="Add ordered media. Only platforms with verified crop rules are cropped."
       />
 
       {imgNotice && (
@@ -2926,6 +3721,38 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           <button onClick={() => setImgNotice(null)} className="p-2 -m-1 opacity-50 hover:opacity-100 transition" aria-label="Dismiss notice"><X size={14} /></button>
         </div>
       )}
+
+      <div className="mp-card p-4 mt-5" data-testid="typed-video-media">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="mp-display text-[20px] flex items-center gap-2"><Video size={18} /> Model videos</div>
+            <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>
+              MakerWorld: one MP4/MOV, maximum 30 seconds. Cults3D: ordered MP4/WebM media. Other platforms skip videos.
+            </p>
+          </div>
+          <button type="button" onClick={() => videoInputRef.current?.click()} className="mp-btn mp-btn-ghost text-xs py-2 px-3">
+            <Plus size={13} /> Add video
+          </button>
+          <input ref={videoInputRef} type="file" multiple accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" onChange={(event) => handleVideoFiles(event.target.files)} className="hidden" />
+        </div>
+        {(project.media || []).filter((item) => item.kind === 'video').length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+            {(project.media || []).filter((item) => item.kind === 'video').map((item) => (
+              <div key={item.id} className="flex items-center gap-3 p-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
+                <video src={item.previewUrl} preload="metadata" muted playsInline className="w-28 h-20 object-contain bg-black" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] truncate">{item.name}</div>
+                  <div className="mp-mono text-[10px] uppercase mt-1 opacity-55">{item.duration.toFixed(1)}s · {formatBytes(item.size)}</div>
+                  <div className="text-[11px] mt-1" style={{ color: item.duration > 30 ? '#b91c1c' : '#247255' }}>
+                    {item.duration > 30 ? 'Too long for MakerWorld' : 'Duration accepted by MakerWorld'}
+                  </div>
+                </div>
+                <button type="button" onClick={() => removeVideo(item.id)} aria-label={`Delete video ${item.name}`} className="p-2 opacity-60 hover:text-[#FF5722]"><Trash2 size={15} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {project.images.length === 0 ? (
         <ImageDropZone
@@ -2938,11 +3765,11 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           ])}
         />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
-          <div className="lg:col-span-3 space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-6">
+          <div className="md:col-span-3 space-y-2">
             <div className="flex items-center justify-between">
               <span className="mp-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                {project.images.length} images · 1 cover + up to 16 model pictures
+                {project.images.length} images · first selected cover stays first
               </span>
               <button onClick={() => fileInputRef.current?.click()} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
                 <Plus size={11} /> Add
@@ -2972,7 +3799,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       style={{ color: 'inherit' }}
                     >
                       <div className="w-14 h-14 flex-shrink-0 overflow-hidden" style={{ background: '#15171C' }}>
-                        <img src={img.dataUrl} alt="" className="w-full h-full object-cover" />
+                        <img src={img.dataUrl} alt={img.alt || `Gallery image ${idx + 1}`} className="w-full h-full object-cover" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-60">{String(idx + 1).padStart(2, '0')}</div>
@@ -3009,19 +3836,36 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
               })}
             </div>
 
-            {project.images.length >= 9 && (
-              <div className="mt-3 p-2.5 text-[12px]" style={{ background: 'rgba(255,87,34,0.08)', borderLeft: '2px solid #FF5722' }}>
-                <strong>Heads up:</strong> images above #9 only show on MakerWorld (max 16). Others typically display 9-12.
-              </div>
-            )}
           </div>
 
-          <div className="lg:col-span-9">
+          <div className="md:col-span-9">
             {activeImage && (
               <>
+                <div role="tablist" aria-label="Image workspace" className="inline-flex mp-card p-1 mb-4">
+                  <button
+                    role="tab"
+                    aria-selected={imageWorkspace === 'gallery'}
+                    onClick={() => setImageWorkspace('gallery')}
+                    className="mp-mono text-[11px] uppercase tracking-[0.14em] min-h-[38px] px-3"
+                    style={{ background: imageWorkspace === 'gallery' ? '#15171C' : 'transparent', color: imageWorkspace === 'gallery' ? '#EDE9DE' : '#15171C' }}
+                  >
+                    Gallery editor
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={imageWorkspace === 'crops'}
+                    onClick={() => setImageWorkspace('crops')}
+                    className="mp-mono text-[11px] uppercase tracking-[0.14em] min-h-[38px] px-3"
+                    style={{ background: imageWorkspace === 'crops' ? '#15171C' : 'transparent', color: imageWorkspace === 'crops' ? '#EDE9DE' : '#15171C' }}
+                  >
+                    Platform crops
+                  </button>
+                </div>
                 <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
                   <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                    Image · {activeImage.naturalW} × {activeImage.naturalH} · drag the dot to set focal point
+                    {imageWorkspace === 'gallery'
+                      ? `Image · ${activeImage.naturalW} × ${activeImage.naturalH} · drag the dot to set focal point`
+                      : `Crop check · ${cropPlatform.name} · uses the same focal point`}
                   </span>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setAsCover(activeImage.id)} aria-pressed={project.coverImageId === activeImage.id} className="mp-mono text-[12px] uppercase tracking-[0.15em] min-h-[40px] py-2 px-3 flex items-center gap-1.5 transition" style={{
@@ -3037,25 +3881,32 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                   </div>
                 </div>
 
-                <FocalPicker
-                  image={activeImage}
-                  onUpdate={(focal) => updateImageFocal(activeImage.id, focal)}
-                />
-
-                <div className="flex items-center justify-between mt-6 mb-3">
-                  <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                    Per-platform preview · {showPlatformPreviews ? PLATFORMS.reduce((n, p) => n + p.covers.length, 0) : 0} crops
-                  </span>
-                  <button onClick={() => setShowPlatformPreviews(s => !s)} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
-                    {showPlatformPreviews ? <><ChevronDown size={11} /> Hide</> : <><ChevronRight size={11} /> Show</>}
-                  </button>
-                </div>
-
-                {showPlatformPreviews && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                    {PLATFORMS.flatMap(p => p.covers.map(c => ({ ...c, p }))).map((co, i) => (
-                      <PlatformCropPreview key={i} image={activeImage} platform={co.p} cover={co} />
-                    ))}
+                {imageWorkspace === 'gallery' ? (
+                  <FocalPicker
+                    image={activeImage}
+                    onUpdate={(focal) => updateImageFocal(activeImage.id, focal)}
+                  />
+                ) : (
+                  <div className="mp-card p-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                      <div>
+                        <div className="mp-display text-[20px]">Review platform framing</div>
+                        <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>One platform at a time keeps the crop decision readable. Return to Gallery editor to move the focal point.</p>
+                      </div>
+                      <label className="min-w-[220px]">
+                        <span className="sr-only">Platform to preview</span>
+                        <select className="mp-input-sm w-full" value={cropPlatformId} onChange={(event) => setCropPlatformId(event.target.value)}>
+                          {PLATFORMS.map((platform) => (
+                            <option key={platform.id} value={platform.id}>{platform.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {cropPlatform.covers.map((cover) => (
+                        <PlatformCropPreview key={`${cropPlatform.id}-${cover.id}`} image={activeImage} platform={cropPlatform} cover={cover} />
+                      ))}
+                    </div>
                   </div>
                 )}
               </>
@@ -3164,8 +4015,9 @@ function FocalPicker({ image, onUpdate }) {
 
 function PlatformCropPreview({ image, platform, cover }) {
   const canvasRef = useRef(null);
+  const preserveOriginal = platform.preserveOriginalImages || !cover.w || !cover.h;
   useEffect(() => {
-    if (!canvasRef.current || !image) return;
+    if (preserveOriginal || !canvasRef.current || !image) return;
     const img = document.createElement('img');
     img.onload = () => {
       const c = canvasRef.current; if (!c) return;
@@ -3180,11 +4032,13 @@ function PlatformCropPreview({ image, platform, cover }) {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dispW, dispH);
     };
     img.src = image.dataUrl;
-  }, [image, cover]);
+  }, [image, cover, preserveOriginal]);
   return (
     <div className="mp-card">
       <div className="overflow-hidden" style={{ background: '#15171C' }}>
-        <canvas ref={canvasRef} className="w-full block" />
+        {preserveOriginal
+          ? <img src={image.dataUrl} alt={`${platform.name} original`} className="w-full max-h-72 object-contain" />
+          : <canvas ref={canvasRef} className="w-full block" />}
       </div>
       <div className="p-2.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -3194,7 +4048,7 @@ function PlatformCropPreview({ image, platform, cover }) {
               {platform.name}{cover.label !== 'Cover' ? ` · ${cover.label}` : ''}
             </div>
             <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.5)' }}>
-              {cover.w}×{cover.h} ({cover.aspect})
+              {preserveOriginal ? 'Original aspect · no forced crop' : `${cover.w}×${cover.h} (${cover.aspect})`}
             </div>
           </div>
         </div>
@@ -3209,6 +4063,14 @@ function PlatformCropPreview({ image, platform, cover }) {
 
 function ProfilesSection({ project, updateProject, setCurrentSection }) {
   const [activeProfileId, setActiveProfileId] = useState(project.profiles[0]?.id);
+  const [imagePicker, setImagePicker] = useState(null); // cover | photos | null
+
+  useEffect(() => {
+    if (!imagePicker) return undefined;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setImagePicker(null); };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [imagePicker]);
 
   const updateProfile = (id, patch) => {
     updateProject({ profiles: project.profiles.map(p => p.id === id ? { ...p, ...patch } : p) });
@@ -3216,8 +4078,8 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 
   if (project.profiles.length === 0) {
     return (
-      <div className="max-w-7xl">
-        <SectionHeader number="04" title="Print profiles" subtitle="Each 3MF file becomes a print profile here. You haven't added any 3MF files yet, so this step is skipped." />
+      <div className="w-full min-w-0">
+        <SectionHeader number="04" title="Print profiles" subtitle="Add a 3MF file to configure a print profile." />
         <div className="mt-6 p-8 text-center mp-card">
           <Layers size={32} className="mx-auto mb-3 opacity-30" />
           <h3 className="mp-display font-bold text-lg mb-1">No 3MF files yet</h3>
@@ -3237,17 +4099,22 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
   }
 
   const active = project.profiles.find(p => p.id === activeProfileId) || project.profiles[0];
+  const selectedProfileCover = active?.useMainCover
+    ? project.images.find((image) => image.id === project.coverImageId)
+    : project.images.find((image) => image.id === active?.coverImageId);
+  const selectedProfilePhotos = project.images.filter((image) => (active?.photoIds || []).includes(image.id));
 
   return (
-    <div className="max-w-7xl">
+    <div className="w-full min-w-0">
       <SectionHeader
         number="04"
         title="Print profiles"
-        subtitle="Configure each 3MF profile. MakerWorld accepts one initial Bambu Studio profile per new design; choose which one on the MakerWorld options card."
+        subtitle="Configure print profiles and choose the initial MakerWorld profile."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
-        <div className="lg:col-span-3 space-y-1.5">
+
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-6">
+        <div className="md:col-span-3 space-y-1.5">
           {project.profiles.map(p => (
             <button
               key={p.id}
@@ -3272,7 +4139,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
           ))}
         </div>
 
-        <div className="lg:col-span-9 space-y-5">
+        <div className="md:col-span-9 space-y-5">
           {active && (
             <>
               <div>
@@ -3338,27 +4205,24 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                     <input
                       type="radio"
                       checked={!active.useMainCover}
-                      onChange={() => updateProfile(active.id, { useMainCover: false })}
+                      onChange={() => { updateProfile(active.id, { useMainCover: false }); setImagePicker('cover'); }}
                       style={{ accentColor: '#FF5722' }}
                     />
                     <span className="text-xs">Pick a specific image from the gallery</span>
                   </label>
                   {!active.useMainCover && (
-                    <div className="grid grid-cols-4 gap-2 ml-7">
-                      {project.images.map(img => (
-                        <button
-                          key={img.id}
-                          onClick={() => updateProfile(active.id, { coverImageId: img.id })}
-                          className="aspect-square overflow-hidden transition"
-                          style={{
-                            border: active.coverImageId === img.id ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)',
-                            outline: active.coverImageId === img.id ? '2px solid rgba(255,87,34,0.2)' : 'none',
-                            outlineOffset: -2,
-                          }}
-                        >
-                          <img src={img.dataUrl} alt="" className="w-full h-full object-cover" />
+                    <div className="ml-7 mp-card p-2.5 flex items-center gap-3">
+                      {selectedProfileCover ? (
+                        <img src={selectedProfileCover.dataUrl} alt={selectedProfileCover.alt || 'Selected profile cover'} className="w-16 h-16 object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(21,23,28,0.06)' }}><ImageIcon size={18} className="opacity-35" /></div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12px] font-medium truncate">{selectedProfileCover?.alt || 'No specific cover selected'}</div>
+                        <button type="button" onClick={() => setImagePicker('cover')} className="mp-mono text-[11px] uppercase tracking-[0.13em] mt-1 underline" style={{ color: '#FF5722' }}>
+                          Choose image
                         </button>
-                      ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3371,21 +4235,21 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                 {project.images.length === 0 ? (
                   <p className="text-xs" style={{ color: '#B23A1A' }}>Add images in step 03 first — at least one printed-model photo is required.</p>
                 ) : (
-                  <div className="grid grid-cols-5 md:grid-cols-6 gap-2">
-                    {project.images.map(img => {
-                      const ids = active.photoIds || [];
-                      const on = ids.includes(img.id);
-                      return (
-                        <button key={img.id} type="button"
-                          onClick={() => updateProfile(active.id, { photoIds: on ? ids.filter(x => x !== img.id) : [...ids, img.id] })}
-                          className="relative aspect-square overflow-hidden transition"
-                          style={{ outline: on ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: -1 }}
-                          title={on ? 'Selected as print-profile photo' : 'Use as print-profile photo'}>
-                          <img src={img.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: on ? 1 : 0.55 }} />
-                          {on && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: '#FF5722' }}><Check size={10} color="#fff" /></span>}
-                        </button>
-                      );
-                    })}
+                  <div className="mp-card p-3">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {selectedProfilePhotos.slice(0, 6).map((image, index) => (
+                        <img key={image.id} src={image.dataUrl} alt={image.alt || `Selected print photo ${index + 1}`} className="w-14 h-14 object-cover flex-shrink-0" />
+                      ))}
+                      {selectedProfilePhotos.length === 0 && (
+                        <span className="text-[12px] py-4" style={{ color: 'rgba(21,23,28,0.5)' }}>No print photos selected.</span>
+                      )}
+                      {selectedProfilePhotos.length > 6 && (
+                        <span className="mp-mono text-[11px] flex-shrink-0">+{selectedProfilePhotos.length - 6}</span>
+                      )}
+                      <button type="button" onClick={() => setImagePicker('photos')} className="mp-btn mp-btn-ghost text-[11px] min-h-[38px] py-1.5 px-2.5 ml-auto flex-shrink-0">
+                        Choose photos
+                      </button>
+                    </div>
                   </div>
                 )}
                 {(active.photoIds || []).length === 0 && project.images.length > 0 && (
@@ -3427,6 +4291,58 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
         </div>
       </div>
 
+      {imagePicker && active && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.58)' }} onMouseDown={() => setImagePicker(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ background: '#EDE9DE' }} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+              <div className="flex-1">
+                <h3 id="profile-image-picker-title" className="mp-display text-[26px] leading-none">{imagePicker === 'cover' ? 'Choose profile cover' : 'Choose print photos'}</h3>
+                <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.6)' }}>
+                  {imagePicker === 'cover' ? 'Select one image for this profile.' : 'Select every real photo that shows the printed model.'}
+                </p>
+              </div>
+              <button type="button" onClick={() => setImagePicker(null)} aria-label="Close image chooser" className="p-2"><X size={18} /></button>
+            </div>
+            <div className="p-4 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {project.images.map((image, index) => {
+                const selected = imagePicker === 'cover'
+                  ? active.coverImageId === image.id
+                  : (active.photoIds || []).includes(image.id);
+                return (
+                  <button
+                    key={image.id}
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`${selected ? 'Deselect' : 'Select'} ${image.alt || `image ${index + 1}`}`}
+                    onClick={() => {
+                      if (imagePicker === 'cover') {
+                        updateProfile(active.id, { useMainCover: false, coverImageId: image.id });
+                        setImagePicker(null);
+                      } else {
+                        const ids = active.photoIds || [];
+                        updateProfile(active.id, { photoIds: selected ? ids.filter((id) => id !== image.id) : [...ids, image.id] });
+                      }
+                    }}
+                    className="relative aspect-square overflow-hidden"
+                    style={{ outline: selected ? '3px solid #FF5722' : '1px solid rgba(21,23,28,0.18)', outlineOffset: -2 }}
+                  >
+                    <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
+                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[10px] truncate px-1.5 py-1" style={{ background: 'rgba(21,23,28,0.78)', color: '#fff' }}>{image.alt || `Image ${index + 1}`}</span>
+                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ background: '#FF5722' }}><Check size={12} color="#fff" /></span>}
+                  </button>
+                );
+              })}
+            </div>
+            {imagePicker === 'photos' && (
+              <div className="p-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+                <span className="text-[12px]">{(active.photoIds || []).length} selected</span>
+                <button type="button" onClick={() => setImagePicker(null)} className="mp-btn text-[12px] py-2 px-4">Done</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <SectionNav
         backLabel="Back to Images"
         nextLabel="Continue to Platforms"
@@ -3451,6 +4367,8 @@ function Stat({ label, value }) {
 // =====================================================================
 
 function PlatformsSection({ project, updateProject, setCurrentSection }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
   const togglePlatform = (id) => {
     updateProject({
       platforms: { ...project.platforms, [id]: { ...project.platforms[id], enabled: !project.platforms[id].enabled } },
@@ -3464,6 +4382,10 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
   };
 
   const enabledCount = Object.values(project.platforms).filter(p => p.enabled).length;
+  const directPlatforms = PLATFORMS.filter((platform) => LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id));
+  const exportPlatforms = PLATFORMS.filter((platform) => !LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id));
+  const directEnabledCount = directPlatforms.filter((platform) => project.platforms[platform.id]?.enabled).length;
+  const exportEnabledCount = exportPlatforms.filter((platform) => project.platforms[platform.id]?.enabled).length;
   const setAll = (enabled) => {
     const next = {}; for (const k of Object.keys(project.platforms)) next[k] = { ...project.platforms[k], enabled };
     updateProject({ platforms: next });
@@ -3475,11 +4397,11 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full min-w-0">
       <SectionHeader
         number="05"
         title="Choose your platforms"
-        subtitle={`Toggle each platform on or off, then expand a card to set its options — MakerWorld (category, visibility, BOM, remix, Laser & Cut…), Cults price/visibility, etc. ${enabledCount} of ${PLATFORMS.length} enabled.`}
+        subtitle={`${directEnabledCount} direct and ${exportEnabledCount} export target${exportEnabledCount === 1 ? '' : 's'} selected. Adjust platform-specific options.`}
       />
 
       <div className="flex flex-wrap items-center gap-2 mt-5">
@@ -3492,17 +4414,55 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
         <span className="mp-mono text-[12px] ml-auto" style={{ color: 'rgba(21,23,28,0.45)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
-        {PLATFORMS.map(p => (
+      <div className="mt-5">
+        <div className="flex items-end justify-between gap-3 mb-2">
+          <div>
+            <h3 className="mp-display text-[22px] leading-none">Direct publishing</h3>
+            <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>These platforms can publish from ModelPrep after an account is connected.</p>
+          </div>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(21,23,28,0.45)' }}>{directEnabledCount}/{directPlatforms.length} selected</span>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+        {directPlatforms.map((p) => {
+          const activeAccount = accounts.getActive(p.id);
+          const connectionLabel = accountIsUsable(activeAccount)
+            ? 'Connected'
+            : activeAccount?.status === 'checking' ? 'Checking session' : activeAccount ? 'Reconnect needed' : 'Connect account';
+          return <PlatformCard
+            key={p.id}
+            platform={p}
+            state={project.platforms[p.id]}
+            project={project}
+            connectionLabel={connectionLabel}
+            onConnect={() => openConnections('accounts')}
+            onToggle={() => togglePlatform(p.id)}
+            onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
+          />;
+        })}
+        </div>
+      </div>
+
+      <div className="mt-7">
+        <div className="flex items-end justify-between gap-3 mb-2">
+          <div>
+            <h3 className="mp-display text-[22px] leading-none">Export &amp; future connections</h3>
+            <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>ModelPrep prepares adapted packages; direct account publishing is not available yet.</p>
+          </div>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(21,23,28,0.45)' }}>{exportEnabledCount}/{exportPlatforms.length} selected</span>
+        </div>
+        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+        {exportPlatforms.map(p => (
           <PlatformCard
             key={p.id}
             platform={p}
             state={project.platforms[p.id]}
             project={project}
+            connectionLabel="Export package"
             onToggle={() => togglePlatform(p.id)}
             onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
           />
         ))}
+        </div>
       </div>
 
       <SectionNav
@@ -3517,7 +4477,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
-function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
+function PlatformCard({ platform, state, project, connectionLabel, onConnect, onToggle, onUpdate }) {
   const [expanded, setExpanded] = useState(false);
   const acceptedFormats = platform.id === 'makerworld' && state.productMode === 'laser-cut'
     ? MAKERWORLD_LASER_FORMATS
@@ -3542,18 +4502,34 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
           {state.enabled ? 'ON' : 'OFF'}
         </button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-1 flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
               <div className="w-2 h-2 flex-shrink-0" style={{ background: platform.dot }} />
-              <h3 className="mp-display font-bold text-base">{platform.name}</h3>
+              <h3 className="mp-display font-bold text-base flex-shrink-0">{platform.name}</h3>
               {platform.apiSupport === 'oneclick' && (
-                <span className="mp-pill" style={{ background: '#4FB286', color: '#fff' }}>API</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: '#4FB286', color: '#fff' }}>API</span>
               )}
               {platform.apiSupport === 'manual' && (
-                <span className="mp-pill" style={{ background: 'rgba(21,23,28,0.1)', color: 'rgba(21,23,28,0.6)' }}>manual</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(21,23,28,0.1)', color: 'rgba(21,23,28,0.6)' }}>manual</span>
               )}
               {platform.apiSupport === 'addon' && (
-                <span className="mp-pill" style={{ background: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
+              )}
+              {connectionLabel && (
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{
+                  background: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'rgba(21,23,28,0.07)',
+                  color: connectionLabel === 'Connected' ? '#247255' : 'rgba(21,23,28,0.58)',
+                }}>{connectionLabel}</span>
+              )}
+              {onConnect && connectionLabel !== 'Connected' && (
+                <button
+                  onClick={onConnect}
+                  aria-label={`${connectionLabel === 'Reconnect needed' ? 'Reconnect' : connectionLabel === 'Checking session' ? 'View status for' : 'Connect'} ${platform.name}`}
+                  className="mp-mono text-[10px] uppercase tracking-[0.08em] underline"
+                  style={{ color: '#d35400' }}
+                >
+                  {connectionLabel === 'Checking session' ? 'View status' : connectionLabel === 'Reconnect needed' ? 'Reconnect' : 'Connect'}
+                </button>
               )}
             </div>
             <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-50 hover:opacity-100 transition flex-shrink-0" aria-label={expanded ? 'Collapse platform options' : 'Expand platform options'} aria-expanded={expanded}>
@@ -3570,8 +4546,8 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
       {expanded && (
         <div className="px-3.5 pb-3.5 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
           <div className="grid grid-cols-3 gap-2 my-3 text-[12px]">
-            <Stat label="Max images" value={platform.maxImages} />
-            <Stat label="File size cap" value={`${platform.maxFileMb}MB`} />
+            <Stat label="Max images" value={Number.isFinite(platform.maxImages) ? platform.maxImages : 'Not published'} />
+            <Stat label="File size cap" value={platform.maxFileMb ? `${platform.maxFileMb}MB` : 'Not published'} />
             <Stat label="Total cap" value={platform.maxTotalMb ? `${platform.maxTotalMb}MB` : 'Not published'} />
           </div>
 
@@ -3654,6 +4630,27 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
           {platform.id === 'printables' && state.enabled && (
             <PrintablesOptions opts={state} onUpdate={onUpdate} />
           )}
+          {platform.id === 'nexprint' && state.enabled && (
+            <NexprintOptions opts={state} project={project} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'creality' && state.enabled && (
+            <CrealityOptions opts={state} project={project} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'makeronline' && state.enabled && (
+            <MakerOnlineOptions opts={state} project={project} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'makeroad' && state.enabled && (
+            <MakerRoadOptions opts={state} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'thangs' && state.enabled && (
+            <ThangsOptions opts={state} project={project} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'thingiverse' && state.enabled && (
+            <ThingiverseOptions opts={state} onUpdate={onUpdate} />
+          )}
+          {platform.id === 'mmf' && state.enabled && (
+            <MyMiniFactoryOptions opts={state} onUpdate={onUpdate} />
+          )}
           {platform.id === 'cults' && state.enabled && (
             <div className="mt-3">
               <Label>Visibility</Label>
@@ -3665,6 +4662,696 @@ function PlatformCard({ platform, state, project, onToggle, onUpdate }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+export function MyMiniFactoryOptions({ opts, onUpdate }) {
+  const accounts = useAccounts();
+  const active = accounts.getActive('mmf');
+  const secret = active?.secret || '';
+  const [categoryTree, setCategoryTree] = useState(MYMINIFACTORY_CATEGORY_TREE);
+  const [categorySource, setCategorySource] = useState('snapshot');
+  const parentIds = Array.isArray(opts.remixParentIds) ? opts.remixParentIds.join(', ') : '';
+  useEffect(() => {
+    let alive = true;
+    if (!isDesktopMyMiniFactorySession(secret)) {
+      setCategoryTree(MYMINIFACTORY_CATEGORY_TREE);
+      setCategorySource('snapshot');
+      return () => { alive = false; };
+    }
+    myMiniFactoryFetch(`${WORKER_URL}/api/v1/myminifactory/web/categories`, {}, secret)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok || !Array.isArray(data.categories)) throw new Error(myMiniFactoryResponseError(data, response.status, 'MyMiniFactory categories failed'));
+        if (alive) { setCategoryTree(data.categories); setCategorySource('live'); }
+      })
+      .catch(() => {
+        if (alive) { setCategoryTree(MYMINIFACTORY_CATEGORY_TREE); setCategorySource('snapshot'); }
+      });
+    return () => { alive = false; };
+  }, [secret]);
+  const categories = flattenMyMiniFactoryCategories(categoryTree);
+  const selectedCategoryId = String((opts.categoryIds || []).at(-1) || '');
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="sm:col-span-2">
+          <Label>Category (required)</Label>
+          <select
+            aria-label="MyMiniFactory category"
+            className="mp-input"
+            value={selectedCategoryId}
+            onChange={(event) => {
+              const selected = categories.find((category) => category.id === event.target.value);
+              onUpdate('categoryIds', selected?.pathIds || []);
+            }}
+          >
+            <option value="">Choose MyMiniFactory category…</option>
+            {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+          </select>
+          <p className="text-[11px] mt-1 opacity-55">{categorySource === 'live' ? 'Loaded from MyMiniFactory’s current taxonomy.' : 'Using the audited taxonomy snapshot; reconnect to refresh it live.'}</p>
+        </div>
+        <div>
+          <Label>Visibility</Label>
+          <select aria-label="Visibility" className="mp-input" value={opts.publication || 'private'} onChange={(event) => onUpdate('publication', event.target.value)}>
+            <option value="private">Private (recommended)</option>
+            <option value="public">Public — enters review</option>
+          </select>
+        </div>
+        <div>
+          <Label>License</Label>
+          <select aria-label="License" className="mp-input" value={Number(opts.licenseId || 5)} onChange={(event) => onUpdate('licenseId', Number(event.target.value))}>
+            {MYMINIFACTORY_LICENSES.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <Label>Technology</Label>
+          <select aria-label="Technology" className="mp-input" value={opts.technology || ''} onChange={(event) => onUpdate('technology', event.target.value)}>
+            <option value="">Not specified</option><option value="FDM">FDM</option><option value="DLP/SLA">DLP/SLA</option><option value="SLS">SLS</option>
+          </select>
+        </div>
+        <div>
+          <Label>Material quantity</Label>
+          <input aria-label="Material quantity" className="mp-input" value={opts.materialQuantity || ''} onChange={(event) => onUpdate('materialQuantity', event.target.value)} placeholder="For example: 45 g" />
+        </div>
+        <div>
+          <Label>Dimensions</Label>
+          <div className="flex gap-2">
+            <input aria-label="Dimensions" className="mp-input flex-1" value={opts.dimensions || ''} onChange={(event) => onUpdate('dimensions', event.target.value)} placeholder="120 × 75 × 45" />
+            <select aria-label="Dimensions unit" className="mp-input w-20" value={Number(opts.dimensionsUnit || 0)} onChange={(event) => onUpdate('dimensionsUnit', Number(event.target.value))}>
+              <option value={0}>mm</option><option value={1}>cm</option><option value={2}>in</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <Label>Print time range (hours)</Label>
+          <div className="flex items-center gap-2">
+            <input type="number" min="0" className="mp-input w-24" value={opts.timeFrom ?? 0} onChange={(event) => onUpdate('timeFrom', Number(event.target.value))} />
+            <span className="text-xs opacity-50">to</span>
+            <input type="number" min="0" className="mp-input w-24" value={opts.timeTo ?? 50} onChange={(event) => onUpdate('timeTo', Number(event.target.value))} />
+          </div>
+        </div>
+      </div>
+      <div>
+        <Label>Printing tips</Label>
+        <textarea aria-label="Printing tips" className="mp-input min-h-20" value={opts.printingTips || ''} onChange={(event) => onUpdate('printingTips', event.target.value)} placeholder="Orientation, layer height, supports, and material advice" />
+      </div>
+      <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.supportFree} onChange={(event) => onUpdate('supportFree', event.target.checked)} style={{ accentColor: '#4FB286' }} /><span>This model prints without supports.</span></label>
+      <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(event) => onUpdate('remix', event.target.checked)} style={{ accentColor: '#4FB286' }} /><span>This object is a remix.</span></label>
+      {opts.remix && <div><Label>Parent MyMiniFactory object IDs</Label><input aria-label="Parent MyMiniFactory object IDs" className="mp-input" value={parentIds} onChange={(event) => onUpdate('remixParentIds', event.target.value.split(',').map((value) => value.trim()).filter(Boolean))} placeholder="Comma-separated object IDs" /></div>}
+      <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', background: 'rgba(79,178,134,0.08)' }}>
+        <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: '#4FB286' }} />
+        <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory’s Terms and Conditions.</span>
+      </label>
+    </div>
+  );
+}
+
+function flattenNexprintCategories(nodes, depth = 0, parent = '') {
+  const output = [];
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    const id = node.id ?? node.classificationId ?? node.categoryId;
+    const name = node.classificationNameEn
+      ?? node.nameEn
+      ?? node.englishName
+      ?? node.classificationName
+      ?? node.categoryName
+      ?? node.name
+      ?? node.label;
+    const childrenValue = node.children ?? node.childList ?? node.classificationList ?? node.list;
+    const children = Array.isArray(childrenValue) ? childrenValue : [];
+    // Nexprint's first column is navigation only. The second-column leaves are
+    // the actual category values accepted by the upload form.
+    if (id != null && name && children.length === 0) {
+      output.push({
+        id: String(id),
+        name: parent ? `${parent} › ${name}` : String(name),
+        depth,
+      });
+    }
+    output.push(...flattenNexprintCategories(children, depth + 1, name ? (parent ? `${parent} › ${name}` : String(name)) : parent));
+  }
+  return output;
+}
+
+function nexprintOptionId(option) {
+  return String(option?.id ?? option?.activityId ?? option?.collectionId ?? option?.modelCollectionId ?? '');
+}
+
+function nexprintOptionName(option) {
+  return String(option?.name ?? option?.activityName ?? option?.collectionName ?? option?.title ?? nexprintOptionId(option));
+}
+
+export function NexprintOptions({ opts, project, onUpdate }) {
+  const accounts = useAccounts();
+  const active = accounts.getActive('nexprint');
+  const secret = active?.secret || '';
+  const [categories, setCategories] = useState(THANGS_CATEGORIES);
+  const [categorySource, setCategorySource] = useState('snapshot');
+  const [dynamic, setDynamic] = useState({ activities: [], collections: [], error: '', loading: false });
+
+  useEffect(() => {
+    let alive = true;
+    const url = `https://www.nexprint.com/gateway/api/v1/model-library-server/model-classification/tree?time=${Date.now()}`;
+    fetch(url, {
+      headers: { Accept: 'application/json', 'Client-Id': 'Nexprint', 'User-Lang': 'en' },
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || Number(data.code) !== 0) throw new Error(data.msg || `HTTP ${response.status}`);
+        return flattenNexprintCategories(data.data || []);
+      })
+      .then((items) => { if (alive) setCategories(items); })
+      .catch(() => { if (alive) setCategories([]); });
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    if (!secret || !isDesktopNexprintSession(secret)) {
+      setDynamic({ activities: [], collections: [], error: '', loading: false });
+      return () => { alive = false; };
+    }
+    setDynamic((current) => ({ ...current, loading: true, error: '' }));
+    Promise.all([
+      nexprintFetch(`${WORKER_URL}/api/v1/nexprint/web/activities`, {}, secret)
+        .then(async (response) => ({ response, data: await response.json().catch(() => ({})) })),
+      nexprintFetch(`${WORKER_URL}/api/v1/nexprint/web/collections`, {}, secret)
+        .then(async (response) => ({ response, data: await response.json().catch(() => ({})) })),
+    ])
+      .then(([activityResult, collectionResult]) => {
+        if (!activityResult.response.ok || !activityResult.data.ok) {
+          throw new Error(nexprintResponseError(activityResult.data, activityResult.response.status, 'Could not load Nexprint activities'));
+        }
+        if (!collectionResult.response.ok || !collectionResult.data.ok) {
+          throw new Error(nexprintResponseError(collectionResult.data, collectionResult.response.status, 'Could not load Nexprint collections'));
+        }
+        if (alive) setDynamic({
+          activities: Array.isArray(activityResult.data.activities) ? activityResult.data.activities : [],
+          collections: Array.isArray(collectionResult.data.collections) ? collectionResult.data.collections : [],
+          error: '',
+          loading: false,
+        });
+      })
+      .catch((error) => {
+        if (alive) setDynamic({
+          activities: [],
+          collections: [],
+          error: error instanceof Error ? error.message : String(error),
+          loading: false,
+        });
+      });
+    return () => { alive = false; };
+  }, [secret]);
+
+  const toggleId = (field, rawId) => {
+    const id = String(rawId);
+    const current = (opts[field] || []).map(String);
+    onUpdate(field, current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+  const updateBom = (index, patch) => {
+    const rows = [...(opts.bom || [])];
+    rows[index] = { ...rows[index], ...patch };
+    onUpdate('bom', rows);
+  };
+  const removeBom = (index) => onUpdate('bom', (opts.bom || []).filter((_, rowIndex) => rowIndex !== index));
+  const addBom = () => {
+    if ((opts.bom || []).length >= 100) return;
+    onUpdate('bom', [...(opts.bom || []), { materialName: '', materialNum: 1, materialRemark: '' }]);
+  };
+
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Batch action</Label>
+          <select className="mp-input" value={opts.publication || 'draft'} onChange={(event) => onUpdate('publication', event.target.value)}>
+            <option value="draft">Save draft (recommended)</option>
+            <option value="publish">Publish publicly</option>
+          </select>
+        </div>
+        <div>
+          <Label>Originality</Label>
+          <select className="mp-input" value={Number(opts.originalityType || 1)} onChange={(event) => onUpdate('originalityType', Number(event.target.value))}>
+            <option value={1}>Original</option>
+            <option value={2}>Adapted</option>
+            <option value={3}>Reprint</option>
+          </select>
+        </div>
+      </div>
+
+      {Number(opts.originalityType || 1) !== 1 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <Label>Original URL</Label>
+            <input className="mp-input" value={opts.sourceUrl || ''} onChange={(event) => onUpdate('sourceUrl', event.target.value)} placeholder="https://…" />
+          </div>
+          <div>
+            <Label>Nexprint model ID (alternative)</Label>
+            <input className="mp-input" value={opts.sourceModelId || ''} onChange={(event) => onUpdate('sourceModelId', event.target.value)} placeholder="G…" />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Category</Label>
+          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+            <option value="">Choose Nexprint category…</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.name}</option>
+            ))}
+          </select>
+          {!categories.length && <p className="text-[11px] mt-1 opacity-55">Category tree loads from Nexprint’s current live taxonomy.</p>}
+        </div>
+        <div>
+          <Label>License</Label>
+          <select className="mp-input" value={Number(opts.licenseType ?? NEXPRINT_LICENSE_MAP[project.license] ?? 7)} onChange={(event) => onUpdate('licenseType', Number(event.target.value))}>
+            {NEXPRINT_LICENSES.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-xs">
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#FF5722' }} /> NSFW</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.aiGenerated} onChange={(event) => onUpdate('aiGenerated', event.target.checked)} style={{ accentColor: '#FF5722' }} /> AI-generated content</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.hasBom} onChange={(event) => onUpdate('hasBom', event.target.checked)} style={{ accentColor: '#FF5722' }} /> Include bill of materials</label>
+      </div>
+      {opts.aiGenerated && (
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.6)' }}>
+          ModelPrep adds “AI-generated” to the listing tags to satisfy Nexprint’s disclosure rule.
+        </p>
+      )}
+
+      {opts.hasBom && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>Bill of materials ({(opts.bom || []).length}/100)</Label>
+            <button onClick={addBom} disabled={(opts.bom || []).length >= 100} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 disabled:opacity-40"><Plus size={11} /> Add material</button>
+          </div>
+          {(opts.bom || []).map((row, index) => (
+            <div key={index} className="grid grid-cols-[minmax(0,1fr)_90px_minmax(0,1.4fr)_32px] gap-2">
+              <input className="mp-input" maxLength={80} value={row.materialName || ''} onChange={(event) => updateBom(index, { materialName: event.target.value })} placeholder="Material" />
+              <input className="mp-input" type="number" min={1} max={9999} value={row.materialNum || 1} onChange={(event) => updateBom(index, { materialNum: Number(event.target.value) })} aria-label="Quantity" />
+              <input className="mp-input" maxLength={1000} value={row.materialRemark || ''} onChange={(event) => updateBom(index, { materialRemark: event.target.value })} placeholder="Remark (optional)" />
+              <button onClick={() => removeBom(index)} aria-label={`Remove material ${index + 1}`} className="opacity-55 hover:opacity-100"><Trash2 size={14} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div>
+        <Label>Eligible activities and contests</Label>
+        {!active && <p className="text-[11px] opacity-55">Connect Nexprint to load the activities currently available to this account.</p>}
+        {dynamic.loading && <p className="text-[11px] opacity-55">Loading current Nexprint options…</p>}
+        {dynamic.error && <p className="text-[11px]" style={{ color: '#b91c1c' }}>{dynamic.error}</p>}
+        {!!dynamic.activities.length && (
+          <div className="flex flex-wrap gap-2 mt-1">
+            {dynamic.activities.map((activity) => {
+              const id = nexprintOptionId(activity);
+              return (
+                <label key={id} className="mp-card px-2 py-1 text-[11px] flex items-center gap-1.5">
+                  <input type="checkbox" checked={(opts.activityIds || []).map(String).includes(id)} onChange={() => toggleId('activityIds', id)} style={{ accentColor: '#FF5722' }} />
+                  {nexprintOptionName(activity)}
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {!!dynamic.collections.length && (
+        <div>
+          <Label>Your collections</Label>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {dynamic.collections.map((collection) => {
+              const id = nexprintOptionId(collection);
+              return (
+                <label key={id} className="mp-card px-2 py-1 text-[11px] flex items-center gap-1.5">
+                  <input type="checkbox" checked={(opts.collectionIds || []).map(String).includes(id)} onChange={() => toggleId('collectionIds', id)} style={{ accentColor: '#FF5722' }} />
+                  {nexprintOptionName(collection)}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!!dynamic.activities.length && Number(opts.originalityType || 1) !== 3 && (
+        <label className="flex items-center gap-1.5 text-xs">
+          <input type="checkbox" checked={!!opts.worldFirstRelease} onChange={(event) => onUpdate('worldFirstRelease', event.target.checked)} style={{ accentColor: '#FF5722' }} />
+          Mark eligible activity submission as a world-first release
+        </label>
+      )}
+
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(255,182,39,0.10)', border: '1px solid rgba(255,182,39,0.45)' }}>
+        Creator-fund eligibility is not a static checkbox. Nexprint supplies account-eligible activities dynamically; creator-fund submissions currently require at least two images, including one real printed photo.
+      </div>
+    </div>
+  );
+}
+
+export function CrealityOptions({ opts, project, onUpdate }) {
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Batch action</Label>
+          <select aria-label="Creality batch action" className="mp-input" value={opts.publication === 'public' ? 'public' : 'private'} onChange={(event) => onUpdate('publication', event.target.value)}>
+            <option value="private">Create private model (recommended)</option>
+            <option value="public">Publish publicly (LIVE)</option>
+          </select>
+          <p className="text-[11px] mt-1 opacity-60">Creality's new-model uploader supports Private or Public. Its draft endpoint only edits drafts that already exist.</p>
+        </div>
+        <div>
+          <Label>Model source</Label>
+          <select aria-label="Creality model source" className="mp-input" value={Number(opts.modelSource || 1)} onChange={(event) => onUpdate('modelSource', Number(event.target.value))}>
+            <option value={1}>Original</option>
+            <option value={3}>Remix Models</option>
+            <option value={2}>Non-original</option>
+          </select>
+          {Number(opts.modelSource || 1) !== 1 && (
+            <p className="text-[11px] mt-1" style={{ color: '#b45309' }}>Creality requires a native source-model object and, for some cases, proof images. ModelPrep maps these fields but intentionally sends only Original uploads until source attribution can be verified without guesswork.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Category</Label>
+          <select aria-label="Creality category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+            <option value="">Choose Creality category…</option>
+            {CREALITY_CATEGORIES.map((category) => (
+              <optgroup key={category.id} label={category.label}>
+                <option value={category.id}>{category.label} (top level)</option>
+                {category.children.map(([id, label]) => <option key={id} value={id}>{category.label} › {label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label>License</Label>
+          <select aria-label="Creality license" className="mp-input" value={opts.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL'} onChange={(event) => onUpdate('license', event.target.value)}>
+            {CREALITY_LICENSES.map((license) => <option key={license.value} value={license.value}>{license.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <label className="flex items-start gap-2 text-xs">
+        <input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#FF5722' }} />
+        <span>Contains nudity, violence, blasphemy, or other potentially disturbing content (Creality maturity rating).</span>
+      </label>
+
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(230,57,70,0.06)', border: '1px solid rgba(230,57,70,0.32)' }}>
+        ModelPrep sends the web and app cover crops, up to 9 gallery images, every compatible model file, compatible instruction files, tags, rich description, category, license, source type, maturity rating, and draft/private/public state. Creality’s optional paid-model controls are account-gated and are not exposed to this new account.
+      </div>
+    </div>
+  );
+}
+
+function makerRoadOptionId(value) { return String(value?.id ?? value?.value ?? value?.classifyId ?? ''); }
+function makerRoadOptionName(value) { return String(value?.name ?? value?.label ?? value?.title ?? makerRoadOptionId(value)); }
+function flattenMakerRoadOptions(values, prefix = '') {
+  return (Array.isArray(values) ? values : values?.list || values?.rows || []).flatMap((value) => {
+    const name = `${prefix}${makerRoadOptionName(value)}`;
+    const own = makerRoadOptionId(value) ? [{ id: makerRoadOptionId(value), name }] : [];
+    return [...own, ...flattenMakerRoadOptions(value?.children || value?.child || [], `${name} › `)];
+  });
+}
+
+export function MakerRoadOptions({ opts, onUpdate }) {
+  const accounts = useAccounts();
+  const makerRoadAccount = accounts.getActive('makeroad');
+  const secret = accountIsUsable(makerRoadAccount) ? makerRoadAccount.secret : '';
+  const [meta, setMeta] = useState({ categories: [], printers: [], materials: [], colors: [], loading: false, error: '' });
+  useEffect(() => {
+    let alive = true;
+    if (!isDesktopMakerRoadSession(secret)) return () => { alive = false; };
+    setMeta((value) => ({ ...value, loading: true, error: '' }));
+    makerRoadFetch(`${WORKER_URL}/api/v1/makeroad/web/meta`, {}, secret)
+      .then(async (response) => ({ response, data: await response.json().catch(() => ({})) }))
+      .then(({ response, data }) => {
+        if (!response.ok || !data.ok) throw new Error(makerRoadResponseError(data, response.status, 'MakerRoad metadata failed'));
+        const source = data.meta || {};
+        if (alive) setMeta({
+          categories: flattenMakerRoadOptions(source.modelsClassify),
+          printers: flattenMakerRoadOptions(source.printer),
+          materials: flattenMakerRoadOptions(source.material),
+          colors: flattenMakerRoadOptions(source.color), loading: false, error: '',
+        });
+      }).catch((error) => { if (alive) setMeta((value) => ({ ...value, loading: false, error: error.message })); });
+    return () => { alive = false; };
+  }, [secret]);
+  const toggle = (field, id, max = Infinity) => {
+    const values = (opts[field] || []).map(String);
+    onUpdate(field, values.includes(String(id)) ? values.filter((value) => value !== String(id)) : values.length < max ? [...values, String(id)] : values);
+  };
+  const license = MAKEROAD_LICENSES[Number(opts.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="grid md:grid-cols-2 gap-3">
+        <div><Label>Batch action</Label><select aria-label="MakerRoad batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save private draft (recommended)</option><option value="publish">Submit for public review (LIVE)</option></select></div>
+        <div><Label>Upload type</Label><select aria-label="MakerRoad upload type" className="mp-input" value={Number(opts.uploadType || 1)} onChange={(e) => onUpdate('uploadType', Number(e.target.value))}><option value={1}>Original</option><option value={2}>Remix</option></select></div>
+      </div>
+      {Number(opts.uploadType || 1) === 2 && <div><Label>Original model URL</Label><input className="mp-input" value={opts.referUrl || ''} onChange={(e) => onUpdate('referUrl', e.target.value)} placeholder="https://…" /></div>}
+      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{meta.loading && <p className="text-[11px] opacity-55">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3)} />{item.name}</label>)}</div></div>
+      <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><select aria-label="MakerRoad license" className="mp-input" value={Number(opts.licenseIndex || 0)} onChange={(e) => onUpdate('licenseIndex', Number(e.target.value))}>{MAKEROAD_LICENSES.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}</select></div><div><Label>Visibility</Label><select className="mp-input" value={opts.visibility || 'private'} onChange={(e) => onUpdate('visibility', e.target.value)}><option value="private">Private</option><option value="public">Public</option></select></div></div>
+      <div><Label>Print methods</Label><div className="flex gap-4 text-xs">{['FDM', 'LCD', 'Others'].map((value) => <label key={value}><input type="checkbox" checked={(opts.printMethods || []).includes(value)} onChange={() => toggle('printMethods', value)} /> {value}</label>)}</div></div>
+      {!!meta.printers.length && <div><Label>Compatible printers (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('printerIds', e.target.value); e.target.value = ''; }}><option value="">Add printer…</option>{meta.printers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-55">{(opts.printerIds || []).length} selected</p></div>}
+      <div className="grid md:grid-cols-2 gap-3">
+        <div><Label>Materials (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('materialIds', e.target.value); e.target.value = ''; }}><option value="">Add material…</option>{meta.materials.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-55">{(opts.materialIds || []).length} selected</p></div>
+        <div><Label>Colors (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('colorIds', e.target.value); e.target.value = ''; }}><option value="">Add color…</option>{meta.colors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-55">{(opts.colorIds || []).length} selected</p></div>
+      </div>
+      <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
+      <div className="grid md:grid-cols-2 gap-3"><div><Label>Download price</Label><select className="mp-input" value={opts.payType || 'free'} onChange={(e) => onUpdate('payType', e.target.value)}><option value="free">Free</option><option value="points">Points</option><option value="cash">Cash</option></select></div>{opts.payType !== 'free' && <div><Label>Value</Label><input className="mp-input" type="number" min="0" value={opts.payValue || 0} onChange={(e) => onUpdate('payValue', Number(e.target.value))} /></div>}</div>
+      <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.scheduled} onChange={(e) => onUpdate('scheduled', e.target.checked)} /> Schedule public availability</label>
+      {opts.scheduled && <input aria-label="MakerRoad schedule" className="mp-input" type="datetime-local" value={opts.planTime || ''} onChange={(e) => onUpdate('planTime', e.target.value)} />}
+      {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><span>I agree to MakerRoad’s current Terms and Privacy Policy for this public submission.</span></label>}
+      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3–10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and price.</p>
+    </div>
+  );
+}
+
+export function ThangsOptions({ opts, project, onUpdate }) {
+  const modelFiles = project.files.filter((file) => file.blob && ['stl', '3mf', 'step', 'stp', 'obj', 'glb', 'fbx', 'blend', 'usdz', 'gltf'].includes(fileExt(file.name)));
+  const accounts = useAccounts();
+  const thangsAccount = accounts.getActive('thangs');
+  const secret = accountIsUsable(thangsAccount) ? thangsAccount.secret : '';
+  const [categories, setCategories] = useState(THANGS_CATEGORIES);
+  const [categorySource, setCategorySource] = useState('snapshot');
+  const [categoryError, setCategoryError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    if (!isDesktopThangsSession(secret)) return () => { alive = false; };
+    thangsFetch(`${WORKER_URL}/api/v1/thangs/web/meta`, {}, secret)
+      .then(async (response) => ({ response, data: await response.json().catch(() => ({})) }))
+      .then(({ response, data }) => {
+        if (!response.ok || !data.ok) throw new Error(thangsResponseError(data, response.status, 'Thangs categories failed'));
+        const values = flattenThangsCategories(data.meta?.categories || []);
+        if (alive) { setCategories(values.length ? values : THANGS_CATEGORIES); setCategorySource(values.length ? 'live' : 'snapshot'); setCategoryError(''); }
+      }).catch((error) => { if (alive) { setCategories(THANGS_CATEGORIES); setCategorySource('snapshot'); setCategoryError(`${error.message} Using today’s verified taxonomy snapshot.`); } });
+    return () => { alive = false; };
+  }, [secret]);
+  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><select aria-label="Thangs visibility" className="mp-input" value={opts.publication || 'private'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="private">Private (recommended)</option><option value="public">Public (LIVE)</option></select></div><div><Label>Structure</Label><select aria-label="Thangs structure" className="mp-input" value={opts.structure || 'single'} onChange={(e) => onUpdate('structure', e.target.value)}><option value="single">Single model</option><option value="bulk">Separate bulk models</option><option value="multipart">Multipart model</option><option value="assembly">Assembly</option></select></div></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Units</Label><select className="mp-input" value={opts.units || 'mm'} onChange={(e) => onUpdate('units', e.target.value)}><option value="mm">Millimeters</option><option value="cm">Centimeters</option><option value="m">Meters</option><option value="in">Inches</option></select></div><div><Label>Primary part</Label><select className="mp-input" value={opts.primaryFileId || modelFiles[0]?.id || ''} onChange={(e) => onUpdate('primaryFileId', e.target.value)}>{modelFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select></div></div>
+    <div><Label>Category path</Label><select aria-label="Thangs category" className="mp-input" value={opts.category || ''} onChange={(e) => onUpdate('category', e.target.value)}><option value="">Choose category…</option>{categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-55">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Folder ID (optional)</Label><input className="mp-input" value={opts.folderId || ''} onChange={(e) => onUpdate('folderId', e.target.value)} /></div><div><Label>Workspace ID (optional)</Label><input className="mp-input" value={opts.workspaceId || ''} onChange={(e) => onUpdate('workspaceId', e.target.value)} /></div></div>
+    <div><Label>Resume existing private draft ID (recovery only)</Label><input aria-label="Thangs resume draft ID" className="mp-input" value={opts.resumeDraftId || ''} onChange={(e) => onUpdate('resumeDraftId', e.target.value.trim())} placeholder="Leave empty for a new model" /><p className="text-[11px] opacity-55">Use only after Thangs created a private draft but rejected its details; ModelPrep will update that draft instead of creating a duplicate.</p></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Access type ID (optional)</Label><input className="mp-input" value={opts.accessTypeId || ''} onChange={(e) => onUpdate('accessTypeId', e.target.value)} /></div><div><Label>Plan IDs (comma-separated)</Label><input className="mp-input" value={(opts.planIds || []).join(', ')} onChange={(e) => onUpdate('planIds', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div></div>
+    <div><Label>Dependency model IDs (comma-separated)</Label><input className="mp-input" value={(opts.dependencies || []).join(', ')} onChange={(e) => onUpdate('dependencies', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div>
+    <div><Label>Version notes</Label><textarea className="mp-input" value={opts.versionNotes || ''} onChange={(e) => onUpdate('versionNotes', e.target.value)} /></div>
+    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={opts.allowRemix !== false} onChange={(e) => onUpdate('allowRemix', e.target.checked)} /> Allow remix</label><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={opts.feedbackEnabled !== false} onChange={(e) => onUpdate('feedbackEnabled', e.target.checked)} /> Enable feedback</label></div>
+    <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.marketplace} onChange={(e) => onUpdate('marketplace', e.target.checked)} /> Paid marketplace listing (account eligibility required)</label>{opts.marketplace && <input aria-label="Thangs price" className="mp-input" type="number" min="0" value={opts.price || 0} onChange={(e) => onUpdate('price', Number(e.target.value))} />}
+    <div><Label>License</Label><input className="mp-input" value={opts.license || ''} onChange={(e) => onUpdate('license', e.target.value)} /></div>
+    <p className="text-[11px] opacity-60">Model files over 250 MB must be reference files. ModelPrep verifies details, attachments, and license after creation. Plans and paid access remain account-gated.</p>
+  </div>;
+}
+
+export function ThingiverseOptions({ opts, onUpdate }) {
+  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="p-2.5 text-[11px]" style={{ background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate('license', e.target.value)}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select></div></div>
+    <div><Label>Summary (required)</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /></div>
+    <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate('categoryId', e.target.value)}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><p className="text-[11px] opacity-55">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
+    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label><input type="checkbox" checked={!!opts.customizable} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
+    <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
+    {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /> Accept Thingiverse’s current publishing terms at action time</label>}
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Printer / model</Label><input className="mp-input" value={opts.printSettings?.printer || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), printer: e.target.value })} /></div><div><Label>Material</Label><input className="mp-input" value={opts.printSettings?.material || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), material: e.target.value })} /></div><div><Label>Resolution</Label><input className="mp-input" value={opts.printSettings?.resolution || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), resolution: e.target.value })} /></div><div><Label>Infill</Label><input className="mp-input" value={opts.printSettings?.infill || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), infill: e.target.value })} /></div></div>
+    <div><Label>Custom sections (JSON)</Label><textarea className="mp-input" value={JSON.stringify(opts.sections || [])} onChange={(e) => { try { onUpdate('sections', JSON.parse(e.target.value)); } catch { /* retain last valid value */ } }} /></div>
+    <div><Label>Education project data (JSON, optional)</Label><textarea className="mp-input" value={opts.education ? JSON.stringify(opts.education) : ''} onChange={(e) => { if (!e.target.value.trim()) onUpdate('education', null); else { try { onUpdate('education', JSON.parse(e.target.value)); } catch { /* retain last valid value */ } } }} /></div>
+    <p className="text-[11px] opacity-60">Print settings, custom rich sections, education fields, ordered uploads, remix attribution, draft/publish separation, and complete readback are represented in the saved project and adapter contract.</p>
+  </div>;
+}
+
+export function MakerOnlineOptions({ opts, project, onUpdate }) {
+  const accounts = useAccounts();
+  const active = accounts.getActive('makeronline');
+  const secret = active?.secret || '';
+  const [meta, setMeta] = useState({ categories: [], kits: [], loading: false, error: '' });
+  const [eligibility, setEligibility] = useState({ exclusive: null, chinaSync: null });
+
+  useEffect(() => {
+    if (!secret || !isDesktopMakerOnlineSession(secret)) {
+      setMeta({ categories: [], kits: [], loading: false, error: '' });
+      setEligibility({ exclusive: null, chinaSync: null });
+      return undefined;
+    }
+    let alive = true;
+    setMeta((current) => ({ ...current, loading: true, error: '' }));
+    const read = async (route) => {
+      const response = await makerOnlineFetch(`${WORKER_URL}/api/v1/makeronline/web/${route}`, {}, secret);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(makerOnlineResponseError(data, response.status, `Could not load MakerOnline ${route}`));
+      }
+      return data;
+    };
+    Promise.all([read('meta'), read('eligibility')])
+      .then(([metaData, eligibilityData]) => {
+        if (!alive) return;
+        setMeta({
+          categories: flattenMakerOnlineCategories(metaData.categories),
+          kits: Array.isArray(metaData.kits) ? metaData.kits : [],
+          loading: false,
+          error: '',
+        });
+        const nextEligibility = {
+          exclusive: eligibilityData.exclusive || { eligible: false },
+          chinaSync: eligibilityData.chinaSync || { eligible: false },
+        };
+        setEligibility(nextEligibility);
+        onUpdate({
+          exclusiveEligible: !!nextEligibility.exclusive.eligible,
+          chinaSyncEligible: !!nextEligibility.chinaSync.eligible,
+          ...(!nextEligibility.exclusive.eligible ? { exclusive: false } : {}),
+          ...(!nextEligibility.chinaSync.eligible ? { syncChina: false } : {}),
+        });
+      })
+      .catch((error) => {
+        if (alive) setMeta({ categories: [], kits: [], loading: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return () => { alive = false; };
+    // Refresh when the active account changes; onUpdate is intentionally omitted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secret]);
+
+  const categoryOptions = meta.categories.some((category) => category.id === String(opts.categoryId || ''))
+    ? meta.categories
+    : (opts.categoryId ? [{ id: String(opts.categoryId), label: `Saved category ${opts.categoryId}` }, ...meta.categories] : meta.categories);
+  const kitId = (kit) => String(kit.id ?? kit.store_kit_id ?? kit.value ?? '');
+  const kitName = (kit) => String(kit.name_en ?? kit.store_name ?? kit.storeName ?? kit.name ?? kit.title ?? `Kit ${kitId(kit)}`);
+  const selectedKits = (opts.storeKitIds || []).map(String);
+  const toggleKit = (id) => onUpdate('storeKitIds', selectedKits.includes(String(id))
+    ? selectedKits.filter((value) => value !== String(id))
+    : [...selectedKits, String(id)]);
+  const source = Number(opts.source || 1);
+  const license = Number(opts.license ?? MAKERONLINE_LICENSE_MAP[project.license] ?? 3);
+  const printMethod = Number(opts.printMethod || 3);
+
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Batch action</Label>
+          <select aria-label="MakerOnline batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(event) => onUpdate(event.target.value === 'public' ? { publication: 'public', permission: 1 } : { publication: 'draft' })}>
+            <option value="draft">Save unpublished draft (recommended)</option>
+            <option value="public">Publish publicly (LIVE)</option>
+          </select>
+        </div>
+        <div>
+          <Label>Model source</Label>
+          <select aria-label="MakerOnline model source" className="mp-input" value={source} onChange={(event) => onUpdate('source', Number(event.target.value))}>
+            <option value={1}>Original</option>
+            <option value={2}>Remix</option>
+          </select>
+        </div>
+      </div>
+
+      {source === 2 && (
+        <div>
+          <Label>Original work URL (required for remix)</Label>
+          <input aria-label="MakerOnline original work URL" className="mp-input" maxLength={1000} value={opts.originalUrl || ''} onChange={(event) => onUpdate('originalUrl', event.target.value)} placeholder="https://…" />
+          {[5, 6].includes(license) && <p className="text-[11px] mt-1" style={{ color: '#b91c1c' }}>NoDerivatives licenses cannot be used for a remix.</p>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Category</Label>
+          <select aria-label="MakerOnline category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+            <option value="">{meta.loading ? 'Loading live taxonomy…' : 'Choose MakerOnline category…'}</option>
+            {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+          </select>
+          {!secret && <p className="text-[11px] mt-1 opacity-55">Connect MakerOnline to load its live category tree.</p>}
+        </div>
+        <div>
+          <Label>License</Label>
+          <select aria-label="MakerOnline license" className="mp-input" value={license} onChange={(event) => onUpdate('license', Number(event.target.value))}>
+            {MAKERONLINE_LICENSES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label>Model permissions</Label>
+          <div className="flex flex-wrap gap-3 text-xs">
+            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 1} onChange={() => onUpdate('permission', 1)} style={{ accentColor: '#FF5722' }} /> Public</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 2} onChange={() => onUpdate('permission', 2)} style={{ accentColor: '#FF5722' }} /> Private</label>
+          </div>
+          <p className="text-[11px] mt-1 opacity-55">Draft controls whether the listing is submitted now; permissions are stored with the model.</p>
+        </div>
+        <div>
+          <Label>Printing method</Label>
+          <div className="flex flex-wrap gap-3 text-xs">
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 3} onChange={() => onUpdate('printMethod', 3)} style={{ accentColor: '#FF5722' }} /> Both</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 1} onChange={() => onUpdate('printMethod', 1)} style={{ accentColor: '#FF5722' }} /> FDM</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 2} onChange={() => onUpdate('printMethod', 2)} style={{ accentColor: '#FF5722' }} /> Resin</label>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.aiHelp} onChange={(event) => onUpdate('aiHelp', event.target.checked)} style={{ accentColor: '#FF5722' }} /><span>Created with AI assistance</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate({ nsfw: event.target.checked, ...(event.target.checked ? { syncChina: false } : {}) })} style={{ accentColor: '#FF5722' }} /><span>NSFW: nudity, violence, profanity, or disturbing themes</span></label>
+      </div>
+
+      {printMethod !== 2 && (
+        <div className="p-2.5 space-y-2" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.18)' }}>
+          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.includePrintProfile} onChange={(event) => onUpdate('includePrintProfile', event.target.checked)} style={{ accentColor: '#FF5722' }} /><span>Upload available .3mf files as MakerOnline print profiles as well as raw model files</span></label>
+          {opts.includePrintProfile && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div><Label>Print profile title</Label><input aria-label="MakerOnline print profile title" className="mp-input" maxLength={100} value={opts.printTitle || ''} onChange={(event) => onUpdate('printTitle', event.target.value)} placeholder={project.title || 'Profile title'} /></div>
+              <div><Label>Print profile description (max 1,000)</Label><input aria-label="MakerOnline print profile description" className="mp-input" maxLength={1000} value={opts.printDescription || ''} onChange={(event) => onUpdate('printDescription', event.target.value)} placeholder="Printer, material, layer height…" /></div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div>
+        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: '#FF5722' }} /><span>This model uses MakerOnline Creative Kits</span></label>
+        {opts.relatedKits && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
+            {meta.kits.map((kit) => {
+              const id = kitId(kit);
+              return <label key={id} className="flex items-start gap-2 text-[11px] p-1.5 bg-white"><input type="checkbox" checked={selectedKits.includes(id)} onChange={() => toggleKit(id)} style={{ accentColor: '#FF5722' }} /><span>{kitName(kit)}</span></label>;
+            })}
+            {!meta.loading && meta.kits.length === 0 && <span className="text-[11px] opacity-55">Connect the account to load current Creative Kits.</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.chinaSync?.eligible || !!opts.nsfw || Number(opts.permission || 2) !== 1} checked={!!opts.syncChina} onChange={(event) => onUpdate('syncChina', event.target.checked)} style={{ accentColor: '#FF5722' }} /><span>Sync to MakerOnline China{!eligibility.chinaSync?.eligible ? ' (account not linked/eligible)' : ''}</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.exclusive?.eligible} checked={!!opts.exclusive} onChange={(event) => onUpdate(event.target.checked ? { exclusive: true, source: 1, permission: 1, license: 8, includePrintProfile: true } : { exclusive: false })} style={{ accentColor: '#FF5722' }} /><span>Exclusive model{!eligibility.exclusive?.eligible ? ' (account not eligible)' : ''}</span></label>
+      </div>
+
+      {meta.error && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{meta.error}</div>}
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.22)' }}>
+        ModelPrep maps all current upload branches: ordered gallery (20 max), title, live two-level category, tags, license, source/original URL, public/private permission, FDM/Resin/Both, rich description, documentation, AI/NSFW disclosure, Creative Kits, account-gated China sync/exclusive controls, raw files, and optional parsed .3mf print profiles. Paid pricing is dormant in the current form and is not exposed.
+      </div>
     </div>
   );
 }
@@ -3692,6 +5379,13 @@ export function PrintablesOptions({ opts, onUpdate }) {
     license.isSelectable !== false && license.freeModels !== false);
   return (
     <div className="mt-3 space-y-3">
+      <div>
+        <Label>Batch action</Label>
+        <select className="mp-input" value={opts.publication || 'draft'} onChange={(event) => onUpdate('publication', event.target.value)}>
+          <option value="draft">Save unpublished draft (recommended)</option>
+          <option value="publish">Publish publicly</option>
+        </select>
+      </div>
       <div>
         <Label>Printables summary (required, 120 characters)</Label>
         <input
@@ -3830,25 +5524,61 @@ function PreflightPanel({ enabled, project, setCurrentSection }) {
 }
 
 function PublishSection({ project, allReady, completion, setCurrentSection }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
   const enabled = PLATFORMS.filter(p => project.platforms[p.id]?.enabled);
+  const directEnabled = enabled.filter((platform) => LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id));
+  const exportEnabled = enabled.filter((platform) => !LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id));
   const cover = project.images.find(i => i.id === project.coverImageId);
+  const publishTargets = enabled
+    .filter((platform) => LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id))
+    .map((platform) => {
+      const account = accounts.getActive(platform.id);
+      const connected = accountIsUsable(account);
+      const mode = project.__demo ? 'simulation' : connected ? 'real' : 'missing';
+      const intent = batchPublishIntent(platform.id, project);
+      return {
+        id: platform.id,
+        name: platform.name,
+        accountLabel: connected ? account.label : (mode === 'simulation' ? 'Demo simulation' : account ? `${account.label} · session expired` : 'No account connected'),
+        accountStatus: account?.status || 'unknown',
+        mode,
+        safeDemo: !!project.__demo,
+        ...intent,
+        issues: platformPreflight(platform, project),
+      };
+    });
+  const [publishBatch, setPublishBatch] = useState(null);
   // Broadcast signals so the parent can expand/collapse every card at once.
   // Cards keep their own `expanded` state; they just react to a signal change.
   // `allExpanded` tracks the last bulk action so the single toggle button can
   // show "Collapse all" or "Expand all" appropriately.
   const [expandSignal, setExpandSignal] = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
-  const [allExpanded, setAllExpanded] = useState(true); // cards default to expanded
-  const [showZip, setShowZip] = useState(false); // manual .zip fallback — collapsed, at the bottom
+  const [allExpanded, setAllExpanded] = useState(false); // review details are on demand
+  const [showExports, setShowExports] = useState(false);
+  const [showZip, setShowZip] = useState(false);
   const toggleAll = () => {
     if (allExpanded) { setCollapseSignal(n => n + 1); setAllExpanded(false); }
     else { setExpandSignal(n => n + 1); setAllExpanded(true); }
   };
+  const startPublishBatch = () => {
+    if (publishBatch?.status === 'running') return;
+    const isDesktop = typeof window !== 'undefined' && !!window.modelprepDesktop;
+    const readyTargets = publishTargets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0);
+    setPublishBatch(createPublishBatch(readyTargets, `batch-${Date.now()}`, isDesktop ? DESKTOP_PUBLISH_CONCURRENCY : 1));
+  };
+  const handleBatchResult = (outcome) => {
+    setPublishBatch((current) => advancePublishBatch(current, outcome));
+  };
+  const retryFailedBatch = () => {
+    setPublishBatch((current) => retryFailedPublishBatch(current, `batch-retry-${Date.now()}`));
+  };
 
   if (!allReady) {
     return (
-      <div className="max-w-7xl">
-        <SectionHeader number="06" title="Prepare upload packages" subtitle="Finish the missing steps below to generate platform-ready exports." />
+      <div className="w-full min-w-0">
+        <SectionHeader number="06" title="Prepare upload packages" subtitle="Complete the missing steps to prepare platform-ready packages." />
         <div className="mt-6 space-y-2">
           {SECTIONS.slice(0, -1).map(s => (
             <button key={s.id} onClick={() => setCurrentSection(s.id)} className="w-full p-3.5 mp-card flex items-center gap-3 text-left transition hover:border-[#FF5722]">
@@ -3871,20 +5601,34 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
   }
 
   return (
-    <div className="max-w-7xl">
+    <div className="w-full min-w-0">
       <SectionHeader
         number="06"
         title="Publish"
-        subtitle="Publish to each enabled platform. API platforms (MakerWorld, Cults3D) upload directly — sign in and hit Publish. Manual platforms give you a ready-to-paste .zip package."
+        subtitle="Review the adapted package, then publish to all selected platforms or individually."
       />
+
+      <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
       <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
 
-      {enabled.length > 1 && (
+      {publishTargets.length > 0 && (
+        <BatchPublishPanel
+          targets={publishTargets}
+          batch={publishBatch}
+          onPublish={startPublishBatch}
+          onRetryFailed={retryFailedBatch}
+          onOpenConnections={() => openConnections('accounts')}
+          isTestProject={!!project.__testProject}
+        />
+      )}
+
+      {directEnabled.length > 0 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
-          <span className="mp-mono text-[12px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>
-            {enabled.length} platform packages
-          </span>
+          <div>
+            <h3 className="mp-display text-[22px] leading-none">Publishing destinations</h3>
+            <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.56)' }}>{directEnabled.length} direct target{directEnabled.length === 1 ? '' : 's'} · expand only when you want the full platform preview or individual controls</p>
+          </div>
           <button
             onClick={toggleAll}
             className="mp-mono text-[12px] uppercase tracking-[0.15em] py-1.5 px-2 hover:text-[#FF5722] transition flex items-center gap-1.5"
@@ -3896,7 +5640,7 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
       )}
 
       <div className="mt-3 space-y-4">
-        {enabled.map(p => (
+        {directEnabled.map(p => (
           <PlatformPackageCard
             key={p.id}
             platform={p}
@@ -3906,29 +5650,116 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
             expandSignal={expandSignal}
             collapseSignal={collapseSignal}
             setCurrentSection={setCurrentSection}
+            batchRequest={publishBatch?.status === 'running' && (publishBatch.activeIds || [publishBatch.currentId]).includes(p.id)
+              ? {
+                runId: publishBatch.runId,
+                action: publishBatch.results[p.id]?.action,
+                visibility: publishBatch.results[p.id]?.visibility,
+              }
+              : null}
+            onBatchResult={handleBatchResult}
           />
         ))}
       </div>
 
-      {/* Manual .zip packages — kept as a fallback, demoted to the bottom, collapsed by default. */}
+      {exportEnabled.length > 0 && (
       <div className="mt-6 mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
-        <button onClick={() => setShowZip(s => !s)} className="w-full flex items-center gap-2 p-3 text-left">
-          {showZip ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <span className="mp-display text-[15px]">Download .zip packages</span>
-          <span className="text-[12px] ml-auto" style={{ color: 'rgba(21,23,28,0.5)' }}>manual fallback</span>
+        <button onClick={() => setShowExports((open) => !open)} className="w-full flex items-center gap-2 p-3 text-left" aria-expanded={showExports}>
+          {showExports ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span className="mp-display text-[17px]">Export packages</span>
+          <span className="text-[12px] ml-auto" style={{ color: 'rgba(21,23,28,0.5)' }}>{exportEnabled.length} selected · manual/future connections</span>
         </button>
-        {showZip && (
-          <div className="px-3 pb-3 flex flex-col md:flex-row md:items-center gap-3">
-            <p className="mp-body text-xs leading-relaxed flex-1" style={{ color: 'rgba(21,23,28,0.7)' }}>
-              Packs the cover at exact dimensions, gallery images cropped per platform, your description in each format (md / html / txt), a paste-ready metadata.txt, a README, and a /files folder. For platforms without one-click upload — open their upload page and drop the contents in.
-            </p>
-            <BatchZipButton enabled={enabled} project={project} cover={cover} />
+        {showExports && (
+          <div className="px-3 pb-3">
+            <div className="space-y-3">
+              {exportEnabled.map((platform) => (
+                <PlatformPackageCard
+                  key={platform.id}
+                  platform={platform}
+                  project={project}
+                  cover={cover}
+                  platformState={project.platforms[platform.id]}
+                  setCurrentSection={setCurrentSection}
+                />
+              ))}
+            </div>
+            <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+              <button onClick={() => setShowZip((open) => !open)} className="w-full flex items-center gap-2 py-2 text-left" aria-expanded={showZip}>
+                {showZip ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span className="mp-display text-[15px]">Download every selected .zip</span>
+                <span className="text-[12px] ml-auto" style={{ color: 'rgba(21,23,28,0.5)' }}>manual fallback</span>
+              </button>
+              {showZip && (
+                <div className="pt-2 flex flex-col md:flex-row md:items-center gap-3">
+                  <p className="mp-body text-xs leading-relaxed flex-1" style={{ color: 'rgba(21,23,28,0.7)' }}>
+                    Creates one adapted package per selected platform with cropped images, formatted copy, metadata, and model files.
+                  </p>
+                  <BatchZipButton enabled={enabled} project={project} cover={cover} />
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
+      )}
 
       <SectionNav backLabel="Back to Platforms" onBack={() => setCurrentSection('platforms')} />
     </div>
+  );
+}
+
+function ProjectReviewSummary({ project, cover, setCurrentSection }) {
+  const license = LICENSES.find((item) => item.id === project.license);
+  const gallery = project.images.filter((image) => image.id !== project.coverImageId).slice(0, 5);
+  const profileNames = project.profiles.map((profile) => profile.name).filter(Boolean);
+  return (
+    <section className="mt-5 mp-card p-4" aria-labelledby="project-review-title">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <h3 id="project-review-title" className="mp-display text-[22px] leading-none">Project review</h3>
+          <p className="text-[12px] mt-1" style={{ color: 'rgba(21,23,28,0.56)' }}>The shared source ModelPrep will adapt for each selected platform.</p>
+        </div>
+        <button onClick={() => setCurrentSection('details')} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2.5 min-h-[36px]"><Edit3 size={12} /> Edit details</button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] gap-4">
+        <div>
+          {cover ? (
+            <img
+              src={cover.dataUrl}
+              alt={cover.alt || 'Selected project cover'}
+              className="w-full aspect-[4/3] object-cover"
+              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, background: '#15171C' }}
+            />
+          ) : (
+            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ background: 'rgba(21,23,28,0.06)' }}><ImageIcon size={24} className="opacity-30" /></div>
+          )}
+          <button onClick={() => setCurrentSection('images')} className="mp-mono text-[10px] uppercase tracking-[0.13em] underline mt-1.5" style={{ color: '#FF5722' }}>Review image crops</button>
+        </div>
+        <div className="min-w-0">
+          <h4 className="mp-display text-[28px] leading-none truncate">{project.title || 'Untitled project'}</h4>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <span><strong>{project.files.length}</strong> file{project.files.length === 1 ? '' : 's'}</span>
+            <span><strong>{project.images.length}</strong> image{project.images.length === 1 ? '' : 's'}</span>
+            <span><strong>{project.tags.length}</strong> tag{project.tags.length === 1 ? '' : 's'}</span>
+            <span><strong>{profileNames.length}</strong> print profile{profileNames.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="mt-2 text-[12px] leading-relaxed" style={{ color: 'rgba(21,23,28,0.62)' }}>
+            {project.category || 'No category'} · {license?.name || project.license}
+            {profileNames.length > 0 && <> · {profileNames.join(', ')}</>}
+          </div>
+          {gallery.length > 0 && (
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1" aria-label="Images queued after the cover">
+              {gallery.map((image, index) => (
+                <img key={image.id} src={image.dataUrl} alt={image.alt || `Gallery image ${index + 2}`} className="w-14 h-14 object-cover flex-shrink-0" style={{ objectPosition: `${image.focal.x * 100}% ${image.focal.y * 100}%` }} />
+              ))}
+              {project.images.length - 1 > gallery.length && (
+                <span className="w-14 h-14 flex items-center justify-center mp-mono text-[11px] flex-shrink-0" style={{ background: 'rgba(21,23,28,0.06)' }}>+{project.images.length - 1 - gallery.length}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -3946,118 +5777,175 @@ function nowLocalMin() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Top-level batch upload (DEMO). Simulates one-click publishing to every enabled
-// platform that has an upload API (Cults3D, MyMiniFactory, Thingiverse).
-function BatchUploadPanel({ enabled, project }) {
-  const apiPlatforms = enabled.filter(p => p.hasApi);
-  const manualPlatforms = enabled.filter(p => !p.hasApi);
-  const [status, setStatus] = useState('idle'); // idle | running | done | scheduled
-  const [results, setResults] = useState([]);
-  const [scheduledAt, setScheduledAt] = useState('');
-  const cancelled = useRef(false);
-  useEffect(() => { cancelled.current = false; return () => { cancelled.current = true; }; }, []);
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-  const urlFor = (id, slug) => ({
-    cults: `https://cults3d.com/en/3d-model/${slug}`,
-    mmf: `https://www.myminifactory.com/object/${slug}`,
-    thingiverse: `https://www.thingiverse.com/thing:${slug}`,
-  }[id] || '#');
-
-  const run = async () => {
-    if (!apiPlatforms.length || status === 'running') return;
-    // Scheduled: capture intent for every API platform, no upload simulation.
-    if (scheduledAt) {
-      setResults(apiPlatforms.map(p => ({ id: p.id, name: p.name, state: 'scheduled', url: '' })));
-      setStatus('scheduled');
-      return;
-    }
-    setStatus('running');
-    setResults(apiPlatforms.map(p => ({ id: p.id, name: p.name, state: 'pending', url: '' })));
-    const slug = slugify(project.title) || 'model';
-    for (let i = 0; i < apiPlatforms.length; i++) {
-      if (cancelled.current) return;
-      setResults(rs => rs.map((r, idx) => idx === i ? { ...r, state: 'uploading' } : r));
-      await sleep(1200);
-      if (cancelled.current) return;
-      setResults(rs => rs.map((r, idx) => idx === i ? { ...r, state: 'done', url: urlFor(r.id, slug) } : r));
-    }
-    if (cancelled.current) return;
-    setStatus('done');
+export function BatchPublishPanel({ targets, batch, onPublish, onRetryFailed, onOpenConnections, isTestProject = false }) {
+  const missing = targets.filter((target) => target.mode === 'missing');
+  const blockedTargets = targets.filter((target) => target.issues.errors.length > 0);
+  const blocking = blockedTargets.flatMap((target) => target.issues.errors.map((issue) => `${target.name}: ${issue}`));
+  const readyTargets = targets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0);
+  const running = batch?.status === 'running';
+  const hasReal = targets.some((target) => target.mode === 'real');
+  const publicTargets = targets.filter((target) => target.mode === 'real' && target.visibility === 'public');
+  const noPublicRealTargets = hasReal && publicTargets.length === 0;
+  const disabled = running || readyTargets.length === 0;
+  const safeDemo = targets.some((target) => target.safeDemo);
+  const summary = publishBatchSummary(batch);
+  const adaptation = {
+    makerworld: 'Landscape + portrait covers · up to 16 model pictures · adapted listing and Bambu profile',
+    printables: 'Ordered photos · adapted listing, tags and category · per-file details',
+    cults: 'Ordered photos · adapted listing, category and license · price and visibility',
+    nexprint: '4:3 cover + ordered gallery · adapted listing and BOM · raw files and attachments',
+    creality: 'Web + app covers · ordered gallery · raw files, instructions and visibility',
+    makeronline: 'Ordered images · adapted listing and live taxonomy · raw files, docs and optional parsed 3MF profiles',
+    mmf: 'Ordered photos · hierarchical category path · private/public state · raw files and print details',
+    makeroad: '3–10 ordered images · live category resolution · models, profiles and private draft',
+    thangs: 'Ordered images · typed multipart models · references, category, license and private state',
+    thingiverse: 'Draft-first direct upload · ordered files and media · category, license and complete metadata readback',
   };
 
   return (
-    <div className="mt-3 mp-card p-4" style={{ background: 'rgba(58,134,255,0.05)', border: '1px solid rgba(58,134,255,0.35)' }}>
-      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-5">
+    <div className="mt-5 mp-card p-4" style={{ background: 'rgba(58,134,255,0.055)', border: '1px solid rgba(58,134,255,0.42)' }}>
+      <div className="flex flex-col lg:flex-row lg:items-start gap-4">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="mp-display text-[16px] leading-none">Upload to all API platforms</span>
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#3A86FF', color: '#fff' }}>Demo</span>
-          </div>
-          <p className="mp-body text-xs leading-relaxed" style={{ color: 'rgba(21,23,28,0.7)' }}>
-            {apiPlatforms.length > 0
-              ? <>Publishes to {apiPlatforms.map(p => p.name).join(', ')} in one go via their upload APIs. {manualPlatforms.length > 0 && <>The other {manualPlatforms.length} ({manualPlatforms.map(p => p.name).join(', ')}) have no API — download their .zip and upload manually.</>}</>
-              : <>None of your enabled platforms have an upload API. Enable Cults3D, MyMiniFactory or Thingiverse to use one-click upload.</>}
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 flex-shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.6)' }}>
-              <Clock size={12} /> Schedule
-            </label>
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              min={nowLocalMin()}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              disabled={!apiPlatforms.length}
-              aria-label="Schedule publish to all API platforms"
-              className="mp-input-sm"
-            />
-            {scheduledAt && (
-              <button onClick={() => setScheduledAt('')} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition" aria-label="Clear schedule">clear</button>
-            )}
+            <span className="mp-display text-[20px] leading-none">Publish selected platforms</span>
+            <span className="mp-pill" style={{ background: '#3A86FF', color: '#fff' }}>one click</span>
           </div>
-          <button
-            onClick={run}
-            disabled={!apiPlatforms.length || status === 'running'}
-            className="mp-btn text-[13px] py-2.5 px-4 disabled:opacity-40"
-            style={apiPlatforms.length ? { background: '#3A86FF', borderColor: '#3A86FF' } : undefined}
-          >
-            {status === 'running'
-              ? <><Loader size={13} className="mp-spin" /> Uploading…</>
-              : scheduledAt
-                ? <><Clock size={13} /> Save schedule for {formatSchedule(scheduledAt)}</>
-                : <><Send size={13} /> Upload to {apiPlatforms.length || 'all'} platform{apiPlatforms.length === 1 ? '' : 's'}</>}
-          </button>
+          <p className="mp-body text-[12px] leading-relaxed mt-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            The desktop app safely runs up to four platforms at once, while every platform keeps its own required request order. Browser fallback runs one at a time. A failure never stops the other selected destinations.
+          </p>
+          {noPublicRealTargets && (
+            <p className="text-[12px] leading-relaxed mt-1.5" style={{ color: '#24634f' }}>
+              No public listings: {targets.map((target) => `${target.name} ${target.visibility}`).join(' · ')}.
+            </p>
+          )}
+          {safeDemo && (
+            <p className="mt-2 text-[12px] leading-relaxed" style={{ color: '#24634f' }}>
+              Legacy demo safety is on: nothing is uploaded. Exit it and load Real upload test when you want to exercise connected accounts.
+            </p>
+          )}
+          {isTestProject && !safeDemo && (
+            <p className="text-[12px] leading-relaxed mt-2" style={{ color: '#8A4B08' }}>
+              Real upload test: pressing the button sends the bundled sample files to every ready account. Destinations are configured private, secret, or draft; unavailable destinations are skipped and reported below.
+            </p>
+          )}
         </div>
+        <button
+          onClick={onPublish}
+          disabled={disabled}
+          title={blocking.length ? blocking.join(' ') : missing.length ? `Connect ${missing.map((target) => target.name).join(', ')}` : ''}
+          className="mp-btn text-[13px] py-3 px-5 disabled:opacity-40 lg:min-w-[260px]"
+          style={!disabled ? { background: '#3A86FF', borderColor: '#3A86FF' } : undefined}
+        >
+          {running
+            ? <><Loader size={14} className="mp-spin" /> Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete</>
+            : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload real test' : safeDemo ? (hasReal ? 'Run safe demo' : 'Simulate safe demo') : (hasReal ? (noPublicRealTargets ? 'Upload' : 'Publish') : 'Simulate publish')} to {readyTargets.length} ready platform{readyTargets.length === 1 ? '' : 's'}</>}
+        </button>
       </div>
 
-      {results.length > 0 && (
-        <div className="mt-3 space-y-1.5">
-          {results.map(r => (
-            <div key={r.id} className="flex items-center gap-2 text-xs mp-card p-2" style={{ background: '#FFFFFF' }}>
-              {r.state === 'done'
-                ? <Check size={13} style={{ color: '#3a8d68' }} className="flex-shrink-0" />
-                : r.state === 'scheduled'
-                  ? <Clock size={13} style={{ color: '#3a8d68' }} className="flex-shrink-0" />
-                  : r.state === 'uploading'
-                    ? <Loader size={13} className="mp-spin flex-shrink-0" style={{ color: '#3A86FF' }} />
-                    : <div className="w-[13px] h-[13px] rounded-full flex-shrink-0" style={{ border: '1.5px solid rgba(21,23,28,0.2)' }} />}
-              <span className="mp-display font-bold flex-shrink-0" style={{ minWidth: 120 }}>{r.name}</span>
-              <span className="mp-mono text-[12px] truncate" style={{ color: 'rgba(21,23,28,0.55)' }}>
-                {r.state === 'done' ? (r.id === 'mmf' ? 'queued for curation' : r.url)
-                  : r.state === 'scheduled' ? `scheduled · ${formatSchedule(scheduledAt)}`
-                  : r.state === 'uploading' ? 'uploading…' : 'waiting'}
-              </span>
-            </div>
-          ))}
+      {batch?.status === 'done' && (
+        <div
+          role="status"
+          className="mt-3 p-2.5 text-[12px] mp-card flex items-center justify-between gap-3 flex-wrap"
+          style={{
+            background: summary.failed ? 'rgba(255,182,39,0.1)' : 'rgba(79,178,134,0.1)',
+            color: summary.failed ? '#8A4B08' : '#24634f',
+          }}
+        >
+          <span>
+            Batch finished: <strong>{summary.succeeded} succeeded</strong>
+            {summary.failed ? <> · <strong>{summary.failed} failed</strong></> : ' · no failures'}.
+            Review each platform receipt below before opening or sharing a listing.
+          </span>
+          {summary.failed > 0 && (
+            <button onClick={onRetryFailed} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-3">
+              <RefreshCw size={12} /> Retry {summary.failed} failed only
+            </button>
+          )}
         </div>
       )}
 
-      <p className="text-[11px] mt-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.4)' }}>
-        Simulation only — nothing is uploaded yet. Real API upload is the next build phase.
-      </p>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        {targets.map((target) => {
+          const result = batch?.results?.[target.id];
+          const targetBlocked = target.issues.errors.length > 0;
+          const state = result?.state || (target.mode === 'missing' || targetBlocked ? 'error' : 'ready');
+          const receiptLabel = result
+            ? publishReceiptLabel(result)
+            : target.mode === 'missing'
+              ? 'Skipped · Connect account'
+              : targetBlocked
+                ? 'Skipped · Fix requirements'
+                : 'Ready';
+          const receiptColor = state === 'error'
+            ? '#b91c1c'
+            : state === 'done'
+              ? (result?.simulated ? '#3A86FF' : '#1a7f37')
+              : 'rgba(21,23,28,0.55)';
+          const receiptBackground = state === 'error'
+            ? 'rgba(185,28,28,0.07)'
+            : state === 'done'
+              ? (result?.simulated ? 'rgba(58,134,255,0.08)' : 'rgba(26,127,55,0.08)')
+              : 'rgba(21,23,28,0.05)';
+          return (
+            <div key={target.id} className="mp-card p-2.5 text-[12px]" style={{ background: '#fff' }}>
+              <div className="flex items-center gap-2">
+                {state === 'publishing' ? <Loader size={13} className="mp-spin" style={{ color: '#3A86FF' }} />
+                  : state === 'done' ? <Check size={13} style={{ color: '#1a7f37' }} />
+                    : state === 'error' ? <X size={13} style={{ color: '#b91c1c' }} />
+                      : <StatusDot status={target.mode === 'missing' ? 'unknown' : 'connected'} />}
+                <strong>{target.name}</strong>
+                <span className="mp-mono text-[10px] uppercase ml-auto" style={{ color: target.mode === 'simulation' ? '#3A86FF' : 'rgba(21,23,28,0.5)' }}>
+                  {target.mode}
+                </span>
+              </div>
+              <div className="mt-1 truncate" title={target.accountLabel} style={{ color: 'rgba(21,23,28,0.58)' }}>{target.accountLabel}</div>
+              <div
+                className="mp-mono text-[10px] uppercase mt-1 inline-flex px-1.5 py-0.5"
+                style={{ color: receiptColor, background: receiptBackground }}
+                aria-label={`${target.name} publish status: ${receiptLabel}`}
+              >
+                {receiptLabel}
+              </div>
+              {target.mode === 'missing' && (
+                <button
+                  onClick={onOpenConnections}
+                  className="mp-btn mp-btn-ghost text-[10px] py-1 px-2 min-h-[32px] mt-1.5"
+                >
+                  <RefreshCw size={11} /> {target.accountStatus === 'reconnect' ? `Reconnect ${target.name}` : `Connect ${target.name}`}
+                </button>
+              )}
+              <div className="mt-1.5 leading-snug" style={{ color: 'rgba(21,23,28,0.5)' }}>{adaptation[target.id]}</div>
+              {result?.detail && (
+                <div className="mt-1 break-words" title={result.fullDetail || result.detail} style={{ color: state === 'error' ? '#b91c1c' : 'rgba(21,23,28,0.58)' }}>
+                  {state === 'error' ? 'Error: ' : ''}{result.detail}
+                </div>
+              )}
+              {state === 'done' && result?.url && !result.simulated && (
+                <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-block mt-1 underline" style={{ color: '#3A86FF' }}>
+                  Open result ↗
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {publicTargets.length > 0 && (
+        <div className="mt-3 p-2 text-[12px] mp-card" style={{ background: 'rgba(255,182,39,0.1)', color: '#8A4B08' }}>
+          ⚠️ This single action creates real public listings on {publicTargets.map((target) => target.name).join(', ')}. Other targets use the visibility shown above.
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div className="mt-3 text-[12px]" style={{ color: '#b91c1c' }}>
+          Skipped until connected: {missing.map((target) => target.name).join(', ')}.{' '}
+          <button onClick={onOpenConnections} className="underline">Reconnect accounts</button>
+        </div>
+      )}
+      {blocking.length > 0 && (
+        <div className="mt-3 text-[12px]" style={{ color: '#b91c1c' }}>
+          Skipped until its requirements are fixed: {blockedTargets.map((target) => target.name).join(', ')}. The preflight panel above lists {blocking.length} blocking requirement{blocking.length === 1 ? '' : 's'}.
+        </div>
+      )}
     </div>
   );
 }
@@ -4110,14 +5998,24 @@ function BatchZipButton({ enabled, project, cover }) {
   );
 }
 
-function PlatformPackageCard({ platform, project, cover, platformState, expandSignal = 0, collapseSignal = 0, setCurrentSection }) {
-  const [expanded, setExpanded] = useState(true);
+function PlatformPackageCard({
+  platform,
+  project,
+  cover,
+  platformState,
+  expandSignal = 0,
+  collapseSignal = 0,
+  setCurrentSection,
+  batchRequest,
+  onBatchResult,
+}) {
+  const [expanded, setExpanded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progressMsg, setProgressMsg] = useState(null);
   const [uploadSignal, setUploadSignal] = useState(0);
   // Platforms with a real one-click upload: hide all the manual .zip/copy-paste prep
   // (it's redundant) and show only the live upload flow. Others keep the manual package.
-  const hasRealUpload = platform.id === 'cults' || platform.id === 'makerworld' || platform.id === 'printables';
+  const hasRealUpload = platform.id === 'cults' || platform.id === 'makerworld' || platform.id === 'printables' || platform.id === 'nexprint' || platform.id === 'creality' || platform.id === 'makeronline' || platform.id === 'mmf' || platform.id === 'makeroad' || platform.id === 'thangs' || platform.id === 'thingiverse';
 
   // React to the parent's expand-all / collapse-all broadcasts.
   useEffect(() => { if (expandSignal > 0) setExpanded(true); }, [expandSignal]);
@@ -4134,6 +6032,12 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
   const fileNamePrefix = (project.title || 'model').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'model';
 
   const downloadImage = async (image, w, h, suffix) => {
+    if (!w || !h || platform.preserveOriginalImages) {
+      const blob = await fetch(image.dataUrl).then((response) => response.blob());
+      const ext = fileExt(image.name || '') || (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      triggerDownload(blob, `${fileNamePrefix}_${platform.id}_${suffix}_original.${ext}`);
+      return;
+    }
     const img = await loadImageFromDataUrl(image.dataUrl);
     const canvas = cropToCanvas(img, w, h, image.focal);
     downloadCanvas(canvas, `${fileNamePrefix}_${platform.id}_${suffix}_${w}x${h}.jpg`);
@@ -4206,7 +6110,9 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
               )}
             </div>
             <div className="mp-mono text-[12px] uppercase tracking-[0.15em] mt-1" style={{ color: 'rgba(21,23,28,0.55)' }}>
-              {platform.org} · {platform.descFormat} description · {platform.id === 'makerworld' ? `${platform.maxImages} model pictures + cover` : `${platform.maxImages} img max`}
+              {platform.org} · {platform.descFormat} description · {platform.id === 'makerworld'
+                ? `${platform.maxImages} model pictures + cover`
+                : Number.isFinite(platform.maxImages) ? `${platform.maxImages} img max` : 'image count not published'}
             </div>
           </div>
           <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-60 hover:opacity-100 transition flex-shrink-0 sm:hidden" aria-label={expanded ? 'Collapse package' : 'Expand package'} aria-expanded={expanded}>
@@ -4242,8 +6148,8 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
         </div>
       </div>
 
-      {expanded && (
-        <div className="p-4 space-y-4">
+      {(expanded || hasRealUpload) && (
+        <div className={expanded ? 'p-4 space-y-4' : 'hidden'} aria-hidden={!expanded}>
           {!hasRealUpload && (
           <>
           {/* Title + category + license row */}
@@ -4328,7 +6234,9 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
             <div>
               <PackageLabel
                 label="Gallery images"
-                hint={`${Math.min(project.images.length - 1, galleryCapacity(platform))} of ${project.images.length - 1} additional (cap ${galleryCapacity(platform)})`}
+                hint={Number.isFinite(platform.maxImages)
+                  ? `${Math.min(project.images.length - 1, galleryCapacity(platform))} of ${project.images.length - 1} additional (cap ${galleryCapacity(platform)})`
+                  : `${project.images.length - 1} additional · platform cap not published`}
               >
                 <button onClick={downloadAllGallery} disabled={downloading} className="mp-mono text-[12px] uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
                   <Download size={10} /> All gallery
@@ -4347,7 +6255,7 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
                     />
                   ))}
               </div>
-              {project.images.length - 1 > galleryCapacity(platform) && (
+              {Number.isFinite(platform.maxImages) && project.images.length - 1 > galleryCapacity(platform) && (
                 <div className="mt-2 mp-mono text-[12px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
                   /// {project.images.length - 1 - galleryCapacity(platform)} image(s) skipped, {platform.name} caps at {galleryCapacity(platform)} gallery images
                 </div>
@@ -4391,10 +6299,17 @@ function PlatformPackageCard({ platform, project, cover, platformState, expandSi
           {hasRealUpload && <PlatformPreview platform={platform} project={project} cover={cover} setCurrentSection={setCurrentSection} />}
 
           {/* Real upload (live). Other API platforms still simulated until their flows land. */}
-          {platform.id === 'cults' && <CultsUploadFlow platform={platform} project={project} />}
-          {platform.id === 'makerworld' && <MakerWorldUploadFlow platform={platform} project={project} />}
-          {platform.id === 'printables' && <PrintablesUploadFlow platform={platform} project={project} />}
-          {platform.hasApi && platform.id !== 'cults' && platform.id !== 'makerworld' && platform.id !== 'printables' && <MockUploadFlow platform={platform} project={project} startSignal={uploadSignal} />}
+          {platform.id === 'cults' && <CultsUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'makerworld' && <MakerWorldUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'printables' && <PrintablesUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'nexprint' && <NexprintUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'creality' && <CrealityUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'makeronline' && <MakerOnlineUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'mmf' && <MyMiniFactoryUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'makeroad' && <MakerRoadUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'thangs' && <ThangsUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.id === 'thingiverse' && <ThingiverseUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
+          {platform.hasApi && platform.id !== 'cults' && platform.id !== 'makerworld' && platform.id !== 'printables' && platform.id !== 'nexprint' && platform.id !== 'creality' && platform.id !== 'makeronline' && platform.id !== 'mmf' && platform.id !== 'makeroad' && platform.id !== 'thangs' && platform.id !== 'thingiverse' && <MockUploadFlow platform={platform} project={project} startSignal={uploadSignal} />}
 
           {/* Manual workflow hint — only for platforms without a real upload. */}
           {!hasRealUpload && (
@@ -4619,7 +6534,7 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
         )}
 
         <p className="text-[11px] mt-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.4)' }}>
-          Simulation only — nothing is uploaded yet. Real API upload to Cults3D, MyMiniFactory & Thingiverse is the next build phase. For now, use the manual steps below.
+          Simulation only—nothing is uploaded. This platform’s live API flow is not connected yet; use the manual package below.
         </p>
       </div>
     </div>
@@ -4627,12 +6542,10 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
 }
 
 // =====================================================================
-// REAL Cults3D publish flow — POSTs files to the Worker's /api/v1/upload
-// (multipart → R2 → returns a cdn.makerstats.io URL), then calls /publish
-// which forwards createCreation to Cults's GraphQL API. The Worker maps
-// our category/license/price/free vocab to Cults-specific values and
-// returns a `substituted[]` array listing anything it had to swap
-// (e.g. a CC license on a paid listing → cults_cu).
+// REAL Cults3D publish flow — sends one multipart request to the Worker.
+// The Worker signs into Cults's web flow, uploads directly to Cults's S3,
+// creates the draft, applies pricing/license/visibility, and returns a
+// `substituted[]` array for any category/license mapping fallback.
 // =====================================================================
 // VITE_WORKER_URL is set per-env: .env.local for dev (your local override),
 // .env.production for prod builds (committed; points at the deployed Worker).
@@ -4664,15 +6577,20 @@ function useMakerWorldCapabilities(cookie, enabled = true) {
   return state;
 }
 
-function CultsUploadFlow({ platform, project }) {
+function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   const acc = useAccounts();
+  const updateCultsAccount = acc.updateAccount;
   const openConnections = useOpenConnections();
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const cultsAccounts = acc.getAccounts('cults');
   // Demo mode simulates the publish (no network) with a synthetic connected account.
   const isDemo = !!project.__demo;
   const realActive = acc.getActive('cults');
   const realCreds = realActive?.secret || null;
-  const simulate = isDemo && !realCreds; // demo + no account → simulate; demo + account → real
+  const realActiveId = realActive?.id || null;
+  const legacyCultsEmail = !isDesktopCultsSession(realCreds) ? realCreds?.email || '' : '';
+  const legacyCultsPassword = !isDesktopCultsSession(realCreds) ? realCreds?.password || '' : '';
+  const simulate = isDemo;
   const active = realActive || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
   const creds = realCreds || (isDemo ? { email: 'demo' } : null); // { email, password } | null
   const [status, setStatus] = useState(creds ? 'connected' : 'idle'); // connected | publishing | done | error | deactivating | idle
@@ -4683,6 +6601,12 @@ function CultsUploadFlow({ platform, project }) {
   const [result, setResult] = useState(null); // { designUrl, slug, substituted, uploadedFiles } | null
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
+  const [securingAccount, setSecuringAccount] = useState(false);
+  const handledBatchRun = useRef(null);
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (!batchRunId) return;
+    onBatchResult?.({ runId: batchRunId, platformId: 'cults', state, detail, ...metadata });
+  };
 
   // My Listings panel state — toggled open per-session. Listings load on open;
   // refresh button re-fetches. Per-row pending state lets us disable buttons
@@ -4694,11 +6618,43 @@ function CultsUploadFlow({ platform, project }) {
   const [pendingRow, setPendingRow] = useState({ slug: null, action: null }); // { slug, 'deactivate'|'delete' }
 
   // Sign-in is managed centrally in the Connections modal; here we only switch/clear.
-  const disconnect = () => { if (active) acc.removeAccount('cults', active.id); setResult(null); setStatus('idle'); };
+  const disconnect = async () => {
+    if (realActive && desktop?.disconnectCults && isDesktopCultsSession(realActive.secret)) {
+      try { await desktop.disconnectCults(desktopCultsAccountId(realActive.secret)); } catch { /* still clear renderer marker */ }
+    }
+    if (active) acc.removeAccount('cults', active.id);
+    setResult(null);
+    setStatus('idle');
+  };
   // Keep local status in sync with the active account (sign-in/out happens in the modal).
   useEffect(() => {
     setStatus((s) => (creds && s === 'idle') ? 'connected' : (!creds && s === 'connected') ? 'idle' : s);
   }, [creds]);
+
+  // One-time desktop migration: older builds stored Cults credentials in the
+  // renderer. Validate and move them into encrypted Electron storage before
+  // the next publish, then replace localStorage with an opaque account id.
+  useEffect(() => {
+    if (!realActiveId || !desktop?.connectCults || !legacyCultsEmail || !legacyCultsPassword) return;
+    let alive = true;
+    setSecuringAccount(true);
+    desktop.connectCults({ email: legacyCultsEmail, password: legacyCultsPassword })
+      .then((response) => {
+        if (!alive) return;
+        if (!response?.ok || !response.accountId) throw new Error(response?.error || 'Could not secure the Cults3D account.');
+        updateCultsAccount('cults', realActiveId, {
+          secret: desktopCultsSecret(response.accountId),
+          status: 'connected',
+        });
+      })
+      .catch((error) => {
+        if (!alive) return;
+        updateCultsAccount('cults', realActiveId, { status: 'reconnect' });
+        setErrorMsg(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => { if (alive) setSecuringAccount(false); });
+    return () => { alive = false; };
+  }, [realActiveId, legacyCultsEmail, legacyCultsPassword, desktop, updateCultsAccount]);
 
   // Convert a project image (data URL) to a real File so it can ride the
   // multipart upload. Cover image alt is used as the filename hint.
@@ -4714,25 +6670,43 @@ function CultsUploadFlow({ platform, project }) {
   // then returns { designUrl, slug, substituted, ... }. Per-file progress
   // isn't streamable through a single fetch, so we just show a generic
   // "publishing…" message; full timing shows up in `wrangler tail`.
-  const publish = async () => {
+  const publish = async (batchRunId = null, requestedVisibility = visibility) => {
+    const effectiveVisibility = requestedVisibility || visibility;
     if (simulate) {
       setStatus('publishing'); setErrorMsg(''); setResult(null);
       setProgressMsg('Simulating publish (demo)…');
       await new Promise((r) => setTimeout(r, 900));
-      const n = project.files.filter(f => f.isModel).length + project.images.length;
-      setResult({ designUrl: 'https://cults3d.com/', slug: 'demo', substituted: [], uploadedFiles: n, visibility, demo: true });
+      const n = project.files.filter(f => f.isModel && platform.formats.includes(fileExt(f.name))).length
+        + orderedPlatformImages(platform, project).length + cultsGalleryVideos(project.media || []).length;
+      setResult({ designUrl: 'https://cults3d.com/', slug: 'demo', substituted: [], uploadedFiles: n, visibility: effectiveVisibility, demo: true });
       setStatus('done'); setProgressMsg('');
+      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted publish' : 'Public publish'} simulated — nothing uploaded`, {
+        publicationState: effectiveVisibility,
+        simulated: true,
+      });
       return;
     }
-    if (!creds) return;
+    if (!creds) {
+      reportBatch(batchRunId, 'error', 'No active Cults3D account');
+      return;
+    }
+    if (securingAccount) {
+      reportBatch(batchRunId, 'error', 'Cults3D account security migration is still in progress');
+      return;
+    }
     setStatus('publishing');
     setErrorMsg('');
     setResult(null);
     try {
       // 1. Pick files from project state.
-      const coverImg = project.images.find(i => i.id === project.coverImageId) || project.images[0];
-      const galleryImgs = project.images.filter(i => i.id !== coverImg?.id);
-      const modelFiles = project.files.filter(f => f.isModel && f.blob);
+      const orderedImages = orderedPlatformImages(platform, project);
+      const coverImg = orderedImages[0];
+      const galleryImgs = orderedImages.slice(1);
+      const galleryVideos = cultsGalleryVideos(project.media || []);
+      const modelFiles = project.files.filter(f =>
+        f.isModel && f.blob && platform.formats.includes(fileExt(f.name)));
+      const preflight = platformPreflight(platform, project);
+      if (preflight.errors.length) throw new Error(preflight.errors.join(' '));
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
       if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
 
@@ -4748,7 +6722,7 @@ function CultsUploadFlow({ platform, project }) {
       fd.append('license', project.license || '');
       fd.append('free', String(project.platforms?.cults?.free ?? true));
       fd.append('price', String(project.platforms?.cults?.price ?? 0));
-      fd.append('visibility', visibility);
+      fd.append('visibility', effectiveVisibility);
       // Tags — Worker joins these into space-separated `flat_keywords`.
       fd.append('tags', JSON.stringify(project.tags ?? []));
 
@@ -4760,21 +6734,21 @@ function CultsUploadFlow({ platform, project }) {
         const f = await imgToFile(galleryImgs[i], `image-${i + 2}`);
         fd.append('illustration', f, f.name);
       }
+      for (const video of galleryVideos) {
+        fd.append('illustration', video.blob, video.name);
+      }
       for (let i = 0; i < modelFiles.length; i++) {
         fd.append('model', modelFiles[i].blob, modelFiles[i].name);
       }
 
       setProgressMsg('Uploading + publishing to Cults3D…');
 
-      // 3. One POST does the whole pipeline server-side.
-      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/publish`, {
+      // 3. Desktop sends this Worker-shaped request to Electron main, which
+      // talks directly to Cults/S3. Web builds retain the Worker fallback.
+      const res = await cultsFetch(`${WORKER_URL}/api/v1/cults3d/web/publish`, {
         method: 'POST',
-        headers: {
-          'X-Cults-Email': creds.email,
-          'X-Cults-Password': creds.password,
-        },
         body: fd,
-      });
+      }, creds);
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
@@ -4786,17 +6760,31 @@ function CultsUploadFlow({ platform, project }) {
         designUrl: data.designUrl,
         slug: data.slug,
         substituted: data.substituted || [],
-        uploadedFiles: modelFiles.length + galleryImgs.length + 1,
-        visibility, // remember what we published with
+        uploadedFiles: modelFiles.length + galleryImgs.length + galleryVideos.length + 1,
+        visibility: effectiveVisibility, // remember what we published with
       });
       setStatus('done');
+      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted listing' : 'Public listing'} created`, {
+        publicationState: effectiveVisibility,
+        url: data.designUrl,
+      });
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMsg(message);
       setStatus('error');
+      reportBatch(batchRunId, 'error', message);
     } finally {
       setProgressMsg('');
     }
   };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    publish(batchRequest.runId, batchRequest.visibility);
+    // The request id is the batch trigger. The publish function reads the latest project/account state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
 
   // Deactivate the listing we just published. POST /web/unpublish with the
   // slug returned from publish. Cults's "Deactivate" — not a permanent
@@ -4808,15 +6796,11 @@ function CultsUploadFlow({ platform, project }) {
     setStatus('deactivating');
     setErrorMsg('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/unpublish`, {
+      const res = await cultsFetch(`${WORKER_URL}/api/v1/cults3d/web/unpublish`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Cults-Email': creds.email,
-          'X-Cults-Password': creds.password,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug: result.slug }),
-      });
+      }, creds);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
       // Mark the result deactivated so the UI shows it.
@@ -4839,10 +6823,9 @@ function CultsUploadFlow({ platform, project }) {
     setListingsLoading(true);
     setListingsError('');
     try {
-      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/my-creations`, {
+      const res = await cultsFetch(`${WORKER_URL}/api/v1/cults3d/web/my-creations`, {
         method: 'GET',
-        headers: { 'X-Cults-Email': creds.email, 'X-Cults-Password': creds.password },
-      });
+      }, creds);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
       setListings(data.creations || []);
@@ -4877,15 +6860,11 @@ function CultsUploadFlow({ platform, project }) {
     setListingsError('');
     try {
       const endpoint = action === 'delete' ? 'delete' : 'unpublish';
-      const res = await fetch(`${WORKER_URL}/api/v1/cults3d/web/${endpoint}`, {
+      const res = await cultsFetch(`${WORKER_URL}/api/v1/cults3d/web/${endpoint}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Cults-Email': creds.email,
-          'X-Cults-Password': creds.password,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug }),
-      });
+      }, creds);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
       await loadListings();
@@ -4900,9 +6879,9 @@ function CultsUploadFlow({ platform, project }) {
     <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(255,87,34,0.06)', border: '1px solid rgba(255,87,34,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="mp-display tracking-wide text-[14px]" style={{ color: '#15171C' }}>LIVE PUBLISH</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#c83f10', color: '#fff' }}>Real</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>web upload</span>
+          <span className="mp-display tracking-wide text-[14px]" style={{ color: '#15171C' }}>CULTS3D PUBLISH</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
         </div>
 
         {status === 'idle' && (
@@ -4922,9 +6901,9 @@ function CultsUploadFlow({ platform, project }) {
                 <select value={active?.id} onChange={(e) => acc.setActive('cults', e.target.value)} className="mp-card text-[12px] p-1 max-w-[180px]">
                   {cultsAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                 </select>
-              ) : <span className="mp-mono">{creds?.email}</span>}
+              ) : <span className="mp-mono">{simulate ? 'Demo account (simulation only)' : realActive?.label}</span>}
               <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition ml-1" style={{ color: 'rgba(21,23,28,0.55)' }}>manage</button>
-              <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
+              {!simulate && <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>}
             </div>
             {/* Visibility is set on the Platforms step (project.platforms.cults.visibility). */}
             <div className="flex items-center gap-2 mb-2.5 text-[12px] flex-wrap" style={{ color: 'rgba(21,23,28,0.7)' }}>
@@ -4933,10 +6912,14 @@ function CultsUploadFlow({ platform, project }) {
               <span className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>· change in the Platforms step</span>
             </div>
             <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.6)' }}>
-              ⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{creds?.email}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return — you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}
+              {simulate
+                ? <>Demo simulation only—nothing will be sent to Cults3D. Connect a real account in Settings to test the live upload.</>
+                : <>⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{realActive?.label}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return—you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}</>}
             </p>
             <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={publish} className="mp-btn text-xs py-2 px-3"><Send size={13} /> Publish to {platform.name} (LIVE)</button>
+              <button onClick={() => publish()} disabled={securingAccount} className="mp-btn text-xs py-2 px-3 disabled:opacity-40">
+                {securingAccount ? <><Loader size={13} className="mp-spin" /> Securing account…</> : <><Send size={13} /> {simulate ? `Simulate ${platform.name} publish` : `Publish to ${platform.name} (LIVE)`}</>}
+              </button>
               <button onClick={toggleListings} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition" style={{ color: 'rgba(21,23,28,0.7)' }}>
                 {listingsOpen ? '▾ Hide my listings' : '▸ My listings on Cults'}
               </button>
@@ -5078,15 +7061,12 @@ function CultsUploadFlow({ platform, project }) {
               {errorMsg || 'Unknown error.'}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={publish} className="mp-btn text-xs py-2 px-3"><ArrowRight size={13} /> Retry</button>
+              <button onClick={() => publish()} className="mp-btn text-xs py-2 px-3"><ArrowRight size={13} /> Retry</button>
               <button onClick={disconnect} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.55)' }}>disconnect</button>
             </div>
           </>
         )}
 
-        <p className="text-[10px] mt-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.45)' }}>
-          Uses the ModelPrep backend at {WORKER_URL}. To run a local backend: <span className="mp-mono">cd backend && npm run dev</span> in the modelprep monorepo.
-        </p>
       </div>
     </div>
   );
@@ -5108,13 +7088,13 @@ const PRINTABLES_LICENSE_MAP = {
   standard: '13',
 };
 
-function PrintablesUploadFlow({ platform, project }) {
+function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   const accounts = useAccounts();
   const openConnections = useOpenConnections();
   const active = accounts.getActive('printables');
   const secret = active?.secret || '';
   const options = project.platforms?.printables || {};
-  const simulate = !!project.__demo && !active;
+  const simulate = !!project.__demo;
   const [status, setStatus] = useState(active || simulate ? 'connected' : 'idle');
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
@@ -5124,6 +7104,11 @@ function PrintablesUploadFlow({ platform, project }) {
   const [models, setModels] = useState(null);
   const [modelsError, setModelsError] = useState('');
   const [modelsLoading, setModelsLoading] = useState(false);
+  const handledBatchRun = useRef(null);
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (!batchRunId) return;
+    onBatchResult?.({ runId: batchRunId, platformId: 'printables', state, detail, ...metadata });
+  };
 
   useEffect(() => {
     setStatus((current) => {
@@ -5182,11 +7167,13 @@ function PrintablesUploadFlow({ platform, project }) {
     });
   };
 
-  const submit = async (publish) => {
+  const submit = async (publish, batchRunId = null) => {
     const issues = validate();
     if (issues.length) {
-      setError(issues.join(' '));
+      const message = issues.join(' ');
+      setError(message);
       setStatus('error');
+      reportBatch(batchRunId, 'error', message);
       return;
     }
     if (simulate) {
@@ -5196,18 +7183,24 @@ function PrintablesUploadFlow({ platform, project }) {
       setResult({ id: 'demo', state: publish ? 'simulated-public' : 'simulated-draft', demo: true });
       setStatus('done');
       setProgress('');
+      reportBatch(batchRunId, 'success', publish
+        ? 'Public publish simulated — nothing uploaded'
+        : 'Draft save simulated — nothing uploaded', {
+        publicationState: publish ? 'public' : 'draft',
+        simulated: true,
+      });
       return;
     }
-    if (!secret) return;
+    if (!secret) {
+      reportBatch(batchRunId, 'error', 'No active Printables account');
+      return;
+    }
     setStatus('uploading');
     setError('');
     setResult(null);
     try {
-      const cover = project.images.find((image) => image.id === project.coverImageId) || project.images[0];
-      const orderedImages = [
-        cover,
-        ...project.images.filter((image) => image.id !== cover.id),
-      ].slice(0, platform.maxImages);
+      const orderedImages = orderedPlatformImages(platform, project);
+      const cover = orderedImages[0];
       const modelFiles = project.files.filter((file) =>
         file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage && !isHeicFile(file.name));
       const uploadRecords = [];
@@ -5335,6 +7328,10 @@ function PrintablesUploadFlow({ platform, project }) {
           verified: true,
         });
         setStatus('done');
+        reportBatch(batchRunId, 'success', 'Unpublished draft saved and verified', {
+          publicationState: 'draft',
+          url: `https://www.printables.com/model/${id}/edit`,
+        });
         return;
       }
 
@@ -5364,13 +7361,29 @@ function PrintablesUploadFlow({ platform, project }) {
           : `https://www.printables.com/model/${id}/edit`,
       });
       setStatus('done');
+      reportBatch(batchRunId, 'success', publishedState === 'live' ? 'Confirmed live' : 'Publication approval pending', {
+        publicationState: publishedState,
+        url: publishedState === 'live'
+          ? `https://www.printables.com/model/${id}${slug ? `-${slug}` : ''}`
+          : `https://www.printables.com/model/${id}/edit`,
+      });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
       setStatus('error');
+      reportBatch(batchRunId, 'error', message);
     } finally {
       setProgress('');
     }
   };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    submit(batchRequest.action !== 'draft', batchRequest.runId);
+    // The request id is the batch trigger. The submit function reads the latest project/account state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
 
   const deleteResult = async () => {
     if (!result?.id || result.demo) {
@@ -5430,7 +7443,7 @@ function PrintablesUploadFlow({ platform, project }) {
       <div className="mp-card p-3" style={{ background: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-[14px]">PRINTABLES UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#FA6831', color: '#fff' }}>Real</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>desktop session</span>
         </div>
         {status === 'idle' && (
@@ -5446,11 +7459,13 @@ function PrintablesUploadFlow({ platform, project }) {
               <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(21,23,28,0.55)' }}>manage</button>
             </div>
             <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.62)' }}>
-              <strong>Save draft</strong> uploads an unpublished model only you can edit. <strong>Publish public</strong> submits a real public listing (or an approval request when Printables requires review).
+              {simulate
+                ? <>Demo simulation only—neither action sends anything to Printables.</>
+                : <><strong>Save draft</strong> uploads an unpublished model only you can edit. <strong>Publish public</strong> submits a real public listing (or an approval request when Printables requires review).</>}
             </p>
             <div className="flex gap-2 flex-wrap">
-              <button onClick={() => submit(false)} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Save size={13} /> Save unpublished draft</button>
-              <button onClick={() => submit(true)} className="mp-btn text-xs py-2 px-3"><Send size={13} /> Publish public (LIVE)</button>
+              <button onClick={() => submit(false)} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Save size={13} /> {simulate ? 'Simulate draft save' : 'Save unpublished draft'}</button>
+              <button onClick={() => submit(true)} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public publish' : 'Publish public (LIVE)'}</button>
               <button onClick={toggleModels} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">
                 {modelsOpen ? 'Hide my models' : 'My Printables models'}
               </button>
@@ -5528,15 +7543,1211 @@ function PrintablesUploadFlow({ platform, project }) {
   );
 }
 
+function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
+  const active = accounts.getActive('nexprint');
+  const secret = active?.secret || '';
+  const options = project.platforms?.nexprint || {};
+  // Demo projects are always simulations, even when a real account is connected.
+  const simulate = !!project.__demo;
+  const [status, setStatus] = useState(active || simulate ? 'connected' : 'idle');
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [models, setModels] = useState(null);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState('');
+  const handledBatchRun = useRef(null);
+
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (!batchRunId) return;
+    onBatchResult?.({ runId: batchRunId, platformId: 'nexprint', state, detail, ...metadata });
+  };
+
+  useEffect(() => {
+    setStatus((current) => {
+      if ((active || simulate) && current === 'idle') return 'connected';
+      if (!active && !simulate && current === 'connected') return 'idle';
+      return current;
+    });
+  }, [active, simulate]);
+
+  const request = async (route, body, method = body == null ? 'GET' : 'POST') => {
+    const response = await nexprintFetch(
+      `${WORKER_URL}/api/v1/nexprint/web/${route}`,
+      {
+        method,
+        headers: body == null ? {} : { 'Content-Type': 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+      },
+      secret,
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(nexprintResponseError(data, response.status, `Nexprint ${route} failed`));
+    }
+    return data;
+  };
+
+  const imageFile = async (image, role, index) => {
+    const blob = role === 'cover'
+      ? await cropImageToBlob(image, platform.covers[0].w, platform.covers[0].h)
+      : await fetch(image.dataUrl).then((response) => response.blob());
+    const ext = blob.type === 'image/png'
+      ? 'png'
+      : blob.type === 'image/webp'
+        ? 'webp'
+        : blob.type === 'image/gif'
+          ? 'gif'
+          : 'jpg';
+    const prefix = role === 'cover' ? 'cover' : `gallery-${String(index + 1).padStart(2, '0')}`;
+    return new File([blob], `${prefix}-${slugify(image.alt || project.title || 'model')}.${ext}`, {
+      type: blob.type || 'image/jpeg',
+    });
+  };
+
+  const projectFile = (source) => source.blob instanceof File && source.blob.name === source.name
+    ? source.blob
+    : new File([source.blob], source.name, { type: source.type || 'application/octet-stream' });
+
+  const submit = async (publish, batchRunId = null) => {
+    const preflight = platformPreflight(platform, project);
+    if (preflight.errors.length) {
+      const message = preflight.errors.join(' ');
+      setError(message);
+      setStatus('error');
+      reportBatch(batchRunId, 'error', message);
+      return;
+    }
+    if (simulate) {
+      setStatus('uploading');
+      setError('');
+      setProgress(publish ? 'Simulating Nexprint publish…' : 'Simulating Nexprint draft save…');
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setResult({
+        id: 'demo',
+        state: publish ? 'simulated-public' : 'simulated-draft',
+        demo: true,
+        verified: false,
+      });
+      setStatus('done');
+      setProgress('');
+      reportBatch(batchRunId, 'success', publish
+        ? 'Public Nexprint publish simulated — nothing uploaded'
+        : 'Nexprint draft save simulated — nothing uploaded', {
+        publicationState: publish ? 'public' : 'draft',
+        simulated: true,
+      });
+      return;
+    }
+    if (!secret || !isDesktopNexprintSession(secret)) {
+      const message = 'Connect Nexprint in ModelPrep Desktop before uploading.';
+      setError(message);
+      setStatus('error');
+      reportBatch(batchRunId, 'error', message);
+      return;
+    }
+
+    setStatus('uploading');
+    setError('');
+    setResult(null);
+    try {
+      const orderedImages = orderedPlatformImages(platform, project);
+      const cover = orderedImages[0];
+      const gallery = orderedImages.slice(1, 10);
+      const modelFiles = project.files.filter((file) =>
+        file.blob && NEXPRINT_MODEL_FORMATS.includes(fileExt(file.name)));
+      const attachments = project.files.filter((file) =>
+        file.blob && NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(file.name)));
+      if (!cover) throw new Error('Choose a cover image before sending to Nexprint.');
+      if (!modelFiles.length) throw new Error('Add at least one Nexprint-compatible model file.');
+
+      setProgress('Uploading Nexprint cover…');
+      const coverRecord = await uploadNexprintFile({
+        workerUrl: WORKER_URL,
+        secret,
+        role: 'cover',
+        file: await imageFile(cover, 'cover', 0),
+      });
+
+      const photoRecords = [];
+      for (let index = 0; index < gallery.length; index += 1) {
+        setProgress(`Uploading Nexprint gallery image ${index + 1} of ${gallery.length}…`);
+        photoRecords.push(await uploadNexprintFile({
+          workerUrl: WORKER_URL,
+          secret,
+          role: 'photo',
+          file: await imageFile(gallery[index], 'photo', index),
+        }));
+      }
+
+      const modelRecords = [];
+      for (let index = 0; index < modelFiles.length; index += 1) {
+        setProgress(`Uploading Nexprint model file ${index + 1} of ${modelFiles.length}…`);
+        modelRecords.push(await uploadNexprintFile({
+          workerUrl: WORKER_URL,
+          secret,
+          role: 'model',
+          file: projectFile(modelFiles[index]),
+        }));
+      }
+
+      const attachmentRecords = [];
+      for (let index = 0; index < attachments.length; index += 1) {
+        setProgress(`Uploading Nexprint attachment ${index + 1} of ${attachments.length}…`);
+        attachmentRecords.push(await uploadNexprintFile({
+          workerUrl: WORKER_URL,
+          secret,
+          role: 'attachment',
+          file: projectFile(attachments[index]),
+        }));
+      }
+
+      setProgress(publish ? 'Publishing Nexprint listing…' : 'Saving unpublished Nexprint draft…');
+      const saved = await request('submit', {
+        title: project.title.trim(),
+        description: mdToHtml(project.description),
+        categoryId: String(options.categoryId),
+        licenseType: Number(options.licenseType ?? NEXPRINT_LICENSE_MAP[project.license] ?? 7),
+        originalityType: Number(options.originalityType || 1),
+        sourceUrl: String(options.sourceUrl || '').trim(),
+        sourceModelId: String(options.sourceModelId || '').trim(),
+        draftOnly: !publish,
+        cover: coverRecord,
+        photos: photoRecords,
+        models: modelRecords,
+        attachments: attachmentRecords,
+        tags: project.tags,
+        nsfw: !!options.nsfw,
+        aiGenerated: !!options.aiGenerated,
+        hasBom: !!options.hasBom,
+        bom: options.bom || [],
+        collectionIds: options.collectionIds || [],
+        activityIds: options.activityIds || [],
+        worldFirstRelease: !!options.worldFirstRelease,
+        firstCommitPublish: true,
+      });
+
+      setProgress('Reading the saved Nexprint model back…');
+      const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null, 'GET');
+      if (!readback.model || typeof readback.model !== 'object') {
+        throw new Error('Nexprint accepted the submit but returned no model during read-back verification.');
+      }
+      const readbackState = readback.model.status
+        ?? readback.model.modelStatus
+        ?? readback.model.modelBaseInfo?.status;
+      if (!publish && readbackState != null && Number(readbackState) !== 0) {
+        throw new Error(`Nexprint read-back reported status ${readbackState} instead of draft.`);
+      }
+      if (publish && readbackState != null && Number(readbackState) === 0) {
+        throw new Error('Nexprint read-back still reports a draft after public publish was requested.');
+      }
+      const state = publish ? 'public' : 'draft';
+      setResult({
+        id: String(saved.id),
+        state,
+        url: saved.url,
+        verified: true,
+        readbackState,
+      });
+      setStatus('done');
+      reportBatch(batchRunId, 'success', publish
+        ? 'Nexprint publish saved and read back'
+        : 'Unpublished Nexprint draft saved and read back', {
+        publicationState: state,
+        url: saved.url,
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      setStatus('error');
+      reportBatch(batchRunId, 'error', message);
+    } finally {
+      setProgress('');
+    }
+  };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    submit(batchRequest.action === 'publish', batchRequest.runId);
+    // The request id is the batch trigger. The submit function reads current project/account state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
+
+  const loadModels = async () => {
+    if (simulate) {
+      setModels([]);
+      setModelsError('');
+      return;
+    }
+    setModelsLoading(true);
+    setModelsError('');
+    try {
+      const data = await request('my-models?pageNo=1&pageSize=50', null, 'GET');
+      setModels(data.models || []);
+    } catch (cause) {
+      setModelsError(cause instanceof Error ? cause.message : String(cause));
+      setModels([]);
+    } finally { setModelsLoading(false); }
+  };
+
+  const toggleModels = () => {
+    const next = !modelsOpen;
+    setModelsOpen(next);
+    if (next && models === null) loadModels();
+  };
+
+  return (
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="mp-card p-3" style={{ background: 'rgba(255,182,39,0.08)', border: '1px solid rgba(255,182,39,0.55)' }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="mp-display tracking-wide text-[14px]">NEXPRINT UPLOAD</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#15171C', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.55)' }}>direct desktop upload</span>
+        </div>
+
+        {status === 'idle' && (
+          <>
+            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(21,23,28,0.65)' }}>
+              Connect through Nexprint’s real sign-in window. ModelPrep keeps the bearer session outside page storage.
+            </p>
+            <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Nexprint</button>
+          </>
+        )}
+
+        {status === 'connected' && (
+          <>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
+              <StatusDot status={active?.status || 'connected'} />
+              {simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(21,23,28,0.55)' }}>manage</button>
+            </div>
+            <p className="text-[12px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.62)' }}>
+              {simulate
+                ? 'Demo simulation only—neither action sends files or metadata to Nexprint.'
+                : 'Save draft uploads an unpublished editable model. Publish public sends a real public listing; review the Nexprint-specific options above first.'}
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => submit(false)} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Save size={13} /> {simulate ? 'Simulate draft save' : 'Save unpublished draft'}</button>
+              <button onClick={() => submit(true)} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public publish' : 'Publish public (LIVE)'}</button>
+              <button onClick={toggleModels} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">
+                {modelsOpen ? 'Hide my models' : 'My Nexprint models'}
+              </button>
+            </div>
+            {modelsOpen && (
+              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(21,23,28,0.03)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em]">Recent models</span>
+                  <button onClick={loadModels} disabled={modelsLoading} className="mp-mono text-[10px] uppercase tracking-[0.12em] disabled:opacity-40">
+                    {modelsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
+                {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
+                {modelsLoading && models === null && <div className="text-[11px]"><Loader size={11} className="mp-spin inline mr-1" />Loading…</div>}
+                {models && models.length === 0 && !modelsLoading && <div className="text-[11px] opacity-55">No models found.</div>}
+                {(models || []).map((item) => {
+                  const id = String(item.id ?? item.modelId ?? '');
+                  const code = item.modelCode ?? item.code ?? id;
+                  const draft = Number(item.status ?? item.modelStatus ?? 0) === 0;
+                  const href = draft
+                    ? `https://www.nexprint.com/en/editUpload/${id}`
+                    : `https://www.nexprint.com/en/models/${code}`;
+                  return (
+                    <div key={id || code} className="flex items-center gap-2 p-1.5 mb-1" style={{ background: '#fff' }}>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12px] truncate">{item.modelName || item.name || `Model ${id}`}</div>
+                        <div className="mp-mono text-[10px] uppercase" style={{ color: draft ? '#d97706' : '#3a8d68' }}>{draft ? 'draft' : 'published'}</div>
+                      </div>
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="mp-mono text-[10px] uppercase">Open</a>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {status === 'uploading' && (
+          <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>
+        )}
+
+        {status === 'done' && (
+          <>
+            <div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}>
+              <Check size={14} />
+              {result?.demo
+                ? `Simulation complete — nothing was uploaded (${result.state}).`
+                : result?.state === 'public'
+                  ? 'Nexprint accepted the public listing and the saved model was read back.'
+                  : 'Unpublished Nexprint draft saved and read back.'}
+            </div>
+            {!result?.demo && result?.url && (
+              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FF9500]">{result.url}</a>
+            )}
+            <button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">
+              {result?.demo ? 'Clear simulated result' : 'Upload another'}
+            </button>
+          </>
+        )}
+
+        {status === 'error' && (
+          <>
+            <div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
+            <button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
+  const active = accounts.getActive('creality');
+  const secret = active?.secret || '';
+  const options = project.platforms?.creality || {};
+  const simulate = !!project.__demo;
+  const [status, setStatus] = useState(active || simulate ? 'connected' : 'idle');
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [drafts, setDrafts] = useState(null);
+  const [draftsError, setDraftsError] = useState('');
+  const handledBatchRun = useRef(null);
+
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (!batchRunId) return;
+    onBatchResult?.({ runId: batchRunId, platformId: 'creality', state, detail, ...metadata });
+  };
+
+  useEffect(() => {
+    setStatus((current) => {
+      if ((active || simulate) && current === 'idle') return 'connected';
+      if (!active && !simulate && current === 'connected') return 'idle';
+      return current;
+    });
+  }, [active, simulate]);
+
+  const request = async (route, body, method = body == null ? 'GET' : 'POST') => {
+    const response = await crealityFetch(
+      `${WORKER_URL}/api/v1/creality/web/${route}`,
+      {
+        method,
+        headers: body == null ? {} : { 'Content-Type': 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+      },
+      secret,
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(crealityResponseError(data, response.status, `Creality ${route} failed`));
+    }
+    return data;
+  };
+
+  const projectFile = (source) => source.blob instanceof File && source.blob.name === source.name
+    ? source.blob
+    : new File([source.blob], source.name, { type: source.type || 'application/octet-stream' });
+
+  const croppedImageFile = async (image, width, height, prefix, index = 0) => {
+    const blob = await cropImageToBlob(image, width, height);
+    const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+    const suffix = index ? `-${String(index).padStart(2, '0')}` : '';
+    return new File([blob], `${prefix}${suffix}-${slugify(image.alt || project.title || 'model')}.${ext}`, {
+      type: blob.type || 'image/jpeg',
+    });
+  };
+
+  const submit = async (publication, batchRunId = null) => {
+    const preflight = platformPreflight(platform, project);
+    if (preflight.errors.length) {
+      const message = preflight.errors.join(' ');
+      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    }
+    if (simulate) {
+      setStatus('uploading'); setError('');
+      setProgress(`Simulating Creality ${publication} save…`);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setResult({ id: 'demo', state: `simulated-${publication}`, demo: true });
+      setStatus('done'); setProgress('');
+      reportBatch(batchRunId, 'success', `Creality ${publication} save simulated — nothing uploaded`, {
+        publicationState: publication,
+        simulated: true,
+      });
+      return;
+    }
+    if (!secret || !isDesktopCrealitySession(secret)) {
+      const message = 'Connect Creality Cloud in ModelPrep Desktop before uploading.';
+      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    }
+
+    setStatus('uploading'); setError(''); setResult(null);
+    try {
+      const orderedImages = orderedPlatformImages(platform, project);
+      const cover = orderedImages[0];
+      const gallery = orderedImages.slice(1, 10);
+      const modelFiles = crealityRawModelFiles(project.files, project.profiles);
+      const instructionFiles = project.files.filter((file) =>
+        file.blob && CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name)));
+      if (!cover) throw new Error('Choose a cover image before sending to Creality Cloud.');
+      if (!modelFiles.length) throw new Error('Add at least one Creality-compatible model file.');
+
+      setProgress('Uploading Creality web cover…');
+      const pcCover = await uploadCrealityFile({
+        workerUrl: WORKER_URL, secret, role: 'cover',
+        file: await croppedImageFile(cover, 1600, 1200, 'web-cover'),
+      });
+      pcCover.width = 1600; pcCover.height = 1200;
+
+      setProgress('Uploading Creality app cover…');
+      const appCover = await uploadCrealityFile({
+        workerUrl: WORKER_URL, secret, role: 'cover',
+        file: await croppedImageFile(cover, 1200, 1600, 'app-cover'),
+      });
+      appCover.width = 1200; appCover.height = 1600;
+
+      const galleryRecords = [];
+      for (let index = 0; index < gallery.length; index += 1) {
+        setProgress(`Uploading Creality gallery image ${index + 1} of ${gallery.length}…`);
+        const record = await uploadCrealityFile({
+          workerUrl: WORKER_URL, secret, role: 'photo',
+          file: await croppedImageFile(gallery[index], 1600, 1200, 'gallery', index + 1),
+        });
+        galleryRecords.push({ ...record, width: 1600, height: 1200 });
+      }
+
+      const modelRecords = [];
+      for (let index = 0; index < modelFiles.length; index += 1) {
+        setProgress(`Uploading Creality model file ${index + 1} of ${modelFiles.length}…`);
+        const uploadedModel = await uploadCrealityFile({
+          workerUrl: WORKER_URL, secret, role: 'model', file: projectFile(modelFiles[index]),
+        });
+        // Creality's native modelList includes a type-2 preview for rendered
+        // model formats. Reuse the already-uploaded cover rather than sending
+        // another identical image solely for the file card.
+        modelRecords.push(crealityUsesRenderedModelCover(modelFiles[index].name)
+          ? { ...uploadedModel, cover: { url: pcCover.url, type: 2 } }
+          : uploadedModel);
+      }
+
+      const instructionRecords = [];
+      for (let index = 0; index < instructionFiles.length; index += 1) {
+        setProgress(`Uploading Creality instruction file ${index + 1} of ${instructionFiles.length}…`);
+        instructionRecords.push(await uploadCrealityFile({
+          workerUrl: WORKER_URL, secret, role: 'instruction', file: projectFile(instructionFiles[index]),
+        }));
+      }
+
+      setProgress(publication === 'public'
+        ? 'Publishing Creality model publicly…'
+        : 'Creating private Creality model…');
+      const saved = await request('submit', {
+        title: project.title.trim(),
+        description: mdToHtml(project.description),
+        categoryId: String(options.categoryId),
+        license: options.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL',
+        modelSource: Number(options.modelSource || 1),
+        publication,
+        nsfw: !!options.nsfw,
+        pcCover,
+        appCover,
+        gallery: galleryRecords,
+        models: modelRecords,
+        instructions: instructionRecords,
+        tags: project.tags,
+      });
+
+      setProgress('Reading the saved Creality model back…');
+      const readback = await request(`status?id=${encodeURIComponent(saved.id)}&state=${encodeURIComponent(saved.state)}`, null, 'GET');
+      const model = readback.model || {};
+      const info = model.modelInfo || model.modelGroupDetail || model.groupItem || model;
+      const readbackTitle = info.groupName || info.modelName || '';
+      if (readbackTitle && String(readbackTitle) !== project.title.trim()) {
+        throw new Error(`Creality read-back returned a different title: ${readbackTitle}.`);
+      }
+      if (publication === 'private' && info.isShared === true) {
+        throw new Error('Creality read-back reports a shared model instead of private.');
+      }
+      if (publication === 'public' && info.isShared === false) {
+        throw new Error('Creality read-back still reports a private model after public publish.');
+      }
+      if (info.categoryId != null && String(info.categoryId) !== String(options.categoryId)) {
+        throw new Error(`Creality read-back returned category ${info.categoryId} instead of ${options.categoryId}.`);
+      }
+      const readbackModels = model.modelList || info.modelList;
+      if (Array.isArray(readbackModels) && readbackModels.length < modelRecords.length) {
+        throw new Error(`Creality read-back returned ${readbackModels.length} model files after uploading ${modelRecords.length}.`);
+      }
+      setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: true });
+      setStatus('done');
+      reportBatch(batchRunId, 'success', `${saved.state} Creality model saved and read back`, {
+        publicationState: saved.state,
+        url: saved.url,
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message);
+    } finally { setProgress(''); }
+  };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    submit(batchRequest.visibility || (batchRequest.action === 'publish' ? 'public' : batchRequest.action), batchRequest.runId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
+
+  const loadDrafts = async () => {
+    if (simulate) { setDrafts([]); return; }
+    setDraftsError('');
+    try { setDrafts((await request('drafts', null, 'GET')).drafts || []); }
+    catch (cause) { setDraftsError(cause instanceof Error ? cause.message : String(cause)); setDrafts([]); }
+  };
+  const toggleDrafts = () => {
+    const next = !draftsOpen; setDraftsOpen(next); if (next && drafts === null) loadDrafts();
+  };
+
+  return (
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="mp-card p-3" style={{ background: 'rgba(230,57,70,0.05)', border: '1px solid rgba(230,57,70,0.42)' }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="mp-display tracking-wide text-[14px]">CREALITY CLOUD UPLOAD</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#E63946', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-55">isolated desktop session</span>
+        </div>
+
+        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through Creality Cloud’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Creality Cloud</button></>}
+        {status === 'connected' && (
+          <>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
+            <p className="text-[12px] mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only—no files or metadata leave the app.' : "Private creates a real cloud-stored model visible only to you. Creality's new-model page does not create drafts; it only edits existing drafts. Public creates a real public listing."}</p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private model' : 'Create private model'}</button>
+              <button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public publish' : 'Publish public (LIVE)'}</button>
+              <button onClick={toggleDrafts} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">{draftsOpen ? 'Hide drafts' : 'My Creality drafts'}</button>
+            </div>
+            {draftsOpen && (
+              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(21,23,28,0.03)' }}>
+                <div className="flex items-center justify-between mb-2"><span className="mp-mono text-[11px] uppercase tracking-[0.15em]">Recent drafts</span><button onClick={loadDrafts} className="mp-mono text-[10px] uppercase">Refresh</button></div>
+                {draftsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{draftsError}</div>}
+                {drafts && drafts.length === 0 && <div className="text-[11px] opacity-55">No drafts found.</div>}
+                {(drafts || []).map((draft) => {
+                  const id = String(draft.id ?? draft.modelDraftId ?? '');
+                  const name = draft.groupName ?? draft.modelInfo?.groupName ?? `Draft ${id}`;
+                  return <div key={id || name} className="flex items-center gap-2 p-1.5 mb-1 bg-white"><span className="flex-1 truncate text-[12px]">{name}</span><span className="mp-mono text-[10px] uppercase" style={{ color: '#d97706' }}>draft</span></div>;
+                })}
+              </div>
+            )}
+          </>
+        )}
+        {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete — nothing uploaded (${result.state}).` : `${result?.state} Creality model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
+        {status === 'error' && <><div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+      </div>
+    </div>
+  );
+}
+
+function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts(); const openConnections = useOpenConnections(); const active = accounts.getActive('thingiverse'); const secret = active?.secret || ''; const options = project.platforms?.thingiverse || {}; const simulate = !!project.__demo;
+  const usable = accountIsUsable(active);
+  const [status, setStatus] = useState(usable || simulate ? 'connected' : 'idle'); const [progress, setProgress] = useState(''); const [error, setError] = useState(''); const [result, setResult] = useState(null); const handled = useRef(null);
+  const request = async (route, body) => { const response = await thingiverseFetch(`${WORKER_URL}/api/v1/thingiverse/web/${route}`, { method: body == null ? 'GET' : 'POST', headers: body == null ? {} : { 'Content-Type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) }, secret); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok) throw new Error(thingiverseResponseError(data, response.status, `Thingiverse ${route} failed`)); return data; };
+  useEffect(() => { setStatus((value) => (usable || simulate) && value === 'idle' ? 'connected' : (!usable && !simulate && value === 'connected' ? 'idle' : value)); }, [usable, simulate]);
+  const report = (runId, state, detail, extra = {}) => { if (runId) onBatchResult?.({ runId, platformId: 'thingiverse', state, detail, ...extra }); };
+  const submit = async (publish, runId = null) => {
+    const preflight = platformPreflight(platform, project); if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    if (simulate) { setStatus('uploading'); setProgress('Simulating Thingiverse draft…'); await new Promise((resolve) => setTimeout(resolve, 450)); setResult({ demo: true, state: publish ? 'public' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'Thingiverse simulation complete — nothing uploaded', { publicationState: publish ? 'public' : 'draft', simulated: true }); return; }
+    setStatus('uploading'); setError('');
+    try {
+      const pending = []; const modelFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
+      for (let i = 0; i < modelFiles.length; i += 1) { setProgress(`Uploading Thingiverse file ${i + 1} of ${modelFiles.length}…`); const source = modelFiles[i]; const file = source.blob instanceof File ? source.blob : new File([source.blob], source.name, { type: source.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'model', file })); }
+      const images = orderedPlatformImages(platform, project); for (let i = 0; i < images.length; i += 1) { setProgress(`Uploading Thingiverse image ${i + 1} of ${images.length}…`); const blob = await fetch(images[i].dataUrl).then((response) => response.blob()); const file = new File([blob], `${String(i + 1).padStart(2, '0')}-${slugify(images[i].alt || 'image')}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'image', file })); }
+      setProgress(publish ? 'Publishing Thingiverse Thing…' : 'Saving Thingiverse draft…'); const saved = await request('submit', { name: project.title, summary: options.summary, description: project.description, categoryId: options.categoryId, license: options.license, tags: project.tags, files: pending, publish, termsAccepted: !!options.termsAccepted, aiGenerated: !!options.aiGenerated, wip: !!options.wip, customizable: !!options.customizable, remix: !!options.remix, sourceThingId: options.sourceThingId, nsfw: !!options.nsfw, printSettings: options.printSettings || {}, sections: options.sections || [], education: options.education || null });
+      setProgress('Reading completed Thingiverse data back…'); const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null); if (!readback.thing) throw new Error('Thingiverse complete read-back was empty.'); setResult({ ...saved, verified: true }); setStatus('done'); report(runId, 'success', `${publish ? 'Published' : 'Draft'} Thingiverse Thing saved and read back`, { publicationState: publish ? 'public' : 'draft', url: saved.url });
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
+  };
+  useEffect(() => { if (!batchRequest?.runId || handled.current === batchRequest.runId) return; handled.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
+  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thingiverse</button>}{status === 'uploading' && <p className="text-xs"><Loader size={14} className="inline mp-spin" /> {progress}</p>}{(status === 'connected' || status === 'error') && <div className="flex gap-2"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Save draft</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete — nothing uploaded.' : 'Thingiverse result saved and verified.'}</p>}</div>;
+}
+
+function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts(); const openConnections = useOpenConnections(); const active = accounts.getActive('thangs'); const secret = active?.secret || ''; const options = project.platforms?.thangs || {}; const simulate = !!project.__demo;
+  const usable = accountIsUsable(active);
+  const [status, setStatus] = useState(usable || simulate ? 'connected' : 'idle'); const [progress, setProgress] = useState(''); const [error, setError] = useState(''); const [result, setResult] = useState(null); const handled = useRef(null);
+  useEffect(() => { setStatus((value) => (usable || simulate) && value === 'idle' ? 'connected' : (!usable && !simulate && value === 'connected' ? 'idle' : value)); }, [usable, simulate]);
+  const report = (runId, state, detail, extra = {}) => { if (runId) onBatchResult?.({ runId, platformId: 'thangs', state, detail, ...extra }); };
+  const request = async (route, body) => { const response = await thangsFetch(`${WORKER_URL}/api/v1/thangs/web/${route}`, { method: body == null ? 'GET' : 'POST', headers: body == null ? {} : { 'Content-Type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) }, secret); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok) { const error = new Error(thangsResponseError(data, response.status, `Thangs ${route} failed`)); if (data.draftId) error.draftId = String(data.draftId); throw error; } return data; };
+  const verifyExisting = async () => {
+    const id = String(options.resumeDraftId || '').trim();
+    if (!id) return;
+    setStatus('uploading'); setError(''); setProgress(`Verifying existing private Thangs draft ${id}…`);
+    try {
+      const readback = await request(`status?id=${encodeURIComponent(id)}`, null);
+      if (!readback.readback?.details || !readback.readback?.license) throw new Error('Thangs complete read-back was empty.');
+      setResult({ id, url: `https://thangs.com/designer/model/${encodeURIComponent(id)}`, verified: true }); setStatus('done');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setStatus('error'); } finally { setProgress(''); }
+  };
+  const submit = async (isPublic, runId = null) => {
+    const preflight = platformPreflight(platform, project); if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    if (simulate) { setStatus('uploading'); setProgress('Simulating private Thangs model…'); await new Promise((resolve) => setTimeout(resolve, 450)); setResult({ demo: true, state: isPublic ? 'public' : 'private' }); setStatus('done'); setProgress(''); report(runId, 'success', 'Thangs upload simulated — nothing uploaded', { publicationState: isPublic ? 'public' : 'private', simulated: true }); return; }
+    if (!isDesktopThangsSession(secret)) { const message = 'Connect Thangs in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    setStatus('uploading'); setError('');
+    try {
+      const eligibleFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)));
+      const { models: modelSources, references: referenceSources } = selectThangsSourceFiles(eligibleFiles, options);
+      const uploadSources = async (values, role, convert = (file) => file.blob instanceof File ? file.blob : new File([file.blob], file.name, { type: file.type })) => { const receipts = []; for (let i = 0; i < values.length; i += 1) { setProgress(`Uploading Thangs ${role} ${i + 1} of ${values.length}…`); receipts.push(await uploadThangsFile({ workerUrl: WORKER_URL, secret, role, file: await convert(values[i], i) })); } return receipts; };
+      const parts = await uploadSources(modelSources, 'model');
+      parts.forEach((part, index) => { part.primary = modelSources[index].id === options.primaryFileId || (!options.primaryFileId && index === 0); part.partName = modelSources[index].name.replace(/\.[^.]+$/, ''); });
+      const references = await uploadSources(referenceSources, 'reference');
+      const images = await uploadSources(orderedPlatformImages(platform, project), 'image', async (image, index) => { const blob = await fetch(image.dataUrl).then((response) => response.blob()); return new File([blob], `${String(index + 1).padStart(2, '0')}-${slugify(image.alt || 'image')}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type }); });
+      setProgress('Creating Thangs model…');
+      const saved = await request('submit', { existingId: options.resumeDraftId || '', name: project.title, description: mdToHtml(project.description), category: options.category, tags: project.tags, isPublic, structure: options.structure || 'single', units: options.units || 'mm', parts, images, references, allowRemix: options.allowRemix !== false, aiGenerated: !!options.aiGenerated, feedbackEnabled: options.feedbackEnabled !== false, folderId: options.folderId, workspaceId: options.workspaceId, accessTypeId: options.accessTypeId, planIds: options.planIds || [], dependencies: options.dependencies || [], versionNotes: options.versionNotes || '', marketplace: !!options.marketplace, price: options.price || 0, license: options.license });
+      setProgress('Verifying Thangs details, attachments, and license…'); const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null); if (!readback.readback?.details) throw new Error('Thangs details read-back was empty.');
+      setResult({ ...saved, verified: true }); setStatus('done'); report(runId, 'success', `${isPublic ? 'Public' : 'Private'} Thangs model saved and fully read back`, { publicationState: isPublic ? 'public' : 'private', url: saved.url });
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
+  };
+  useEffect(() => { if (!batchRequest?.runId || handled.current === batchRequest.runId) return; handled.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
+  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thangs</button>}{status === 'uploading' && <p className="text-xs"><Loader size={14} className="inline mp-spin mr-2" />{progress}</p>}{(status === 'connected' || status === 'error') && <div className="flex flex-wrap gap-2">{options.resumeDraftId && <button className="mp-btn mp-btn-ghost text-xs" onClick={verifyExisting}>Verify existing draft</button>}<button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Create private</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish public (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete — nothing uploaded.' : 'Thangs model saved and verified.'} {result?.url && <a href={result.url} target="_blank" rel="noreferrer" className="underline">Open result</a>}</p>}</div>;
+}
+
+function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
+  const active = accounts.getActive('makeroad');
+  const secret = active?.secret || '';
+  const options = project.platforms?.makeroad || {};
+  const simulate = !!project.__demo;
+  const usable = accountIsUsable(active);
+  const [status, setStatus] = useState(usable || simulate ? 'connected' : 'idle');
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const handledBatchRun = useRef(null);
+  useEffect(() => { setStatus((value) => (usable || simulate) && value === 'idle' ? 'connected' : (!usable && !simulate && value === 'connected' ? 'idle' : value)); }, [usable, simulate]);
+  const report = (runId, state, detail, extra = {}) => { if (runId) onBatchResult?.({ runId, platformId: 'makeroad', state, detail, ...extra }); };
+  const request = async (route, body, method = body == null ? 'GET' : 'POST') => {
+    const response = await makerRoadFetch(`${WORKER_URL}/api/v1/makeroad/web/${route}`, { method, headers: body == null ? {} : { 'Content-Type': 'application/json' }, body: body == null ? undefined : JSON.stringify(body) }, secret);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(makerRoadResponseError(data, response.status, `MakerRoad ${route} failed`));
+    return data;
+  };
+  const sourceFile = (file) => file.blob instanceof File && file.blob.name === file.name ? file.blob : new File([file.blob], file.name, { type: file.type || 'application/octet-stream' });
+  const submit = async (publish, runId = null) => {
+    const preflight = platformPreflight(platform, project);
+    if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    if (simulate) { setStatus('uploading'); setProgress('Simulating MakerRoad private save…'); await new Promise((resolve) => setTimeout(resolve, 500)); setResult({ demo: true, state: publish ? 'pending' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'MakerRoad save simulated — nothing uploaded', { publicationState: publish ? 'pending' : 'draft', simulated: true }); return; }
+    if (!isDesktopMakerRoadSession(secret)) { const message = 'Connect MakerRoad in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    setStatus('uploading'); setError(''); setResult(null);
+    try {
+      let resolvedCategoryIds = (options.categoryIds || []).map(String);
+      if (!resolvedCategoryIds.length && (options.categoryPaths || []).length) {
+        setProgress('Resolving the current MakerRoad categories…');
+        const metadata = await request('meta', null, 'GET');
+        const liveCategories = flattenMakerRoadOptions(metadata.meta?.modelsClassify || []);
+        resolvedCategoryIds = options.categoryPaths.map((path) => {
+          const wanted = normalizeMakerRoadCategoryPath(path);
+          return liveCategories.find((category) => normalizeMakerRoadCategoryPath(category.name) === wanted)?.id || '';
+        }).filter(Boolean);
+        if (resolvedCategoryIds.length !== options.categoryPaths.length) {
+          throw new Error('MakerRoad’s live category taxonomy no longer contains the prepared test category. Choose a current category in Platforms.');
+        }
+      }
+      const orderedImages = orderedPlatformImages(platform, project).slice(0, 10);
+      const modelFiles = project.files.filter((file) => file.blob && MAKEROAD_MODEL_FORMATS.includes(fileExt(file.name)) && !file.isProfile);
+      const profileFiles = project.files.filter((file) => file.blob && fileExt(file.name) === '3mf' && file.isProfile).slice(0, 10);
+      const documentFiles = project.files.filter((file) => file.blob && MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(file.name))).slice(0, 5);
+      const uploadMany = async (values, role, label, transform = sourceFile) => {
+        const receipts = [];
+        for (let index = 0; index < values.length; index += 1) {
+          setProgress(`Uploading MakerRoad ${label} ${index + 1} of ${values.length}…`);
+          receipts.push(await uploadMakerRoadFile({ workerUrl: WORKER_URL, secret, role, file: await transform(values[index], index) }));
+        }
+        return receipts;
+      };
+      const images = await uploadMany(orderedImages, 'image', 'image', async (image, index) => {
+        const blob = await fetch(image.dataUrl).then((response) => response.blob());
+        const ext = blob.type === 'image/png' ? 'png'
+          : blob.type === 'image/webp' ? 'webp'
+            : blob.type === 'image/gif' ? 'gif'
+              : 'jpg';
+        return new File([blob], `${String(index + 1).padStart(2, '0')}-${slugify(image.alt || project.title || 'image')}.${ext}`, { type: blob.type || 'image/jpeg' });
+      });
+      const models = await uploadMany(modelFiles, 'model', 'model file');
+      const profiles = await uploadMany(profileFiles, 'profile', 'print configuration');
+      const documents = await uploadMany(documentFiles, 'document', 'document');
+      const license = MAKEROAD_LICENSES[Number(options.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
+      setProgress(publish ? 'Submitting MakerRoad model for review…' : 'Saving private MakerRoad draft…');
+      const saved = await request('submit', {
+        action: publish ? 'publish' : 'save', uploadType: Number(options.uploadType || 1), referUrl: options.referUrl,
+        models, profiles, images, documents, title: project.title, description: mdToHtml(project.description),
+        categoryIds: resolvedCategoryIds, tags: project.tags, printMethods: options.printMethods || [],
+        printerIds: options.printerIds || [], materialIds: options.materialIds || [], colorIds: options.colorIds || [],
+        aiGenerated: !!options.aiGenerated, nsfw: !!options.nsfw, visibility: options.visibility || 'private',
+        scheduled: !!options.scheduled, planTime: options.planTime, payType: options.payType || 'free', payValue: options.payValue || 0,
+        shareNosign: license.shareNosign, shareEdit: license.shareEdit, shareBusiness: license.shareBusiness,
+      });
+      setProgress('Reading the saved MakerRoad model back…');
+      const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null, 'GET');
+      if (!readback.model || typeof readback.model !== 'object') throw new Error('MakerRoad accepted the model but edit read-back returned no model.');
+      const publicationState = publish ? 'pending' : 'draft';
+      setResult({ ...saved, verified: true, state: publicationState }); setStatus('done');
+      report(runId, 'success', publish ? 'MakerRoad submission saved and read back; review pending' : 'Private MakerRoad draft saved and read back', { publicationState, url: saved.url });
+    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); }
+    finally { setProgress(''); }
+  };
+  useEffect(() => { if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return; handledBatchRun.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
+  return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts')}>Connect MakerRoad</button>}
+    {status === 'uploading' && <div className="text-xs flex gap-2"><Loader size={14} className="mp-spin" />{progress}</div>}
+    {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate private save' : 'Save private draft'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate review submit' : 'Submit for review (LIVE)'}</button></div>}
+    {error && <p className="text-xs text-red-700">{error}</p>}
+    {status === 'done' && <div className="text-xs" style={{ color: '#247255' }}><Check size={14} className="inline mr-1" />{result?.demo ? 'Simulation complete — nothing uploaded.' : result?.state === 'pending' ? 'Saved and verified; public review is pending.' : 'Private draft saved and verified.'}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open result</a>}</div>}
+  </div>;
+}
+
+function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
+  const active = accounts.getActive('makeronline');
+  const secret = active?.secret || '';
+  const options = project.platforms?.makeronline || {};
+  const simulate = !!project.__demo;
+  const [status, setStatus] = useState(active || simulate ? 'connected' : 'idle');
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const handledBatchRun = useRef(null);
+
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (!batchRunId) return;
+    onBatchResult?.({ runId: batchRunId, platformId: 'makeronline', state, detail, ...metadata });
+  };
+
+  useEffect(() => {
+    setStatus((current) => {
+      if ((active || simulate) && current === 'idle') return 'connected';
+      if (!active && !simulate && current === 'connected') return 'idle';
+      return current;
+    });
+  }, [active, simulate]);
+
+  const request = async (route, body, method = body == null ? 'GET' : 'POST') => {
+    const response = await makerOnlineFetch(
+      `${WORKER_URL}/api/v1/makeronline/web/${route}`,
+      {
+        method,
+        headers: body == null ? {} : { 'Content-Type': 'application/json' },
+        body: body == null ? undefined : JSON.stringify(body),
+      },
+      secret,
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(makerOnlineResponseError(data, response.status, `MakerOnline ${route} failed`));
+    }
+    return data;
+  };
+
+  const projectFile = (source) => source.blob instanceof File && source.blob.name === source.name
+    ? source.blob
+    : new File([source.blob], source.name, { type: source.type || 'application/octet-stream' });
+
+  const imageFile = async (image, prefix, index = 0) => {
+    const blob = await fetch(image.dataUrl).then((response) => response.blob());
+    const ext = blob.type === 'image/png' ? 'png'
+      : blob.type === 'image/webp' ? 'webp'
+        : blob.type === 'image/gif' ? 'gif'
+          : 'jpg';
+    const suffix = index ? `-${String(index).padStart(2, '0')}` : '';
+    return new File([blob], `${prefix}${suffix}-${slugify(image.alt || project.title || 'model')}.${ext}`, {
+      type: blob.type || 'image/jpeg',
+    });
+  };
+
+  const submit = async (publication, batchRunId = null) => {
+    const effectiveProject = publication === 'public'
+      ? { ...project, platforms: { ...project.platforms, makeronline: { ...options, publication: 'public', permission: 1 } } }
+      : project;
+    const preflight = platformPreflight(platform, effectiveProject);
+    if (preflight.errors.length) {
+      const message = preflight.errors.join(' ');
+      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    }
+    if (simulate) {
+      setStatus('uploading'); setError(''); setProgress(`Simulating MakerOnline ${publication}…`);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setResult({ id: 'demo', state: `simulated-${publication}`, demo: true });
+      setStatus('done'); setProgress('');
+      reportBatch(batchRunId, 'success', `MakerOnline ${publication} simulated — nothing uploaded`, {
+        publicationState: publication,
+        simulated: true,
+      });
+      return;
+    }
+    if (!secret || !isDesktopMakerOnlineSession(secret)) {
+      const message = 'Connect MakerOnline in ModelPrep Desktop before uploading.';
+      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    }
+
+    setStatus('uploading'); setError(''); setResult(null);
+    try {
+      const orderedImages = orderedPlatformImages(platform, project).slice(0, 20);
+      const modelFiles = project.files.filter((file) => file.blob && MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
+      const documentationFiles = project.files.filter((file) =>
+        file.blob
+        && MAKERONLINE_DOCUMENT_FORMATS.includes(fileExt(file.name))
+        && !MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
+      const profileFiles = options.includePrintProfile && Number(options.printMethod || 3) !== 2
+        ? project.files.filter((file) => file.blob && fileExt(file.name) === '3mf')
+        : [];
+      if (!orderedImages.length) throw new Error('Choose a cover image before sending to MakerOnline.');
+      if (!modelFiles.length) throw new Error('Add at least one MakerOnline-compatible raw model file.');
+
+      const imageRecords = [];
+      for (let index = 0; index < orderedImages.length; index += 1) {
+        setProgress(`Uploading MakerOnline image ${index + 1} of ${orderedImages.length}…`);
+        imageRecords.push(await uploadMakerOnlineFile({
+          workerUrl: WORKER_URL,
+          secret,
+          role: index === 0 ? 'cover' : 'photo',
+          file: await imageFile(orderedImages[index], index === 0 ? 'cover' : 'gallery', index),
+        }));
+      }
+
+      const modelRecords = [];
+      for (let index = 0; index < modelFiles.length; index += 1) {
+        setProgress(`Uploading MakerOnline raw model ${index + 1} of ${modelFiles.length}…`);
+        modelRecords.push(await uploadMakerOnlineFile({
+          workerUrl: WORKER_URL, secret, role: 'model', file: projectFile(modelFiles[index]),
+        }));
+      }
+
+      const documentRecords = [];
+      for (let index = 0; index < documentationFiles.length; index += 1) {
+        setProgress(`Uploading MakerOnline documentation ${index + 1} of ${documentationFiles.length}…`);
+        documentRecords.push(await uploadMakerOnlineFile({
+          workerUrl: WORKER_URL, secret, role: 'documentation', file: projectFile(documentationFiles[index]),
+        }));
+      }
+
+      const profileRecords = [];
+      for (let index = 0; index < profileFiles.length; index += 1) {
+        setProgress(`Uploading MakerOnline print profile ${index + 1} of ${profileFiles.length}…`);
+        const uploaded = await uploadMakerOnlineFile({
+          workerUrl: WORKER_URL, secret, role: 'profile', file: projectFile(profileFiles[index]),
+        });
+        setProgress(`Parsing MakerOnline print profile ${index + 1} of ${profileFiles.length}…`);
+        const parsed = await request('parse-profile', uploaded, 'POST');
+        profileRecords.push({ ...uploaded, parsed: parsed.parsed || {} });
+      }
+
+      const profileImageRecords = [];
+      if (profileRecords.length) {
+        const requestedIds = [...new Set(project.profiles.flatMap((profile) => [
+          ...(profile.photoIds || []),
+          profile.coverImageId,
+        ]).filter(Boolean))];
+        const requestedImages = requestedIds.map((id) => project.images.find((image) => image.id === id)).filter(Boolean);
+        const profileImages = (requestedImages.length ? requestedImages : [orderedImages[0]]).slice(0, 100);
+        for (let index = 0; index < profileImages.length; index += 1) {
+          setProgress(`Uploading MakerOnline print-profile image ${index + 1} of ${profileImages.length}…`);
+          profileImageRecords.push(await uploadMakerOnlineFile({
+            workerUrl: WORKER_URL,
+            secret,
+            role: 'profile-photo',
+            file: await imageFile(profileImages[index], 'print-profile', index),
+          }));
+        }
+      }
+
+      setProgress(publication === 'public' ? 'Publishing MakerOnline model publicly…' : 'Saving unpublished MakerOnline draft…');
+      const saved = await request('submit', {
+        publication,
+        title: project.title.trim(),
+        description: mdToHtml(project.description),
+        source: Number(options.source || 1),
+        originalUrl: String(options.originalUrl || '').trim(),
+        license: Number(options.license ?? MAKERONLINE_LICENSE_MAP[project.license] ?? 3),
+        categoryId: String(options.categoryId),
+        permission: publication === 'public' ? 1 : Number(options.permission || 2),
+        printMethod: Number(options.printMethod || 3),
+        aiHelp: !!options.aiHelp,
+        nsfw: !!options.nsfw,
+        relatedKits: !!options.relatedKits,
+        storeKitIds: options.storeKitIds || [],
+        syncChina: !!options.syncChina,
+        exclusive: !!options.exclusive,
+        includePrintProfile: !!options.includePrintProfile,
+        images: imageRecords,
+        models: modelRecords,
+        documents: documentRecords,
+        printProfiles: profileRecords,
+        printImages: profileImageRecords,
+        printTitle: String(options.printTitle || project.profiles[0]?.name || project.title).trim(),
+        printDescription: mdToHtml(options.printDescription || project.profiles[0]?.description || ''),
+        tags: project.tags,
+      });
+
+      setProgress('Reading the saved MakerOnline model back…');
+      const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null, 'GET');
+      const model = readback.model || {};
+      const info = model.mold_info || model.moldInfo || model.model || model;
+      const readbackTitle = info.title || info.model_title || info.modelTitle || '';
+      if (readbackTitle && String(readbackTitle) !== project.title.trim()) {
+        throw new Error(`MakerOnline read-back returned a different title: ${readbackTitle}.`);
+      }
+      const readbackCategory = info.category_id ?? info.categoryId;
+      if (readbackCategory != null && String(readbackCategory) !== String(options.categoryId)) {
+        throw new Error(`MakerOnline read-back returned category ${readbackCategory} instead of ${options.categoryId}.`);
+      }
+      const readbackImages = info.images || model.images;
+      if (Array.isArray(readbackImages) && readbackImages.length < imageRecords.length) {
+        throw new Error(`MakerOnline read-back returned ${readbackImages.length} images after uploading ${imageRecords.length}.`);
+      }
+      const readbackFiles = info.files || model.files;
+      if (Array.isArray(readbackFiles) && readbackFiles.length < modelRecords.length) {
+        throw new Error(`MakerOnline read-back returned ${readbackFiles.length} raw model files after uploading ${modelRecords.length}.`);
+      }
+      setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: true });
+      setStatus('done');
+      reportBatch(batchRunId, 'success', `${saved.state} MakerOnline model saved and read back`, {
+        publicationState: saved.state,
+        url: saved.url,
+      });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message);
+    } finally { setProgress(''); }
+  };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    submit(batchRequest.action === 'publish' || batchRequest.visibility === 'public' ? 'public' : 'draft', batchRequest.runId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
+
+  return (
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="mp-card p-3" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.42)' }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="mp-display tracking-wide text-[14px]">MAKERONLINE UPLOAD</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-55">isolated desktop session</span>
+        </div>
+        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MakerOnline’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MakerOnline</button></>}
+        {status === 'connected' && (
+          <>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
+            <p className="text-[12px] mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only—no files or metadata leave the app.' : 'Draft uploads real files and metadata but keeps the model unpublished. Public creates a real visible listing.'}</p>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={() => submit('draft')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Save size={13} /> {simulate ? 'Simulate draft save' : 'Save unpublished draft'}</button>
+              <button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public publish' : 'Publish public (LIVE)'}</button>
+              <a href={UPLOAD_URLS.makeronline} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MakerOnline upload</a>
+            </div>
+          </>
+        )}
+        {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete — nothing uploaded (${result.state}).` : `${result?.state} MakerOnline model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
+        {status === 'error' && <><div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+      </div>
+    </div>
+  );
+}
+
+function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResult }) {
+  const accounts = useAccounts();
+  const openConnections = useOpenConnections();
+  const active = accounts.getActive('mmf');
+  const secret = active?.secret || '';
+  const options = project.platforms?.mmf || {};
+  const simulate = !!project.__demo;
+  const [status, setStatus] = useState(active || simulate ? 'connected' : 'idle');
+  const [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const handledBatchRun = useRef(null);
+
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (batchRunId) onBatchResult?.({ runId: batchRunId, platformId: 'mmf', state, detail, ...metadata });
+  };
+  useEffect(() => {
+    setStatus((current) => {
+      if ((active || simulate) && current === 'idle') return 'connected';
+      if (!active && !simulate && current === 'connected') return 'idle';
+      return current;
+    });
+  }, [active, simulate]);
+
+  const request = async (route, body, method = body == null ? 'GET' : 'POST') => {
+    const response = await myMiniFactoryFetch(`${WORKER_URL}/api/v1/myminifactory/web/${route}`, {
+      method,
+      headers: body == null ? {} : { 'Content-Type': 'application/json' },
+      body: body == null ? undefined : JSON.stringify(body),
+    }, secret);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(myMiniFactoryResponseError(data, response.status, `MyMiniFactory ${route} failed`));
+    return data;
+  };
+  const projectFile = (source) => source.blob instanceof File && source.blob.name === source.name
+    ? source.blob
+    : new File([source.blob], source.name, { type: source.type || 'application/octet-stream' });
+  const imageFile = async (image, index) => {
+    const loaded = await loadImageFromDataUrl(image.dataUrl);
+    const scale = Math.min(1, 2400 / Math.max(loaded.naturalWidth || loaded.width, loaded.naturalHeight || loaded.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((loaded.naturalWidth || loaded.width) * scale));
+    canvas.height = Math.max(1, Math.round((loaded.naturalHeight || loaded.height) * scale));
+    canvas.getContext('2d').drawImage(loaded, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToBlob(canvas, 0.9);
+    return new File([blob], `${index === 0 ? 'cover' : `gallery-${String(index).padStart(2, '0')}`}-${slugify(image.alt || project.title || 'model')}.jpg`, { type: 'image/jpeg' });
+  };
+
+  const submit = async (publication, batchRunId = null) => {
+    const effectiveProject = { ...project, platforms: { ...project.platforms, mmf: { ...options, publication } } };
+    const preflight = platformPreflight(platform, effectiveProject);
+    if (preflight.errors.length) {
+      const message = preflight.errors.join(' '); setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    }
+    if (simulate) {
+      setStatus('uploading'); setError(''); setProgress(`Simulating MyMiniFactory ${publication} upload…`);
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      setResult({ id: 'demo', state: `simulated-${publication}`, demo: true }); setStatus('done'); setProgress('');
+      reportBatch(batchRunId, 'success', `MyMiniFactory ${publication} simulated — nothing uploaded`, { publicationState: publication, simulated: true });
+      return;
+    }
+    if (!secret || !isDesktopMyMiniFactorySession(secret)) {
+      const message = 'Connect MyMiniFactory in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    }
+    setStatus('uploading'); setError(''); setResult(null);
+    try {
+      const orderedImages = orderedPlatformImages(platform, project).slice(0, platform.maxImages || 20);
+      const modelFiles = project.files.filter((file) => file.blob && MYMINIFACTORY_MODEL_FORMATS.includes(fileExt(file.name)));
+      if (!orderedImages.length) throw new Error('Choose a cover image before sending to MyMiniFactory.');
+      if (!modelFiles.length) throw new Error('Add at least one MyMiniFactory-compatible object file.');
+      setProgress('Preparing the MyMiniFactory upload form…');
+      const prepared = await request('prepare', {}, 'POST');
+      const imageRecords = [];
+      for (let index = 0; index < orderedImages.length; index += 1) {
+        setProgress(`Uploading MyMiniFactory image ${index + 1} of ${orderedImages.length}…`);
+        imageRecords.push(await uploadMyMiniFactoryFile({ workerUrl: WORKER_URL, secret, uploadSessionId: prepared.uploadSessionId, role: 'image', file: await imageFile(orderedImages[index], index) }));
+      }
+      const fileRecords = [];
+      for (let index = 0; index < modelFiles.length; index += 1) {
+        setProgress(`Uploading MyMiniFactory object file ${index + 1} of ${modelFiles.length}…`);
+        fileRecords.push(await uploadMyMiniFactoryFile({ workerUrl: WORKER_URL, secret, uploadSessionId: prepared.uploadSessionId, role: 'file', file: projectFile(modelFiles[index]) }));
+      }
+      setProgress(publication === 'public' ? 'Submitting the MyMiniFactory object for public review…' : 'Creating the private MyMiniFactory object…');
+      const saved = await request('submit', {
+        uploadSessionId: prepared.uploadSessionId,
+        publication,
+        title: project.title.trim(),
+        description: mdToHtml(project.description),
+        tags: project.tags,
+        categoryIds: options.categoryIds || [],
+        images: imageRecords,
+        files: fileRecords,
+        licenseId: Number(options.licenseId || 5),
+        printingTips: String(options.printingTips || ''),
+        timeFrom: Number(options.timeFrom || 0),
+        timeTo: Number(options.timeTo || 50),
+        dimensions: String(options.dimensions || ''),
+        dimensionsUnit: Number(options.dimensionsUnit || 0),
+        technology: String(options.technology || ''),
+        materialQuantity: String(options.materialQuantity || ''),
+        supportFree: !!options.supportFree,
+        remix: !!options.remix,
+        remixParentIds: options.remixParentIds || [],
+        confirmOriginalNoAi: !!options.confirmOriginalNoAi,
+      });
+      setProgress('Waiting for the saved MyMiniFactory files and metadata to finish attaching…');
+      await waitForMyMiniFactoryReadback({
+        read: async () => (await request(`status?url=${encodeURIComponent(saved.url)}`, null, 'GET')).object,
+        expected: {
+        title: project.title,
+        publication,
+        categoryIds: options.categoryIds || [],
+        imageNames: imageRecords.map((image) => image.name),
+        fileNames: modelFiles.map((file) => file.name),
+        },
+      });
+      setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: true }); setStatus('done');
+      reportBatch(batchRunId, 'success', `${saved.state} MyMiniFactory object saved and read back`, { publicationState: saved.state, url: saved.url });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message);
+    } finally { setProgress(''); }
+  };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    submit(batchRequest.action === 'publish' || batchRequest.visibility === 'public' ? 'public' : 'private', batchRequest.runId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
+
+  return (
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="mp-card p-3" style={{ background: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-[14px]">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-55">isolated desktop session</span></div>
+        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
+        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-[12px] mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only—no files or metadata leave the app.' : 'Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory’s review flow.'}</p><div className="flex gap-2 flex-wrap"><button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
+        {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete — nothing uploaded (${result.state}).` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
+        {status === 'error' && <><div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+      </div>
+    </div>
+  );
+}
+
 // =====================================================================
 // ACCOUNT CONNECTIONS — centralized multi-account sign-in (Settings modal)
 // =====================================================================
 const ACCT_STATUS = {
   connected: { dot: '#1a7f37', label: 'Connected' },
+  checking:  { dot: '#3A86FF', label: 'Checking saved session' },
   reconnect: { dot: '#d97706', label: 'Reconnect needed' },
   error:     { dot: '#dc2626', label: 'Error' },
   unknown:   { dot: 'rgba(21,23,28,0.3)', label: 'Not verified' },
 };
+function accountIsUsable(account) {
+  return !!account?.secret && account.status === 'connected';
+}
+const DESKTOP_CONNECT_METHODS = {
+  makerworld: 'connectMakerWorld',
+  printables: 'connectPrintables',
+  cults: 'connectCults',
+  nexprint: 'connectNexprint',
+  creality: 'connectCreality',
+  makeronline: 'connectMakerOnline',
+  mmf: 'connectMyMiniFactory',
+  makeroad: 'connectMakerRoad',
+  thangs: 'connectThangs',
+  thingiverse: 'connectThingiverse',
+};
+function desktopIdentityLabel(platform, user, fallback) {
+  if (!user || typeof user !== 'object') return fallback || PLATFORMS.find((item) => item.id === platform)?.name || platform;
+  if (platform === 'makerworld' && user.handle) return user.name ? `${user.name} (@${user.handle})` : `@${user.handle}`;
+  if (platform === 'printables' && user.handle) return user.publicUsername ? `${user.publicUsername} (@${user.handle})` : `@${user.handle}`;
+  return String(user.nickname || user.username || user.email || user.handle || user.id || fallback || platform);
+}
+function isDesktopManagedAccount(platform, secret) {
+  return (platform === 'makerworld' && isDesktopMakerWorldSession(secret))
+    || (platform === 'printables' && isDesktopPrintablesSession(secret))
+    || (platform === 'cults' && isDesktopCultsSession(secret))
+    || (platform === 'nexprint' && isDesktopNexprintSession(secret))
+    || (platform === 'creality' && isDesktopCrealitySession(secret))
+    || (platform === 'makeronline' && isDesktopMakerOnlineSession(secret))
+    || (platform === 'mmf' && isDesktopMyMiniFactorySession(secret))
+    || (platform === 'makeroad' && isDesktopMakerRoadSession(secret))
+    || (platform === 'thangs' && isDesktopThangsSession(secret))
+    || (platform === 'thingiverse' && isDesktopThingiverseSession(secret));
+}
 function StatusDot({ status }) {
   const s = ACCT_STATUS[status] || ACCT_STATUS.unknown;
   return <span title={s.label} className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: s.dot }} />;
@@ -5545,7 +8756,7 @@ function StatusDot({ status }) {
 // The header "Accounts" button: shows how many platforms have an active connection.
 function ConnectionsButton({ onOpen }) {
   useAccounts();
-  const connected = CONNECTABLE.filter((id) => getActive(id)).length;
+  const connected = CONNECTABLE.filter((id) => accountIsUsable(getActive(id))).length;
   return (
     <button onClick={() => onOpen('accounts')} className="mp-btn mp-btn-ghost text-xs py-2 px-3" title="Settings — sign-ins, AI, and more">
       <Settings size={13} /> Settings
@@ -5560,8 +8771,19 @@ function ConnectionsButton({ onOpen }) {
 function SettingsModal({ open, onClose, tab, setTab }) {
   useAccounts();
   if (!open) return null;
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+  const missingDesktopPlatforms = desktop
+    ? CONNECTABLE.filter((id) => typeof desktop[DESKTOP_CONNECT_METHODS[id]] !== 'function')
+    : [];
   const meta = (id) => PLATFORMS.find((p) => p.id === id) || { id, name: id, dot: '#888' };
-  const connectedCount = CONNECTABLE.filter((id) => getActive(id)).length;
+  const connectedCount = CONNECTABLE.filter((id) => accountIsUsable(getActive(id))).length;
+  const accountPlatformOrder = [...CONNECTABLE].sort((left, right) => {
+    const rank = (id) => {
+      const status = getActive(id)?.status;
+      return status === 'reconnect' || status === 'error' ? 0 : status === 'checking' ? 1 : 2;
+    };
+    return rank(left) - rank(right);
+  });
   const aiProvider = getAiConfig().provider;
   const TABS = [
     { id: 'accounts', label: 'Accounts', icon: User, badge: connectedCount || null },
@@ -5593,8 +8815,13 @@ function SettingsModal({ open, onClose, tab, setTab }) {
         <div className="p-4 space-y-3 max-h-[68vh] overflow-auto">
           {tab === 'accounts' && (
             <>
-              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sign in to your publishing platforms once. Choose which account ModelPrep publishes with. Desktop MakerWorld and Printables sessions are encrypted outside the page; browser-only credentials stay in this browser profile.</p>
-              {CONNECTABLE.map((id) => <PlatformConnections key={id} platform={meta(id)} />)}
+              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>These badges reflect sessions verified by this ModelPrep desktop build, not sign-ins in Chrome. ModelPrep keeps every publishing session in a persistent isolated browser partition plus encrypted recovery storage. If a site expires it, Reconnect silently checks and refreshes saved state first, then opens that platform’s sign-in only when required.</p>
+              {!!missingDesktopPlatforms.length && (
+                <div role="alert" className="mp-card p-3 text-[12px] leading-relaxed" style={{ background: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: '#991b1b' }}>
+                  <strong>Desktop app update required.</strong> This page is newer than the running ModelPrep desktop shell, so {missingDesktopPlatforms.map((id) => meta(id).name).join(', ')} cannot connect. Quit every ModelPrep window and launch the current app build.
+                </div>
+              )}
+              {accountPlatformOrder.map((id) => <PlatformConnections key={id} platform={meta(id)} />)}
               <div className="mp-card p-3" style={{ background: 'rgba(21,23,28,0.03)' }}>
                 <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>Coming soon</div>
                 <div className="flex flex-wrap gap-1.5">
@@ -5661,6 +8888,16 @@ function SettingsAbout({ onClose }) {
     try {
       if (desktop?.disconnectMakerWorld) await desktop.disconnectMakerWorld();
       if (desktop?.disconnectPrintables) await desktop.disconnectPrintables();
+      if (desktop?.disconnectNexprint) await desktop.disconnectNexprint();
+      if (desktop?.disconnectCreality) await desktop.disconnectCreality();
+      if (desktop?.disconnectMakerOnline) await desktop.disconnectMakerOnline();
+      if (desktop?.disconnectMyMiniFactory) await desktop.disconnectMyMiniFactory();
+      if (desktop?.disconnectCults) {
+        for (const account of acc.getAccounts('cults')) {
+          const accountId = desktopCultsAccountId(account.secret);
+          if (accountId) await desktop.disconnectCults(accountId);
+        }
+      }
       for (const id of CONNECTABLE) for (const a of acc.getAccounts(id)) acc.removeAccount(id, a.id);
       localStorage.removeItem(AI_CONFIG_KEY);
       localStorage.removeItem(DEFAULT_PLATFORMS_KEY);
@@ -5675,7 +8912,7 @@ function SettingsAbout({ onClose }) {
       </div>
       <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>
         {desktop
-          ? 'MakerWorld and Printables sessions are encrypted in the desktop app; other sign-ins and AI settings are saved in this browser profile. Clearing removes them from this device.'
+          ? `All direct-platform sessions are isolated and encrypted in the desktop app (bridge v${desktop.bridgeVersion || 'legacy'}); AI settings are saved in this renderer profile. Clearing removes them from this device.`
           : 'Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.'}
       </p>
       <button onClick={clearAll} className="mp-btn mp-btn-ghost text-xs py-2 px-3" style={{ color: '#b91c1c' }}>
@@ -5724,6 +8961,42 @@ function PlatformConnections({ platform }) {
       setAccountNotice(error instanceof Error ? error.message : String(error));
     } finally { setRefreshingId(null); }
   };
+  const reconnectAccount = async (account) => {
+    if (!desktop || !isDesktopManagedAccount(platform.id, account.secret)) {
+      setAdding(true);
+      setAccountNotice('Sign in again below to reconnect this account.');
+      return;
+    }
+    setRefreshingId(account.id);
+    setAccountNotice('Checking the saved encrypted session…');
+    try {
+      let result = typeof desktop.recoverAccount === 'function'
+        ? await desktop.recoverAccount(platform.id, platform.id === 'cults' ? desktopCultsAccountId(account.secret) : '')
+        : { ok: false, needsInteractive: true };
+      if (!result?.ok && result?.needsInteractive) {
+        if (platform.id === 'cults') {
+          setAdding(true);
+          setAccountNotice('Cults3D requires the email and password again. Continue below.');
+          return;
+        }
+        const method = DESKTOP_CONNECT_METHODS[platform.id];
+        if (!method || typeof desktop[method] !== 'function') throw new Error(`Reconnect is unavailable in this ModelPrep desktop build.`);
+        setAccountNotice(`The saved ${platform.name} session expired. Complete the sign-in window to continue.`);
+        result = await desktop[method]();
+      }
+      if (!result?.ok) throw new Error(result?.error || `${platform.name} sign-in was not completed.`);
+      acc.updateAccount(platform.id, account.id, {
+        label: desktopIdentityLabel(platform.id, result.user, account.label),
+        status: 'connected',
+      });
+      acc.setActive(platform.id, account.id);
+      setAdding(false);
+      setAccountNotice(`${platform.name} is connected and ready.`);
+    } catch (error) {
+      acc.updateAccount(platform.id, account.id, { status: 'reconnect' });
+      setAccountNotice(error instanceof Error ? error.message : String(error));
+    } finally { setRefreshingId(null); }
+  };
   const removePlatformAccount = async (account) => {
     if (platform.id === 'makerworld' && desktop?.disconnectMakerWorld && isDesktopMakerWorldSession(account.secret)) {
       try { await desktop.disconnectMakerWorld(); } catch { /* still remove the local marker */ }
@@ -5731,6 +9004,26 @@ function PlatformConnections({ platform }) {
     if (platform.id === 'printables' && desktop?.disconnectPrintables && isDesktopPrintablesSession(account.secret)) {
       try { await desktop.disconnectPrintables(); } catch { /* still remove the local marker */ }
     }
+    if (platform.id === 'cults' && desktop?.disconnectCults && isDesktopCultsSession(account.secret)) {
+      try { await desktop.disconnectCults(desktopCultsAccountId(account.secret)); } catch { /* still remove the local marker */ }
+    }
+    if (platform.id === 'nexprint' && desktop?.disconnectNexprint && isDesktopNexprintSession(account.secret)) {
+      try { await desktop.disconnectNexprint(); } catch { /* still remove the local marker */ }
+    }
+    if (platform.id === 'creality' && desktop?.disconnectCreality && isDesktopCrealitySession(account.secret)) {
+      try { await desktop.disconnectCreality(); } catch { /* still remove the local marker */ }
+    }
+    if (platform.id === 'makeronline' && desktop?.disconnectMakerOnline && isDesktopMakerOnlineSession(account.secret)) {
+      try { await desktop.disconnectMakerOnline(); } catch { /* still remove the local marker */ }
+    }
+    if (platform.id === 'mmf' && desktop?.disconnectMyMiniFactory && isDesktopMyMiniFactorySession(account.secret)) {
+      try { await desktop.disconnectMyMiniFactory(); } catch { /* still remove the local marker */ }
+    }
+    if (platform.id === 'makeroad' && desktop?.disconnectMakerRoad && isDesktopMakerRoadSession(account.secret)) {
+      try { await desktop.disconnectMakerRoad(); } catch { /* still remove marker */ }
+    }
+    if (platform.id === 'thangs' && desktop?.disconnectThangs && isDesktopThangsSession(account.secret)) { try { await desktop.disconnectThangs(); } catch {} }
+    if (platform.id === 'thingiverse' && desktop?.disconnectThingiverse && isDesktopThingiverseSession(account.secret)) { try { await desktop.disconnectThingiverse(); } catch {} }
     acc.removeAccount(platform.id, account.id);
   };
   return (
@@ -5741,12 +9034,24 @@ function PlatformConnections({ platform }) {
         {accounts.length > 0 && <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.4)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
       </div>
       {accounts.map((a) => (
-        <div key={a.id} className="flex items-center gap-2 text-[13px] mp-card p-2" style={{ background: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(21,23,28,0.03)' }}>
+        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ background: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(21,23,28,0.03)' }}>
           <StatusDot status={a.status} />
-          <span className="flex-1 truncate">{a.label}</span>
+          <span className="flex-1 min-w-[150px] truncate">{a.label}</span>
+          <span className="mp-mono text-[9px] uppercase tracking-[0.08em]" style={{ color: (ACCT_STATUS[a.status] || ACCT_STATUS.unknown).dot }}>
+            {(ACCT_STATUS[a.status] || ACCT_STATUS.unknown).label}
+          </span>
           {a.id === active?.id
             ? <span className="mp-pill text-[10px]" style={{ background: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
             : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>Use</button>}
+          {['reconnect', 'error', 'unknown'].includes(a.status) && (
+            <button
+              onClick={() => reconnectAccount(a)}
+              disabled={refreshingId === a.id}
+              className="mp-btn text-[11px] py-1 px-2 min-h-[32px] disabled:opacity-40"
+            >
+              {refreshingId === a.id ? <><Loader size={11} className="mp-spin" /> Checking…</> : <><RefreshCw size={11} /> Reconnect</>}
+            </button>
+          )}
           {platform.id === 'makerworld' && typeof a.secret === 'string' && a.secret.includes('refreshToken=') && (
             <button onClick={() => refreshMakerWorld(a)} disabled={refreshingId === a.id} className="mp-mono text-[10px] underline disabled:opacity-40" style={{ color: 'rgba(21,23,28,0.55)' }}>
               {refreshingId === a.id ? 'refreshing…' : 'refresh session'}
@@ -5755,7 +9060,10 @@ function PlatformConnections({ platform }) {
           <button onClick={() => removePlatformAccount(a)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
         </div>
       ))}
-      {accountNotice && <div className="text-[11px]" style={{ color: accountNotice.startsWith('Refreshed') ? '#1a7f37' : '#B91C1C' }}>{accountNotice}</div>}
+      {accountNotice && <div role="status" className="text-[11px]" style={{ color: /connected|ready|refreshed/i.test(accountNotice) ? '#1a7f37' : /checking|complete the sign-in/i.test(accountNotice) ? '#8A4B08' : '#B91C1C' }}>{accountNotice}</div>}
+      {accounts.some((account) => ['reconnect', 'error'].includes(account.status)) && (
+        <p className="text-[11px] opacity-60">Reconnect checks the saved encrypted session first. A sign-in window opens only if {platform.name} rejects it.</p>
+      )}
       {showForm
         ? <ConnectForm platform={platform} onDone={() => setAdding(false)} canCancel={accounts.length > 0} />
         : <button onClick={() => setAdding(true)} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2"><Plus size={11} /> Add account</button>}
@@ -5777,6 +9085,34 @@ function ConnectForm({ platform, onDone, canCancel }) {
   const [tfaKey, setTfaKey] = useState('');
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const inputCls = 'mp-card text-[13px] p-2 w-full';
+
+  if (platform.id === 'makeroad') {
+    const connect = async () => {
+      setBusy(true); setErr('');
+      try {
+        if (!desktop?.connectMakerRoad) throw new Error('MakerRoad one-click sign-in requires the current ModelPrep desktop app.');
+        const result = await desktop.connectMakerRoad();
+        if (!result?.ok) throw new Error(result?.error || 'MakerRoad sign-in was cancelled.');
+        const response = await makerRoadFetch(`${WORKER_URL}/api/v1/makeroad/web/whoami`, {}, DESKTOP_MAKEROAD_SECRET);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(makerRoadResponseError(data, response.status, 'MakerRoad session check failed'));
+        for (const account of acc.getAccounts('makeroad')) acc.removeAccount('makeroad', account.id);
+        acc.addAccount('makeroad', { label: label.trim() || result.user?.nickname || 'MakerRoad', secret: DESKTOP_MAKEROAD_SECRET, status: 'connected' });
+        onDone();
+      } catch (error) { setErr(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); }
+    };
+    return <div className="space-y-1.5"><input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(e) => setLabel(e.target.value)} /><button disabled={busy || !desktop?.connectMakerRoad} onClick={connect} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for MakerRoad sign-in…' : 'Sign in via MakerRoad window (desktop)'}</button><p className="text-[11px] opacity-55">The authenticated cookies remain in an isolated encrypted desktop session.</p>{err && <div className="text-[11px] text-red-700">{err}</div>}{canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline">Cancel</button>}</div>;
+  }
+
+  if (platform.id === 'thangs') {
+    const connect = async () => { setBusy(true); setErr(''); try { if (!desktop?.connectThangs) throw new Error('Thangs sign-in requires the current ModelPrep desktop app.'); const result = await desktop.connectThangs(); if (!result?.ok) throw new Error(result?.error || 'Thangs sign-in was cancelled.'); const response = await thangsFetch(`${WORKER_URL}/api/v1/thangs/web/whoami`, {}, DESKTOP_THANGS_SECRET); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok) throw new Error(thangsResponseError(data, response.status, 'Thangs session check failed')); for (const account of acc.getAccounts('thangs')) acc.removeAccount('thangs', account.id); acc.addAccount('thangs', { label: label.trim() || 'Thangs', secret: DESKTOP_THANGS_SECRET, status: 'connected' }); onDone(); } catch (error) { setErr(error.message); } finally { setBusy(false); } };
+    return <div className="space-y-1.5"><input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(e) => setLabel(e.target.value)} /><button disabled={busy || !desktop?.connectThangs} onClick={connect} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for Thangs sign-in…' : 'Sign in via Thangs window (desktop)'}</button><p className="text-[11px] opacity-55">The signed-in session stays encrypted and isolated in the desktop app.</p>{err && <p className="text-[11px] text-red-700">{err}</p>}{canCancel && <button onClick={onDone}>Cancel</button>}</div>;
+  }
+
+  if (platform.id === 'thingiverse') {
+    const connect = async () => { setBusy(true); setErr(''); try { if (!desktop?.connectThingiverse) throw new Error('Thingiverse sign-in requires the current ModelPrep desktop app.'); const result = await desktop.connectThingiverse(); if (!result?.ok) throw new Error(result?.error || 'Thingiverse sign-in was cancelled.'); const response = await thingiverseFetch(`${WORKER_URL}/api/v1/thingiverse/web/whoami`, {}, DESKTOP_THINGIVERSE_SECRET); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok) throw new Error(thingiverseResponseError(data, response.status, 'Thingiverse session check failed')); for (const account of acc.getAccounts('thingiverse')) acc.removeAccount('thingiverse', account.id); acc.addAccount('thingiverse', { label: label.trim() || 'Thingiverse', secret: DESKTOP_THINGIVERSE_SECRET, status: 'connected' }); onDone(); } catch (error) { setErr(error.message); } finally { setBusy(false); } };
+    return <div className="space-y-1.5"><input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(e) => setLabel(e.target.value)} /><button disabled={busy || !desktop?.connectThingiverse} onClick={connect} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for Thingiverse sign-in…' : 'Sign in via Thingiverse window (desktop)'}</button><p className="text-[11px] opacity-55">The isolated Thingiverse session supports direct draft-first upload. Public publishing remains an explicit action.</p>{err && <p className="text-[11px] text-red-700">{err}</p>}{canCancel && <button onClick={onDone}>Cancel</button>}</div>;
+  }
 
   const finishMw = async (rawCookie) => {
     setBusy(true); setErr('');
@@ -5807,6 +9143,183 @@ function ConnectForm({ platform, onDone, canCancel }) {
       onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
+
+  if (platform.id === 'mmf') {
+    const desktopNeedsUpdate = !!desktop && !desktop.connectMyMiniFactory;
+    const connectMyMiniFactory = async () => {
+      setBusy(true); setErr('');
+      try {
+        if (!desktop?.connectMyMiniFactory) throw new Error('MyMiniFactory one-click sign-in requires the ModelPrep desktop app.');
+        const result = await desktop.connectMyMiniFactory();
+        if (!result?.ok) throw new Error(result?.error || 'MyMiniFactory sign-in was cancelled.');
+        const response = await myMiniFactoryFetch(`${WORKER_URL}/api/v1/myminifactory/web/whoami`, {}, DESKTOP_MYMINIFACTORY_SECRET);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(myMiniFactoryResponseError(data, response.status, 'MyMiniFactory session check failed'));
+        for (const account of acc.getAccounts('mmf')) acc.removeAccount('mmf', account.id);
+        const identity = data.user?.username || data.user?.id || result.user?.username || result.user?.id;
+        acc.addAccount('mmf', { label: label.trim() || (identity ? String(identity) : 'MyMiniFactory'), secret: DESKTOP_MYMINIFACTORY_SECRET, status: 'connected' });
+        onDone();
+      } catch (error) { setErr(error instanceof Error ? error.message : String(error)); } finally { setBusy(false); }
+    };
+    return (
+      <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <button disabled={busy || !desktop?.connectMyMiniFactory} onClick={connectMyMiniFactory} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for MyMiniFactory sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in via MyMiniFactory window (desktop)'}</button>
+        {!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.55)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>MyMiniFactory’s real sign-in/upload page opens in an isolated desktop session. Cookies, form tokens, and upload-folder identifiers never enter page storage or the ModelPrep Worker.</p>
+        {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+        {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
+      </div>
+    );
+  }
+
+  if (platform.id === 'makeronline') {
+    const desktopNeedsUpdate = !!desktop && !desktop.connectMakerOnline;
+    const connectMakerOnline = async () => {
+      setBusy(true); setErr('');
+      try {
+        if (!desktop?.connectMakerOnline) {
+          throw new Error('MakerOnline one-click sign-in requires the ModelPrep desktop app.');
+        }
+        const result = await desktop.connectMakerOnline();
+        if (!result?.ok) throw new Error(result?.error || 'MakerOnline sign-in was cancelled.');
+        const response = await makerOnlineFetch(
+          `${WORKER_URL}/api/v1/makeronline/web/whoami`,
+          {},
+          DESKTOP_MAKERONLINE_SECRET,
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          throw new Error(makerOnlineResponseError(data, response.status, 'MakerOnline session check failed'));
+        }
+        for (const account of acc.getAccounts('makeronline')) acc.removeAccount('makeronline', account.id);
+        const user = data.user || result.user || {};
+        const identity = user.nickname || user.id;
+        acc.addAccount('makeronline', {
+          label: label.trim() || (identity ? String(identity) : 'MakerOnline'),
+          secret: DESKTOP_MAKERONLINE_SECRET,
+          status: 'connected',
+        });
+        onDone();
+      } catch (error) {
+        setErr(error instanceof Error ? error.message : String(error));
+      } finally { setBusy(false); }
+    };
+    return (
+      <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <button disabled={busy || !desktop?.connectMakerOnline} onClick={connectMakerOnline} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">
+          {busy ? 'Waiting for MakerOnline sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in via MakerOnline window (desktop)'}
+        </button>
+        {!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.55)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>MakerOnline’s real sign-in/upload page opens in an isolated desktop session. Its access token and cookies never enter page storage or the ModelPrep Worker.</p>
+        {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+        {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
+      </div>
+    );
+  }
+
+  if (platform.id === 'creality') {
+    const connectCreality = async () => {
+      setBusy(true); setErr('');
+      try {
+        if (!desktop?.connectCreality) {
+          throw new Error('Creality Cloud one-click sign-in requires the ModelPrep desktop app.');
+        }
+        const result = await desktop.connectCreality();
+        if (!result?.ok) throw new Error(result?.error || 'Creality Cloud sign-in was cancelled.');
+        const response = await crealityFetch(
+          `${WORKER_URL}/api/v1/creality/web/whoami`,
+          {},
+          DESKTOP_CREALITY_SECRET,
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          throw new Error(crealityResponseError(data, response.status, 'Creality Cloud session check failed'));
+        }
+        for (const account of acc.getAccounts('creality')) acc.removeAccount('creality', account.id);
+        const user = data.user || result.user || {};
+        const identity = user.nickname || user.id;
+        acc.addAccount('creality', {
+          label: label.trim() || (identity ? String(identity) : 'Creality Cloud'),
+          secret: DESKTOP_CREALITY_SECRET,
+          status: 'connected',
+        });
+        onDone();
+      } catch (error) {
+        setErr(error instanceof Error ? error.message : String(error));
+      } finally { setBusy(false); }
+    };
+    return (
+      <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <button disabled={busy || !desktop?.connectCreality} onClick={connectCreality} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">
+          {busy ? 'Waiting for Creality Cloud sign-in…' : 'Sign in via Creality Cloud window (desktop)'}
+        </button>
+        {!desktop?.connectCreality && (
+          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
+            Open this project in ModelPrep Desktop to connect Creality Cloud.
+          </p>
+        )}
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+          Creality’s real sign-in/upload page opens in an isolated desktop session. Its token, user id, cookies, and short-lived storage credentials never enter page storage or the ModelPrep Worker.
+        </p>
+        {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+        {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
+      </div>
+    );
+  }
+
+  if (platform.id === 'nexprint') {
+    const connectNexprint = async () => {
+      setBusy(true); setErr('');
+      try {
+        if (!desktop?.connectNexprint) {
+          throw new Error('Nexprint one-click sign-in requires the ModelPrep desktop app.');
+        }
+        const result = await desktop.connectNexprint();
+        if (!result?.ok) throw new Error(result?.error || 'Nexprint sign-in was cancelled.');
+        const response = await nexprintFetch(
+          `${WORKER_URL}/api/v1/nexprint/web/whoami`,
+          {},
+          DESKTOP_NEXPRINT_SECRET,
+        );
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          throw new Error(nexprintResponseError(data, response.status, 'Nexprint session check failed'));
+        }
+        for (const account of acc.getAccounts('nexprint')) acc.removeAccount('nexprint', account.id);
+        const user = data.user || result.user || {};
+        const identity = user.nickname || user.handle || user.id;
+        acc.addAccount('nexprint', {
+          label: label.trim() || (identity ? String(identity) : 'Nexprint'),
+          secret: DESKTOP_NEXPRINT_SECRET,
+          status: 'connected',
+        });
+        onDone();
+      } catch (error) {
+        setErr(error instanceof Error ? error.message : String(error));
+      } finally { setBusy(false); }
+    };
+    return (
+      <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(event) => setLabel(event.target.value)} />
+        <button disabled={busy || !desktop?.connectNexprint} onClick={connectNexprint} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">
+          {busy ? 'Waiting for Nexprint sign-in…' : 'Sign in via Nexprint window (desktop)'}
+        </button>
+        {!desktop?.connectNexprint && (
+          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>
+            Open this project in ModelPrep Desktop to connect Nexprint. Browser builds intentionally do not store its bearer token.
+          </p>
+        )}
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+          Nexprint’s real sign-in and upload page opens in an isolated desktop window. The authenticated session is encrypted and never enters page storage or the ModelPrep Worker.
+        </p>
+        {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+        {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>Cancel</button>}
+      </div>
+    );
+  }
 
   if (platform.id === 'printables') {
     const connectPrintables = async () => {
@@ -5861,22 +9374,54 @@ function ConnectForm({ platform, onDone, canCancel }) {
   }
 
   if (platform.id === 'cults') {
+    const connectCults = async () => {
+      setBusy(true); setErr('');
+      try {
+        let secret;
+        if (desktop?.connectCults) {
+          const response = await desktop.connectCults({ email: email.trim(), password: pass });
+          if (!response?.ok || !response.accountId) {
+            throw new Error(response?.error || 'Cults3D sign-in failed.');
+          }
+          secret = desktopCultsSecret(response.accountId);
+        } else {
+          // Browser builds cannot protect the password with Electron
+          // safeStorage, so they retain the existing Worker fallback.
+          secret = { email: email.trim(), password: pass };
+        }
+        acc.addAccount('cults', {
+          label: label.trim() || email.trim(),
+          secret,
+          status: 'connected',
+        });
+        setPass('');
+        onDone();
+      } catch (error) {
+        setErr(error instanceof Error ? error.message : String(error));
+      } finally { setBusy(false); }
+    };
     return (
       <div className="space-y-1.5">
+        <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(e) => setLabel(e.target.value)} />
         <input className={inputCls} placeholder="Cults3D email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} />
         {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
         <div className="flex gap-2">
-          <button disabled={!email.trim() || !pass} onClick={() => { acc.addAccount('cults', { label: email.trim(), secret: { email: email.trim(), password: pass }, status: 'connected' }); onDone(); }} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">Save account</button>
+          <button disabled={busy || !email.trim() || !pass} onClick={connectCults} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">
+            {busy ? 'Checking Cults3D…' : 'Sign in to Cults3D'}
+          </button>
           {canCancel && <button onClick={onDone} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Cancel</button>}
         </div>
-        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Email + password go to the Worker only to log in; stored only in this browser.</p>
+        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+          {desktop
+            ? 'The desktop app validates directly with Cults3D, encrypts the credentials with macOS Keychain-backed storage, and keeps them out of page storage and the Cloudflare Worker.'
+            : 'Browser fallback: credentials are stored in this browser profile and sent to the Worker only for Cults3D login. Use ModelPrep Desktop for encrypted direct uploads.'}
+        </p>
       </div>
     );
   }
-  // MakerWorld — real email/password sign-in works on the WEB now (the Worker exchanges
-  // credentials for a 180-day token; cf_clearance isn't needed). Desktop one-click and
-  // cookie-paste remain as alternatives.
+  // MakerWorld — desktop exchanges credentials directly from Electron and keeps the
+  // resulting session encrypted in the main process. The web build uses the Worker.
   const loginMw = async () => {
     setBusy(true); setErr('');
     try {
@@ -5946,7 +9491,12 @@ function ConnectForm({ platform, onDone, canCancel }) {
               </div>
             </>
           )}
-          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>Your password is sent over HTTPS to the ModelPrep Worker only for MakerWorld’s token exchange and is never stored. MakerWorld may require an emailed code or block server-side login with a CAPTCHA; use the MakerWorld window if that happens.</p>
+          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+            {desktop
+              ? 'The desktop app sends your password directly to MakerWorld over HTTPS for the token exchange, never to the ModelPrep Worker, and never stores it. The resulting session is encrypted with macOS Keychain-backed storage.'
+              : 'Your password is sent over HTTPS to the ModelPrep Worker only for MakerWorld’s token exchange and is never stored. Use ModelPrep Desktop if you want a fully direct sign-in and upload path.'}
+            {' '}MakerWorld may require an emailed code or CAPTCHA; use the MakerWorld window if that happens.
+          </p>
         </div>
       </details>
       <details>
@@ -6203,7 +9753,7 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
 
 // Slim Publish-step component: connection status + a summary of the options set on the
 // Platforms step + the print-profile summary (Profiles step) + the actual publish action.
-function MakerWorldUploadFlow({ platform, project }) {
+function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   const acc = useAccounts();
   const openConnections = useOpenConnections();
   const mwAccounts = acc.getAccounts('makerworld');
@@ -6212,9 +9762,8 @@ function MakerWorldUploadFlow({ platform, project }) {
   const isDemo = !!project.__demo;
   const realActive = acc.getActive('makerworld');
   const realCookie = realActive?.secret || '';
-  // Demo with a REAL connected account → real (private) publish. Demo with no account →
-  // simulate so the flow is still explorable. Non-demo → always real.
-  const simulate = isDemo && !realCookie;
+  // Demo projects always simulate, even if a real account is connected.
+  const simulate = isDemo;
   const active = realActive || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
   const cookie = realCookie || (isDemo ? 'demo-cookie' : ''); // '' = not signed in
   const uploadCapabilities = useMakerWorldCapabilities(realCookie, !simulate && !!realCookie);
@@ -6223,6 +9772,11 @@ function MakerWorldUploadFlow({ platform, project }) {
   const [progressMsg, setProgressMsg] = useState('');
   const [result, setResult] = useState(null);
   const [liveCheck, setLiveCheck] = useState(null); // post-submit "did it actually go live?"
+  const handledBatchRun = useRef(null);
+  const reportBatch = (batchRunId, state, detail, metadata = {}) => {
+    if (!batchRunId) return;
+    onBatchResult?.({ runId: batchRunId, platformId: 'makerworld', state, detail, ...metadata });
+  };
 
   // All MakerWorld options now live on the Platforms step (project.platforms.makerworld);
   // File-based docs live in the runtime holder. This component only reads + publishes.
@@ -6237,6 +9791,7 @@ function MakerWorldUploadFlow({ platform, project }) {
   const publishIssues = makerWorldPublishIssues(project, opts, {
     cyberControlCount: mwRuntimeCyberBrick.controlConfigs.length,
     forbiddenWords: makerWorldForbiddenWords,
+    videoIssues: !isLC ? makerWorldVideoIssues(project.media || []) : [],
     rcUpload: simulate ? true : uploadCapabilities.data?.rcUpload,
     uploadAllowed: simulate ? true : uploadCapabilities.data?.uploadAllowed,
   });
@@ -6247,6 +9802,7 @@ function MakerWorldUploadFlow({ platform, project }) {
     !String(project.title || '').trim() ? 'Add a title before saving a draft.' : '',
     !project.coverImageId ? 'Select a cover image before saving a draft.' : '',
     !modelFiles.length ? `Add at least one ${isLC ? 'Laser & Cut' : '3D model'} file before saving a draft.` : '',
+    ...(!isLC ? makerWorldVideoIssues(project.media || []) : []),
   ].filter(Boolean);
   const has3mf = modelFiles.some(f => /\.3mf$/i.test(f.name));
   const primaryLacProjectFile = isLC && opts.laserMode === 'lac'
@@ -6277,11 +9833,13 @@ function MakerWorldUploadFlow({ platform, project }) {
     });
   };
 
-  const publish = async (draftOnly = false) => {
+  const publish = async (draftOnly = false, batchRunId = null) => {
     const blockingIssues = draftOnly ? draftIssues : publishIssues.errors;
     if (blockingIssues.length) {
-      setErrorMsg(blockingIssues.join(' '));
+      const message = blockingIssues.join(' ');
+      setErrorMsg(message);
       setStatus('error');
+      reportBatch(batchRunId, 'error', message);
       return;
     }
     if (simulate) {
@@ -6291,9 +9849,18 @@ function MakerWorldUploadFlow({ platform, project }) {
       await new Promise((r) => setTimeout(r, 900));
       setResult({ id: 'demo-' + Math.random().toString(36).slice(2, 8), status: draftOnly ? 'draft' : 8, url: 'https://makerworld.com/', kind: isLC ? 'laser-cut' : '3d', files: modelFiles.length + project.images.length + (has3mf ? 1 : 0), visibility, demo: true, draftOnly });
       setStatus('done'); setProgressMsg('');
+      reportBatch(batchRunId, 'success', draftOnly
+        ? 'Draft save simulated — nothing uploaded'
+        : `${visibility} publish simulated — nothing uploaded`, {
+        publicationState: draftOnly ? 'draft' : visibility,
+        simulated: true,
+      });
       return;
     }
-    if (!cookie) return;
+    if (!cookie) {
+      reportBatch(batchRunId, 'error', 'No active MakerWorld account');
+      return;
+    }
     setStatus('publishing'); setErrorMsg(''); setResult(null);
     try {
       const coverImg = project.images.find(i => i.id === project.coverImageId);
@@ -6345,6 +9912,13 @@ function MakerWorldUploadFlow({ platform, project }) {
       for (let i = 0; i < galleryImgs.length; i++) {
         const u = (await uploadOne(await cropImageToBlob(galleryImgs[i], webSpec.w, webSpec.h), `image-${i + 2}.jpg`)).url;
         galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u;
+      }
+      let designVideo = [];
+      const modelVideo = !isLC ? makerWorldVideo(project.media || []) : null;
+      if (modelVideo) {
+        setProgressMsg('Uploading model video…');
+        const uploadedVideo = await uploadOne(modelVideo.blob, modelVideo.name);
+        designVideo = [{ name: modelVideo.name, url: uploadedVideo.url }];
       }
       // Print-profile media is independent from the model gallery. Upload exactly the
       // configured cover/photos and never silently substitute a render or model cover.
@@ -6464,6 +10038,7 @@ function MakerWorldUploadFlow({ platform, project }) {
           coverUrl: cover.url,
           coverPortraitUrl: portraitUrl,
           galleryUrls,
+          ...(designVideo.length ? { designVideo } : {}),
           modelFiles: mfList,
           ...remixFields,
           ...(cyberBrick ? { cyberBrick } : {}),
@@ -6494,11 +10069,28 @@ function MakerWorldUploadFlow({ platform, project }) {
       }, cookie);
       const data = await res.json();
       if (!res.ok || !data.id) throw new Error(makerWorldResponseError(data, res.status, 'MakerWorld publish failed'));
-      setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + 1 + (model3mf || lacFile ? 1 : 0), visibility, draftOnly });
+      setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + designVideo.length + 1 + (model3mf || lacFile ? 1 : 0), visibility, draftOnly });
       setStatus('done');
-    } catch (err) { setErrorMsg(err instanceof Error ? err.message : String(err)); setStatus('error'); }
+      reportBatch(batchRunId, 'success', draftOnly ? 'Unpublished draft saved' : `${visibility} listing submitted`, {
+        publicationState: draftOnly ? 'draft' : visibility,
+        url: data.url,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMsg(message);
+      setStatus('error');
+      reportBatch(batchRunId, 'error', message);
+    }
     finally { setProgressMsg(''); }
   };
+
+  useEffect(() => {
+    if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return;
+    handledBatchRun.current = batchRequest.runId;
+    publish(batchRequest.action === 'draft', batchRequest.runId);
+    // The request id is the batch trigger. The publish function reads the latest project/account state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchRequest?.runId]);
 
   const del = async () => {
     if (simulate) { setResult(null); setStatus('idle'); setErrorMsg(''); setLiveCheck(null); return; }
@@ -6599,6 +10191,11 @@ function MakerWorldUploadFlow({ platform, project }) {
               {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.5)' }}>disconnect</button>}
             </span>
           </div>
+          {!simulate ? (
+            <div className="mp-mono text-[10px] uppercase tracking-[0.14em]" style={{ color: 'rgba(21,23,28,0.5)' }}>
+              {isDesktopMakerWorldSession(realCookie) ? 'Direct desktop transport · no ModelPrep Worker' : 'Web transport · ModelPrep Worker fallback'}
+            </div>
+          ) : null}
 
           <div className="mp-card p-2 text-[12px]" style={{ background: 'rgba(21,23,28,0.03)', color: 'rgba(21,23,28,0.7)' }}>
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -6651,7 +10248,7 @@ function MakerWorldUploadFlow({ platform, project }) {
                   ? (result.draftOnly ? 'Simulated draft save (demo) — ' : 'Simulated publish (demo) — ')
                   : (result.draftOnly ? 'Saved to MakerWorld — ' : 'Submitted to MakerWorld — ')}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
-              {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Nothing was uploaded. Connect a real account in Settings, then publish again—you can stay in Demo mode.</div>}
+              {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Nothing was uploaded. Exit Demo mode before using a connected account for a real upload.</div>}
               {result.url && !result.demo && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-[12px] underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
               {/* Post-submit verification — a 200 submit = "accepted for review", not "live". */}
               {!result.demo && !result.draftOnly && (
@@ -7078,8 +10675,9 @@ function cropImageToBlob(image, w, h, mime = 'image/jpeg', quality = 0.92) {
 
 function CoverPreview({ image, cover, onDownload, hideDownload }) {
   const canvasRef = useRef(null);
+  const preserveOriginal = !cover.w || !cover.h;
   useEffect(() => {
-    if (!canvasRef.current || !image) return;
+    if (preserveOriginal || !canvasRef.current || !image) return;
     const img = document.createElement('img');
     img.onload = () => {
       const c = canvasRef.current; if (!c) return;
@@ -7094,14 +10692,16 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dispW, dispH);
     };
     img.src = image.dataUrl;
-  }, [image, cover]);
+  }, [image, cover, preserveOriginal]);
   return (
-    <div className="relative group">
+    <div className="relative group" role="img" aria-label={preserveOriginal ? `${image?.alt || 'Project image'} kept at original aspect` : `${image?.alt || 'Project image'} cropped for ${cover.label}, ${cover.w} by ${cover.h} pixels`}>
       <div className="overflow-hidden" style={{ background: '#15171C' }}>
-        <canvas ref={canvasRef} className="w-full block" />
+        {preserveOriginal
+          ? <img src={image.dataUrl} alt="" className="w-full max-h-96 object-contain" />
+          : <canvas ref={canvasRef} className="w-full block" />}
       </div>
       <div className="absolute top-2 left-2 mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(0,0,0,0.7)', color: '#fff' }}>
-        {cover.label} · {cover.w}×{cover.h}
+        {preserveOriginal ? `${cover.label} · original aspect` : `${cover.label} · ${cover.w}×${cover.h}`}
       </div>
       {!hideDownload && (
         <button
@@ -7123,7 +10723,7 @@ function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
     <div className="relative group aspect-square overflow-hidden" style={{ background: '#15171C' }}>
       <img
         src={image.dataUrl}
-        alt=""
+        alt={image.alt || 'Project gallery image'}
         className="w-full h-full object-cover"
         style={{ objectPosition: `${image.focal.x * 100}% ${image.focal.y * 100}%` }}
       />
@@ -7165,7 +10765,10 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
           {cover ? (
             <div>
               <div className="flex items-center justify-between mb-1">{lbl(`Cover · ${platform.covers.map(c => `${c.w}×${c.h}`).join(' · ')}`)}<Edit to="images" /></div>
-              <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${platform.covers.length}, minmax(0,1fr))` }}>
+              <div
+                className="grid gap-2 max-w-[720px]"
+                style={{ gridTemplateColumns: platform.covers.length > 1 ? 'minmax(0,2fr) minmax(140px,1fr)' : 'minmax(0,420px)' }}
+              >
                 {platform.covers.map(c => <CoverPreview key={c.id} image={cover} cover={c} hideDownload />)}
               </div>
             </div>
@@ -7180,7 +10783,12 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
 
           {galleryImgs.length > 0 && (
             <div><div className="flex items-center justify-between mb-1">{lbl(`Gallery · ${galleryImgs.length}`)}<Edit to="images" /></div>
-              <div className="grid grid-cols-6 gap-1.5">{galleryImgs.map(img => <GalleryThumb key={img.id} image={img} mainCover={platform.covers[0]} hideDownload />)}</div></div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                {galleryImgs.slice(0, 6).map(img => <GalleryThumb key={img.id} image={img} mainCover={platform.covers[0]} hideDownload />)}
+                {galleryImgs.length > 6 && (
+                  <div className="aspect-square flex items-center justify-center mp-mono text-[11px]" style={{ background: 'rgba(21,23,28,0.06)' }}>+{galleryImgs.length - 6}</div>
+                )}
+              </div></div>
           )}
         </div>
       )}
@@ -7194,8 +10802,8 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
 
 function SectionHeader({ number, title, subtitle }) {
   return (
-    <div className="border-b pb-6" style={{ borderColor: 'rgba(21,23,28,0.15)' }}>
-      <div className="flex items-center gap-3 mb-3">
+    <div data-testid="section-header" className="border-b pb-3 sm:pb-4" style={{ borderColor: 'rgba(21,23,28,0.15)' }}>
+      <div className="flex items-center gap-3 mb-1.5">
         <span className="mp-mono text-[12px] tracking-[0.3em]" style={{ color: '#FF5722' }}>
           <span className="mp-dimline">STEP {number}</span>
         </span>
@@ -7204,8 +10812,10 @@ function SectionHeader({ number, title, subtitle }) {
           /// modelprep
         </span>
       </div>
-      <h2 className="mp-display text-[32px] sm:text-[44px] leading-[0.95] sm:leading-[0.92] mb-3" style={{ color: '#15171C' }}>{title}</h2>
-      <p className="mp-body text-[15px] max-w-2xl leading-relaxed" style={{ color: 'rgba(21,23,28,0.65)' }}>{subtitle}</p>
+      <div className="flex flex-col gap-1">
+        <h2 className="mp-display text-[30px] sm:text-[36px] leading-none" style={{ color: '#15171C' }}>{title}</h2>
+        <p className="mp-body w-full text-[14px] leading-5" style={{ color: 'rgba(21,23,28,0.65)' }}>{subtitle}</p>
+      </div>
     </div>
   );
 }
@@ -7214,27 +10824,31 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
   // Sticky just above the fixed 32px status bar, so Back/Next are always reachable
   // without scrolling to the end of long pages (e.g. the 9-crop Images preview).
   return (
-    <div
-      className="sticky bottom-8 z-[15] mt-8 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
-      style={{ borderColor: 'rgba(21,23,28,0.14)', background: 'rgba(237,233,222,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-    >
-      <div>
-        {backLabel && (
-          <button onClick={onBack} className="mp-btn mp-btn-ghost text-xs">
-            <ChevronRight size={12} className="rotate-180" /> {backLabel}
-          </button>
-        )}
+    <>
+      <div aria-hidden="true" className="h-8 flex-shrink-0" />
+      <div
+        data-testid="section-nav"
+        className="sticky bottom-8 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
+        style={{ borderColor: 'rgba(21,23,28,0.14)', background: 'rgba(237,233,222,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+      >
+        <div>
+          {backLabel && (
+            <button onClick={onBack} className="mp-btn mp-btn-ghost text-xs">
+              <ChevronRight size={12} className="rotate-180" /> {backLabel}
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3 justify-end text-right">
+          {nextLabel && nextDisabled && disabledReason && (
+            <span className="hidden sm:block mp-body text-[13px] leading-snug" style={{ color: 'rgba(21,23,28,0.55)' }}>{disabledReason}</span>
+          )}
+          {nextLabel && (
+            <button onClick={onNext} disabled={nextDisabled} className="mp-btn flex-shrink-0">
+              {nextLabel} <ArrowRight size={14} />
+            </button>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3 justify-end text-right">
-        {nextLabel && nextDisabled && disabledReason && (
-          <span className="mp-body text-[13px] leading-snug" style={{ color: 'rgba(21,23,28,0.55)' }}>{disabledReason}</span>
-        )}
-        {nextLabel && (
-          <button onClick={onNext} disabled={nextDisabled} className="mp-btn flex-shrink-0">
-            {nextLabel} <ArrowRight size={14} />
-          </button>
-        )}
-      </div>
-    </div>
+    </>
   );
 }

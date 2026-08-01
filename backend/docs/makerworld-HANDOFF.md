@@ -1,6 +1,13 @@
-# MakerWorld integration — HANDOFF
+# MakerWorld integration - historical handoff
 
-Pick-up doc for the next agent continuing the MakerWorld upload integration in ModelPrep.
+> This July 18 document is historical. The current cross-platform pickup point
+> is `modelprep-current-handoff-2026-08-01.md`; the current MakerWorld contract is
+> `makerworld-web-flow.md` plus `platform-upload-requirements-live.md`. In
+> particular, the packaged desktop now performs direct on-device transport and
+> supports the mapped model-video path, so the Worker-first diagram below is not
+> the current desktop architecture.
+
+Original pick-up doc for the agent that continued the MakerWorld upload integration.
 Last updated: 2026-07-18. Read this first, then `makerworld-upload-flow-map.md` (the complete
 current path map) and `makerworld-web-flow.md` (the low-level API reference).
 

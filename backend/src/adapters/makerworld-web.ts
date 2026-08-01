@@ -212,6 +212,7 @@ export interface DraftStatus {
   status?: number;       // 1 = published/live
   designId?: number;     // published design id (different from the draft id)
   profileId?: number;    // published print-profile id, when present
+  designVideo?: Array<{ name: string; url: string }>;
 }
 export async function mwDraftStatus(session: MakerWorldSession, id: number | string): Promise<DraftStatus | null> {
   const res = await fetch(`${MW_BASE}/api/v1/design-service/my/draft/${id}`, { headers: mwHeaders(session) });
@@ -219,6 +220,7 @@ export async function mwDraftStatus(session: MakerWorldSession, id: number | str
   const d = await res.json() as {
     resultType?: number; resultDesc?: string; resultPlate?: number;
     title?: string; profileTitle?: string; status?: number; designId?: number; profileId?: number;
+    designVideo?: Array<{ name: string; url: string }>;
   };
   const code = d.resultType ?? 0;
   return {
@@ -231,6 +233,7 @@ export async function mwDraftStatus(session: MakerWorldSession, id: number | str
     status: d.status,
     designId: d.designId,
     profileId: d.profileId,
+    designVideo: d.designVideo,
   };
 }
 
@@ -400,6 +403,7 @@ export interface MakerWorldPublishInput {
   coverUrl: string; // 4:3, REQUIRED
   coverPortraitUrl?: string; // 3:4
   galleryUrls?: string[]; // model pictures
+  designVideo?: Array<{ name: string; url: string }>; // one MP4/MOV, maximum 30 seconds (duration checked client-side)
 
   // files
   modelFiles?: DraftModelFile[]; // STL/CAD path (raw model files)
@@ -524,6 +528,7 @@ export function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'ne
     modelFiles,
     model3Mf: input.model3mf ?? { name: '', size: 0, url: '' },
     designPictures: (input.galleryUrls ?? []).map((url) => ({ url })),
+    designVideo: input.designVideo ?? [],
 
     // --- documentation ---
     designGuide: input.designGuide ?? [],

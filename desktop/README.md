@@ -1,16 +1,18 @@
 # ModelPrep Desktop
 
-The ModelPrep desktop app wraps the web app and adds real, isolated sign-in
-windows for **MakerWorld** and **Printables**. No browser extension and no
-copying Printables cookies by hand.
+The ModelPrep desktop app wraps the web app and adds isolated authentication
+and upload transport for **MakerWorld**, **Printables**, **Cults3D**, **Nexprint**,
+**Creality Cloud**, **MakerOnline**, **MyMiniFactory**, **MakerRoad**, **Thangs**,
+and **Thingiverse**. No
+browser extension and no copying Printables cookies by hand.
 
 ## Why a desktop app (and not the website)
 
 A **website** is forbidden by the browser from reading another site's login session
 (same-origin policy + `HttpOnly` cookies). A **desktop app** can open each
 platform's real login page in an embedded, platform-isolated session. The main
-process uses that session to broker requests to the ModelPrep Worker; raw
-cookies never enter the remotely loaded renderer.
+process uses that session to call each platform directly from the user's device;
+raw cookies never enter the remotely loaded renderer.
 
 ## Run it (development)
 
@@ -20,10 +22,46 @@ npm install     # downloads Electron (~100 MB)
 npm start
 ```
 
-This opens ModelPrep (`https://iamdjem.github.io/modelprep/`) in a desktop window. To point
-it at a local dev build instead: `MODELPREP_URL=http://localhost:5173 npm start`.
+Unpackaged development opens ModelPrep (`https://iamdjem.github.io/modelprep/`)
+unless `MODELPREP_URL` points it at a local build. Packaged builds instead ship
+their matching renderer inside the `.app`, which prevents a newer hosted page
+from running against an older desktop preload/IPC bridge.
+
+For the current account-persistence and real-upload certification procedure,
+see `backend/docs/desktop-live-upload-testing.md`.
+
+For the cross-platform implementation ledger, exact remaining branches,
+continuation order, critical lessons, and ready-to-paste next-agent prompt, see
+`backend/docs/modelprep-current-handoff-2026-08-01.md` and
+`backend/docs/NEXT_AGENT_PROMPT.md`.
+
+For an intentional local live-account integration test, the development app
+can reuse the installed app's encrypted sessions and origin storage without
+copying credentials into the renderer:
+
+```bash
+MODELPREP_URL=http://localhost:4173 \
+MODELPREP_USER_DATA_DIR="$HOME/Library/Application Support/modelprep-desktop" \
+npm start
+```
+
+When the override is present, the renderer safely rebuilds any missing account
+cards from the encrypted main-process sessions. Only display identities and
+opaque account ids cross the preload bridge; cookies, bearer tokens, and
+passwords remain in the main process.
+
+`MODELPREP_USER_DATA_DIR` is opt-in; ordinary development runs remain isolated.
 
 ## How sign-in works
+
+Every direct platform uses its own persistent Electron browser partition plus
+an encrypted `safeStorage` recovery copy. At startup the app silently validates
+saved accounts and warms a read-only first-party page when necessary so a site
+can rotate sliding session cookies. If recovery succeeds, no window opens. If a
+site has actually expired or revoked the session, **Reconnect** is available in
+Settings, Platforms, and Publish; it retries silent recovery and only then opens
+that platform's isolated sign-in window. Server-controlled session lifetimes
+cannot be extended past the platform's own policy.
 
 1. In ModelPrep, go to a project → **MakerWorld** → the connect box shows **Sign in to
    MakerWorld** (the website's cookie-paste is replaced by this button in the app).
@@ -43,18 +81,113 @@ OAuth/PKCE page as needed, including social-account popups. The app validates
 the completed session with a read-only profile query and stores its encrypted
 fallback separately from MakerWorld in `persist:printables`.
 
+For Cults3D, Settings → Accounts → Cults3D accepts the account credentials in
+the renderer only long enough to pass them to Electron main. Electron validates
+them directly against Cults, encrypts each account independently with
+`safeStorage`, and returns an opaque account ID. Publish/list/deactivate/delete
+requests then run from Electron main directly against Cults and its signed S3
+upload endpoint. This avoids the Cloudflare Worker subrequest ceiling and keeps
+passwords and upload bytes out of the Worker.
+
+For Nexprint, Settings → Accounts → Nexprint opens
+`https://www.nexprint.com/en/upload` in `persist:nexprint`. The app captures the
+completed ELEGOO/Nexprint session, validates it with the read-only user-data
+route, and encrypts a fallback. Uploads use Nexprint's first-party
+presign → object PUT → file registration → create/update → read-back sequence
+directly from Electron main. Nexprint does not document this as a stable
+third-party API, so `backend/docs/nexprint-web-flow.md` records the dated build
+fingerprint and live-certification boundary.
+
+For Creality Cloud, Settings → Accounts → Creality Cloud opens the production
+create-model page in `persist:creality`. Electron captures `model_token` and
+`model_user_id` plus Creality's persisted device id, encrypts the session,
+obtains short-lived Aliyun credentials, uploads directly to Creality storage,
+then creates and reads back a private model or an explicitly requested public
+model. The draft API edits an existing `draftId`; it does not create a new draft.
+Creality does not publish a
+third-party model-upload API; `backend/docs/creality-web-flow.md` records the
+dated DOM, option, request and safety map.
+
+For MakerOnline, Settings → Accounts → MakerOnline opens
+`https://www.makeronline.com/en/upload` in `persist:makeronline`. Electron captures
+the `mo_access_token` cookie after MakerOnline authenticates it, encrypts the
+session, and performs the first-party multipart file upload plus draft/create and
+edit-info readback from the user's computer. The renderer sees only the opaque
+desktop marker. MakerOnline does not document a public third-party upload API;
+`backend/docs/makeronline-web-flow.md` records the dated DOM, full option tree,
+file scene map, import workflow, implementation coverage, and certification boundary.
+
+For MyMiniFactory, Settings → Accounts → MyMiniFactory opens
+`https://www.myminifactory.com/upload/object` in `persist:myminifactory`.
+The current passwordless flow accepts an email address and emailed confirmation
+code; its resulting cookies are the authenticated state. Electron validates them
+through that same Chromium partition, encrypts a fallback, and keeps the upload form's CSRF token
+and folder identifier in main-process memory. Images, presigned object files,
+metadata submission, and object read-back run directly from the user's computer.
+`backend/docs/myminifactory-web-flow.md` records the dated contract and declaration gate.
+
+For MakerRoad, Electron uses `persist:makeroad`, requires authenticated
+`GET /api/user`, and mirrors the `X-Token` login cookie into the first-party
+header. The adapter and private Save/readback flow are implemented, but fresh
+navigation currently reaches a parked HugeDomains page. Treat this as an
+external production-availability block, not as a green upload certification.
+
+For Thangs, the current site stores its bearer access token in origin local
+storage and refresh state in cookies. Electron captures the token only inside
+the isolated `persist:thangs` window, encrypts it with `safeStorage`, and
+verifies the account against `production-api.thangs.com/users/current`. Do not
+restore cookie-only validation or manually set a cross-origin `Referer` in
+`session.fetch`; both caused the false `Reconnect needed` state.
+
+For Thingiverse, the complete draft-first/publish adapter is enabled after
+written clearance recorded on 2026-08-01. Save Draft remains the safe default;
+public publication is a separate explicit action. One live draft/readback is
+still required before calling the path live-certified.
+
 ## Files
 
-- `main.js` — Electron main process. Opens the MakerWorld login window with the **same User-Agent the
-  Worker uses** (so the `cf_clearance` it earns is valid for the Worker's server-side replay),
-  in a persistent session partition; polls for the session cookies; encrypts Worker-issued
-  sessions with Electron `safeStorage`; and brokers authenticated Worker requests so the raw
-  MakerWorld token never enters the remotely loaded renderer or its `localStorage`. It also
+- `main.js` — Electron main process. Opens the MakerWorld login window with the same
+  User-Agent as the shared adapter (so any `cf_clearance` remains valid), polls for
+  the session cookies, encrypts sessions with Electron `safeStorage`, and dispatches
+  authenticated MakerWorld requests directly from the device. The renderer keeps
+  Worker-shaped virtual route names for web/desktop parity, but Electron validates
+  and resolves those routes locally; the raw MakerWorld token never reaches the
+  remotely loaded renderer or its `localStorage`. It also
   owns the isolated Printables/Prusa OAuth session and injects it only into
   `/api/v1/printables/web/*` renderer requests. On desktop, the main process
   validates those route names and replays the corresponding GraphQL operation
   directly from the user's network, avoiding Printables throttling of
-  Cloudflare-to-Cloudflare requests.
+  Cloudflare-to-Cloudflare requests. Cults Worker-shaped renderer requests are
+  similarly validated, but are dispatched by `cults-direct.js` straight to
+  Cults/S3 with encrypted per-account credentials. Nexprint renderer requests
+  are restricted to `/api/v1/nexprint/web/*`; Electron resolves them through
+  `nexprint-direct.js` using the encrypted partition session.
+  Creality requests are restricted to `/api/v1/creality/web/*` and resolved by
+  `creality-direct.js`; its token, user id and Aliyun STS credentials remain in
+  Electron main.
+  MakerOnline requests are restricted to `/api/v1/makeronline/web/*` and resolved
+  by `makeronline-direct.js`; its access token and cookies remain in Electron main.
+- `cults-direct.js` — direct Cults login, signed-S3 upload, create, price,
+  list, deactivate, and delete transport. It mirrors the Worker's response
+  contract so the React flow has one code path for desktop and web fallback.
+- `makerworld-direct-entry.ts` — desktop entry point for every MakerWorld route,
+  including sign-in, presign/upload, drafts, regular publishing, Laser & Cut,
+  status, list, delete, refresh, tags, BOM, and related-model lookup. The desktop
+  build bundles it with the shared backend adapter into the generated
+  `makerworld-direct.cjs` before start, test, or packaging.
+- `nexprint-direct.js` — direct Nexprint identity, taxonomy, activity,
+  collection, presign/upload/register, draft/publish, read-back, list, and
+  delete transport. The renderer receives normalized file/model records but no
+  token or cookie.
+- `creality-direct.js` — direct Creality identity, OSS authorization/upload,
+  draft/private/public create and read-back transport. Remix/Non-original and
+  parsed Print Settings Info are fail-closed until their structured data is
+  independently certified.
+- `makeronline-direct.js` — direct MakerOnline identity, live category/kit/account
+  eligibility, multipart upload, 3MF parse, draft/public save, and edit-info
+  readback transport.
+- `myminifactory-direct.js` — direct MyMiniFactory identity, image upload,
+  presigned object-file upload, URL-encoded metadata submit, and object read-back.
 - `preload.js` — exposes a minimal `window.modelprepDesktop` API to the web app, which
   feature-detects it to show the one-click sign-in (see `MakerWorldUploadFlow` in
   `deploy/src/App.jsx`).
@@ -86,11 +219,18 @@ Connect API key can notarize but cannot create that cert. Current build is **arm
 
 ## Notes
 
-- Desktop MakerWorld and Printables sessions are encrypted under Electron's app data and
-  requests are restricted to their own `/api/v1/<platform>/web/*` path on the configured
-  ModelPrep Worker. The renderer stores only opaque desktop-managed account markers. Existing desktop
-  `localStorage` sessions migrate into secure storage the next time Settings opens.
+- Desktop MakerWorld, Printables, Nexprint, Creality, MakerOnline,
+  MyMiniFactory, MakerRoad, Thangs, and Thingiverse sessions and Cults3D
+  credentials are encrypted
+  under Electron's app data. Requests are restricted to each platform's validated
+  `/api/v1/<platform>/web/*` virtual route and dispatched locally; none of these
+  desktop upload flows calls the ModelPrep Worker. The renderer stores only opaque
+  desktop-managed account markers. The hosted web app keeps the Worker path as a
+  browser fallback.
 - Email/password is an advanced fallback. It preserves MakerWorld's `tfaKey` through the
   emailed-code step and surfaces CAPTCHA challenges as a prompt to use the MakerWorld window.
 - If sign-in is rejected after logging in, the session may need the Cloudflare check
   re-solved — click **Sign in to MakerWorld** again.
+- For local packaged QA, use `../script/build_and_run.sh --verify` and the exact
+  `dist/mac-arm64/ModelPrep.app`. Never create a respawning `launchctl submit`
+  job; stale jobs previously interfered with user input.

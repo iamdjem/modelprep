@@ -5,7 +5,9 @@
 //
 // - `secret` is whatever that platform needs to act as the user: MakerWorld web →
 //   the session cookie string; MakerWorld desktop → an opaque main-process marker;
-//   Cults → { email, password }. Web secrets are stored only in this browser.
+//   Cults web → { email, password }; Cults desktop → opaque encrypted-account id.
+//   Web secrets are stored only in this browser; desktop credentials live in
+//   Electron safeStorage and never persist in renderer storage.
 // - `status`: 'connected' | 'reconnect' | 'error' | 'unknown'.
 // - One account per platform is "active" (activeId) — that's what the publish step uses.
 // Multiple accounts per platform are supported (add/switch/remove), with isolation:
@@ -14,7 +16,7 @@ import { useSyncExternalStore } from 'react';
 
 const KEY = 'modelprep:accounts';
 // Platforms with a real sign-in today; everything else is "coming soon" in the UI.
-export const CONNECTABLE = ['makerworld', 'printables', 'cults'];
+export const CONNECTABLE = ['makerworld', 'printables', 'cults', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs', 'thingiverse'];
 
 const uid = () => 'a_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 
@@ -85,6 +87,15 @@ export function removeAccount(platform, id) {
   const accounts = p.accounts.filter((a) => a.id !== id);
   state[platform] = { accounts, activeId: p.activeId === id ? (accounts[0]?.id || null) : p.activeId };
   emit();
+}
+
+/** Add or refresh an opaque desktop account marker without duplicating it. */
+export function rehydrateDesktopAccount(platform, { label, secret }) {
+  const existing = getAccounts(platform).find((account) => account.secret === secret);
+  if (!existing) return addAccount(platform, { label, secret, status: 'connected' });
+  updateAccount(platform, existing.id, { label: label || existing.label, status: 'connected' });
+  setActive(platform, existing.id);
+  return { ...existing, label: label || existing.label, status: 'connected' };
 }
 
 /** Subscribe a component to the store; returns the action helpers (which read live state). */

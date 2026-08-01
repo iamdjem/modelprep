@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makerWorldResponseError, uploadMakerWorldFile, WORKER_PROXY_LIMIT_BYTES } from './makerworld-upload';
+import { DESKTOP_MAKERWORLD_SECRET } from './makerworld-auth.js';
 
 const jsonResponse = (value, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { 'Content-Type': 'application/json' },
@@ -27,6 +28,22 @@ describe('MakerWorld upload transport', () => {
       workerUrl: 'https://worker', cookie: 'token=x', file: new Blob(['mesh']), name: 'file.stl', fetchImpl,
     });
     expect(result).toMatchObject({ direct: false, url: 'https://cdn/proxied.stl' });
+    expect(fetchImpl.mock.calls[2][0]).toBe('https://worker/api/v1/makerworld/web/upload');
+  });
+
+  it('reports the bridged fallback as direct for a desktop-managed session', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ ok: true, signedUrl: 'https://s3/upload', url: 'https://cdn/file.stl', key: 'file.stl', cdnPrefix: 'https://cdn' }))
+      .mockRejectedValueOnce(new TypeError('CORS blocked'))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, url: 'https://cdn/desktop.stl', key: 'desktop.stl', size: 4, cdnPrefix: 'https://cdn' }));
+    const result = await uploadMakerWorldFile({
+      workerUrl: 'https://worker',
+      cookie: DESKTOP_MAKERWORLD_SECRET,
+      file: new Blob(['mesh']),
+      name: 'file.stl',
+      fetchImpl,
+    });
+    expect(result).toMatchObject({ direct: true, url: 'https://cdn/desktop.stl' });
     expect(fetchImpl.mock.calls[2][0]).toBe('https://worker/api/v1/makerworld/web/upload');
   });
 

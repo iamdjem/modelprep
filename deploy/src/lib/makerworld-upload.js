@@ -1,3 +1,5 @@
+import { isDesktopMakerWorldSession } from './makerworld-auth.js';
+
 const WORKER_PROXY_LIMIT_BYTES = 95 * 1024 * 1024;
 
 function errorDetail(data, status, fallback) {
@@ -17,9 +19,11 @@ async function proxyUpload({ workerUrl, cookie, file, name, fetchImpl }) {
   return data;
 }
 
-/** Upload directly to MakerWorld's presigned S3 URL. Small files fall back to
- * the legacy Worker proxy when a browser/S3 CORS failure prevents the direct PUT. */
+/** Upload directly to MakerWorld's presigned S3 URL. When the renderer cannot
+ * perform the PUT, the virtual upload route stays on-device in Electron. Only
+ * the web build falls back to the Worker proxy. */
 export async function uploadMakerWorldFile({ workerUrl, cookie, file, name, fetchImpl = fetch }) {
+  const desktopDirect = isDesktopMakerWorldSession(cookie);
   const size = Number(file?.size ?? 0);
   const presignResponse = await fetchImpl(`${workerUrl}/api/v1/makerworld/web/upload/presign`, {
     method: 'POST',
@@ -30,7 +34,7 @@ export async function uploadMakerWorldFile({ workerUrl, cookie, file, name, fetc
   if (!presignResponse.ok || !presigned.signedUrl || !presigned.url) {
     if (size <= WORKER_PROXY_LIMIT_BYTES) {
       const proxied = await proxyUpload({ workerUrl, cookie, file, name, fetchImpl });
-      return { ...proxied, direct: false };
+      return { ...proxied, direct: desktopDirect };
     }
     throw new Error(errorDetail(presigned, presignResponse.status, `Could not prepare upload of ${name}`));
   }
@@ -54,7 +58,7 @@ export async function uploadMakerWorldFile({ workerUrl, cookie, file, name, fetc
   } catch (error) {
     if (size <= WORKER_PROXY_LIMIT_BYTES) {
       const proxied = await proxyUpload({ workerUrl, cookie, file, name, fetchImpl });
-      return { ...proxied, direct: false };
+      return { ...proxied, direct: desktopDirect };
     }
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(`Direct MakerWorld upload of ${name} failed (${reason}). Files above 95MB cannot use the Worker fallback; retry from a browser/network that allows MakerWorld's S3 upload.`);

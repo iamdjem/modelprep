@@ -40,6 +40,11 @@ export function validateMakerWorldPublish(input: MakerWorldPublishInput): string
   if (totalBytes > 250 * MB) errors.push('model files exceed the 250MB total limit');
   if ((input.tags?.length ?? 0) > 50) errors.push('at most 50 tags are allowed');
   if ((input.galleryUrls?.length ?? 0) > 16) errors.push('at most 16 model pictures are allowed');
+  if ((input.designVideo?.length ?? 0) > 1) errors.push('at most one model video is allowed');
+  for (const video of input.designVideo ?? []) {
+    if (!video.url) errors.push('model video url is required');
+    if (!/\.(mp4|mov)(?:$|[?#])/i.test(video.name || '')) errors.push('model video must be MP4 or MOV');
+  }
   if (input.model3mf) {
     if (!input.printProfile) errors.push('a 3MF upload requires printProfile');
     else {

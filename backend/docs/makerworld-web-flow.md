@@ -7,6 +7,13 @@ outside the repo at `/Users/alex/makerworld-capture/`, which is gitignored becau
 outputs contain live session tokens). Validated end-to-end on 2026-06-20 (upload → publish
 private → delete) through the adapter itself.
 
+The authenticated production 3D original/remix, existing-draft model
+information, existing print-profile edit, Laser & Cut, import, and current
+JavaScript bundles were re-audited read-only on **2026-07-29**. See
+`platform-upload-requirements-live.md` for the complete dated DOM/bundle
+snapshot, current taxonomy, the new model-video field, fingerprints, and the
+current implementation-gap ledger.
+
 ## Auth model
 
 > **MAJOR UPDATE (browser-agent verified 2026-06-23): server-side email/password login IS
@@ -30,9 +37,25 @@ Production hardening:
 - `tfaKey` returned by MakerWorld's first step is preserved and returned with the emailed code.
 - GeeTest/CAPTCHA responses are not automated; the UI directs the user to the desktop
   MakerWorld window.
-- The desktop app encrypts the resulting session with Electron `safeStorage` and brokers only
-  allowlisted MakerWorld Worker routes. The hosted web fallback still stores its own session
-  in that browser profile.
+- The desktop app encrypts the resulting session with Electron `safeStorage` and dispatches
+  only allowlisted MakerWorld routes directly from Electron main. Its renderer uses the same
+  Worker-shaped virtual URLs as the web app, but those URLs are never requested over the
+  network. The hosted web fallback still uses the Worker and stores its own session in that
+  browser profile.
+
+### Desktop direct transport
+
+`desktop/makerworld-direct-entry.ts` bundles this same adapter and validation
+module into Electron. On desktop, all MakerWorld operations—window or
+email/password sign-in, session checks, identity/capabilities, presign and file
+upload, draft creation, regular and Laser & Cut submission, tags, BOM, related
+models, status, refresh, listing, and deletion—run from the user's device.
+
+The renderer first attempts the presigned S3 PUT directly. If Chromium blocks
+that PUT, it invokes the virtual `/upload` route; Electron then performs the
+presign and S3 PUT locally. Therefore neither file bytes nor metadata traverse
+the ModelPrep Worker in the packaged desktop app. The Worker routes below are
+the hosted web fallback and the shared response contract.
 
 MakerWorld sits behind **Bambu SSO + Cloudflare bot-management**. Original (fallback) flow:
 
@@ -126,14 +149,19 @@ Optional sections (all supported as passthrough in the adapter):
 `mwCheckSession`, `mwUploadFile`, `mwCreateDraft`, `mwUpdateDraft`,
 `mwPublish` (create-save-with-publish + submit), `mwDelete`, `mwSuggestTags`, `mwListMyDesigns`.
 
-## Worker routes (`index.ts`), auth via `X-MW-Cookie`
+## Worker-compatible routes, auth via `X-MW-Cookie`
+
+The hosted web app resolves these in `backend/src/index.ts`. Electron validates
+the same path prefix and resolves it locally through
+`desktop/makerworld-direct-entry.ts`.
 
 - `POST /api/v1/makerworld/web/login` / `login-code` — token exchange and emailed-code step
 - `GET  /api/v1/makerworld/web/check` — session valid?
 - `GET  /api/v1/makerworld/web/whoami` — signed-in user profile for account labels. Adapter `mwWhoami` → `GET /api/v1/design-user-service/my/profile` → `{handle,name,uid,avatar}`. (Note: `/my/profile` AND `/my/preference` both return the profile; the `/my/user…` variants 404.)
 - `GET  /api/v1/makerworld/web/capabilities` — `rcUpload`, upload eligibility, default license
 - `POST /api/v1/makerworld/web/upload/presign` — `{fileName,size,useType}` → direct S3 grant;
-  browser PUT preserves MakerWorld's 150 MB `.3mf` / 200 MB other-file limits
+  the current 2026-07-29 model uploader applies a 200 MiB limit to the initial
+  Bambu Studio `.3mf` and raw 3D files; `.lac` is 100 MiB
 - `POST /api/v1/makerworld/web/upload` — <=95 MB compatibility proxy
 - `POST /api/v1/makerworld/web/publish` — JSON `MakerWorldPublishInput` (+ `draftOnly`) → create [+ publish] → `{id,status}`
 - `POST /api/v1/makerworld/web/delete` — `{id}`
@@ -315,9 +343,16 @@ draft endpoint, cookie-only auth). New/corrected details:
   ply rsdoc scad shape shapr skp sldasm sldprt slvs step stl stp studio3 stpz zip 3mf) ·
   **200 MB/file** (209715200 bytes) · each item has `isOpenSource` (default true) + a free `note`.
 - **CyberBrick** question appears ONLY in the 3mf path (not STL path).
-- **Covers:** jpg/gif/png only (**no webp for covers**); gallery accepts png/jpg/webp/gif.
-  We always re-encode to jpg, so safe. Fields: `cover` (4:3) + `coverPortrait` (3:4) +
+- **Covers:** the current 2026-07-29 input accepts JPEG/PNG/WebP/GIF even
+  though the visible helper copy still omits WebP; gallery accepts the same.
+  We re-encode to JPEG, so safe. Fields: `cover` (4:3) + `coverPortrait` (3:4) +
   `coverLandscape` (sent, no UI slot). Gallery max **16**; ≤30 MB/piece.
+- **Model video (new, 2026-07-29):** one optional `designVideo`, MP4 or
+  QuickTime/MOV, maximum 30 seconds, displayed first on the model detail page.
+  The current dropzone sets no byte-size cap. `videosIsUploading` is a publish
+  loading gate. ModelPrep now exposes typed video media, reads duration before
+  upload, sends the file through the same `makerworld/model` presigned-media
+  contract, and serializes the completed upload as `designVideo: [{name,url}]`.
 - **License = two radio groups → one string.** Matrix: adaptation(shared?) × commercial?
   → `BY` / `BY-NC` / `BY-SA` / `BY-NC-SA` / `BY-ND` / `BY-NC-ND`; adaptation "MW Exclusive" →
   `"MakerWorld Exclusive License"`; "MW + community" → `"Standard Digital File License - Community Use"`.

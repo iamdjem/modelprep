@@ -1,5 +1,11 @@
 # Distribution plan — recommendation
 
+> Historical prototype-era recommendation. It predates the ten direct Electron
+> publishers and encrypted main-process credential boundary. Use
+> `backend/docs/modelprep-current-handoff-2026-08-01.md` and `ARCHITECTURE.md`
+> for current security/transport facts. Re-audit privacy, platform terms,
+> notarization, updates, monitoring, and support before any public release.
+
 You asked for a concrete suggestion on the "distribution polish" item. Here's mine, with reasoning, so you can act on it whenever you decide to share ModelPrep with creators beyond just yourself.
 
 **Short answer**: don't share-publicly until you've added a small privacy line + a "kill switch" — both take ~30 minutes. Don't bother with API-key mode, self-hosting docs, or TOS right now. Revisit those if/when the user count crosses ~50.
