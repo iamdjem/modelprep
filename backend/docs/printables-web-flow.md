@@ -1,6 +1,6 @@
 # Printables upload parity: live contract, requirements, and implementation plan
 
-Last audited: 2026-07-28
+Last audited: 2026-07-29
 
 Live account used for read-only inspection: `iamdjem` (`@iamdjem_3163385`)
 
@@ -40,6 +40,12 @@ Printables does not advertise this as a stable third-party upload API. ModelPrep
 replays the first-party web form contract. Treat upstream schema changes as an
 integration risk and keep all GraphQL operations isolated in
 `backend/src/adapters/printables-web.ts`.
+
+The 2026-07-29 pass rechecked the authenticated editor and current production
+Svelte bundles. See `platform-upload-requirements-live.md` for the dated
+cross-platform source of truth, complete current category/license snapshots,
+bundle fingerprints, and the distinction between platform requirements and
+ModelPrep defaults.
 
 ## Authentication
 
@@ -131,7 +137,10 @@ Normal file maximum: 1 GiB (`1,073,741,824` bytes).
 
 ZIP retained as an archive: 256 MiB (`268,435,456` bytes).
 
-Rich-description image maximum: 8 MiB.
+Rich-description image maximum: **UNKNOWN in the current 2026-07-29 client**.
+The older 8 MiB observation was not present in the current inspected route and
+must not be enforced or presented as a current platform limit without a fresh
+validation.
 
 File-name maximum: 150 characters.
 
@@ -151,10 +160,12 @@ before preview or upload; the converter is dynamically loaded only for HEIC or
 HEIF input. A ZIP may be unpacked into model files or kept as one Other file
 (`unzip: false`).
 
-The audited client did not expose a definitive server-side gallery-count or
-total-package cap. ModelPrep conservatively keeps the existing 25-image UI cap
-and labels the total cap as “Not published”; do not present either as an
-official Printables limit without a fresh server-side validation.
+The audited client did not expose a definitive server-side gallery-count,
+per-gallery-image byte cap, aspect-ratio requirement, or total-package cap.
+The 2026-07-29 live form confirmed that images are ordered, can be made
+cover/rotated, and are not cropped to a fixed ratio by the upload widget.
+ModelPrep now preserves the original images and labels the unpublished limits
+as unknown; the former 25-image/4:3 guesses have been removed.
 
 ## Exact upload protocol
 
@@ -344,9 +355,9 @@ needed.
 ## Taxonomy and licenses
 
 Fetch live via the Worker `/api/v1/printables/meta`. Categories have IDs, levels,
-and paths; render level-0 groups with their level-1 choices. The audited root
-groups included Household, Gadgets, Art & Design, Fashion, Tools, Toys & Games,
-Hobby & Makers, Other, and Education.
+and paths; render level-0 groups with their level-1 choices. The complete
+2026-07-29 label snapshot is in
+`platform-upload-requirements-live.md`; always prefer live IDs/selectability.
 
 Audited license IDs:
 

@@ -1,109 +1,80 @@
-# modelprep-backend
+# ModelPrep backend
 
-Cloudflare Worker that bridges the ModelPrep React frontend to Cults3D's GraphQL API (more platforms coming).
+Cloudflare Worker fallback and shared adapter package for ModelPrep.
 
-> **For the full system overview** — how this fits with the frontend, CDN, R2, and Cults — read [`../ARCHITECTURE.md`](../ARCHITECTURE.md) first. That's the single source of truth. This README is just how to develop + deploy *this piece*.
+For the current product/continuation state, start with
+[`docs/modelprep-current-handoff-2026-08-01.md`](docs/modelprep-current-handoff-2026-08-01.md).
+For the system boundary, read [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
 
-## Status
+## Current role
 
-Production-deployed at `https://modelprep-backend.iamdjem.workers.dev`. Bound to R2 bucket `modelprep-staging`. CORS locked to `iamdjem.github.io` + `localhost:5173|4173`. Lives in the `iamdjem/modelprep` monorepo as the `backend/` subdir.
+The packaged Electron app performs all ten platform uploads directly from the
+user's computer. Platform credentials and files do not pass through this Worker
+for those desktop flows.
 
-## First-time setup
+The Worker still provides:
+
+- hosted-web fallback routes;
+- shared MakerWorld/Printables/Cults adapter and validation code;
+- health and metadata endpoints;
+- legacy R2 staging/CDN support for older GraphQL/web paths;
+- a production-shaped contract mirrored by Electron's local virtual routes.
+
+Do not describe the Worker as the primary transport for the desktop app. Do not
+add a platform credential to the renderer or Worker merely because an older
+Cults route used that shape.
+
+## Development
 
 ```bash
-cd backend
+cd /Users/alex/modelprep/backend
 npm install
-cp .dev.vars.example .dev.vars
-# Edit .dev.vars with Cults creds (gitignored, never commit).
-# For GraphQL flow: CULTS_USERNAME + CULTS_API_KEY
-# For web flow:    CULTS_EMAIL + CULTS_PASSWORD
+npm test
+npm run typecheck
+npm run dev
 ```
 
-If you don't have wrangler:
-```bash
-npm install -g wrangler
-wrangler login
-```
+Local Wrangler normally listens on `http://localhost:8787`. Secrets for local
+fallback testing belong in `.dev.vars`, which is gitignored. Never commit or log
+account credentials, cookies, bearer tokens, signed URLs, CSRF values, or
+verification phrases.
 
-## Run locally
+Current automated baseline on 2026-08-01: 25 tests pass and `tsc --noEmit`
+passes.
 
-```bash
-npm run dev        # wrangler dev at http://localhost:8787
-npx wrangler tail  # live logs from the deployed Worker (separate terminal)
-```
-
-## Deploy
+## Deployment
 
 ```bash
+cd /Users/alex/modelprep/backend
 npx wrangler deploy
 ```
 
-Goes straight to `https://modelprep-backend.iamdjem.workers.dev`. No staging environment, no rollback — be sure the change works locally first. See `npx wrangler tail` for live logs.
+Production endpoint: `https://modelprep-backend.iamdjem.workers.dev`.
 
-Secrets in production come from `wrangler secret put`, not `.dev.vars`:
-```bash
-npx wrangler secret put CULTS_USERNAME
-npx wrangler secret put CULTS_API_KEY
-```
+Worker deployment is a separate external mutation. A source change, test pass,
+commit, or desktop build does not imply deployment authority. There is no
+automatic backend deployment on git push.
 
-## Routes
+## Source map
 
-| Method + path | What |
-|---|---|
-| `GET /api/v1/health` | Liveness, no auth |
-| `GET /api/v1/cults3d/me` | Authenticated Cults profile (auth sanity check) |
-| `GET /api/v1/cults3d/categories` | Cults category tree — use this to refresh `CULTS_CATEGORY_MAP` |
-| `GET /api/v1/cults3d/licenses` | Cults license list — use this to refresh `CULTS_LICENSE_MAP` |
-| `GET /api/v1/cults3d/my-creations?limit=N&offset=N` | The caller's published creations |
-| `GET /api/v1/cults3d/probe-fields` | Schema probing — sends deliberately invalid types to learn field shapes |
-| `POST /api/v1/upload` | Multipart upload → R2 → returns `cdn.makerstats.io` URL |
-| `GET\|HEAD /api/v1/files/:key` | Serves an R2 object (mostly superseded by the CDN at `cdn.makerstats.io`, kept for debug) |
-| `POST /api/v1/cults3d/publish` | **GraphQL flow** — resolves frontend fields → Cults IDs → calls `createCreation`; returns `{ok, payload, substituted, response}` |
-| `POST /api/v1/cults3d/publish-test` | Hardcoded GraphQL payload publish for wiring sanity |
-| `POST /api/v1/cults3d/web/publish` | **Web flow** (reverse-engineered) — multipart files + form fields; orchestrates login → S3 upload → create → publish; returns `{ok, slug, designUrl, substituted}`. Auto-deactivates orphan drafts on publish failure. See [`docs/cults3d-web-flow.md`](docs/cults3d-web-flow.md). |
-| `POST /api/v1/cults3d/web/unpublish` | **Web flow** — JSON `{slug}`, soft-deactivate (listing stays as OFFLINE on owner's My Designs, re-activatable) |
-| `POST /api/v1/cults3d/web/delete` | **Web flow** — JSON `{slug}`, **permanent delete** (irreversible — listing gone from My Designs entirely) |
+- `src/index.ts`: route dispatch, CORS, orchestration and error normalization.
+- `src/types.ts`: Worker environment and payload types.
+- `src/r2.ts`: legacy/fallback R2 staging and serving.
+- `src/adapters/`: shared MakerWorld, Printables, Cults3D and related adapters.
+- `docs/*-web-flow.md`: dated first-party request maps and platform gotchas.
+- `docs/platform-upload-requirements-live.md`: complete cross-platform field and
+  limit evidence.
 
-Auth:
-- **GraphQL routes** read `X-Cults-Username` + `X-Cults-Api-Key` headers (revocable API key, scoped). Falls back to env vars for curl tests.
-- **Web-flow routes** read `X-Cults-Email` + `X-Cults-Password` headers (full account login, broader trust ask). Same env-var fallback.
+The definitive current route list is the route dispatch in `src/index.ts` and
+its tests. Older README route inventories are intentionally not repeated here;
+they became misleading as the desktop app moved transport on-device.
 
-## File layout
+## Change rules
 
-```text
-backend/
-├── .dev.vars                ← secrets (GITIGNORED) — Cults API key + email/password
-├── .dev.vars.example
-├── wrangler.toml            ← Worker config + R2 binding
-├── docs/
-│   └── cults3d-web-flow.md  ← DEEP REFERENCE for the web flow — read before
-│                              editing cults3d-web.ts. Endpoint sequence,
-│                              every gotcha (login URL hyphen, 303 not 302,
-│                              pricing enum, CORS allow-list, etc.), HAR
-│                              capture origin, how to re-capture when Cults
-│                              breaks something.
-├── src/
-│   ├── index.ts             ← routes, CORS, orchestration
-│   ├── types.ts             ← Env + PublishPayload
-│   ├── r2.ts                ← stageFile / serveFile (R2 — GraphQL flow only)
-│   └── adapters/
-│       ├── cults3d.ts            ← GraphQL adapter (Phase 3)
-│       ├── cults3d-mappings.ts   ← frontend vocab → Cults IDs (shared)
-│       └── cults3d-web.ts        ← Web-flow adapter (login, S3, create, publish, unpublish)
-└── README.md
-```
-
-## Adding a new platform later
-
-The shape that works (Cults3D):
-1. New `adapters/<platform>.ts` with a single `<platform>CreateCreation(creds, payload)` function
-2. New `adapters/<platform>-mappings.ts` with that platform's category/license tables + resolver functions
-3. New routes in `index.ts`: `POST /api/v1/<platform>/publish` + the read endpoints needed (probably `/me`, `/categories`, `/licenses`)
-4. New origin in `ALLOWED_ORIGINS` if it's a new frontend host
-
-If the platform has no public API (MakerWorld), the adapter does HAR-derived reverse-engineering instead of GraphQL. Same external contract from the frontend's perspective.
-
-## When you change something here, also update
-
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — if you changed routes, the field translation, CORS, R2 layout, or "non-obvious things"
-- This README — if you changed file layout, deploy steps, or auth shape
+- Preserve the renderer/main-process credential boundary.
+- Keep virtual route prefixes platform-specific and allow-listed.
+- Keep unknown limits unknown; do not restore guessed crops, counts, or sizes.
+- Validate failures as failures, not empty success.
+- Update the relevant platform flow map and current handoff when a production
+  contract changes.
+- Run `npm test`, `npm run typecheck`, and `git diff --check` before handoff.

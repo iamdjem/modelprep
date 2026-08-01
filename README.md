@@ -1,6 +1,8 @@
 # ModelPrep
 
-Multi-platform upload prep tool for 3D-printing creators. Drop your STL/3MF files + photos, fill in title/description/category/license/price, click **Publish** — and the listing appears on Cults3D (more platforms coming).
+Multi-platform upload prep tool for 3D-printing creators. Drop model files and
+photos, enter shared metadata once, review each platform's adapted package, and
+publish through the desktop app.
 
 **Live demo**: https://iamdjem.github.io/modelprep/
 
@@ -8,17 +10,20 @@ Multi-platform upload prep tool for 3D-printing creators. Drop your STL/3MF file
 
 ## Monorepo layout
 
-Three deployed pieces, one repo:
+Four runtime pieces, one repo:
 
 ```
 modelprep/
 ├── ARCHITECTURE.md      ← READ FIRST. Single source of truth for the whole system.
 ├── deploy/              ← React + Vite frontend, deploys to iamdjem.github.io/modelprep/
 ├── backend/             ← Cloudflare Worker, deploys to modelprep-backend.iamdjem.workers.dev
+├── desktop/             ← Electron app; isolated sign-ins and direct on-device uploads
 └── cdn/                 ← Cloudflare Pages, serves staged files at cdn.makerstats.io
 ```
 
-Each subdir has its own README with deploy + dev instructions for that piece. Start with [`ARCHITECTURE.md`](./ARCHITECTURE.md) to see how they fit together.
+Each subdir has its own README with deploy + dev instructions for that piece.
+Start with [`HANDOFF.md`](./HANDOFF.md) for the current pickup point and
+[`ARCHITECTURE.md`](./ARCHITECTURE.md) for the system boundary.
 
 ---
 
@@ -63,10 +68,23 @@ Backend + CDN deploys do NOT auto-trigger from git — you run them manually. (A
 
 ## Status
 
-✅ **Cults3D** (web flow): end-to-end one-click publish working with REAL tags (`flat_keywords`), secret/public visibility, deactivate, AND permanent delete. UI includes a "My listings on Cults" panel that scrapes your listings and surfaces per-row Deactivate + Delete buttons. The reverse-engineered web flow is the default — the older GraphQL flow is kept as backup at `backend/docs/graphql-flow-and-cdn-backup.md`.
+Ten direct desktop publishing paths are implemented:
 
-✅ **Tags** (web flow): plain-text user keywords sync to Cults via `creation[flat_keywords]`. The GraphQL flow's `metaTags` field is for Cults's internal classification dictionary (different thing) — not user keywords.
+- **MakerWorld** — direct Electron flow; core private 3D and Laser & Cut paths have live evidence.
+- **Printables** — draft-first GraphQL/storage flow; private author and remix drafts have live evidence.
+- **Cults3D** — signed-storage and two-page listing flow; secret/unlisted creation has live evidence.
+- **Nexprint** — first-party REST/presigned upload; browser and Electron unpublished drafts are certified.
+- **Creality Cloud** — first-party JSON/Aliyun upload; new uploads are private-first and the Original/private path is certified.
+- **MakerOnline** — first-party multipart upload; the core unpublished image + STL draft/readback path is certified, with retained drafts documented in the live audit.
+- **MyMiniFactory** — isolated passwordless first-party form integration with hierarchical categories, full metadata/license/file mapping, private/public controls, encrypted session handling, and object read-back. A duplicate-free private retry remains to certify the corrected category/readback path end to end.
+- **MakerRoad** — isolated authenticated `X-Token` session, dynamic taxonomy, four upload roles, private-save/review-submit, and edit read-back; locally tested, but fresh navigation is currently blocked by an externally parked domain.
+- **Thangs** — isolated encrypted bearer-token session, signed uploads, validation, single/bulk/multipart/assembly metadata, assets, and details/attachment/license read-back; connected and locally tested, with one private desktop upload/readback still pending.
+- **Thingiverse** — complete draft-first/publish adapter and read-back tests; written clearance was recorded on 2026-08-01 and production mutation is enabled. Live draft certification remains pending.
 
-⏳ **MakerWorld, Thingiverse, Printables, MMF, Thangs**: deferred — each platform plugs in behind the same prep UI. Handoff for the MakerWorld HAR-capture work is at `HANDOFF.md`.
-
-See `ARCHITECTURE.md` for the full "non-obvious things that broke during build-out" list (12+ documented gotchas) — useful when adding new platforms or debugging when Cults changes something.
+No platform is fully certified across every optional/public/paid branch. Start
+continuation work at
+[`backend/docs/modelprep-current-handoff-2026-08-01.md`](./backend/docs/modelprep-current-handoff-2026-08-01.md).
+The compact status/limit matrix is
+[`backend/docs/platform-specs.md`](./backend/docs/platform-specs.md), and the
+copy-paste prompt is
+[`backend/docs/NEXT_AGENT_PROMPT.md`](./backend/docs/NEXT_AGENT_PROMPT.md).

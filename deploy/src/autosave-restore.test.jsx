@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import App from './App.jsx';
@@ -56,6 +56,43 @@ describe('autosave restore prompt', () => {
     first.unmount();
     render(<App />);
     expect(screen.queryByRole('heading', { name: /restore text & settings/i })).not.toBeInTheDocument();
+  });
+
+  it('does not re-offer a restored snapshot after platform defaults are merged and autosaved', async () => {
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(savedProject({
+      platforms: { makerworld: { enabled: true } },
+    })));
+    const user = userEvent.setup();
+    const first = render(<App />);
+
+    await user.click(screen.getByRole('button', { name: /restore text & settings/i }));
+    await waitFor(() => {
+      const autosave = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || 'null');
+      expect(Object.keys(autosave?.platforms || {})).toContain('makeronline');
+    }, { timeout: 1500 });
+
+    first.unmount();
+    render(<App />);
+    expect(screen.queryByRole('heading', { name: /restore text & settings/i })).not.toBeInTheDocument();
+  });
+
+  it('migrates a handled v1 fingerprint without resurrecting the prompt', () => {
+    const saved = savedProject({ platforms: { makerworld: { enabled: true } } });
+    const legacyFingerprint = JSON.stringify({
+      name: saved.name,
+      title: saved.title,
+      description: saved.description,
+      tags: saved.tags,
+      category: saved.category,
+      license: saved.license,
+      platforms: saved.platforms,
+    });
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(saved));
+    localStorage.setItem(HANDLED_KEY, legacyFingerprint);
+
+    render(<App />);
+    expect(screen.queryByRole('heading', { name: /restore text & settings/i })).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(HANDLED_KEY))).toMatchObject({ version: 2 });
   });
 
   it('offers recovery again after the saved content changes', async () => {

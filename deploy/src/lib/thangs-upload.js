@@ -1,0 +1,3 @@
+import { thangsFetch } from './thangs-auth.js';
+export const thangsResponseError = (data, status, fallback = 'Thangs request failed') => data?.message ? `${fallback}: ${data.message}` : `${fallback} (HTTP ${status})`;
+export async function uploadThangsFile({ workerUrl, secret, role, file }) { const form = new FormData(); form.append('role', role); form.append('file', file, file.name); const response = await thangsFetch(`${workerUrl}/api/v1/thangs/web/upload`, { method: 'POST', body: form }, secret); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok || !data.file?.uploadedName) throw new Error(thangsResponseError(data, response.status, 'Thangs upload failed')); return data.file; }

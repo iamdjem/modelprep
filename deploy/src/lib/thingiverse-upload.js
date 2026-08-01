@@ -1,0 +1,3 @@
+import { thingiverseFetch } from './thingiverse-auth.js';
+export const thingiverseResponseError = (data, status, fallback = 'Thingiverse request failed') => data?.message ? `${fallback}: ${data.message}` : `${fallback} (HTTP ${status})`;
+export async function uploadThingiverseFile({ workerUrl, secret, role, file }) { const form = new FormData(); form.append('role', role); form.append('file', file, file.name); const response = await thingiverseFetch(`${workerUrl}/api/v1/thingiverse/web/upload`, { method: 'POST', body: form }, secret); const data = await response.json().catch(() => ({})); if (!response.ok || !data.ok || !data.file?.id) throw new Error(thingiverseResponseError(data, response.status, 'Thingiverse upload failed')); return data.file; }

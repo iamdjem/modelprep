@@ -2,17 +2,44 @@
   "name": "modelprep-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "ModelPrep desktop app with isolated in-app MakerWorld and Printables sign-in.",
+  "description": "ModelPrep desktop app with isolated platform sign-in and direct upload transport.",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "test": "node --test auth-bridge.test.js printables-direct.test.js printables-session-cache.test.js",
-    "dist": "electron-builder"
+    "build:renderer": "npm --prefix ../deploy run build -- --base=./",
+    "build:makerworld-direct": "node scripts/build-makerworld-direct.mjs",
+    "start": "npm run build:makerworld-direct && electron .",
+    "test": "npm run build:makerworld-direct && node --test auth-bridge.test.js creality-direct.test.js cults-direct.test.js makeronline-direct.test.js makeroad-direct.test.js makerworld-direct.test.js myminifactory-direct.test.js nexprint-direct.test.js preload.test.js printables-direct.test.js printables-session-cache.test.js renderer-target.test.js thangs-direct.test.js thingiverse-direct.test.js thingiverse-session-capture.test.js",
+    "dist": "npm run build:renderer && npm run build:makerworld-direct && electron-builder"
   },
   "build": {
     "appId": "io.makerstats.modelprep",
     "productName": "ModelPrep",
-    "files": ["main.js", "preload.js", "auth-bridge.js", "printables-direct.js", "printables-session-cache.js", "icon.png"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "auth-bridge.js",
+      "creality-direct.js",
+      "cults-direct.js",
+      "makerworld-direct.cjs",
+      "makeronline-direct.js",
+      "makeroad-direct.js",
+      "thangs-direct.js",
+      "thingiverse-direct.js",
+      "thingiverse-session-capture.js",
+      "myminifactory-direct.js",
+      "nexprint-direct.js",
+      "printables-direct.js",
+      "printables-session-cache.js",
+      "renderer-target.js",
+      "icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../deploy/dist",
+        "to": "renderer",
+        "filter": ["**/*"]
+      }
+    ],
     "mac": {
       "category": "public.app-category.graphics-design",
       "target": "dmg",
@@ -22,13 +49,23 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": { "teamId": "UTZ4TVACJS" }
+      "notarize": {
+        "teamId": "UTZ4TVACJS"
+      }
     },
-    "win": { "target": "nsis" },
-    "linux": { "target": "AppImage" }
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "dependencies": {
+    "ali-oss": "^6.23.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "esbuild": "0.28.1"
   }
 }

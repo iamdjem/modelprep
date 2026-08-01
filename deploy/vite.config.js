@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 // Stamp the build with the git commit + time so the running app can show exactly
 // which version it is (makes it obvious you're testing the latest changes).
 const commit = (() => {
-  try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return 'dev'; }
+  try { return execSync('git rev-parse --short HEAD', { cwd: resolve(__dirname, '..') }).toString().trim(); } catch { return 'dev'; }
 })();
 const buildTime = new Date().toISOString();
 

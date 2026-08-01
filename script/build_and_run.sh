@@ -7,41 +7,61 @@ BUNDLE_ID="io.makerstats.modelprep"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="$ROOT_DIR/desktop/dist/mac-arm64/ModelPrep.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
-PREVIEW_HOST="localhost"
-PREVIEW_PORT="4173"
-PREVIEW_URL="http://$PREVIEW_HOST:$PREVIEW_PORT"
-PREVIEW_LOG="${TMPDIR:-/tmp}/modelprep-vite-preview.log"
 APP_LOG="${TMPDIR:-/tmp}/modelprep-desktop.log"
 PREVIEW_SERVICE="io.makerstats.modelprep.preview"
 APP_SERVICE="io.makerstats.modelprep.local"
-NODE_BIN="$(command -v node)"
-VITE_CLI="$ROOT_DIR/deploy/node_modules/vite/bin/vite.js"
+INSTALLED_BINARY="/Applications/ModelPrep.app/Contents/MacOS/$APP_NAME"
+SIGN_IDENTITY="${MODELPREP_SIGN_IDENTITY:-Developer ID Application: Aleksei Adzhem (UTZ4TVACJS)}"
+ENTITLEMENTS="$ROOT_DIR/desktop/build/entitlements.mac.plist"
+local_process_pattern="^${APP_BINARY}( |$)"
+installed_process_pattern="^${INSTALLED_BINARY}( |$)"
 
-# Both the installed release and this local bundle use the same bundle ID. Kill
-# either exact main executable so LaunchServices cannot focus the stale copy.
-pkill -f "^(/Applications/ModelPrep.app|$APP_BUNDLE)/Contents/MacOS/$APP_NAME$" >/dev/null 2>&1 || true
+# Remove launch jobs before killing their processes so launchd cannot respawn an
+# old bundle during packaging. Both bundles share one identifier, so a stale
+# process would otherwise win Electron's single-instance lock after the build.
 launchctl remove "$PREVIEW_SERVICE" >/dev/null 2>&1 || true
 launchctl remove "$APP_SERVICE" >/dev/null 2>&1 || true
-
-npm --prefix "$ROOT_DIR/deploy" run build
-npm --prefix "$ROOT_DIR/desktop" run dist -- --dir --mac --arm64
-
-launchctl submit -l "$PREVIEW_SERVICE" -o "$PREVIEW_LOG" -e "$PREVIEW_LOG" -- \
-  "$NODE_BIN" "$VITE_CLI" preview "$ROOT_DIR/deploy" --host "$PREVIEW_HOST" --port "$PREVIEW_PORT"
-
-for _ in {1..50}; do
-  if /usr/bin/curl --silent --fail "$PREVIEW_URL/version.json" >/dev/null; then
+pkill -f "$installed_process_pattern" >/dev/null 2>&1 || true
+pkill -f "$local_process_pattern" >/dev/null 2>&1 || true
+modelprep_running() {
+  pgrep -f "$installed_process_pattern" >/dev/null \
+    || pgrep -f "$local_process_pattern" >/dev/null
+}
+for _ in {1..20}; do
+  if ! modelprep_running; then
     break
   fi
   sleep 0.1
 done
-/usr/bin/curl --silent --fail "$PREVIEW_URL/version.json" >/dev/null
+if modelprep_running; then
+  pkill -9 -f "$installed_process_pattern" >/dev/null 2>&1 || true
+  pkill -9 -f "$local_process_pattern" >/dev/null 2>&1 || true
+  for _ in {1..30}; do
+    if ! modelprep_running; then
+      break
+    fi
+    sleep 0.1
+  done
+fi
+if modelprep_running; then
+  echo "A stale ModelPrep process did not exit before packaging." >&2
+  exit 1
+fi
+
+npm --prefix "$ROOT_DIR/desktop" run dist -- --dir --mac --arm64
+
+# electron-builder can leave the unpacked --dir bundle carrying Electron's
+# template ad-hoc signature even after logging its signing phase. Seal the
+# exact QA bundle explicitly, then fail closed if any nested resource differs.
+codesign --force --deep --options runtime --timestamp \
+  --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP_BUNDLE"
+codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {
-  # LaunchServices may substitute /Applications/ModelPrep.app because both bundles share
-  # an identifier. Execute the exact local binary so QA cannot focus or relaunch a stale copy.
-  launchctl submit -l "$APP_SERVICE" -o "$APP_LOG" -e "$APP_LOG" -- \
-    /usr/bin/env MODELPREP_URL="$PREVIEW_URL" "$APP_BINARY"
+  # Ask Launch Services to open this exact bundle as a normal app. Unlike a
+  # launchctl submit job this survives the build shell exiting, but it does not
+  # install a keepalive that can relaunch a stale QA build after the user quits.
+  /usr/bin/open -n "$APP_BUNDLE"
 }
 
 case "$MODE" in
@@ -49,7 +69,7 @@ case "$MODE" in
     open_app
     ;;
   --debug|debug)
-    env MODELPREP_URL="$PREVIEW_URL" lldb -- "$APP_BINARY"
+    lldb -- "$APP_BINARY"
     ;;
   --logs|logs)
     open_app
@@ -62,7 +82,7 @@ case "$MODE" in
   --verify|verify)
     open_app
     for _ in {1..20}; do
-      if pgrep -f "^$APP_BINARY$" >/dev/null; then
+      if pgrep -f "$local_process_pattern" >/dev/null; then
         exit 0
       fi
       sleep 0.1

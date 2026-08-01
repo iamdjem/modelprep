@@ -1,0 +1,81 @@
+# Thangs upload flow map
+
+Audit date: **2026-08-01**
+Surface: authenticated `iamdjem` production account, portfolio/upload entry, official help center, current Next.js/Turbopack bundles, and first-party request definitions
+Mutation update: on **2026-08-01** the authenticated first-party browser flow uploaded private item `1583118` (`desk-dragon-bambu.3mf`). The current bundle showed that signed PUTs use `application/octet-stream` for model files; ModelPrep was incorrectly sending model MIME types and has been corrected. A separate reconnect defect was traced to ModelPrep's obsolete cookie-only validator: current Thangs stores the access token and current-user record in origin local storage, keeps a refresh cookie, and authenticates API requests with `Authorization: Bearer`. ModelPrep now captures that access token inside the isolated main-process window, encrypts it with Electron safe storage, and verifies it against `GET https://production-api.thangs.com/users/current?likes=false`. The token is never sent to the renderer. The exact packaged app subsequently created private model `1583272` and passed details, attachments, license, category, visibility and metadata readback, completing safe-core isolated-path certification.
+
+## Integration decision
+
+**SUPPORTED PUBLIC API NOT FOUND; EXPERIMENTAL DESKTOP PATH IMPLEMENTED AND SAFE CORE LIVE-CERTIFIED.** The official help center describes website upload, bulk upload through Thangs Sync, a membership API for some exclusive sellers, and custom model/membership APIs for qualifying professional designers. It does not document a generally available third-party model-upload API. Treat all routes below as a **REQUEST CONTRACT**, not a public API. ModelPrep's isolated-session, corrected signed-upload, validation, create/assets, and details/attachments/license readback path is live-certified for one private single-part model. Optional multipart/bulk/assembly, versions, plans, paid/membership, public/access and other branches remain separate.
+
+Official source: `https://thangs.com/resources/help-center-articles/how-do-i-upload-my-models`
+
+## Product workflow and capabilities
+
+- **OFFICIAL:** MyThangs → Add New or the global Upload model button.
+- **OFFICIAL:** one or multiple files can be uploaded and grouped as a multipart model.
+- **OFFICIAL:** Upload & Edit opens the editor for images, description, tags, categories, and other metadata.
+- **OFFICIAL:** new models default to private.
+- **OFFICIAL:** Thangs Sync supports bulk upload from a computer.
+- **LIVE DOM:** authenticated profile was empty and showed Upload model plus drag/drop/browse entry points.
+- **LIVE DOM:** planned maintenance was active during the audit; no mutation was attempted.
+
+## Files, roles, and limits
+
+### Model files
+
+**CURRENT BUNDLE:** `.stl`, `.3mf`, `.step`, `.stp`, `.obj`, `.glb`, `.fbx`, `.blend`, `.usdz`, `.gltf`.
+
+**CURRENT BUNDLE:** complex model formats are `.gltf` and `.blend`. Current help says `.3mf`, `.fbx`, and `.glb` are single-part-only. The editor can represent single, bulk, multipart, assembly, dependencies, versions, primary parts, and units.
+
+### Reference and attachment files
+
+**CURRENT BUNDLE:** broad reference set includes CAD/source, archives, documents, print files, and images. Premium non-model files include ZIP. Images include `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.avif`, and `.heic`. Model-license files accept `.pdf`, `.txt`, and `.md`.
+
+### Current size policy
+
+- **CURRENT BUNDLE:** hard model threshold 250 MB; files over it are moved to reference files when eligible.
+- **CURRENT BUNDLE:** reference maximum 500 MB.
+- **CURRENT BUNDLE:** soft warning thresholds 50 MB and 220 MB; print threshold is represented as 95 MB/100,000,000 bytes.
+- **CURRENT BUNDLE:** empty files and filenames containing `" / \\ : $ # & @ ?` plus newline, tab, `* < > %` are rejected.
+- **UNKNOWN:** total file count, image count, per-image dimensions, and required crop. Do not guess them.
+
+## Listing data model
+
+**CURRENT BUNDLE / REQUEST CONTRACT:** the model schema and submission builder include:
+
+- name and description
+- category path and tags
+- images/attachments and separate reference files
+- `isPublic` (private by default), `accessTypeId`, plans/tier assignments, and marketplace price data
+- `allowRemix`, AI-generated flag, and feedback flag
+- units, folder/workspace, primary part, multipart/assembly structure, dependencies, and versioning
+- standalone files with independent name, description, license, folder, visibility, and plan IDs
+- license file plus Thangs license metadata
+- print instructions are a separate model-page capability and download as PDF
+
+Paid listings, memberships, bundles, print-store products, and plan assignment are account-gated branches and must not be advertised as available until the account is approved and each branch is certified.
+
+## First-party request sequence
+
+This is the current website contract observed in first-party bundles:
+
+```text
+GET  users/current?likes=false                 authenticated session verification
+POST models/upload-urls                       {fileNames,directory,sendContentLengthRangeHeader:false}
+PUT  signed object URL                        raw bytes
+POST models/validatefiles                     {fileNames:[...]}
+POST v2/models                                array of model payloads -> model ids
+POST v2/models/assets                         {filenames,referenceFiles}
+GET  models/{id}/details                      edit/readback metadata
+GET  models/{id}/attachments                  attachment readback
+GET  v2/models/{id}/license                   license readback
+POST standalone-files/upload-urls?...         standalone presign
+POST standalone-files                         standalone metadata
+```
+
+The presign response uses `signedUrl` and `newFileName`. The submit builder creates one payload per root/single/multipart model. Each part uses the exact keys `originalFileName`, `originalPartName`, `filename`, `size`, and `isPrimary`. `POST v2/models/assets` takes only `{filenames,referenceFiles}`—there is no model ID in that request. The root carries attachments, dependencies, workspace/folder, visibility/access, license, remix, AI, tags/categories, units, marketplace/plans, and related metadata. Current categories are read from `GET categories/root?includeEmpty=true` and persisted as a path value rather than a picker index.
+
+## ModelPrep parity requirements
+
+Parity requires isolated authenticated storage; explicit private default; single/bulk/multipart/assembly choices; model, image, reference, standalone, dependency, and license roles; signed upload progress/retry; server validation; dynamic category/tag/license/plan reads; units/primary part/folder/workspace; remix/AI/feedback; paid/membership branches only when eligible; asset generation; canonical metadata/attachment/license readback; and version support. The private free single-part safe core is certified at model `1583272`; certify each optional structure, version, plan, commercial and public/access branch independently.

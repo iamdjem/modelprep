@@ -18,6 +18,10 @@ node_modules/
 # Build output (deploy/dist)
 dist/
 
+# Generated from the shared MakerWorld TypeScript adapter before desktop
+# start/test/package. Keep the source adapter as the single source of truth.
+desktop/makerworld-direct.cjs
+
 # Private docs — strategy reviews, reverse-engineering notes, internal
 # instructions. Lives next to the code on disk for proximity but never
 # pushed. This repo is public; sensitive material must NOT be committed.

@@ -1,7 +1,7 @@
 function validateWorkerUrl(rawUrl, workerUrl, platform = 'makerworld') {
   const target = new URL(rawUrl);
   const expected = new URL(workerUrl);
-  if (!['makerworld', 'printables'].includes(platform)) {
+  if (!['makerworld', 'printables', 'cults3d', 'nexprint', 'creality', 'makeronline', 'myminifactory', 'makeroad', 'thangs', 'thingiverse'].includes(platform)) {
     throw new Error('Blocked an unsupported desktop account platform.');
   }
   if (target.origin !== expected.origin || !target.pathname.startsWith(`/api/v1/${platform}/web/`)) {

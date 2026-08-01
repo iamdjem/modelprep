@@ -60,6 +60,7 @@ test('regular payload preserves raw-file, profile, compatibility, BOM, and Cyber
     },
     boms: { otherParts: [{ name: 'M3 screw', quantity: 4 }, { name: '  ', quantity: 1 }] },
     cyberBrick: { controlConfig: [{ uniKey: 'control', name: 'control.json', size: 5, url: 'https://cdn/control.json' }] },
+    designVideo: [{ name: 'turntable.mov', url: 'https://cdn/turntable.mov' }],
   }, 'publish');
 
   assert.equal(payload.modelFiles[0].file.path, 'CAD/source.step');
@@ -73,6 +74,7 @@ test('regular payload preserves raw-file, profile, compatibility, BOM, and Cyber
   assert.equal(payload.bomsNeeded, true);
   assert.deepEqual(payload.bomsOfOtherPartList, [{ name: 'M3 screw', quantity: 4 }]);
   assert.equal(payload.cyberBrick.cyberBrickNeeded, true);
+  assert.deepEqual(payload.designVideo, [{ name: 'turntable.mov', url: 'https://cdn/turntable.mov' }]);
 });
 
 test('Laser & Cut .lac payload keeps the package separate from raw files and sends profile metadata', () => {
@@ -152,6 +154,7 @@ test('regular draft status exposes the published design and profile ids', async 
     profileId: 3500162,
     title: 'Articulating Desk Dragon — Print-in-Place',
     profileTitle: 'desk-dragon-bambu',
+    designVideo: [{ name: 'turntable.mov', url: 'https://cdn/turntable.mov' }],
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   try {
     assert.deepEqual(await mwDraftStatus({ cookie: 'token=test' }, 9000902), {
@@ -164,6 +167,7 @@ test('regular draft status exposes the published design and profile ids', async 
       status: 1,
       designId: 3104770,
       profileId: 3500162,
+      designVideo: [{ name: 'turntable.mov', url: 'https://cdn/turntable.mov' }],
     });
   } finally { globalThis.fetch = previousFetch; }
 });

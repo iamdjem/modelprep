@@ -12,6 +12,22 @@ test('regular validation mirrors MakerWorld profile and total-size gates', () =>
   assert.ok(issues.includes('a 3MF upload requires printProfile'));
 });
 
+test('regular validation accepts one MP4 or MOV model video and rejects invalid media', () => {
+  const base = {
+    title: 'Model', description: '<p>Model</p>', categoryId: 401,
+    coverUrl: 'https://cdn/cover.jpg', coverPortraitUrl: 'https://cdn/portrait.jpg',
+    modelFiles: [{ modelName: 'model.stl', modelSize: 10, modelType: 'stl', modelUrl: 'https://cdn/model.stl' }],
+  };
+  assert.deepEqual(validateMakerWorldPublish({ ...base, designVideo: [{ name: 'demo.mov', url: 'https://cdn/demo.mov' }] }), []);
+  const issues = validateMakerWorldPublish({ ...base, designVideo: [
+    { name: 'one.mp4', url: 'https://cdn/one.mp4' },
+    { name: 'two.webm', url: '' },
+  ] });
+  assert.ok(issues.includes('at most one model video is allowed'));
+  assert.ok(issues.includes('model video url is required'));
+  assert.ok(issues.includes('model video must be MP4 or MOV'));
+});
+
 test('Laser & Cut .lac validation requires profile data and enforces file size', () => {
   const issues = validateLaserCutPublish({
     title: 'Laser box', pictures: ['https://cdn/cover.jpg'],

@@ -4,6 +4,12 @@ This is the canonical reference for everything ModelPrep knows about Cults3D's r
 
 For the high-level architecture (how this fits with the GraphQL flow, R2, CDN, etc.) see [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md). This doc is the deep dive on the web flow itself.
 
+The authenticated production create, edit, price, API, and GraphQL-documentation
+pages plus the current uploader bundle were re-audited on **2026-07-29**. See
+`platform-upload-requirements-live.md` for the current full option taxonomy,
+file/media formats and limits, price/license/visibility values, production
+fingerprints, and the current ModelPrep gap ledger.
+
 ---
 
 ## Why this exists
@@ -18,11 +24,31 @@ Cults3D's **public GraphQL API** (`cultsCreateCreation` mutation) has hard limit
 
 The Cults **web upload form** has none of those limits — it accepts plain-text tags, supports `secret` visibility, has an unpublish/deactivate endpoint, and uploads files directly to Cults's own S3 bucket. The only catch is that it's undocumented internal infrastructure that Cults can change without notice.
 
+### Desktop transport versus web fallback
+
+The packaged Electron app executes this flow in `desktop/cults-direct.js`.
+Credentials are validated directly with Cults, encrypted with Electron
+`safeStorage`, and keyed by an opaque account ID exposed to the renderer. The
+renderer serializes metadata and files over the context-isolated preload
+bridge; Electron main then calls Cults and Cults's signed S3 endpoint directly.
+No password or Cults upload bytes pass through the ModelPrep Worker.
+
+The browser build retains `/api/v1/cults3d/web/*` as a compatibility fallback.
+That Worker route is unsuitable for a normal full gallery on Cloudflare's
+50-subrequest plan: login costs 3 upstream requests, every file costs 3
+(policy, S3 upload, registration), and create/publish cost 2. Total:
+`5 + 3 × uploaded files`; the 19-file demo requires 62. The desktop regression
+test intentionally completes all 62 requests without contacting the Worker.
+
 ---
 
 ## Origin — where the knowledge came from
 
 The web-flow request shapes were captured by a separate agent working in a different repo (`MakerStats-Android`) on 2026-05-23. They did one complete manual upload + one delete on cults3d.com with Chrome DevTools Network panel recording, then sanitized the requests (cookies, CSRF tokens, S3 signatures, AWS credentials, UUIDs all redacted) and handed off the result.
+
+The 2026-07-29 read-only audit independently confirmed the same form actions,
+field names, S3 policy/register sequence, pricing enums, visibility values, and
+current upload constraints without submitting a listing.
 
 ### Where the raw captures live
 
@@ -68,7 +94,9 @@ sed -n '1,200p' output/cults-capture/sanitized/408-publish-price-body.txt
 
 ## End-to-end request sequence
 
-One full publish = 6 logical steps = ~10 HTTP requests. All requests except the S3 PUTs go through `https://cults3d.com/...`.
+One full publish = 6 logical steps. The exact request count is
+`5 + 3 × uploaded files`. All requests except the S3 POSTs go through
+`https://cults3d.com/...`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -420,6 +448,11 @@ The GraphQL `metaTags: [String!]` accepts strings but validates each against an 
 
 For USER tags, use `flat_keywords` in the web flow — that's plain text, no validation.
 
+The complete current web-form meta-tag vocabulary was captured on 2026-07-29:
+`articulated`, `customizable`, `functional_part`, `hollow_model`,
+`multicolor`, `multi_material`, `no_support`, `print_in_place`, `remix`,
+`resin_print`, `scale_model`, and `scan`.
+
 ### 12. The `usages` field name was unfindable via GraphQL
 
 We probed every plausible enum name through `/api/v1/cults3d/probe-fields` — `CreationUsageEnum`, `CreationUsageTypeEnum`, `ManufacturingUsageEnum`, etc. — all rejected with "isn't a defined input type". The web flow uses `creation[usages][]=3dp` and just works. Some fields are only accessible through the web layer.
@@ -446,11 +479,19 @@ The cleanest reproduction account to use is the existing throwaway: `u05l7e8tls@
 
 ## Known unknowns / things to capture later
 
-- **`creation[meta_tags][]` full vocabulary** — we know `no_support` works; the rest of the list is unknown. The upload form has a dropdown — capture its `<option>` values to seed a mapping.
-- **`creation[sub_category_ids][]`** — we don't currently send these (the frontend only has top-level categories). The form has them as a checklist. Capture per-category to know what's valid.
-- **Permanent delete** — does NOT appear to exist via web. Worth checking Cults's "Account → Delete my account" or contacting them.
-- **Bulk operations** — there's a `bulk_update_to_open_price` endpoint visible on /en/creations/mine; haven't explored.
-- **Drafts vs. published** — does Cults have a way to save a draft that's NOT visible at all (not even as a "secret" listing)? The current `unpublish` deactivates but the listing persists.
+- **Media count and ratio** — the current uploader exposes no total media cap or
+  fixed upload-time crop. ModelPrep preserves original media and no longer
+  presents the former 20-media/1:1 guesses as Cults requirements.
+- **Title/description/details caps** — no current `maxlength` attributes were
+  present; server-side maximums remain unknown.
+- **Currency-specific pricing bounds** — the live USD page exposed
+  0.65–1200.00 for fixed price and 0–1200.00 for open price; other currencies
+  must be read from their own current price page.
+- **Bulk operations** — a `bulk_update_to_open_price` endpoint is visible on
+  `/en/creations/mine`; it has not been explored.
+- **Dedicated live matrix** — paid/open-price, WebM/MP4, multi-usage, three
+  subcategories, every meta tag, public/secret/deactivated transitions, and
+  cleanup still need disposable-listing certification.
 
 ---
 

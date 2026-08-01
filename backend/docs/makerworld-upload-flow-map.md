@@ -1,6 +1,11 @@
-# MakerWorld upload flow map
+# MakerWorld upload flow map - historical July 18 snapshot
 
-Current implementation map for ModelPrep's MakerWorld integration.
+> Use `makerworld-web-flow.md`, `platform-upload-requirements-live.md`, and
+> `modelprep-current-handoff-2026-08-01.md` for current behavior. This file
+> preserves the earlier Worker/browser account model and must not override the
+> current direct Electron implementation.
+
+Historical implementation map for ModelPrep's MakerWorld integration.
 Last code and live-form verification: **2026-07-18**.
 
 This document answers three separate questions:
