@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('modelprepDesktop', {
   isDesktop: true,
-  bridgeVersion: 7,
+  bridgeVersion: 8,
   // Returns aggregate process/resource counts only. No project, platform,
   // account, request, file, URL, cookie, or token data crosses this channel.
   captureResourceTelemetry: (state) => ipcRenderer.invoke('telemetry:resource-snapshot', state),
@@ -42,9 +42,9 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   requestPrintables: (request) => ipcRenderer.invoke('printables:request', request),
   printablesStatus: () => ipcRenderer.invoke('printables:status'),
   disconnectPrintables: () => ipcRenderer.invoke('printables:disconnect'),
-  // Cults credentials are validated directly against Cults3D, encrypted by
-  // safeStorage, and referenced in the renderer only by an opaque account id.
-  connectCults: (credentials) => ipcRenderer.invoke('cults:connect', credentials),
+  // Cults opens its real sign-in/security-check page in a per-account Chromium
+  // partition. Cookies stay in Electron; the renderer sees only an opaque id.
+  connectCults: (options) => ipcRenderer.invoke('cults:connect', options),
   requestCults: (request) => ipcRenderer.invoke('cults:request', request),
   cultsStatus: (accountId) => ipcRenderer.invoke('cults:status', accountId),
   disconnectCults: (accountId) => ipcRenderer.invoke('cults:disconnect', accountId),

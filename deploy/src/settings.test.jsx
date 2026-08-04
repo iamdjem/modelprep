@@ -284,29 +284,26 @@ describe('Unified Settings page', () => {
     expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
   });
 
-  it('stores only an opaque Cults account id after desktop credential validation', async () => {
+  it('stores only an opaque Cults account id after browser-window sign-in', async () => {
     const connectCults = vi.fn().mockResolvedValue({
       ok: true,
       accountId: 'encrypted-account-123',
-      email: 'creator@example.com',
+      label: 'Cults creator',
     });
     window.modelprepDesktop = { isDesktop: true, connectCults };
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /settings/i }));
-    const cultsEmail = screen.getByPlaceholderText('Cults3D email');
-    const cultsForm = cultsEmail.closest('.space-y-1\\.5');
-    await user.type(cultsEmail, 'creator@example.com');
-    await user.type(within(cultsForm).getByPlaceholderText('Password'), 'super-secret-password');
-    await user.click(within(cultsForm).getByRole('button', { name: /sign in to cults3d/i }));
+    const cultsButton = screen.getByRole('button', { name: /sign in via cults3d window/i });
+    const cultsForm = cultsButton.closest('.space-y-1\\.5');
+    expect(within(cultsForm).queryByPlaceholderText('Password')).not.toBeInTheDocument();
+    expect(within(cultsForm).queryByPlaceholderText('Cults3D email')).not.toBeInTheDocument();
+    await user.click(cultsButton);
 
-    expect(connectCults).toHaveBeenCalledWith({
-      email: 'creator@example.com',
-      password: 'super-secret-password',
-    });
+    expect(connectCults).toHaveBeenCalledWith({ label: '' });
     const serialized = localStorage.getItem('modelprep:accounts');
     expect(serialized).toContain('desktop-managed-cults-credentials-v1:encrypted-account-123');
-    expect(serialized).not.toContain('super-secret-password');
+    expect(serialized).not.toContain('password');
   });
 
   // ── AI tab ──────────────────────────────────────────────────────────────────

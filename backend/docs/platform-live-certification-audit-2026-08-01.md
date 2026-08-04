@@ -296,3 +296,55 @@ was submitted and no account data was changed.
 This pass confirms that the safe-core mapping is complete for nine platforms at
 the currently reachable visual depth. It does **not** turn file-gated,
 account-gated, paid, public or destructive branches into certified behavior.
+
+## 2026-08-04 afternoon supplement — Creality file-staged pass and re-verification
+
+Creality Cloud's file-gated shell was resolved with an authorized staging pass:
+a harmless 1.44 KB `test-cube.stl` fixture was staged through the native
+create-model form in signed-in Chrome. No Submit was clicked and no
+model/draft/listing was created; the sole retained server-side artifact is one
+unused OSS staging object `model/273387bf4cbd5f0c919e9ad79d3e8b6f.stl`
+(internal staging bucket `internal-creality-usa.oss-us-east-1.aliyuncs.com`).
+Full findings are recorded in `creality-web-flow.md` ("File-staged form audit
+(2026-08-04)"). Highlights:
+
+- The form is not file-gated as previously assumed: every section renders
+  pre-file below the fold; only printer-compatibility checkboxes (post-`.3mf`
+  parse) and the hidden, disabled Set Price section are conditional.
+- New enforced limits: 30 characters per tag (input-level), 60-character
+  editable per-file display name, 60-character per-file note, 60-character
+  folder names.
+- Visibility radios: Public=1 is the native default; ModelPrep always sends
+  explicit `isShared` (verified in `creality-direct.js`).
+- License three-question flow, CC BY-NC-ND and CXY-SL resolution verified live.
+- Implemented from this evidence: per-tag 30-character preflight error in the
+  renderer and a matching `normalizeTags` guard in the desktop adapter, both
+  covered by focused tests.
+- Submit-triggered validation texts remain uncaptured (submit click is outside
+  the authorized read-only scope). The `.3mf` print-settings parse/conversion
+  flow was not exercised and remains mapped-but-gated.
+
+Automated re-verification after these changes (2026-08-04 afternoon):
+
+- Renderer: **38 files, 225/225 tests passed** (one new Creality tag test).
+- Desktop: **144/144 tests passed** (includes the new adapter tag-limit
+  assertion).
+- Backend: **31/31 tests passed**; `tsc --noEmit` passed.
+- Production renderer build passed; only the usual large-chunk advisory.
+- The rebuilt arm64 bundle was signed with **Developer ID Application:
+  Aleksei Adzhem (UTZ4TVACJS)** (identity available again in this session) and
+  passed `codesign --verify --deep --strict`. Notarization was skipped by
+  electron-builder (`APPLE_TEAM_ID` not set), so notarization evidence is still
+  outstanding.
+- The `--verify` launcher confirmed the exact bundle's main process and
+  renderer both stayed up.
+- MyMiniFactory Scan The World: the user confirmed on 2026-08-04 that it is out
+  of ModelPrep product scope; it stays documented-only and unserialized, and
+  `license_store` stays unmapped.
+- A concurrent Cults3D managed-session refactor (per-account
+  `persist:cults-<id>` partitions, interactive reconnect window, Cloudflare
+  challenge detection, credential-free v2 account records) landed in the
+  worktree during this pass; a variable-shadowing syntax error in its
+  `cults-direct.js` publish path was fixed (`request` → `requestFetch`) and the
+  full desktop suite passes with it. Its live reconnect certification is still
+  pending interactive sign-in.

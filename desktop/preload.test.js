@@ -33,7 +33,7 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   );
 
   assert.equal(exposed.isDesktop, true);
-  assert.equal(exposed.bridgeVersion, 7);
+  assert.equal(exposed.bridgeVersion, 8);
   assert.equal(typeof exposed.captureResourceTelemetry, 'function');
   assert.equal(typeof exposed.pickGalleryImages, 'function');
   assert.equal(typeof exposed.discoverAccounts, 'function');

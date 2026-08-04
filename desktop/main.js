@@ -14,7 +14,7 @@ const { validateWorkerUrl } = require('./auth-bridge');
 const { resolveRendererTarget, isRendererNavigation } = require('./renderer-target');
 const { handlePrintablesRequest, printablesWhoamiDirect } = require('./printables-direct');
 const { createPrintablesSessionCache } = require('./printables-session-cache');
-const { createCultsDirectClient } = require('./cults-direct');
+const { CULTS_BASE, createCultsDirectClient } = require('./cults-direct');
 const { handleMakerWorldRequest, makerWorldLoginDirect } = require('./makerworld-direct.cjs');
 const { createNexprintDirectClient } = require('./nexprint-direct');
 const { CREATE_URL: CREALITY_LOGIN_URL, createCrealityDirectClient } = require('./creality-direct');
@@ -80,6 +80,7 @@ const NEXPRINT_LOGIN_URL = 'https://www.nexprint.com/en/upload';
 const WORKER_URL = process.env.MODELPREP_WORKER_URL || 'https://modelprep-backend.iamdjem.workers.dev';
 const MW_PARTITION = 'persist:makerworld'; // persistent session so cf_clearance survives
 const PRINTABLES_PARTITION = 'persist:printables';
+const CULTS_PARTITION_PREFIX = 'persist:cults-';
 const NEXPRINT_PARTITION = 'persist:nexprint';
 const CREALITY_PARTITION = 'persist:creality';
 const MAKERONLINE_PARTITION = 'persist:makeronline';
@@ -89,7 +90,10 @@ const THANGS_PARTITION = 'persist:thangs';
 const THINGIVERSE_PARTITION = 'persist:thingiverse';
 const WANT = ['token', 'cf_clearance', 'refreshToken'];
 const printablesAuthCache = createPrintablesSessionCache();
-const cultsDirectClient = createCultsDirectClient();
+const cultsDirectClient = createCultsDirectClient({
+  fetchImplForAccount: (accountId) => cultsBrowserFetch(accountId),
+  managedSession: true,
+});
 const nexprintDirectClient = createNexprintDirectClient();
 const crealityDirectClient = createCrealityDirectClient();
 const makerOnlineDirectClient = createMakerOnlineDirectClient();
@@ -113,6 +117,24 @@ let thingiverseContextCache = null;
 
 function mwSession() { return session.fromPartition(MW_PARTITION); }
 function printablesSession() { return session.fromPartition(PRINTABLES_PARTITION); }
+function cultsPartition(accountId) {
+  const id = String(accountId || '');
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id)) throw new Error('Invalid Cults3D account id.');
+  return `${CULTS_PARTITION_PREFIX}${id}`;
+}
+function cultsBrowserSession(accountId) { return session.fromPartition(cultsPartition(accountId)); }
+function cultsBrowserFetch(accountId) {
+  return async (url, options = {}) => {
+    const headers = new Headers(options.headers || {});
+    headers.delete('Cookie');
+    headers.set('User-Agent', WORKER_UA);
+    return cultsBrowserSession(accountId).fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
+  };
+}
 function nexprintSession() { return session.fromPartition(NEXPRINT_PARTITION); }
 function crealitySession() { return session.fromPartition(CREALITY_PARTITION); }
 function makerOnlineSession() { return session.fromPartition(MAKERONLINE_PARTITION); }
@@ -370,15 +392,14 @@ async function storeEncryptedCultsAccounts(accounts) {
   }
   const target = encryptedCultsAccountsPath();
   await fs.mkdir(path.dirname(target), { recursive: true });
-  const encrypted = safeStorage.encryptString(JSON.stringify({ version: 1, accounts }));
+  const encrypted = safeStorage.encryptString(JSON.stringify({ version: 2, accounts }));
   await fs.writeFile(target, encrypted, { mode: 0o600 });
 }
 
-async function readCultsCredentials(accountId) {
+async function readCultsAccount(accountId) {
   if (!accountId || typeof accountId !== 'string') return null;
   const accounts = await readEncryptedCultsAccounts();
-  const credentials = accounts[accountId];
-  return credentials?.email && credentials?.password ? credentials : null;
+  return accounts[accountId] || null;
 }
 
 // Read MakerWorld cookies from the embedded session; return the assembled string or null.
@@ -894,10 +915,10 @@ async function recoverDesktopAccount(platform, accountId = '') {
   }
   if (platform === 'cults') {
     const accounts = await readEncryptedCultsAccounts();
-    const credentials = accounts[String(accountId || '')];
-    if (!credentials?.email || !credentials?.password) return { ok: false, needsInteractive: true };
+    const account = accounts[String(accountId || '')];
+    if (!account || account?.password) return { ok: false, needsInteractive: true };
     try {
-      const identity = await cultsDirectClient.connect(credentials, String(accountId));
+      const identity = await cultsDirectClient.connect(null, String(accountId));
       return { ok: true, user: identity, recovered: true };
     } catch { return { ok: false, needsInteractive: true }; }
   }
@@ -1019,6 +1040,66 @@ function openPrintablesLoginAndCapture(parent) {
         clearTimeout(timer);
         reject(new Error('Sign-in window was closed.'));
       }
+    });
+  });
+}
+
+function openCultsLoginAndCapture(parent, accountId) {
+  return new Promise((resolve, reject) => {
+    const partition = cultsPartition(accountId);
+    const login = new BrowserWindow({
+      width: 860, height: 900, parent, modal: false, title: 'Sign in to Cults3D',
+      webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
+    });
+    login.webContents.setUserAgent(WORKER_UA);
+    login.loadURL(`${CULTS_BASE}/en/users/sign-in`, { userAgent: WORKER_UA });
+    login.webContents.setWindowOpenHandler(() => ({
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: login, width: 620, height: 780,
+        webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
+      },
+    }));
+    login.webContents.on('did-create-window', (child) => {
+      try { child.webContents.setUserAgent(WORKER_UA); } catch { /* */ }
+    });
+
+    let done = false;
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      clearTimeout(timer);
+      if (!login.isDestroyed()) login.close();
+      fn(value);
+    };
+    const attempt = async () => {
+      if (done) return;
+      try {
+        const identity = await cultsDirectClient.connect(null, accountId);
+        finish(resolve, identity);
+      } catch { /* Cloudflare or sign-in is still in progress */ }
+    };
+    const poll = setInterval(attempt, 1200);
+    login.webContents.on('did-finish-load', attempt);
+    login.webContents.on('did-navigate', attempt);
+    login.webContents.on('did-navigate-in-page', attempt);
+    const timer = setTimeout(
+      () => finish(reject, new Error('Cults3D sign-in timed out — please try again.')),
+      10 * 60 * 1000,
+    );
+    login.on('closed', async () => {
+      if (done) return;
+      clearInterval(poll);
+      clearTimeout(timer);
+      try {
+        const identity = await cultsDirectClient.connect(null, accountId);
+        done = true;
+        resolve(identity);
+        return;
+      } catch { /* report the normal close result below */ }
+      done = true;
+      reject(new Error('Sign-in window was closed before ModelPrep could verify the Cults3D session.'));
     });
   });
 }
@@ -1425,18 +1506,21 @@ ipcMain.handle('printables:disconnect', async () => {
   return { ok: true };
 });
 
-ipcMain.handle('cults:connect', async (_event, payload = {}) => {
-  const email = String(payload.email || '').trim();
-  const password = String(payload.password || '');
-  if (!email || !password) return { ok: false, error: 'Cults3D email and password are required.' };
+ipcMain.handle('cults:connect', async (event, payload = {}) => {
   const accounts = await readEncryptedCultsAccounts();
-  const existingId = Object.entries(accounts).find(([, value]) => value?.email === email)?.[0];
-  const accountId = existingId || randomUUID();
+  const requestedId = String(payload.accountId || '');
+  const accountId = requestedId && accounts[requestedId] ? requestedId : randomUUID();
+  const label = String(payload.label || accounts[accountId]?.label || accounts[accountId]?.email || 'Cults3D').trim() || 'Cults3D';
   try {
-    await cultsDirectClient.connect({ email, password }, accountId);
-    accounts[accountId] = { email, password };
+    try {
+      await cultsDirectClient.connect(null, accountId);
+    } catch {
+      const parent = BrowserWindow.fromWebContents(event.sender);
+      await openCultsLoginAndCapture(parent, accountId);
+    }
+    accounts[accountId] = { label, sessionVersion: 2 };
     await storeEncryptedCultsAccounts(accounts);
-    return { ok: true, accountId, email };
+    return { ok: true, accountId, label, user: { label } };
   } catch (error) {
     cultsDirectClient.clear(accountId);
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -1444,14 +1528,20 @@ ipcMain.handle('cults:connect', async (_event, payload = {}) => {
 });
 
 ipcMain.handle('cults:status', async (_event, accountId) => {
-  const credentials = await readCultsCredentials(accountId);
-  return { connected: !!credentials, email: credentials?.email || null };
+  const account = await readCultsAccount(accountId);
+  if (!account || account?.password) return { connected: false, needsInteractive: true };
+  try {
+    await cultsDirectClient.connect(null, String(accountId));
+    return { connected: true, label: account.label || 'Cults3D' };
+  } catch (error) {
+    return { connected: false, needsInteractive: true, error: error instanceof Error ? error.message : String(error) };
+  }
 });
 
 ipcMain.handle('cults:request', async (_event, request = {}) => {
   const accountId = String(request.accountId || '');
-  const credentials = await readCultsCredentials(accountId);
-  if (!credentials) {
+  const account = await readCultsAccount(accountId);
+  if (!account || account?.password) {
     return {
       status: 401,
       headers: { 'content-type': 'application/json' },
@@ -1459,7 +1549,7 @@ ipcMain.handle('cults:request', async (_event, request = {}) => {
     };
   }
   const url = validateWorkerUrl(request.url, WORKER_URL, 'cults3d');
-  return cultsDirectClient.handleRequest({ ...request, url }, credentials, accountId);
+  return cultsDirectClient.handleRequest({ ...request, url }, null, accountId);
 });
 
 ipcMain.handle('cults:disconnect', async (_event, accountId) => {
@@ -1469,6 +1559,7 @@ ipcMain.handle('cults:disconnect', async (_event, accountId) => {
     delete accounts[id];
     await storeEncryptedCultsAccounts(accounts);
   }
+  if (id) await cultsBrowserSession(id).clearStorageData();
   cultsDirectClient.clear(id);
   return { ok: true };
 });
@@ -1629,12 +1720,18 @@ ipcMain.handle('accounts:discover', async () => {
       label: handle ? (publicUsername ? `${publicUsername} (@${handle})` : `@${handle}`) : 'Printables',
     });
   }
-  await Promise.all(Object.entries(cultsAccounts).map(async ([accountId, credentials]) => {
-    if (!credentials?.email || !credentials?.password) return;
+  await Promise.all(Object.entries(cultsAccounts).map(async ([accountId, account]) => {
+    const label = account?.label || account?.email || 'Cults3D';
+    if (account?.password) {
+      accounts.push({ platform: 'cults', accountId, label, needsReconnect: true });
+      return;
+    }
     try {
-      await cultsDirectClient.connect(credentials, accountId);
-      accounts.push({ platform: 'cults', accountId, label: credentials.email });
-    } catch { /* stale credentials stay encrypted but are marked reconnect below */ }
+      await cultsDirectClient.connect(null, accountId);
+      accounts.push({ platform: 'cults', accountId, label });
+    } catch {
+      accounts.push({ platform: 'cults', accountId, label, needsReconnect: true });
+    }
   }));
   if (nexprintContext?.identity) {
     const identity = nexprintContext.identity;

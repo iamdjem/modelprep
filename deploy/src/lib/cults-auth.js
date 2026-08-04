@@ -43,7 +43,9 @@ async function serializeBody(body) {
 
 /**
  * Packaged desktop builds send Cults routes to Electron main, which talks
- * directly to Cults/S3. Web builds retain the existing Worker fallback.
+ * directly to Cults/S3 through its per-account Chromium session. Full Cults
+ * publishing is desktop-only because browser/Worker password forwarding cannot
+ * complete Cults3D's current browser security challenge safely.
  */
 export async function cultsFetch(url, options = {}, secret = null) {
   const bridge = desktopBridge();
@@ -73,10 +75,14 @@ export async function cultsFetch(url, options = {}, secret = null) {
     });
   }
 
-  const headers = { ...(options.headers || {}) };
-  if (secret?.email && secret?.password && isCultsRoute) {
-    headers['X-Cults-Email'] = secret.email;
-    headers['X-Cults-Password'] = secret.password;
+  if (isCultsRoute) {
+    return new Response(JSON.stringify({
+      error: 'desktop_required',
+      message: 'Open this project in ModelPrep Desktop and reconnect Cults3D in its browser window.',
+    }), {
+      status: 409,
+      headers: { 'content-type': 'application/json' },
+    });
   }
-  return fetch(url, { ...options, headers });
+  return fetch(url, options);
 }

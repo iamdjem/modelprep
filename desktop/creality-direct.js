@@ -33,6 +33,7 @@ const CATEGORY_IDS = new Set([
 ]);
 const MAX_TITLE_CHARS = 60;
 const MAX_TAGS = 20;
+const MAX_TAG_CHARS = 30;
 const MAX_GALLERY_IMAGES = 9;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -132,6 +133,8 @@ function normalizeTags(tags) {
     .map((tag) => String(tag?.name ?? tag ?? '').trim())
     .filter(Boolean))];
   if (values.length > MAX_TAGS) throw new Error(`Creality allows at most ${MAX_TAGS} tags.`);
+  const long = values.find((tag) => [...tag].length > MAX_TAG_CHARS);
+  if (long) throw new Error(`Creality tags may not exceed ${MAX_TAG_CHARS} characters: “${long}”.`);
   return values;
 }
 

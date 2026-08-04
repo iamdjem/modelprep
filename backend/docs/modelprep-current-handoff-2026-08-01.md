@@ -103,7 +103,8 @@ Important platform-specific auth details:
 - MakerWorld: cookie/refresh-token session; direct email-code fallback preserves
   `tfaKey`; CAPTCHA falls back to the platform window.
 - Printables: Prusa OAuth/PKCE session and read-only GraphQL identity query.
-- Cults3D: per-account credentials encrypted in Electron; direct Rails/S3 flow.
+- Cults3D: per-account persistent Chromium session; direct Rails/S3 flow through
+  that partition so Cloudflare clearance and cookies stay browser-bound.
 - Nexprint: encrypted token/cookie state.
 - Creality Cloud: token, user id, device id, cookies, and short-lived Aliyun STS.
 - MakerOnline: raw decoded `mo_access_token` plus cookies; no `Bearer` prefix.
@@ -137,7 +138,7 @@ Important platform-specific auth details:
 |---|---|---|---|
 | MakerWorld | Regular 3D, raw files, Bambu 3MF profiles, covers/gallery/video transport, documentation/BOM, private/public, remix, Laser and Cut, readback | Connected; latest exact-app private receipt `9053658`; core four-way batch path live-certified | Live-certify video, genuine LAC final submit, public, CyberBrick/exclusive and optional matrices |
 | Printables | Draft/publish GraphQL flow, signed storage, original/remix, files/folders/notes, ordered media, native HEIC/HEIF selection and JPEG conversion, G-code/SLA/retained-ZIP handling, taxonomy/license and fail-closed readback | Connected; specialist draft `1797772` and public model `1797774` were created from the exact packaged app and read back | Delete public model only after confirmation; Store/Club eligible account, approval-gated account, remix/reupload, unpacked ZIP and rich-description upload round trips |
-| Cults3D | Rails/S3 two-page flow, Markdown, typed image/video media, files, taxonomy/subcategory, tags/meta-tags, license, price, secret/public, readback | Connected; latest exact-app secret listing slug ends `6f02ba1cd366b9cb06a5`; core four-way batch path live-certified | Paid/open-price, public, optional subcategories/usages and live video branch |
+| Cults3D | Rails/S3 two-page flow, Markdown, typed image/video media, files, taxonomy/subcategory, tags/meta-tags, license, price, secret/public, readback | Historical exact-app secret listing slug ends `6f02ba1cd366b9cb06a5`; current Chromium-session auth change is locally verified and awaits interactive packaged reconnect | Reconnect/read-only packaged verification; paid/open-price, public, optional subcategories/usages and live video branch |
 | MyMiniFactory | Passwordless session, Chromium fetch, images, presigned objects, hierarchical categories, license/declarations, print details, private/public, readback | Connected; latest exact-app private object `829056` passed app readback plus independent hydrated-editor verification. Current advanced-field readback hardening is locally verified | Public review branch and other optional paths; retain safe HTTP failure diagnostics |
 | Nexprint | REST/presign/register/create-or-update/readback, cover + gallery, model/BOM/attachments, taxonomy, license, draft/public | Connected; latest exact-app unpublished draft `2083625532272496640`; core path live-certified | Public, broader attachment/extension/activity eligibility combinations |
 | Creality Cloud | Aliyun upload, web/app covers, private/public create, existing-draft edit, taxonomy/license/print info, readback | Connected; latest exact-app private model `6a6e3f28753b84f6aab190a8`; Original/private core live-certified | Existing-draft edit, public, non-original attribution and account-gated branches |
@@ -657,6 +658,25 @@ Cross-platform work still open:
    peaks. Do not raise concurrency above four until that load evidence exists.
 3. Re-audit first-party DOM, bundle fingerprints, request schemas and unknown
    limits before public release or whenever a platform breaks.
+
+## 2026-08-04 Cults3D sign-in repair
+
+Cults now returns HTTP 403 with `cf-mitigated: challenge` to the old standalone
+Node sign-in request before credentials are submitted. The Rails/S3 publishing
+contract itself remains unchanged. ModelPrep now opens the real Cults sign-in
+and security check in a persistent Chromium partition per opaque account ID,
+validates `/en/creations/new`, and routes all Cults/S3 adapter traffic through
+that partition. Status and discovery are live-validated rather than inferred
+from stored credentials. Browser builds fail closed instead of forwarding a
+password to the Worker.
+
+Legacy main-process credential records are preserved until the browser
+reconnect succeeds, then overwritten with label/session metadata. Any legacy
+renderer password is scrubbed immediately and the account is marked reconnect.
+Focused adapter, preload, account-migration, auth-routing and Settings tests are
+local evidence only. A packaged interactive reconnect plus read-only create-page
+validation remains required; no upload or platform mutation is authorized by
+this repair.
 
 ## How to continue one platform at a time
 

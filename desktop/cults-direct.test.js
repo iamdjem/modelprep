@@ -216,6 +216,62 @@ test('connect rejects credentials when Cults returns the sign-in form', async ()
   assert.equal(count, 2);
 });
 
+test('managed Cults sessions validate the authenticated create page per account without credentials', async () => {
+  const calls = [];
+  const client = createCultsDirectClient({
+    managedSession: true,
+    fetchImplForAccount: (accountId) => async (url, options = {}) => {
+      calls.push({ accountId, url: String(url), options });
+      return response(htmlWithCsrf(`csrf-${accountId}`), { status: 200 });
+    },
+  });
+
+  await client.connect(null, 'account-one');
+  await client.connect(null, 'account-two');
+
+  assert.deepEqual(calls.map(({ accountId }) => accountId), ['account-one', 'account-two']);
+  assert.ok(calls.every(({ url }) => url === 'https://cults3d.com/en/creations/new'));
+  assert.ok(calls.every(({ options }) => options.redirect === 'manual'));
+});
+
+test('managed Cults sessions classify Cloudflare browser challenges as reconnectable auth failures', async () => {
+  const client = createCultsDirectClient({
+    managedSession: true,
+    fetchImplForAccount: () => async () => response('<title>Just a moment...</title>', {
+      status: 403,
+      headers: { 'cf-mitigated': 'challenge', 'content-type': 'text/html' },
+    }),
+  });
+
+  await assert.rejects(
+    () => client.connect(null, 'account-one'),
+    (error) => error?.code === 'CULTS_CHALLENGE_REQUIRED' && /browser security check/i.test(error.message),
+  );
+});
+
+test('managed Cults requests fail closed when the browser session is redirected back to sign-in', async () => {
+  let requestCount = 0;
+  const client = createCultsDirectClient({
+    managedSession: true,
+    fetchImplForAccount: () => async () => {
+      requestCount += 1;
+      if (requestCount === 1) return response(htmlWithCsrf('csrf-account'), { status: 200 });
+      const signedOut = response('<form>Sign in</form>', { status: 200 });
+      Object.defineProperty(signedOut, 'url', { value: 'https://cults3d.com/en/users/sign-in' });
+      return signedOut;
+    },
+  });
+  await client.connect(null, 'account-one');
+
+  const result = await client.handleRequest({
+    url: 'https://worker.example/api/v1/cults3d/web/my-creations',
+    method: 'GET',
+  }, null, 'account-one');
+
+  assert.equal(result.status, 401);
+  assert.equal(JSON.parse(result.body).error, 'missing_cults_session');
+});
+
 test('typed Cults media rejects an unsupported illustration before authentication', async () => {
   const client = createCultsDirectClient({ fetchImpl: async () => { throw new Error('must not authenticate'); } });
   const result = await client.handleRequest({

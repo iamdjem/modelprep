@@ -55,22 +55,16 @@ describe('desktop-managed Cults3D authentication', () => {
     ]));
   });
 
-  it('keeps web accounts on the Worker fallback with credential headers', async () => {
-    const rawFetch = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+  it('fails closed in web builds without forwarding legacy credentials', async () => {
+    const rawFetch = vi.fn();
     vi.stubGlobal('fetch', rawFetch);
-    await cultsFetch(
+    const response = await cultsFetch(
       'https://worker.example/api/v1/cults3d/web/my-creations',
       {},
       { email: 'web@example.com', password: 'secret' },
     );
-    expect(rawFetch).toHaveBeenCalledWith(
-      'https://worker.example/api/v1/cults3d/web/my-creations',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'X-Cults-Email': 'web@example.com',
-          'X-Cults-Password': 'secret',
-        }),
-      }),
-    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(expect.objectContaining({ error: 'desktop_required' }));
+    expect(rawFetch).not.toHaveBeenCalled();
   });
 });

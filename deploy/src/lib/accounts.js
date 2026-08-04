@@ -5,9 +5,8 @@
 //
 // - `secret` is whatever that platform needs to act as the user: MakerWorld web →
 //   the session cookie string; MakerWorld desktop → an opaque main-process marker;
-//   Cults web → { email, password }; Cults desktop → opaque encrypted-account id.
-//   Web secrets are stored only in this browser; desktop credentials live in
-//   Electron safeStorage and never persist in renderer storage.
+//   Cults desktop → opaque per-account Chromium-session id.
+//   Platform cookies remain in Electron and never persist in renderer storage.
 // - `status`: 'connected' | 'reconnect' | 'error' | 'unknown'.
 // - One account per platform is "active" (activeId) — that's what the publish step uses.
 // Multiple accounts per platform are supported (add/switch/remove), with isolation:
@@ -19,6 +18,17 @@ const KEY = 'modelprep:accounts';
 export const CONNECTABLE = ['makerworld', 'printables', 'cults', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs', 'thingiverse'];
 
 const uid = () => 'a_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+
+export function scrubLegacyCultsAccounts(platformState) {
+  if (!Array.isArray(platformState?.accounts)) return { platformState, changed: false };
+  let changed = false;
+  const accounts = platformState.accounts.map((account) => {
+    if (!account?.secret?.email || !account?.secret?.password) return account;
+    changed = true;
+    return { ...account, label: account.label || account.secret.email, secret: null, status: 'reconnect' };
+  });
+  return { platformState: changed ? { ...platformState, accounts } : platformState, changed };
+}
 
 function readRaw() {
   try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { return {}; }
@@ -38,10 +48,12 @@ function migrate(s) {
   if (s.cults === undefined) {
     try {
       const p = JSON.parse(localStorage.getItem('modelprep:cults-web-creds') || 'null');
-      if (p?.email && p?.password) { s.cults = wrap({ id: uid(), label: p.email, secret: p, status: 'connected', addedAt: Date.now() }); changed = true; }
+      if (p?.email && p?.password) { s.cults = wrap({ id: uid(), label: p.email, secret: null, status: 'reconnect', addedAt: Date.now() }); changed = true; }
       localStorage.removeItem('modelprep:cults-web-creds');
     } catch { /* ignore */ }
   }
+  const scrubbed = scrubLegacyCultsAccounts(s.cults);
+  if (scrubbed.changed) { s.cults = scrubbed.platformState; changed = true; }
   return changed;
 }
 const wrap = (acct) => ({ accounts: [acct], activeId: acct.id });
@@ -90,12 +102,12 @@ export function removeAccount(platform, id) {
 }
 
 /** Add or refresh an opaque desktop account marker without duplicating it. */
-export function rehydrateDesktopAccount(platform, { label, secret }) {
+export function rehydrateDesktopAccount(platform, { label, secret, status = 'connected' }) {
   const existing = getAccounts(platform).find((account) => account.secret === secret);
-  if (!existing) return addAccount(platform, { label, secret, status: 'connected' });
-  updateAccount(platform, existing.id, { label: label || existing.label, status: 'connected' });
+  if (!existing) return addAccount(platform, { label, secret, status });
+  updateAccount(platform, existing.id, { label: label || existing.label, status });
   setActive(platform, existing.id);
-  return { ...existing, label: label || existing.label, status: 'connected' };
+  return { ...existing, label: label || existing.label, status };
 }
 
 /** Subscribe a component to the store; returns the action helpers (which read live state). */

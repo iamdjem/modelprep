@@ -47,6 +47,20 @@ test('Creality validation rejects unsupported upload types and non-original dire
     models: [{ fileKey: 'model/a.stl', name: 'a.stl' }],
   });
   assert.match(staleCategoryIssues.join(' '), /current model taxonomy/i);
+  assert.throws(
+    () => validateSubmit({
+      title: 'Long tag',
+      categoryId: '1575',
+      license: 'CC BY-NC',
+      modelSource: 1,
+      publication: 'private',
+      pcCover: { url: 'https://pic/pc.webp' },
+      appCover: { url: 'https://pic/app.webp' },
+      models: [{ fileKey: 'model/a.stl', name: 'a.stl' }],
+      tags: ['this-tag-is-thirty-one-chars-xx'],
+    }),
+    /tags may not exceed 30 characters/i,
+  );
 });
 
 test('Creality upload mirrors the production multipart transport and mapped CDN', async () => {

@@ -368,3 +368,70 @@ test. No public model was created.
 This certifies this account's Original/private STL + cover create/read-back path. It
 does not certify editing an existing Draft, public publishing, other model extensions, instruction files,
 multiple gallery images, Remix/Non-original, paid models, or parsed Print Settings Info.
+
+## File-staged form audit (2026-08-04)
+
+Signed-in Chrome audit of `create-model-new` with a harmless 1.44 KB fixture
+(`test-cube.stl`) staged through the native model-file input. No Submit was
+clicked, no model/draft was created, no form was persisted. The only server-side
+artifact is one unused OSS staging object,
+`model/273387bf4cbd5f0c919e9ad79d3e8b6f.stl`, in the internal staging bucket
+(bucket host observed live: `internal-creality-usa.oss-us-east-1.aliyuncs.com`),
+confirming the documented `model/<content-md5>.<ext>` key pattern and
+`getAliyunInfo` STS transport end to end.
+
+Corrected understanding of gating: the complete form — license questions,
+visibility, description, instruction files and Print Settings Info — is rendered
+in the DOM before any file is selected (it sits below the fold inside the
+`/flowprint/create-model` iframe, `second-step` layout). The only truly gated
+controls are the printer-compatibility checkboxes, which stay disabled until a
+`.3mf` print-settings file has been parsed, and the price section described
+below.
+
+New form-contract details confirmed live:
+
+- The model-file `accept` attribute adds MIME types beyond the ten extensions:
+  `model/stl`, `model/obj`, `model/mtl`, `model/ply`, `model/3mf`,
+  `model/vnd.3ds`, `model/vnd.collada+xml`, `model/step`,
+  `application/vnd.ms-package.3dmanufacturing-3dmodel+xml`,
+  `application/octet-stream`.
+- Each staged file row exposes an editable display-name input (60 characters,
+  the extension is a fixed suffix), a per-file `note` input (60 characters), a
+  drag-reorder handle and a delete control. Folder names are editable, also 60
+  characters, defaulting to `default`.
+- Each tag is limited to 30 characters at the input level, in addition to the
+  20-tag cap.
+- The visible cover/gallery label reads `jpg/gif/png, ≤ 20MB`, while the actual
+  image `accept` attribute is `.jpeg,.png,.jpg,.webp,.gif` — `webp` is accepted
+  by the input but not advertised. Do not advertise webp in ModelPrep until the
+  create service is proven to accept it.
+- Visibility radios: Public = `1` (the default selection), Private = `0`.
+  Because the native default is Public, ModelPrep must always send an explicit
+  `isShared` value.
+- A **Set Price / Model Sale Agreement** section exists in the bundle with
+  radios Free = `0` and Paid = `1` ("You can set pricing after uploading the
+  model file."). On this Premium account and form state it is rendered
+  `display:none` **and** disabled, so paid publishing remains account/state
+  gated exactly as `checkUserCondition` implies. It was not enabled or
+  exercised.
+- License question flow verified live: adaptations No + commercial No reveals
+  the third question ("Allow sharing or redistributing of your work or its
+  derivatives?"); Yes resolves to CC BY-NC-ND and No resolves to the CXY
+  standard license ("personal use only") under the "Copyright License 4.0"
+  banner, matching the existing combination table.
+- Selecting Remix Models or Non-original reveals the same source field ("Paste
+  the URL or directly search for models within Creality Cloud.") plus the
+  CC BY-ND / CC BY-NC-ND no-derivatives warning. No proof-image (`workRegist`)
+  section renders before a source is chosen; that sub-branch remains unmapped.
+- Switching Model Source cleared the staged file list in this session; treat
+  source selection as destructive to staged files until proven otherwise.
+- The current hot/compatible printer list rendered as: K2 Plus, K2 Pro, K2,
+  K2 SE, SPARKX i7, Creality Hi, Ender-3 V4, K1 Max 2025_CFS-C, K1C 2025_CFS-C,
+  K1 SE_CFS-C, K1_CFS-C, K1C_CFS-C, plus **More Models** — live taxonomy, do
+  not hard-code.
+- Form validation is submit-triggered only; field blur produces no messages.
+  Submit was not clicked (explicitly out of the authorized read-only scope), so
+  the exact required-field message texts remain uncaptured.
+- The `.3mf` Print Settings parse/conversion flow was not exercised (no
+  print-settings file was staged); it stays classified as mapped but
+  action-gated pending ModelPrep's real `.3mf` parser.

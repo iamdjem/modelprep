@@ -23,8 +23,8 @@ implemented and fail-closed against canonical edit-state IDs/order/filenames,
 but no typed-video listing has been live-certified. Public, paid/open-price,
 usage/subcategory/meta-tag and deactivate/reactivate branches remain separate.
 
-Follow-up local validation audit: both the direct Electron and Worker fallback
-now accept the live uploader's JPEG/PNG/WebP/**GIF** images and MP4/WebM videos,
+Follow-up local validation audit: both the direct Electron adapter and legacy
+Worker adapter accept the live uploader's JPEG/PNG/WebP/**GIF** images and MP4/WebM videos,
 require an image cover before any video, and reject every media item above
 10 MiB before authentication or storage upload. This closes a transport-parity
 gap; it is local verification only and creates no new Cults artifact.
@@ -127,21 +127,31 @@ Cults3D's **public GraphQL API** (`cultsCreateCreation` mutation) has hard limit
 
 The Cults **web upload form** has none of those limits — it accepts plain-text tags, supports `secret` visibility, has an unpublish/deactivate endpoint, and uploads files directly to Cults's own S3 bucket. The only catch is that it's undocumented internal infrastructure that Cults can change without notice.
 
-### Desktop transport versus web fallback
+### Desktop transport and browser security challenge
 
 The packaged Electron app executes this flow in `desktop/cults-direct.js`.
-Credentials are validated directly with Cults, encrypted with Electron
-`safeStorage`, and keyed by an opaque account ID exposed to the renderer. The
-renderer serializes metadata and files over the context-isolated preload
-bridge; Electron main then calls Cults and Cults's signed S3 endpoint directly.
-No password or Cults upload bytes pass through the ModelPrep Worker.
+Each account signs in on Cults3D's real page inside its own persistent Chromium
+partition. Cults cookies and Cloudflare clearance stay in that partition; the
+renderer sees only an opaque account ID. Electron validates the authenticated
+`/en/creations/new` page, extracts a fresh CSRF token, and routes the existing
+Rails/S3 adapter through that same partition with `session.fetch`. The renderer
+never receives or stores a Cults password, and no password or upload bytes pass
+through the ModelPrep Worker.
 
-The browser build retains `/api/v1/cults3d/web/*` as a compatibility fallback.
-That Worker route is unsuitable for a normal full gallery on Cloudflare's
-50-subrequest plan: login costs 3 upstream requests, every file costs 3
-(policy, S3 upload, registration), and create/publish cost 2. Total:
-`5 + 3 × uploaded files`; the 19-file demo requires 62. The desktop regression
-test intentionally completes all 62 requests without contacting the Worker.
+This replaced direct Node `fetch` login after Cults began returning HTTP 403
+with `cf-mitigated: challenge` before credentials were submitted. Challenge
+responses now fail as `cults_challenge_required` and lead the user back to the
+browser-window reconnect flow instead of being reported as bad credentials.
+Legacy encrypted email/password records are retained until reconnect succeeds,
+then overwritten by session-only metadata; legacy renderer passwords are
+scrubbed immediately and marked reconnect.
+
+Browser builds now fail closed with `desktop_required` for Cults routes. The
+Worker endpoints remain only as compatibility/reference code: forwarding a
+password cannot safely complete the current browser challenge, and a normal
+full gallery also exceeds Cloudflare's 50-subrequest plan (`5 + 3 × uploaded
+files`; the 19-file demo requires 62). The desktop regression test intentionally
+completes the same request shape without contacting the Worker.
 
 ---
 

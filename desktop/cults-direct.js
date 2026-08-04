@@ -67,7 +67,40 @@ function jsonResponse(body, status = 200) {
 
 function errorResponse(error) {
   const message = error instanceof Error ? error.message : String(error);
+  if (error?.code === 'CULTS_CHALLENGE_REQUIRED') {
+    return jsonResponse({ error: 'cults_challenge_required', message }, 401);
+  }
+  if (error?.code === 'CULTS_SESSION_REQUIRED') {
+    return jsonResponse({ error: 'missing_cults_session', message }, 401);
+  }
   return jsonResponse({ error: 'web_flow_failed', message }, 502);
+}
+
+class CultsSessionError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'CultsSessionError';
+    this.code = code;
+  }
+}
+
+function isCultsChallengeResponse(response, html = '') {
+  if (response?.status !== 403) return false;
+  const mitigated = response.headers?.get?.('cf-mitigated');
+  return mitigated === 'challenge' || /just a moment|challenge-platform|cf-chl-/i.test(String(html));
+}
+
+async function assertNotCultsChallenge(response) {
+  if (response?.status !== 403) return response;
+  let html = '';
+  try { html = await response.clone().text(); } catch { /* header detection is still useful */ }
+  if (isCultsChallengeResponse(response, html)) {
+    throw new CultsSessionError(
+      'Cults3D requires a browser security check. Reconnect this account and complete the Cults3D window.',
+      'CULTS_CHALLENGE_REQUIRED',
+    );
+  }
+  return response;
 }
 
 function getSetCookies(headers) {
@@ -119,6 +152,7 @@ async function login(credentials, fetchImpl) {
     headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
     redirect: 'manual',
   });
+  await assertNotCultsChallenge(page);
   if (!page.ok) throw new Error(`Cults sign-in page returned HTTP ${page.status}.`);
   let cookies = mergeCookies('', page);
   const initialCsrf = extractCsrfToken(await page.text());
@@ -169,6 +203,28 @@ async function login(credentials, fetchImpl) {
   const csrfToken = extractCsrfToken(await creationPage.text());
   if (!csrfToken) throw new Error('Cults3D upload page no longer exposes its expected security token.');
   return { cookies, csrfToken };
+}
+
+async function verifyManagedSession(fetchImpl) {
+  const creationPage = await fetchImpl(`${CULTS_BASE}/en/creations/new`, {
+    method: 'GET',
+    headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+    redirect: 'manual',
+  });
+  await assertNotCultsChallenge(creationPage);
+  if ([301, 302, 303, 307, 308].includes(creationPage.status)) {
+    const destination = creationPage.headers.get('location') || '';
+    if (/\/users\/confirmation/i.test(destination)) {
+      throw new CultsSessionError('Confirm this Cults3D account by email, then reconnect.', 'CULTS_SESSION_REQUIRED');
+    }
+    throw new CultsSessionError('Sign in to Cults3D in the browser window to continue.', 'CULTS_SESSION_REQUIRED');
+  }
+  if (!creationPage.ok) throw new Error(`Cults3D account check returned HTTP ${creationPage.status}.`);
+  const csrfToken = extractCsrfToken(await creationPage.text());
+  if (!csrfToken) {
+    throw new CultsSessionError('Cults3D did not expose an authenticated upload page. Reconnect this account.', 'CULTS_SESSION_REQUIRED');
+  }
+  return { cookies: '', csrfToken, managed: true };
 }
 
 function parseMultipartEntries(request) {
@@ -502,21 +558,48 @@ async function listCreations(session, fetchImpl) {
   return creations;
 }
 
-function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 * 1000 } = {}) {
+function createCultsDirectClient({
+  fetchImpl = fetch,
+  fetchImplForAccount = null,
+  managedSession = false,
+  sessionMaxAgeMs = 30 * 60 * 1000,
+} = {}) {
   const sessions = new Map();
+
+  function accountFetch(accountId) {
+    const rawFetch = fetchImplForAccount ? fetchImplForAccount(accountId) : fetchImpl;
+    return async (...args) => {
+      const response = await assertNotCultsChallenge(await rawFetch(...args));
+      if (managedSession) {
+        let requested = null;
+        let finalUrl = null;
+        try { requested = new URL(String(args[0])); } catch { /* malformed URLs fail elsewhere */ }
+        try { finalUrl = response.url ? new URL(response.url) : null; } catch { /* */ }
+        const cultsRequest = requested?.hostname === 'cults3d.com' || requested?.hostname?.endsWith('.cults3d.com');
+        const fellBackToLogin = finalUrl && /\/(?:users\/sign-in|log-in-choice)(?:\/|$)/i.test(finalUrl.pathname);
+        if (cultsRequest && fellBackToLogin && !/\/users\/sign-in(?:\/|$)/i.test(requested.pathname)) {
+          throw new CultsSessionError('The Cults3D session expired. Reconnect this account.', 'CULTS_SESSION_REQUIRED');
+        }
+      }
+      return response;
+    };
+  }
 
   async function getSession(credentials, accountId, force = false) {
     const cached = sessions.get(accountId);
     if (!force && cached && Date.now() - cached.createdAt < sessionMaxAgeMs) return cached.session;
-    const authenticated = await login(credentials, fetchImpl);
+    const request = accountFetch(accountId);
+    const authenticated = managedSession
+      ? await verifyManagedSession(request)
+      : await login(credentials, request);
     sessions.set(accountId, { session: authenticated, createdAt: Date.now() });
     return authenticated;
   }
 
   async function connect(credentials, accountId = 'default') {
-    if (!credentials?.email || !credentials?.password) throw new Error('Cults3D email and password are required.');
+    if (!managedSession && (!credentials?.email || !credentials?.password)) throw new Error('Cults3D email and password are required.');
     await getSession(credentials, accountId, true);
-    return { ok: true, email: credentials.email };
+    return { ok: true, ...(credentials?.email ? { email: credentials.email } : {}) };
   }
 
   async function publish(request, credentials, accountId) {
@@ -580,11 +663,12 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
     if (category.substituted) substituted.push('category');
     if (license.substituted) substituted.push('license');
 
+    const requestFetch = accountFetch(accountId);
     const session = await getSession(credentials, accountId);
     const blueprintIds = [];
-    for (const model of models) blueprintIds.push(await uploadFile(session, model, 'blueprint', fetchImpl));
+    for (const model of models) blueprintIds.push(await uploadFile(session, model, 'blueprint', requestFetch));
     const illustrationIds = [];
-    for (const illustration of illustrations) illustrationIds.push(await uploadFile(session, illustration, 'illustration', fetchImpl));
+    for (const illustration of illustrations) illustrationIds.push(await uploadFile(session, illustration, 'illustration', requestFetch));
     const slug = await createCreation(session, {
       name: form.text('name').trim() || 'ModelPrep web-flow publish',
       description: form.text('description').trim() || 'Sent from ModelPrep.',
@@ -596,7 +680,7 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
       illustrationIds,
       madeWithAi: form.text('madeWithAi') === 'true',
       showComments: form.text('showComments') !== 'false',
-    }, fetchImpl);
+    }, requestFetch);
     let designUrl;
     try {
       designUrl = await publishPrice(session, slug, {
@@ -606,15 +690,21 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
         downloadOpenPrice: Number(form.text('downloadOpenPrice')) || 0,
         licenseType: license.licenseType,
         visibility: form.text('visibility') || 'secret',
-      }, fetchImpl);
+      }, requestFetch);
     } catch (error) {
-      try { await unpublish(session, slug, fetchImpl); } catch { /* preserve primary error */ }
-      throw new Error(`${error instanceof Error ? error.message : String(error)} [the draft was automatically deactivated]`);
+      let deactivated = false;
+      try { await unpublish(session, slug, requestFetch); deactivated = true; } catch { /* preserve primary error */ }
+      const cleanup = deactivated
+        ? 'the draft was automatically deactivated'
+        : 'automatic draft deactivation could not be verified';
+      const wrapped = new Error(`${error instanceof Error ? error.message : String(error)} [${cleanup}]`);
+      if (error?.code) wrapped.code = error.code;
+      throw wrapped;
     }
     let readback = null;
     let readbackIssues = [];
     try {
-      readback = await readCreation(session, slug, fetchImpl);
+      readback = await readCreation(session, slug, requestFetch);
       readbackIssues = cultsReadbackIssues({
         title: form.text('name').trim() || 'ModelPrep web-flow publish',
         visibility: form.text('visibility') || 'secret',
@@ -660,15 +750,16 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
         return await publish(request, credentials, accountId);
       }
       const session = await getSession(credentials, accountId);
+      const requestFetch = accountFetch(accountId);
       if (route === 'my-creations' && (request.method || 'GET') === 'GET') {
-        return jsonResponse({ ok: true, creations: await listCreations(session, fetchImpl) });
+        return jsonResponse({ ok: true, creations: await listCreations(session, requestFetch) });
       }
       if (['unpublish', 'delete'].includes(route) && (request.method || 'GET') === 'POST') {
         const { slug } = parseJsonBody(request);
         if (!slug) return jsonResponse({ error: 'missing_slug' }, 400);
         const redirectedTo = route === 'delete'
-          ? await deleteCreation(session, slug, fetchImpl)
-          : await unpublish(session, slug, fetchImpl);
+          ? await deleteCreation(session, slug, requestFetch)
+          : await unpublish(session, slug, requestFetch);
         return jsonResponse({ ok: true, slug, redirectedTo });
       }
       return jsonResponse({ error: 'unsupported_cults_desktop_route' }, 404);
@@ -689,7 +780,9 @@ module.exports = {
   CATEGORY_IDS,
   CULTS_BASE,
   CULTS_S3_URL,
+  CultsSessionError,
   createCultsDirectClient,
+  isCultsChallengeResponse,
   resolveCategory,
   resolveLicense,
 };

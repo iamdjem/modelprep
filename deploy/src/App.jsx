@@ -1493,6 +1493,7 @@ export default function App() {
             rehydrateDesktopAccount('cults', {
               label: account.label || 'Cults3D',
               secret,
+              status: account.needsReconnect ? 'reconnect' : 'connected',
             });
           } else if (account?.platform === 'nexprint') {
             available.get('nexprint').add(DESKTOP_NEXPRINT_SECRET);
@@ -2414,6 +2415,7 @@ export function platformPreflight(platform, project) {
     }
     const instructions = project.files.filter((file) => CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name)));
     if (project.tags.length > 20) errors.push('Creality Cloud accepts at most 20 tags.');
+    if (project.tags.some((tag) => [...String(tag)].length > 30)) errors.push('Creality Cloud tags may not exceed 30 characters.');
     if (instructions.length) warnings.push(`${instructions.length} compatible instruction file${instructions.length === 1 ? '' : 's'} will upload with the model.`);
     if (project.files.some((file) => ['mp4', 'webm'].includes(fileExt(file.name)))) {
       warnings.push('The current Creality model form has no direct video upload; add a YouTube link in the rich description instead.');
@@ -7185,8 +7187,8 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
 }
 
 // =====================================================================
-// REAL Cults3D publish flow — sends one multipart request to the Worker.
-// The Worker signs into Cults's web flow, uploads directly to Cults's S3,
+// REAL Cults3D publish flow — sends one multipart request through Electron.
+// The per-account Chromium session calls Cults's web flow and signed S3 path,
 // creates the draft, applies pricing/license/visibility, and returns a
 // `substituted[]` array for any category/license mapping fallback.
 // =====================================================================
@@ -7194,8 +7196,8 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
 // .env.production for prod builds (committed; points at the deployed Worker).
 const WORKER_URL = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORKER_URL)
   || 'http://localhost:8787';
-// Cults credentials now live in the accounts store; lib/accounts.js migrates the
-// legacy `modelprep:cults-web-creds` key on first load.
+// Cults credentials never enter the accounts store. lib/accounts.js scrubs the
+// legacy password record and marks that account for an interactive reconnect.
 
 function useMakerWorldCapabilities(cookie, enabled = true) {
   const [state, setState] = useState({ data: null, error: '', loading: false });
@@ -7222,7 +7224,6 @@ function useMakerWorldCapabilities(cookie, enabled = true) {
 
 function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   const acc = useAccounts();
-  const updateCultsAccount = acc.updateAccount;
   const openConnections = useOpenConnections();
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const cultsAccounts = acc.getAccounts('cults');
@@ -7230,12 +7231,9 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   const isDemo = !!project.__demo;
   const realActive = acc.getActive('cults');
   const realCreds = realActive?.secret || null;
-  const realActiveId = realActive?.id || null;
-  const legacyCultsEmail = !isDesktopCultsSession(realCreds) ? realCreds?.email || '' : '';
-  const legacyCultsPassword = !isDesktopCultsSession(realCreds) ? realCreds?.password || '' : '';
   const simulate = isDemo;
   const active = realActive || (isDemo ? { id: 'demo', label: 'Demo account', status: 'connected' } : null);
-  const creds = realCreds || (isDemo ? { email: 'demo' } : null); // { email, password } | null
+  const creds = realCreds || (isDemo ? 'demo' : null);
   const [status, setStatus] = useState(creds ? 'connected' : 'idle'); // connected | publishing | done | error | deactivating | idle
   // Default to 'secret' so the first publish doesn't immediately surface on
   // the user's profile — they can flip to 'public' once they've seen the
@@ -7244,7 +7242,6 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   const [result, setResult] = useState(null); // { designUrl, slug, substituted, uploadedFiles } | null
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
-  const [securingAccount, setSecuringAccount] = useState(false);
   const handledBatchRun = useRef(null);
   const reportBatch = (batchRunId, state, detail, metadata = {}) => {
     if (!batchRunId) return;
@@ -7274,31 +7271,6 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     setStatus((s) => (creds && s === 'idle') ? 'connected' : (!creds && s === 'connected') ? 'idle' : s);
   }, [creds]);
 
-  // One-time desktop migration: older builds stored Cults credentials in the
-  // renderer. Validate and move them into encrypted Electron storage before
-  // the next publish, then replace localStorage with an opaque account id.
-  useEffect(() => {
-    if (!realActiveId || !desktop?.connectCults || !legacyCultsEmail || !legacyCultsPassword) return;
-    let alive = true;
-    setSecuringAccount(true);
-    desktop.connectCults({ email: legacyCultsEmail, password: legacyCultsPassword })
-      .then((response) => {
-        if (!alive) return;
-        if (!response?.ok || !response.accountId) throw new Error(response?.error || 'Could not secure the Cults3D account.');
-        updateCultsAccount('cults', realActiveId, {
-          secret: desktopCultsSecret(response.accountId),
-          status: 'connected',
-        });
-      })
-      .catch((error) => {
-        if (!alive) return;
-        updateCultsAccount('cults', realActiveId, { status: 'reconnect' });
-        setErrorMsg(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => { if (alive) setSecuringAccount(false); });
-    return () => { alive = false; };
-  }, [realActiveId, legacyCultsEmail, legacyCultsPassword, desktop, updateCultsAccount]);
-
   // Convert a project image (data URL) to a real File so it can ride the
   // multipart upload. Cover image alt is used as the filename hint.
   const imgToFile = async (img, fallbackName) => {
@@ -7308,7 +7280,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     return new File([blob], name, { type: blob.type || 'image/jpeg' });
   };
 
-  // The whole web-flow publish is ONE multipart POST. The Worker does
+  // The whole web-flow publish is ONE multipart POST. Electron does
   // login → S3 upload per file → create draft → set price + visibility,
   // then returns { designUrl, slug, substituted, ... }. Per-file progress
   // isn't streamable through a single fetch, so we just show a generic
@@ -7331,10 +7303,6 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     }
     if (!creds) {
       reportBatch(batchRunId, 'error', 'No active Cults3D account');
-      return;
-    }
-    if (securingAccount) {
-      reportBatch(batchRunId, 'error', 'Cults3D account security migration is still in progress');
       return;
     }
     setStatus('publishing');
@@ -7391,7 +7359,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       setProgressMsg('Uploading + publishing to Cults3D…');
 
       // 3. Desktop sends this Worker-shaped request to Electron main, which
-      // talks directly to Cults/S3. Web builds retain the Worker fallback.
+      // talks directly to Cults/S3 through the account's Chromium session.
       const res = await cultsFetch(`${WORKER_URL}/api/v1/cults3d/web/publish`, {
         method: 'POST',
         body: fd,
@@ -7577,8 +7545,8 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                 : <>⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{realActive?.label}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return—you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}</>}
             </p>
             <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => publish()} disabled={securingAccount} className="mp-btn text-xs py-2 px-3 disabled:opacity-40">
-                {securingAccount ? <><Loader size={13} className="mp-spin" /> Securing account…</> : <><Send size={13} /> {simulate ? `Simulate ${platform.name} publish` : `Publish to ${platform.name} (LIVE)`}</>}
+              <button onClick={() => publish()} className="mp-btn text-xs py-2 px-3">
+                <Send size={13} /> {simulate ? `Simulate ${platform.name} publish` : `Publish to ${platform.name} (LIVE)`}
               </button>
               <button onClick={toggleListings} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition" style={{ color: 'rgba(21,23,28,0.7)' }}>
                 {listingsOpen ? '▾ Hide my listings' : '▸ My listings on Cults'}
@@ -9692,6 +9660,26 @@ function PlatformConnections({ platform }) {
     } finally { setRefreshingId(null); }
   };
   const reconnectAccount = async (account) => {
+    if (platform.id === 'cults' && desktop?.connectCults && !isDesktopCultsSession(account.secret)) {
+      setRefreshingId(account.id);
+      setAccountNotice('Complete the Cults3D sign-in and browser security check to reconnect.');
+      try {
+        const result = await desktop.connectCults({ label: account.label });
+        if (!result?.ok || !result.accountId) throw new Error(result?.error || 'Cults3D sign-in was not completed.');
+        acc.updateAccount('cults', account.id, {
+          label: result.label || account.label,
+          secret: desktopCultsSecret(result.accountId),
+          status: 'connected',
+        });
+        acc.setActive('cults', account.id);
+        setAdding(false);
+        setAccountNotice('Cults3D is connected and ready.');
+      } catch (error) {
+        acc.updateAccount('cults', account.id, { status: 'reconnect' });
+        setAccountNotice(error instanceof Error ? error.message : String(error));
+      } finally { setRefreshingId(null); }
+      return;
+    }
     if (!desktop || !isDesktopManagedAccount(platform.id, account.secret)) {
       setAdding(true);
       setAccountNotice('Sign in again below to reconnect this account.');
@@ -9704,19 +9692,17 @@ function PlatformConnections({ platform }) {
         ? await desktop.recoverAccount(platform.id, platform.id === 'cults' ? desktopCultsAccountId(account.secret) : '')
         : { ok: false, needsInteractive: true };
       if (!result?.ok && result?.needsInteractive) {
-        if (platform.id === 'cults') {
-          setAdding(true);
-          setAccountNotice('Cults3D requires the email and password again. Continue below.');
-          return;
-        }
         const method = DESKTOP_CONNECT_METHODS[platform.id];
         if (!method || typeof desktop[method] !== 'function') throw new Error(`Reconnect is unavailable in this ModelPrep desktop build.`);
         setAccountNotice(`The saved ${platform.name} session expired. Complete the sign-in window to continue.`);
-        result = await desktop[method]();
+        result = platform.id === 'cults'
+          ? await desktop[method]({ accountId: desktopCultsAccountId(account.secret), label: account.label })
+          : await desktop[method]();
       }
       if (!result?.ok) throw new Error(result?.error || `${platform.name} sign-in was not completed.`);
       acc.updateAccount(platform.id, account.id, {
         label: desktopIdentityLabel(platform.id, result.user, account.label),
+        ...(platform.id === 'cults' && result.accountId ? { secret: desktopCultsSecret(result.accountId) } : {}),
         status: 'connected',
       });
       acc.setActive(platform.id, account.id);
@@ -10107,24 +10093,14 @@ function ConnectForm({ platform, onDone, canCancel }) {
     const connectCults = async () => {
       setBusy(true); setErr('');
       try {
-        let secret;
-        if (desktop?.connectCults) {
-          const response = await desktop.connectCults({ email: email.trim(), password: pass });
-          if (!response?.ok || !response.accountId) {
-            throw new Error(response?.error || 'Cults3D sign-in failed.');
-          }
-          secret = desktopCultsSecret(response.accountId);
-        } else {
-          // Browser builds cannot protect the password with Electron
-          // safeStorage, so they retain the existing Worker fallback.
-          secret = { email: email.trim(), password: pass };
-        }
+        if (!desktop?.connectCults) throw new Error('Cults3D sign-in requires the ModelPrep desktop app.');
+        const response = await desktop.connectCults({ label: label.trim() });
+        if (!response?.ok || !response.accountId) throw new Error(response?.error || 'Cults3D sign-in failed.');
         acc.addAccount('cults', {
-          label: label.trim() || email.trim(),
-          secret,
+          label: label.trim() || response.label || 'Cults3D',
+          secret: desktopCultsSecret(response.accountId),
           status: 'connected',
         });
-        setPass('');
         onDone();
       } catch (error) {
         setErr(error instanceof Error ? error.message : String(error));
@@ -10133,19 +10109,17 @@ function ConnectForm({ platform, onDone, canCancel }) {
     return (
       <div className="space-y-1.5">
         <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <input className={inputCls} placeholder="Cults3D email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} />
         {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
         <div className="flex gap-2">
-          <button disabled={busy || !email.trim() || !pass} onClick={connectCults} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">
-            {busy ? 'Checking Cults3D…' : 'Sign in to Cults3D'}
+          <button disabled={busy || !desktop?.connectCults} onClick={connectCults} className="mp-btn text-xs py-1.5 px-3 disabled:opacity-40">
+            {busy ? 'Waiting for Cults3D sign-in…' : 'Sign in via Cults3D window (desktop)'}
           </button>
           {canCancel && <button onClick={onDone} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Cancel</button>}
         </div>
         <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>
           {desktop
-            ? 'The desktop app validates directly with Cults3D, encrypts the credentials with macOS Keychain-backed storage, and keeps them out of page storage and the Cloudflare Worker.'
-            : 'Browser fallback: credentials are stored in this browser profile and sent to the Worker only for Cults3D login. Use ModelPrep Desktop for encrypted direct uploads.'}
+            ? 'Complete Cults3D sign-in and any browser security check in the isolated window. ModelPrep stores the resulting per-account browser session, never your password.'
+            : 'Open this project in ModelPrep Desktop. Browser builds intentionally do not collect or forward a Cults3D password.'}
         </p>
       </div>
     );

@@ -27,6 +27,15 @@ describe('new direct-platform option parity', () => {
     });
     expect(issues.join(' ')).toMatch(/visibility.*instruction documents.*images/i);
   });
+  it('rejects Creality tags over the live 30-character input limit', () => {
+    const result = platformPreflight({ id: 'creality', name: 'Creality Cloud', formats: ['stl'], limits: {} }, {
+      files: [{ name: 'part.stl', size: 1, isModel: true }], images: [{ id: 'cover' }], coverImageId: 'cover',
+      title: 'Dragon', description: 'A dragon', category: 'toys',
+      tags: ['ok-tag', 'this-tag-is-thirty-one-chars-xx'],
+      platforms: { creality: { categoryId: '1575', license: 'CC BY-NC' } },
+    });
+    expect(result.errors).toContain('Creality Cloud tags may not exceed 30 characters.');
+  });
   it('renders Thangs privacy and structure controls', () => {
     render(<ThangsOptions opts={{ publication: 'private', structure: 'single', units: 'mm' }} project={{ files: [] }} onUpdate={noop} />);
     expect(screen.getByLabelText('Thangs visibility')).toHaveValue('private'); expect(screen.getByLabelText('Thangs structure')).toHaveValue('single');

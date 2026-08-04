@@ -383,7 +383,7 @@ flow never exercises**, so it deserves a re-check whenever the form changes.
 | Original/no-AI declaration | implemented | current required checkbox and desktop preflight | locally verified; alternative combinations action-gated |
 | ZIP / archive mode (~5 GB, 25 archive files) | mapped, **account-gated** | `can_use_zip_mode: false` for this account | eligibility gate recorded; not investigable on this account |
 | Premium-creator branches | mapped, **account-gated** | `isPremiumCreator: false` for this account | eligibility gate recorded; not investigable on this account |
-| Scan The World (`stw-checkbox` + 12 `stw_object_type[...]` controls) | **available to this account**, deliberately unmapped | interactive toggle, 2026-08-03 | sits inside the collapsed Advanced Settings accordion; fully visible and enabled once opened. Not gated — unmapped is a scope decision (heritage-submission programme) |
+| Scan The World (`stw-checkbox` + 12 `stw_object_type[...]` controls) | **available to this account**, deliberately unmapped | interactive toggle, 2026-08-03 | sits inside the collapsed Advanced Settings accordion; fully visible and enabled once opened. Not gated — unmapped is a scope decision (heritage-submission programme). **Product-scope decision confirmed by the user on 2026-08-04: Scan The World is out of ModelPrep scope; keep documented-only, do not serialize.** |
 | `threedobject_temp_type[license_store]` | **offered and enabled**, deliberately unmapped | current signed-in form, 2026-08-03 | visible, enabled and unchecked for this account; the form states only the label “License store”, so its semantics are genuinely unknown and it is not mapped |
 | Object deletion | not implemented | — | never attempted; requires explicit authority |
 
