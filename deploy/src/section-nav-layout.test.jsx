@@ -71,7 +71,7 @@ describe('shared section navigation layout', () => {
   it('keeps every workflow section fluid instead of restoring the old 1280px cap', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
 
     for (const step of ['files', 'details', 'images', 'profiles', 'platforms', 'publish']) {
       await user.click(screen.getByRole('button', { name: new RegExp(`step \\d: ${step}`, 'i') }));
@@ -84,7 +84,7 @@ describe('shared section navigation layout', () => {
   it('uses the compact responsive header on every workflow step', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
 
     for (const step of ['files', 'details', 'images', 'profiles', 'platforms', 'publish']) {
       await user.click(screen.getByRole('button', { name: new RegExp(`step \\d: ${step}`, 'i') }));
@@ -108,7 +108,7 @@ describe('shared section navigation layout', () => {
   it('wraps platform card badges without squeezing them into the expand control', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
 
     const metadata = screen.getByRole('heading', { name: 'MakerWorld' }).parentElement;
@@ -124,7 +124,7 @@ describe('shared section navigation layout', () => {
   it('stacks platform cards at compact desktop widths before adding wider columns', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
 
     for (const heading of ['Direct publishing', 'Export & future connections']) {

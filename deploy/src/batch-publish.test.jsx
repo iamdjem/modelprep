@@ -124,7 +124,7 @@ describe('one-click multi-platform publishing', () => {
     window.modelprepDesktop = { isDesktop: true, captureResourceTelemetry };
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
 
     await waitFor(() => expect(captureResourceTelemetry).toHaveBeenCalled());
@@ -155,7 +155,7 @@ describe('one-click multi-platform publishing', () => {
     }]));
 
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
 
     expect(await screen.findByText(/latest retained resource report/i)).toHaveTextContent('1 sample');
@@ -169,7 +169,7 @@ describe('one-click multi-platform publishing', () => {
     for (const platform of CONNECTABLE) addAccount(platform, { label: `${platform} test`, secret: `test-${platform}`, status: 'connected' });
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     const publishNav = screen.getByRole('button', { name: /step 6: publish/i });
     await user.click(publishNav);
 
@@ -178,7 +178,7 @@ describe('one-click multi-platform publishing', () => {
     });
     expect(publishAll).toBeEnabled();
     expect(screen.getAllByText('real')).toHaveLength(10);
-    expect(screen.getByText(/pressing the button sends the bundled sample files/i)).toBeInTheDocument();
+    expect(screen.getByText(/sends the bundled sample files/i)).toBeInTheDocument();
     expect(screen.getByText(/runs up to four platforms at once/i)).toBeInTheDocument();
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('Thangs private');
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('MakerRoad draft');
@@ -194,7 +194,7 @@ describe('one-click multi-platform publishing', () => {
     addAccount('makerworld', { label: 'MakerWorld test', secret: 'test-makerworld', status: 'connected' });
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
     expect(await screen.findByRole('button', { name: /upload real test to 1 ready platform/i })).toBeEnabled();
     expect(screen.getByText(/Skipped until connected:/i)).toHaveTextContent('Printables');
@@ -208,7 +208,7 @@ describe('one-click multi-platform publishing', () => {
     window.modelprepDesktop = { isDesktop: true };
     render(<App />);
 
-    await user.click(screen.getByRole('button', { name: /real upload test/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
     await user.click(await screen.findByRole('button', { name: /reconnect printables/i }));
 
