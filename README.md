@@ -50,7 +50,10 @@ VITE_WORKER_URL=http://localhost:8787      # local dev Worker
 VITE_WORKER_URL=https://modelprep-backend.iamdjem.workers.dev   # hit production Worker from local UI
 ```
 
-Backend's `.dev.vars` (NOT committed) holds the Cults credentials for curl tests / fallback auth — but for browser use, users enter their own Cults API key in the Cults Connect form.
+Backend's `.dev.vars` (NOT committed) holds secrets only for local fallback
+testing. The supported desktop product keeps platform credentials in Electron
+main and encrypted platform-isolated sessions; never place them in renderer
+configuration.
 
 ---
 
@@ -70,21 +73,40 @@ Backend + CDN deploys do NOT auto-trigger from git — you run them manually. (A
 
 Ten direct desktop publishing paths are implemented:
 
-- **MakerWorld** — direct Electron flow; core private 3D and Laser & Cut paths have live evidence.
-- **Printables** — draft-first GraphQL/storage flow; private author and remix drafts have live evidence.
-- **Cults3D** — signed-storage and two-page listing flow; secret/unlisted creation has live evidence.
-- **Nexprint** — first-party REST/presigned upload; browser and Electron unpublished drafts are certified.
-- **Creality Cloud** — first-party JSON/Aliyun upload; new uploads are private-first and the Original/private path is certified.
-- **MakerOnline** — first-party multipart upload; the core unpublished image + STL draft/readback path is certified, with retained drafts documented in the live audit.
-- **MyMiniFactory** — isolated passwordless first-party form integration with hierarchical categories, full metadata/license/file mapping, private/public controls, encrypted session handling, and object read-back. A duplicate-free private retry remains to certify the corrected category/readback path end to end.
-- **MakerRoad** — isolated authenticated `X-Token` session, dynamic taxonomy, four upload roles, private-save/review-submit, and edit read-back; locally tested, but fresh navigation is currently blocked by an externally parked domain.
-- **Thangs** — isolated encrypted bearer-token session, signed uploads, validation, single/bulk/multipart/assembly metadata, assets, and details/attachment/license read-back; connected and locally tested, with one private desktop upload/readback still pending.
-- **Thingiverse** — complete draft-first/publish adapter and read-back tests; written clearance was recorded on 2026-08-01 and production mutation is enabled. Live draft certification remains pending.
+- **MakerWorld** — direct Electron flow; latest private safe-core receipt
+  `9053658`, with earlier deep 3MF and Laser & Cut evidence. Video remains a
+  separately deferred manual certification.
+- **Printables** — draft-first GraphQL/storage flow with native HEIC conversion,
+  G-code/SLA/retained-ZIP controls and readback. Specialist draft `1797772` and
+  normal-public model `1797774` are exact-app live-certified; the public model
+  remains live pending explicit deletion confirmation.
+- **Cults3D** — signed-storage and two-page listing flow; latest exact-app secret
+  slug ends `6f02ba1cd366b9cb06a5`. Typed video is implemented but not live-certified.
+- **Nexprint** — first-party REST/presigned upload; latest exact-app unpublished
+  draft `2083625532272496640` passed core readback.
+- **Creality Cloud** — first-party JSON/Aliyun upload; latest exact-app
+  Original/private model `6a6e3f28753b84f6aab190a8` passed readback.
+- **MakerOnline** — first-party multipart upload; latest exact-app unpublished
+  draft `316221` passed ordered file/media and metadata readback.
+- **MyMiniFactory** — passwordless isolated session and hierarchical category,
+  image/file, metadata and private/public mapping. Private object `829056` passed
+  exact-app and independent hydrated-editor readback.
+- **MakerRoad** — authenticated `X-Token`, dynamic taxonomy, four upload roles,
+  private Save/review flow and `uploadType=1` readback. Private draft
+  `M2134222528` is exact-app live-certified; native video remains unknown.
+- **Thangs** — encrypted bearer-token session, signed uploads, validation,
+  structures/assets and three-part readback. Private single-part model `1583272`
+  is exact-app live-certified.
+- **Thingiverse** — enabled draft-first/publish adapter with same-page token
+  recovery. Unpublished draft `7390480` is exact-app live-certified; public and
+  optional editor branches remain separate.
 
 No platform is fully certified across every optional/public/paid branch. Start
 continuation work at
 [`backend/docs/modelprep-current-handoff-2026-08-01.md`](./backend/docs/modelprep-current-handoff-2026-08-01.md).
 The compact status/limit matrix is
 [`backend/docs/platform-specs.md`](./backend/docs/platform-specs.md), and the
-copy-paste prompt is
+repeatable one-platform method is
+[`backend/docs/platform-one-by-one-implementation-playbook.md`](./backend/docs/platform-one-by-one-implementation-playbook.md).
+The copy-paste prompt is
 [`backend/docs/NEXT_AGENT_PROMPT.md`](./backend/docs/NEXT_AGENT_PROMPT.md).

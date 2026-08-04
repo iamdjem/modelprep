@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useReducer, createContext, useContext } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, createContext, useContext } from 'react';
 import {
   mdToHtml, mdToPlain, mdToMakerWorldHtml, formatBytes,
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
@@ -70,7 +70,9 @@ import {
 import { myMiniFactoryResponseError, uploadMyMiniFactoryFile } from './lib/myminifactory-upload.js';
 import {
   flattenMyMiniFactoryCategories,
+  myMiniFactoryObjectUrl,
   MYMINIFACTORY_CATEGORY_TREE,
+  verifyMyMiniFactoryObjectState,
   waitForMyMiniFactoryReadback,
 } from './lib/myminifactory.js';
 import {
@@ -90,6 +92,12 @@ import {
   buildPrintablesSummary,
   normalizePrintablesTags,
   parsePrintablesRemixSource,
+  PRINTABLES_FILE_NOTE_MAX,
+  PRINTABLES_FOLDER_NAME_MAX,
+  PRINTABLES_PRICE_MIN,
+  PRINTABLES_PRICE_MAX,
+  printablesFileSettingIssues,
+  printablesPaidIssues,
   publishVerifiedPrintablesModel,
   printablesReadbackMismatches,
   validatePrintablesModel,
@@ -97,21 +105,45 @@ import {
 } from './lib/printables-model.js';
 import {
   advancePublishBatch,
+  appendPublishBatchResourceSample,
   batchPublishIntent,
   createPublishBatch,
+  createPublishBatchResourceReport,
   DESKTOP_PUBLISH_CONCURRENCY,
   LIVE_PUBLISH_PLATFORM_IDS,
+  loadRetainedPublishBatchResourceReports,
   orderedPlatformImages,
+  publishBatchResourceRequest,
+  publishBatchResourceSummary,
   publishBatchSummary,
   publishReceiptLabel,
+  retainPublishBatchResourceReport,
   retryFailedPublishBatch,
 } from './lib/batch-publish.js';
 import { convertHeicFileToJpeg, isHeicFile } from './lib/heic.js';
 import {
+  addFallbackProvider,
+  AI_PROVIDER_IDS,
+  AI_PROVIDERS,
+  aiChain,
+  chainFailureMessage,
+  checkCloudProvider,
+  detectProviders,
+  providerSettings,
+  readAiConfig,
+  removeProvider,
+  runListingChain,
+  setPrimaryProvider,
+  updateProviderSettings,
+  writeAiConfig,
+} from './lib/ai-providers.js';
+import {
   cultsGalleryVideos,
+  GALLERY_IMAGE_ACCEPT,
   isGalleryVideoFile,
   makerWorldVideo,
   makerWorldVideoIssues,
+  makerWorldVideoReadbackIssues,
   readVideoDuration,
 } from './lib/gallery-media.js';
 import makerWorldCategoryTree from './data/makerworld-categories.json';
@@ -173,8 +205,16 @@ const UPLOAD_URLS = {
   printables:  'https://www.printables.com/model/create',
   cults:       'https://cults3d.com/en/upload',
   mmf:         'https://www.myminifactory.com/upload/object',
-  thingiverse: 'https://www.thingiverse.com/upload',
-  thangs:      'https://thangs.com/3d-model/upload',
+  // 2026-08-03: /upload returns HTTP 500 even when signed in (verified against
+  // an authenticated session). /create returns 200 and redirects to
+  // /create/designs. Browser link only; the direct upload path is unaffected.
+  thingiverse: 'https://www.thingiverse.com/create',
+  // 2026-08-03, verified against a signed-in session by HTTP status, not by
+  // rendered appearance: /3d-model/upload and /upload BOTH return 404 (the SPA
+  // still renders a marketing shell, so the page looks fine). There is no
+  // direct upload URL — uploading starts from the "Add new" button on My
+  // Thangs, which is a button with no href. /mythangs returns 200.
+  thangs:      'https://thangs.com/mythangs',
   nexprint:    'https://www.nexprint.com/en/upload',
   creality:    'https://www.crealitycloud.com/create-model-new?editType=editModel',
   makeronline: 'https://www.makeronline.com/en/upload',
@@ -194,6 +234,13 @@ const TAG_FORMATS = {
   makeronline: { sep: ', ', hashtag: false },
   makeroad:    { sep: ', ', hashtag: false },
 };
+
+const CULTS_META_TAGS = [
+  ['articulated', 'Articulated'], ['customizable', 'Customizable'], ['functional_part', 'Functional part'],
+  ['hollow_model', 'Hollow model'], ['multicolor', 'Multicolor'], ['multi_material', 'Multi material'],
+  ['no_support', 'No support'], ['print_in_place', 'Print in place'], ['remix', 'Remix'],
+  ['resin_print', 'Resin print'], ['scale_model', 'Scale model'], ['scan', 'Scan'],
+];
 
 const NEXPRINT_MODEL_FORMATS = [
   '3ds', '3mf', 'amf', 'blend', 'dwg', 'dxf', 'elesat', 'f3d', 'f3z',
@@ -407,7 +454,7 @@ const PLATFORMS = [
     preserveOriginalImages: true,
     descFormat: 'html', maxImages: 10, maxFileMb: null, maxTotalMb: null,
     formats: MAKEROAD_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Direct desktop save through MakerRoad’s authenticated first-party flow. Private Save is the safe default; publishing is an explicit review submission.',
+    fields: [], note: 'Direct desktop save through MakerRoad’s authenticated first-party flow. Private Save is the safe default; publishing is an explicit review submission. The current native form has no video field.',
     limits: { titleMax: 60 },
   },
 ];
@@ -852,9 +899,9 @@ const initialProject = {
   profiles: [],
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-    printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip' },
-    cults: { enabled: true, price: 0, free: true, visibility: 'secret' },
-    mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: 5, printingTips: '', timeFrom: 0, timeTo: 50, dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
+    printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
+    cults: { enabled: true, price: 0, free: true, visibility: 'secret', details: '', metaTags: [], madeWithAi: false, showComments: true },
+    mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: 5, printingTips: '', timeFrom: '', timeTo: '', dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
     thingiverse: { enabled: true, publication: 'draft', summary: '', categoryId: '', license: 'cc-nc', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
     thangs: { enabled: true, publication: 'private', structure: 'single', units: 'mm', primaryFileId: '', category: '', allowRemix: true, aiGenerated: false, feedbackEnabled: true, folderId: '', workspaceId: '', resumeDraftId: '', accessTypeId: '', planIds: [], dependencies: [], versionNotes: '', marketplace: false, price: 0, license: 'CC BY-NC' },
     nexprint: {
@@ -980,12 +1027,12 @@ function buildDemoProject() {
     profiles,
     platforms: {
       makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-      printables: { enabled: true, publication: 'draft', categoryId: '36', licenseId: '3', summary: 'A print-in-place articulated desk dragon with poseable wings and tail.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip' },
+      printables: { enabled: true, publication: 'draft', categoryId: '36', licenseId: '3', summary: 'A print-in-place articulated desk dragon with poseable wings and tail.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
       // Keep the cross-platform certification fixture free so the shared
       // CC BY-NC license remains valid on Cults. Paid Cults listings require
       // CULTS CU and are certified as a separate optional branch.
-      cults: { enabled: true, price: 0, free: true },
-      mmf: { enabled: true, publication: 'private', categoryIds: [60, 462], licenseId: 5, printingTips: 'Print-in-place. No supports required.', timeFrom: 3, timeTo: 5, dimensions: '120 × 75 × 45', dimensionsUnit: 0, technology: 'FDM', materialQuantity: '45 g', supportFree: true, remix: false, remixParentIds: [], confirmOriginalNoAi: true },
+      cults: { enabled: true, price: 0, free: true, visibility: 'secret', details: '', metaTags: [], madeWithAi: false, showComments: true },
+      mmf: { enabled: true, publication: 'private', categoryIds: [60, 462], licenseId: 5, printingTips: 'Print-in-place. No supports required.', timeFrom: 180, timeTo: 300, dimensions: '120 × 75 × 45', dimensionsUnit: 0, technology: 'FDM', materialQuantity: '45 g', supportFree: true, remix: false, remixParentIds: [], confirmOriginalNoAi: true },
       thingiverse: { enabled: true, publication: 'draft', summary: 'A print-in-place articulated desk dragon.', categoryId: '124', license: 'cc-nc', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
       thangs: {
         ...initialProject.platforms.thangs,
@@ -2262,7 +2309,7 @@ const MAX_BUILD_FILE_MB = 2048;
 // Pre-flight: validate the project against ONE platform's real requirements before publish,
 // so the user is told what won't pass instead of finding out after a failed upload.
 // Returns { errors:[], warnings:[] } — errors will definitely fail; warnings may degrade.
-function platformPreflight(platform, project) {
+export function platformPreflight(platform, project) {
   if (platform.id === 'makerworld') {
     return makerWorldPublishIssues(project, { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) }, {
       cyberControlCount: mwRuntimeCyberBrick.controlConfigs.length,
@@ -2303,6 +2350,8 @@ function platformPreflight(platform, project) {
   if (platform.id === 'cults' && cults && !cults.free && !(cults.price > 0)) warnings.push('Marked paid but the price is 0.');
   const printables = project.platforms?.printables;
   if (platform.id === 'printables' && printables) {
+    errors.push(...printablesFileSettingIssues(modelFiles));
+    errors.push(...printablesPaidIssues(printables));
     if (!printables.categoryId) errors.push('Choose a Printables category in Platforms.');
     if (printables.aiGenerated == null) errors.push('Answer whether AI was used in Platforms.');
     if ((printables.authorship === 'remix' || printables.authorship === 'reupload') && !printables.remixParents?.[0]) {
@@ -2313,7 +2362,7 @@ function platformPreflight(platform, project) {
     }
     const normalizedTags = normalizePrintablesTags(project.tags);
     if (normalizedTags.length !== project.tags.length || normalizedTags.some((tag, index) => tag !== project.tags[index])) {
-      warnings.push('Printables tags will be normalized to unique lowercase letters and numbers (separators are removed).');
+      warnings.push('Printables tags will be split on whitespace and normalized to unique lowercase letters and numbers.');
     }
     if (printables.zipMode === 'archive') {
       for (const file of modelFiles.filter((entry) => fileExt(entry.name) === 'zip')) {
@@ -2407,6 +2456,15 @@ function platformPreflight(platform, project) {
     }
     if (makeronline.exclusive && !makeronline.exclusiveEligible) errors.push('This MakerOnline account is not currently eligible for exclusive submission.');
   }
+  if (platform.id === 'makeroad') {
+    const videos = (project.media || []).filter((media) => {
+      const type = String(media?.type || media?.blob?.type || '').toLowerCase();
+      return type.startsWith('video/') || ['mp4', 'mov', 'm4v', 'webm', 'avi'].includes(fileExt(media?.name || ''));
+    });
+    if (videos.length) {
+      warnings.push('MakerRoad’s current upload form has no native video field; video media will not upload.');
+    }
+  }
   const mmf = project.platforms?.mmf;
   if (platform.id === 'mmf' && mmf) {
     if (!['private', 'public'].includes(mmf.publication || 'private')) errors.push('Choose Private or Public visibility for MyMiniFactory.');
@@ -2416,6 +2474,8 @@ function platformPreflight(platform, project) {
     if (mmf.remix && !(mmf.remixParentIds || []).length) errors.push('MyMiniFactory remixes require at least one parent object ID.');
     if (project.tags.length > 20) errors.push('MyMiniFactory accepts at most 20 tags.');
     if (modelFiles.length > 500) errors.push('MyMiniFactory accepts at most 500 object files.');
+    if (String(mmf.dimensions || '').length > 100) errors.push('MyMiniFactory dimensions must be at most 100 characters.');
+    if (String(mmf.materialQuantity || '').length > 45) errors.push('MyMiniFactory material quantity must be at most 45 characters.');
     if (project.images.some((image) => !image.dataUrl)) errors.push('Every MyMiniFactory image must be available for upload.');
   }
   const makeroad = project.platforms?.makeroad;
@@ -2450,6 +2510,7 @@ function platformPreflight(platform, project) {
     if (!thingiverse.categoryId) errors.push('Choose a Thingiverse category ID.');
     if (!THINGIVERSE_LICENSES.includes(thingiverse.license)) errors.push('Choose a Thingiverse license.');
     if (thingiverse.remix && !String(thingiverse.sourceThingId || '').trim()) errors.push('Thingiverse remixes require a source Thing ID.');
+    if (thingiverse.customizable && !modelFiles.some((file) => fileExt(file.name) === 'scad')) errors.push('Thingiverse Customizer requires at least one .SCAD model file.');
     if (thingiverse.publication === 'publish' && !thingiverse.termsAccepted) errors.push('Accept Thingiverse’s current terms before publish.');
   }
   return { errors, warnings };
@@ -2683,6 +2744,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
   const supportsPrintables = PRINTABLES_FORMATS.includes(ext) && !isImg;
   const makerWorld = { note: '', openSource: true, folderPath: '', ...(file.makerWorld || {}) };
   const printables = { note: '', folder: '', ...(file.printables || {}) };
+  const isPrintablesGcode = ext === 'gcode' || ext === 'bgcode';
 
   const startEdit = () => { setDraft(baseName); setEditing(true); };
   const commit = () => {
@@ -2774,12 +2836,47 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 placeholder="parts/large" onChange={(e) => onUpdatePrintables({ folder: e.target.value.replace(/^\/+|\/+$/g, '') })} />
             </label>
             <label className="text-[11px] space-y-1"><span>File note (optional)</span>
-              <input className="mp-input text-[12px]" value={printables.note} maxLength={500}
+              <input className="mp-input text-[12px]" value={printables.note} maxLength={PRINTABLES_FILE_NOTE_MAX}
                 placeholder="Print this part twice" onChange={(e) => onUpdatePrintables({ note: e.target.value })} />
             </label>
+            {isPrintablesGcode && (
+              <label className="text-[11px] space-y-1"><span>Layer height (mm override)</span>
+                <input className="mp-input text-[12px]" type="number" min="0.001" step="0.001"
+                  value={printables.layerHeight ?? ''} placeholder="0.20"
+                  onChange={(e) => onUpdatePrintables({ layerHeight: e.target.value })} />
+              </label>
+            )}
+            {isPrintablesGcode && (
+              <label className="text-[11px] space-y-1"><span>Nozzle diameter (mm override)</span>
+                <input className="mp-input text-[12px]" type="number" min="0.01" step="0.01"
+                  value={printables.nozzleDiameter ?? ''} placeholder="0.40"
+                  onChange={(e) => onUpdatePrintables({ nozzleDiameter: e.target.value })} />
+              </label>
+            )}
+            {isPrintablesGcode && (
+              <label className="text-[11px] space-y-1"><span>Print duration (hours override)</span>
+                <input className="mp-input text-[12px]" type="number" min="0.01" max="999" step="0.01"
+                  value={printables.printDuration ?? ''} placeholder="1.5"
+                  onChange={(e) => onUpdatePrintables({ printDuration: e.target.value })} />
+              </label>
+            )}
+            {isPrintablesGcode && (
+              <label className="text-[11px] space-y-1"><span>Printed weight (g override)</span>
+                <input className="mp-input text-[12px]" type="number" min="1" step="1"
+                  value={printables.weight ?? ''} placeholder="13"
+                  onChange={(e) => onUpdatePrintables({ weight: e.target.value })} />
+              </label>
+            )}
           </div>
+          {isPrintablesGcode && (
+            <label className="flex items-center gap-2 text-[11px] mt-2">
+              <input type="checkbox" checked={!!printables.excludeFromTotalSum}
+                onChange={(e) => onUpdatePrintables({ excludeFromTotalSum: e.target.checked })} />
+              Exclude this G-code from the model totals
+            </label>
+          )}
           <p className="text-[10px] mt-1.5" style={{ color: 'rgba(21,23,28,0.45)' }}>
-            Printables file order follows the file order shown above.
+            File notes are limited to {PRINTABLES_FILE_NOTE_MAX} characters. Each folder path segment is limited to {PRINTABLES_FOLDER_NAME_MAX} characters. Specialist overrides are used when Printables cannot inspect them from the file. Printables file order follows the file order shown above.
           </p>
         </details>
       )}
@@ -2854,24 +2951,8 @@ function dataUrlToParts(dataUrl) {
   return { mediaType: m[1], base64: m[2] };
 }
 
-// AI provider presets. Users bring their OWN key (or run a local model for $0). Default
-// models are best-effort suggestions — free-tier model names change, so the user can edit
-// them. `local` providers are called directly from the browser (the Worker can't reach
-// localhost); the rest are proxied through the Worker with the user's key per-request.
-const AI_PROVIDERS = {
-  none:       { label: 'None — smart manual (no AI)',      needsKey: false, model: '' },
-  ollama:     { label: 'Local — Ollama ($0, open-source)', needsKey: false, local: true, baseUrl: 'http://localhost:11434/v1', model: 'llama3.2-vision' },
-  openrouter: { label: 'OpenRouter (free + cheap models)', needsKey: true,  model: 'meta-llama/llama-3.2-11b-vision-instruct:free' },
-  gemini:     { label: 'Google Gemini (free tier)',        needsKey: true,  model: 'gemini-2.0-flash' },
-  groq:       { label: 'Groq (free tier)',                 needsKey: true,  model: 'meta-llama/llama-4-scout-17b-16e-instruct' },
-  custom:     { label: 'Custom (OpenAI-compatible)',       needsKey: true,  custom: true, model: '' },
-};
-const AI_CONFIG_KEY = 'modelprep:ai-config';
-function getAiConfig() {
-  try { return { provider: 'none', apiKey: '', model: '', baseUrl: '', ...(JSON.parse(localStorage.getItem(AI_CONFIG_KEY) || 'null') || {}) }; }
-  catch { return { provider: 'none', apiKey: '', model: '', baseUrl: '' }; }
-}
-function setAiConfig(c) { try { localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(c)); } catch { /* quota */ } }
+// Provider registry, stored configuration, detection and error vocabulary all live in
+// lib/ai-providers.js; this file only wires them to the UI and to the actual calls.
 
 // Default platform selection — which platforms a NEW project starts with enabled.
 // null = the user hasn't customised it → use initialProject's built-in defaults.
@@ -2922,27 +3003,94 @@ function parseAiListing(text, categories, limits) {
   return { title, description, tags, category, realPhotoDetected: obj.realPhotoDetected === true, notes: String(obj.notes || '').trim() || undefined };
 }
 
-// Direct browser → local Ollama (OpenAI-compatible). Needs Ollama running with the origin
-// allowed (OLLAMA_ORIGINS). Returns parsed fields or throws.
-async function callOllamaListing({ baseUrl, model, parts, hint, limits, categories }) {
+// Desktop bridge, or null in the browser build.
+function desktopBridge() {
+  return (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+}
+
+// The instruction that follows the photos, shared by every provider.
+function aiUserInstruction(hint) {
+  return hint?.trim()
+    ? `Maker's one-line hint: "${hint.trim()}". Write the listing for the model in these photos.`
+    : 'Write the listing for the model in these photos.';
+}
+
+// Local model server (Ollama, LM Studio). Routed through the desktop main process, which can
+// call http://localhost without the server having to allow this origin — otherwise every
+// maker would have to set OLLAMA_ORIGINS before a free local model worked at all.
+async function callLocalHttpListing({ providerId, baseUrl, model, parts, hint, limits, categories }) {
+  const bridge = desktopBridge();
+  if (!bridge?.localAiChat) throw new Error(`${AI_PROVIDERS[providerId]?.name || 'Local model'} needs the ModelPrep desktop app`);
   const content = parts.map(p => ({ type: 'image_url', image_url: { url: `data:${p.mediaType};base64,${p.base64}` } }));
-  content.push({ type: 'text', text: hint?.trim() ? `Hint: "${hint.trim()}". Write the listing for the model in these photos.` : 'Write the listing for the model in these photos.' });
-  const res = await fetch(`${(baseUrl || 'http://localhost:11434/v1').replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: model || 'llama3.2-vision', messages: [{ role: 'system', content: aiSystemPrompt(limits, categories) }, { role: 'user', content }] }),
+  content.push({ type: 'text', text: aiUserInstruction(hint) });
+  const res = await bridge.localAiChat({
+    baseUrl: baseUrl || AI_PROVIDERS[providerId]?.baseUrl,
+    model,
+    messages: [{ role: 'system', content: aiSystemPrompt(limits, categories) }, { role: 'user', content }],
   });
-  if (!res.ok) throw new Error(`Ollama ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
-  const d = await res.json();
-  const text = d.choices?.[0]?.message?.content || '';
-  return parseAiListing(text, categories, limits);
+  if (!res?.ok) throw new Error(res?.error || `${AI_PROVIDERS[providerId]?.name || providerId} failed`);
+  return parseAiListing(res.text, categories, limits);
+}
+
+// Cloud provider, proxied through the Worker with the maker's own key per request.
+async function callCloudListing({ providerId, apiKey, model, baseUrl, parts, hint, limits, categories }) {
+  const res = await fetch(`${WORKER_URL}/api/v1/ai/generate-listing`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: providerId, apiKey, model, baseUrl, images: parts, hint: hint || '', categories: categories || [], limits: limits || {} }),
+  });
+  if (res.ok) {
+    const d = await res.json();
+    return { title: d.title || '', description: d.description || '', tags: d.tags || [], category: d.category || '', notes: d.notes, realPhotoDetected: d.realPhotoDetected };
+  }
+  const body = await res.json().catch(() => ({}));
+  const detail = body.error === 'missing_key' ? 'No API key saved for this provider'
+    : body.error === 'missing_model' ? 'No model chosen for this provider'
+    : body.message || body.error || `provider error ${res.status}`;
+  throw new Error(`${res.status}: ${detail}`);
+}
+
+// Renderer → desktop → local `codex exec`. Costs $0 beyond the ChatGPT/Codex subscription the
+// maker already has: no API key, and the photos never leave the machine except through the
+// maker's own Codex session. The CLI takes one prompt (no system/user split), so the shared
+// system prompt and the per-run instruction are concatenated.
+async function callCliListing({ providerId, model, binPath, parts, hint, limits, categories }) {
+  const meta = AI_PROVIDERS[providerId];
+  const bridge = desktopBridge();
+  if (!bridge?.generateCliListing) throw new Error(`${meta?.name || 'This CLI'} needs the ModelPrep desktop app`);
+  const res = await bridge.generateCliListing({
+    agent: meta.agent,
+    prompt: `${aiSystemPrompt(limits, categories)}\n\n${aiUserInstruction(hint)}`,
+    images: parts, model: model || '', binPath: binPath || '',
+  });
+  if (!res?.ok) throw new Error(res?.error || `${meta?.name || providerId} failed`);
+  return parseAiListing(res.text, categories, limits);
+}
+
+/** One callable per configured provider, ready for `runListingChain`. */
+function listingCallers({ config, parts, hint, limits, categories }) {
+  const callers = {};
+  for (const providerId of aiChain(config)) {
+    const meta = AI_PROVIDERS[providerId];
+    const settings = providerSettings(config, providerId);
+    const shared = { parts, hint, limits, categories };
+    if (meta.kind === 'cli') {
+      callers[providerId] = () => callCliListing({ providerId, model: settings.model, binPath: settings.binPath, ...shared });
+    } else if (meta.kind === 'local-http') {
+      callers[providerId] = () => callLocalHttpListing({ providerId, baseUrl: settings.baseUrl || meta.baseUrl, model: settings.model, ...shared });
+    } else {
+      callers[providerId] = () => callCloudListing({ providerId, apiKey: settings.apiKey, model: settings.model || meta.defaultModel, baseUrl: settings.baseUrl, ...shared });
+    }
+  }
+  return callers;
 }
 
 // Generate Title/Description/Tags/Category from the project's photos + an optional one-line
-// hint, using the user's configured AI provider. Falls back to an on-device heuristic when
-// no provider is set or the call fails, so the button always does *something*.
-// Returns { fields, source: 'ai' | 'offline', notes?, realPhotoDetected? }.
-async function generateListingAI({ images, hint, limits, categories }) {
-  const cfg = getAiConfig();
+// hint. Tries each configured provider in turn, so a maker who has run out of monthly quota
+// on one keeps working on the next, and falls back to an on-device draft when the whole chain
+// declines — the button always does *something*.
+// Returns { fields, source: 'ai' | 'offline', providerId?, attempts, notes?, realPhotoDetected? }.
+async function generateListingAI({ images, hint, limits, categories, onAttempt }) {
+  const config = readAiConfig();
   // Down-rez to keep the request small + cheap; vision doesn't need full res.
   const parts = [];
   for (const img of (images || []).slice(0, 8)) {
@@ -2953,27 +3101,18 @@ async function generateListingAI({ images, hint, limits, categories }) {
     } catch { /* skip unreadable image */ }
   }
 
-  let providerError = null;
-  if (parts.length && cfg.provider && cfg.provider !== 'none') {
-    try {
-      if (cfg.provider === 'ollama') {
-        const fields = await callOllamaListing({ baseUrl: cfg.baseUrl, model: cfg.model, parts, hint, limits, categories });
-        return { source: 'ai', notes: fields.notes, realPhotoDetected: fields.realPhotoDetected, fields };
-      }
-      const res = await fetch(`${WORKER_URL}/api/v1/ai/generate-listing`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: cfg.provider, apiKey: cfg.apiKey, model: cfg.model, baseUrl: cfg.baseUrl, images: parts, hint: hint || '', categories: categories || [], limits: limits || {} }),
-      });
-      if (res.ok) {
-        const d = await res.json();
-        return { source: 'ai', notes: d.notes, realPhotoDetected: d.realPhotoDetected,
-          fields: { title: d.title || '', description: d.description || '', tags: d.tags || [], category: d.category || '' } };
-      }
-      const e = await res.json().catch(() => ({}));
-      providerError = e.error === 'missing_key' ? 'add your API key in AI settings'
-        : e.error === 'missing_model' ? 'choose a model in AI settings'
-        : e.message || e.error || `provider error ${res.status}`;
-    } catch (err) { providerError = String((err && err.message) || err); }
+  let attempts = [];
+  if (parts.length) {
+    const outcome = await runListingChain({
+      chain: aiChain(config),
+      callers: listingCallers({ config, parts, hint, limits, categories }),
+      onAttempt,
+    });
+    if (outcome.ok) {
+      const fields = outcome.fields;
+      return { source: 'ai', providerId: outcome.providerId, attempts: outcome.attempts, notes: fields.notes, realPhotoDetected: fields.realPhotoDetected, fields };
+    }
+    attempts = outcome.attempts;
   }
 
   // ── Offline heuristic fallback ──────────────────────────────────────────
@@ -2985,57 +3124,292 @@ async function generateListingAI({ images, hint, limits, categories }) {
   const description = seed
     ? `# ${title}\n\n${seed}.\n\n## Print settings\n- Layer height: 0.2 mm\n- Material: PLA\n- Supports: as needed\n`
     : '';
-  return { source: 'offline', providerError, fields: { title, description, tags, category: '' } };
+  return { source: 'offline', attempts, providerError: chainFailureMessage(attempts), fields: { title, description, tags, category: '' } };
 }
 
-// Where each provider's (free) key / setup lives — shown as a hint under the picker.
-const AI_PROVIDER_HINTS = {
-  none:       'No AI — fills fields with smart manual heuristics (tag suggestions, title-casing). Works for everyone, no key.',
-  ollama:     'Run a local model: `ollama run llama3.2-vision`, then start Ollama with OLLAMA_ORIGINS allowing this site. $0, fully private — nothing leaves your machine.',
-  openrouter: 'Free key at openrouter.ai/keys. Many models incl. free ones (the “:free” suffix) and cheap DeepSeek/Qwen/GLM. Pick a model that supports vision.',
-  gemini:     'Free key at aistudio.google.com/apikey. Gemini Flash has vision + a generous free tier.',
-  groq:       'Free key at console.groq.com/keys. Fast, free Llama vision models.',
-  custom:     'Any OpenAI-compatible /chat/completions endpoint. Enter its base URL, your key and a vision model.',
+// ─────────────────────────────────────────────────────────────────────────────
+// AI SETTINGS
+//
+// The panel answers three questions in order: who is writing my listings, what else could,
+// and why isn't this one working. Providers are detected on open, so the common case is one
+// click — "Use this" — and everything else (model, endpoint, chain position) is filled in.
+
+const AI_TONE = {
+  ready:   { fg: '#1a7f37', bg: 'rgba(26,127,55,0.10)', label: 'Ready' },
+  setup:   { fg: '#8a5a00', bg: 'rgba(138,90,0,0.10)',  label: 'Needs setup' },
+  key:     { fg: 'rgba(21,23,28,0.55)', bg: 'rgba(21,23,28,0.06)', label: 'Needs key' },
+  missing: { fg: 'rgba(21,23,28,0.45)', bg: 'rgba(21,23,28,0.05)', label: 'Not found' },
+  unsupported: { fg: 'rgba(21,23,28,0.45)', bg: 'rgba(21,23,28,0.05)', label: 'Desktop only' },
+  checking: { fg: 'rgba(21,23,28,0.45)', bg: 'rgba(21,23,28,0.05)', label: 'Checking' },
+  error:   { fg: '#991b1b', bg: 'rgba(185,28,28,0.08)', label: 'Problem' },
 };
 
-function AiSettings() {
-  const [cfg, setCfg] = useState(getAiConfig());
-  const preset = AI_PROVIDERS[cfg.provider] || AI_PROVIDERS.none;
-  const save = (next) => { const merged = { ...cfg, ...next }; setCfg(merged); setAiConfig(merged); };
-  const pickProvider = (provider) => {
-    const p = AI_PROVIDERS[provider] || {};
-    save({ provider, model: p.model || '', baseUrl: p.baseUrl || '' });
-  };
-  const lbl = 'mp-mono text-[11px] uppercase tracking-[0.12em] block mb-1';
+const aiLabelClass = 'mp-mono text-[10px] uppercase tracking-[0.12em] block mb-1';
+const aiMuted = 'rgba(21,23,28,0.55)';
+
+function AiStatusChip({ state }) {
+  const tone = AI_TONE[state] || AI_TONE.missing;
   return (
-    <div className="mt-3 pt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>AI provider</label>
-          <select className="mp-input" value={cfg.provider} onChange={(e) => pickProvider(e.target.value)}>
-            {Object.entries(AI_PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-          </select>
+    <span className="mp-pill shrink-0" style={{ background: tone.bg, color: tone.fg }}>
+      {state === 'checking' && <Loader size={9} className="mp-spin mr-1" />}
+      {tone.label}
+    </span>
+  );
+}
+
+// Anything a maker has to act on: a rejected key, an exhausted quota, a server that is not
+// running. Always states the problem and the fix, and keeps the provider's own words.
+function AiProblem({ title, fix, detail, tone = 'warn' }) {
+  const colors = tone === 'error'
+    ? { fg: '#991b1b', bg: 'rgba(185,28,28,0.06)', border: 'rgba(185,28,28,0.30)' }
+    : { fg: '#7a4f00', bg: 'rgba(138,90,0,0.07)', border: 'rgba(138,90,0,0.30)' };
+  return (
+    <div role="status" className="p-2.5 text-[12px] leading-relaxed break-words" style={{ background: colors.bg, border: `1px solid ${colors.border}`, color: colors.fg }}>
+      <span className="font-semibold">{title}</span>{fix ? ` — ${fix}` : ''}
+      {detail ? <div className="mp-mono text-[10px] mt-1 opacity-70 break-all">{detail}</div> : null}
+    </div>
+  );
+}
+
+/** Model picker: a dropdown when we know what the provider offers, a text box when we don't.
+ *  A saved model missing from the catalog is kept and marked, never silently replaced. */
+function AiModelField({ providerId, models, value, onChange, placeholder }) {
+  const id = `ai-model-${providerId}`;
+  const options = useMemo(() => {
+    if (!models?.length) return [];
+    if (!value || models.some((m) => m.slug === value)) return models;
+    return [...models, { slug: value, label: `${value} (not offered by your plan)` }];
+  }, [models, value]);
+
+  return (
+    <div className="min-w-0">
+      <label className={aiLabelClass} htmlFor={id} style={{ color: aiMuted }}>Model</label>
+      {options.length ? (
+        <select id={id} className="mp-input" value={value || ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">Recommended default</option>
+          {options.map((m) => <option key={m.slug} value={m.slug}>{m.label}</option>)}
+        </select>
+      ) : (
+        <input id={id} className="mp-input" value={value || ''} placeholder={placeholder || 'model name'} onChange={(e) => onChange(e.target.value)} />
+      )}
+    </div>
+  );
+}
+
+function AiProviderRow({ meta, detection, config, models, expanded, onToggle, onUse, onBackup, onRemove, onSettings, onCheckKey, checking }) {
+  const id = meta.id;
+  const settings = providerSettings(config, id);
+  const isPrimary = config.primary === id;
+  const backupIndex = (config.fallbacks || []).indexOf(id);
+  const inChain = isPrimary || backupIndex >= 0;
+  const state = detection?.state || 'checking';
+  const usable = state === 'ready' || (meta.kind === 'cloud' && !!settings.apiKey);
+  const problem = detection?.error || null;
+
+  return (
+    <div className="mp-card" style={{ borderColor: isPrimary ? 'rgba(255,87,34,0.55)' : 'rgba(21,23,28,0.12)' }}>
+      <div className="flex items-start gap-3 p-3">
+        <button
+          type="button" onClick={onToggle} aria-expanded={expanded}
+          className="flex-1 min-w-0 text-left flex items-start gap-2"
+        >
+          <ChevronRight size={14} className="mt-0.5 shrink-0 transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : 'none', color: aiMuted }} />
+          <span className="min-w-0">
+            <span className="flex items-center gap-2 flex-wrap">
+              <span className="text-[14px] font-semibold">{meta.name}</span>
+              {isPrimary && <span className="mp-pill" style={{ background: 'rgba(255,87,34,0.12)', color: '#B23C15' }}>Primary</span>}
+              {backupIndex >= 0 && <span className="mp-pill" style={{ background: 'rgba(21,23,28,0.06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
+            </span>
+            <span className="block text-[12px] mt-0.5 break-words" style={{ color: aiMuted }}>
+              {detection?.detail || meta.cost}
+            </span>
+          </span>
+        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <AiStatusChip state={problem && state === 'ready' ? 'error' : state} />
+          {/* One obvious next step per row: use it, or open the one thing standing in the way. */}
+          {usable && !isPrimary && (
+            <button type="button" className="mp-btn mp-btn-ghost text-[12px]" style={{ minHeight: 32, padding: '0.3rem 0.7rem' }} onClick={onUse}>
+              {inChain ? 'Make primary' : 'Use this'}
+            </button>
+          )}
+          {/* A provider that only needs explaining gets a quiet link, not a second solid
+              button — otherwise every row shouts equally and the ready one stops standing out. */}
+          {!usable && state !== 'checking' && !expanded && (
+            <button
+              type="button" onClick={onToggle}
+              className="mp-mono text-[10px] uppercase tracking-[0.12em] shrink-0 hover:text-[#FF5722] transition"
+              style={{ color: aiMuted }}
+            >
+              {meta.kind === 'cloud' ? 'Add key' : state === 'setup' ? 'Finish setup' : 'What’s needed'}
+            </button>
+          )}
         </div>
-        {cfg.provider !== 'none' && (
-          <div>
-            <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>Model</label>
-            <input className="mp-input" value={cfg.model} placeholder={preset.model || 'model name'} onChange={(e) => save({ model: e.target.value })} />
-          </div>
-        )}
-        {preset.needsKey && (
-          <div>
-            <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>API key (yours — sent per request, never stored on our server)</label>
-            <input className="mp-input" type="password" autoComplete="off" value={cfg.apiKey} placeholder="sk-…" onChange={(e) => save({ apiKey: e.target.value })} />
-          </div>
-        )}
-        {(preset.custom || preset.local) && (
-          <div>
-            <label className={lbl} style={{ color: 'rgba(21,23,28,0.55)' }}>Base URL</label>
-            <input className="mp-input" value={cfg.baseUrl} placeholder={preset.baseUrl || 'https://…/v1'} onChange={(e) => save({ baseUrl: e.target.value })} />
-          </div>
-        )}
       </div>
-      <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.45)' }}>{AI_PROVIDER_HINTS[cfg.provider]}</p>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.10)' }}>
+          <p className="text-[12px] leading-relaxed break-words" style={{ color: aiMuted }}>{meta.blurb}</p>
+
+          {detection?.warning && <AiProblem title="Heads up" fix={detection.warning} />}
+          {problem && <AiProblem title={problem.title || 'Needs a step first'} fix={problem.message || problem.fix} detail={problem.detail} tone={problem.code === 'auth' ? 'warn' : 'warn'} />}
+          {state === 'missing' && meta.setupHint && <AiProblem title="Not set up yet" fix={meta.setupHint} />}
+          {state === 'unsupported' && <AiProblem title="Desktop app only" fix="A web page cannot start a program on your computer. Open the ModelPrep desktop app to use this." />}
+
+          {meta.kind === 'cloud' && (
+            <div className="space-y-3">
+              <div className="min-w-0">
+                <label className={aiLabelClass} htmlFor={`ai-key-${id}`} style={{ color: aiMuted }}>API key</label>
+                <div className="flex gap-2 flex-wrap">
+                  <input
+                    id={`ai-key-${id}`} type="password" autoComplete="off" className="mp-input flex-1" style={{ minWidth: 180 }}
+                    value={settings.apiKey || ''} placeholder="sk-…"
+                    onChange={(e) => onSettings({ apiKey: e.target.value })}
+                  />
+                  <button type="button" className="mp-btn mp-btn-ghost text-[13px] shrink-0" style={{ minHeight: 44 }} onClick={onCheckKey} disabled={checking}>
+                    {checking ? <Loader size={13} className="mp-spin" /> : <Check size={13} />} Check key
+                  </button>
+                </div>
+                <p className="text-[11px] mt-1" style={{ color: aiMuted }}>Stored in this browser only, and sent with each request.</p>
+              </div>
+              {meta.custom && (
+                <div className="min-w-0">
+                  <label className={aiLabelClass} htmlFor={`ai-url-${id}`} style={{ color: aiMuted }}>Endpoint</label>
+                  <input id={`ai-url-${id}`} className="mp-input" value={settings.baseUrl || ''} placeholder="https://…/v1" onChange={(e) => onSettings({ baseUrl: e.target.value })} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {(usable || inChain) && (
+            <AiModelField
+              providerId={id} models={models} value={settings.model}
+              placeholder={meta.defaultModel || 'model name'}
+              onChange={(model) => onSettings({ model })}
+            />
+          )}
+
+          {/* Only worth showing when the automatic lookup failed, or when a maker has already
+              overridden it. Asking everyone else for a path they do not need is noise. */}
+          {meta.kind === 'cli' && (state !== 'ready' || settings.binPath) && (
+            <div className="min-w-0">
+              <label className={aiLabelClass} htmlFor={`ai-bin-${id}`} style={{ color: aiMuted }}>Program location</label>
+              <input id={`ai-bin-${id}`} className="mp-input" value={settings.binPath || ''} placeholder="Found automatically" onChange={(e) => onSettings({ binPath: e.target.value })} />
+              <p className="text-[11px] mt-1" style={{ color: aiMuted }}>Only needed if ModelPrep cannot find it on its own.</p>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {usable && !isPrimary && <button type="button" className="mp-btn text-[13px]" style={{ minHeight: 36 }} onClick={onUse}>Use for listings</button>}
+            {usable && !inChain && <button type="button" className="mp-btn mp-btn-ghost text-[13px]" style={{ minHeight: 36 }} onClick={onBackup}>Add as backup</button>}
+            {inChain && <button type="button" className="mp-btn mp-btn-ghost text-[13px]" style={{ minHeight: 36 }} onClick={onRemove}>Remove from chain</button>}
+            {meta.setupUrl && (
+              <a href={meta.setupUrl} target="_blank" rel="noreferrer" className="text-[12px] underline" style={{ color: '#B23C15' }}>
+                {meta.kind === 'cloud' ? 'Get a key' : 'Install guide'}
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiSettings() {
+  const [config, setConfig] = useState(() => readAiConfig());
+  const [detected, setDetected] = useState(null);        // null = first check running
+  const [expanded, setExpanded] = useState('');
+  const [checkingKey, setCheckingKey] = useState('');
+  const [keyResults, setKeyResults] = useState({});      // provider id → { models, error }
+  const desktop = desktopBridge();
+
+  const scan = useCallback(async () => {
+    setDetected(null);
+    const result = await detectProviders({ desktop });
+    setDetected(result);
+    return result;
+  }, [desktop]);
+
+  useEffect(() => { let live = true; detectProviders({ desktop }).then((r) => { if (live) setDetected(r); }); return () => { live = false; }; }, [desktop]);
+
+  const commit = (next) => { setConfig(next); writeAiConfig(next); };
+  const chain = aiChain(config);
+
+  // Models we know about for a provider: detected (local) or returned by the key check (cloud).
+  const modelsFor = (id) => keyResults[id]?.models || detected?.[id]?.models || [];
+
+  // "Use this" has to leave nothing else to do: pick the provider, and pick a model for it if
+  // one is needed and none is saved.
+  const useProvider = (id) => {
+    const models = modelsFor(id);
+    const settings = providerSettings(config, id);
+    const model = settings.model || (AI_PROVIDERS[id].kind === 'cloud' ? (models[0]?.slug || AI_PROVIDERS[id].defaultModel || '') : (AI_PROVIDERS[id].kind === 'local-http' ? models[0]?.slug || '' : ''));
+    commit(setPrimaryProvider(config, id, model ? { model } : {}));
+    setExpanded('');
+  };
+
+  const checkKey = async (id) => {
+    setCheckingKey(id);
+    const settings = providerSettings(config, id);
+    const result = await checkCloudProvider({ id, apiKey: settings.apiKey, baseUrl: settings.baseUrl });
+    setKeyResults((prev) => ({ ...prev, [id]: result }));
+    setCheckingKey('');
+  };
+
+  // Ready first, then anything one step away, then the rest — the useful ones stay on top.
+  const order = { ready: 0, setup: 1, key: 2, checking: 3, missing: 4, unsupported: 5 };
+  const rows = AI_PROVIDER_IDS
+    .map((id) => ({ id, meta: AI_PROVIDERS[id], detection: detected?.[id] }))
+    .sort((a, b) => {
+      const rank = (row) => (config.primary === row.id ? -2 : chain.includes(row.id) ? -1 : order[row.detection?.state] ?? 9);
+      return rank(a) - rank(b);
+    });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: aiMuted }}>Writing your listings</div>
+          <p className="text-[13px] mt-1 break-words">
+            {chain.length
+              ? <>ModelPrep asks <strong>{AI_PROVIDERS[chain[0]].name}</strong>{chain.length > 1 ? <>, then {chain.slice(1).map((id) => AI_PROVIDERS[id].name).join(', ')} if that fails</> : null}.</>
+              : <>No AI picked yet — ModelPrep writes a basic draft from your hint. Choose one below to write from your photos.</>}
+          </p>
+        </div>
+        <button
+          type="button" onClick={scan} disabled={detected === null}
+          className="mp-mono text-[10px] uppercase tracking-[0.12em] flex items-center gap-1.5 shrink-0 mt-1 hover:text-[#FF5722] transition disabled:opacity-50"
+          style={{ color: aiMuted }}
+        >
+          <RefreshCw size={11} className={detected === null ? 'mp-spin' : ''} /> {detected === null ? 'Checking' : 'Check again'}
+        </button>
+      </div>
+
+      {chain.length > 1 && (
+        <p className="text-[11px]" style={{ color: aiMuted }}>
+          Backups take over automatically — useful when a monthly quota runs out mid-batch.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {rows.map(({ id, meta, detection }) => (
+          <AiProviderRow
+            key={id}
+            meta={meta}
+            detection={keyResults[id]?.error ? { ...detection, error: keyResults[id].error } : detection}
+            config={config}
+            models={modelsFor(id)}
+            expanded={expanded === id}
+            checking={checkingKey === id}
+            onToggle={() => setExpanded(expanded === id ? '' : id)}
+            onUse={() => useProvider(id)}
+            onBackup={() => commit(addFallbackProvider(config, id))}
+            onRemove={() => commit(removeProvider(config, id))}
+            onSettings={(patch) => commit(updateProviderSettings(config, id, patch))}
+            onCheckKey={() => checkKey(id)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -3127,7 +3501,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
   const openSettings = useOpenConnections();
-  const aiProvider = getAiConfig().provider;
+  const aiPrimary = readAiConfig().primary;
   const [licenseFilter, setLicenseFilter] = useState('all');
   const [showLicenseChooser, setShowLicenseChooser] = useState(false);
 
@@ -3161,12 +3535,19 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       if (f.category) patch.category = f.category;
       if (Object.keys(patch).length) updateProject(patch);
       const filled = Object.keys(patch).map(k => k === 'tags' ? `${patch.tags.length} tags` : k).join(', ') || 'nothing';
+      // Name whoever actually wrote it. When a backup stepped in, say why the first one didn't
+      // — a maker seeing "quota" on their primary knows exactly what to do about it.
+      const wrote = out.source === 'ai' ? ` by ${AI_PROVIDERS[out.providerId]?.name || 'AI'}` : '';
+      const skipped = out.attempts?.length
+        ? ` ${out.attempts.map((a) => `${AI_PROVIDERS[a.providerId]?.name || a.providerId} was skipped (${a.error.title.toLowerCase()})`).join('; ')}.`
+        : '';
       const tail = out.source === 'offline'
-        ? (out.providerError
-            ? ` (AI provider failed: ${out.providerError} — used an offline draft instead)`
-            : ' (offline draft — pick an AI provider in ⚙ AI settings for photo-based results)')
-        : (out.realPhotoDetected === false ? ' · ⚠ no real print photo detected — MakerWorld requires one' : '');
-      setAiMsg({ kind: out.source === 'offline' || out.realPhotoDetected === false ? 'warn' : 'ok', text: `Generated ${filled}.${out.notes ? ' ' + out.notes : ''}${tail}` });
+        ? ` ${out.providerError}`
+        : `${skipped}${out.realPhotoDetected === false ? ' ⚠ No real print photo detected — MakerWorld requires one.' : ''}`;
+      setAiMsg({
+        kind: out.source === 'offline' || out.realPhotoDetected === false ? 'warn' : 'ok',
+        text: `Generated ${filled}${wrote}.${out.notes ? ' ' + out.notes : ''}${tail}`,
+      });
     } catch (e) {
       setAiMsg({ kind: 'warn', text: 'Generation failed — ' + String((e && e.message) || e) });
     } finally { setAiBusy(false); }
@@ -3242,7 +3623,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             style={{ color: 'rgba(21,23,28,0.5)' }}
             title="Configure the AI provider in Settings"
           >
-            <Settings size={11} /> {aiProvider === 'none' ? 'Set up AI' : (AI_PROVIDERS[aiProvider]?.label?.split(' ')[0] || 'AI')}
+            <Settings size={11} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : 'Set up AI'}
           </button>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -3270,7 +3651,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         )}
         <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.4)' }}>
           Looks at your print photos to write everything — you review and tweak below. Respects each platform's length/tag limits.
-          {aiProvider === 'none' && ' No key needed to try it (offline draft); pick a free/own-key provider in Settings for photo-based results.'}
+          {!aiPrimary && ' Right now it writes from your hint alone — pick an AI in Settings to write from the photos themselves.'}
         </p>
       </div>
 
@@ -3565,6 +3946,9 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
   const [imageWorkspace, setImageWorkspace] = useState('gallery');
   const [cropPlatformId, setCropPlatformId] = useState('makerworld');
   const [imgNotice, setImgNotice] = useState(null); // string | null
+  const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop)
+    ? window.modelprepDesktop
+    : null;
 
   const handleVideoFiles = async (fileList) => {
     const candidates = Array.from(fileList || []).filter(isGalleryVideoFile);
@@ -3624,6 +4008,8 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         additions.push({
           id: 'img_' + Date.now() + '_' + additions.length + '_' + Math.random().toString(36).slice(2, 7),
           dataUrl,
+          name: sourceFile.name,
+          size: sourceFile.size,
           naturalW: img.naturalWidth,
           naturalH: img.naturalHeight,
           focal: { x: 0.5, y: 0.5 },
@@ -3653,6 +4039,25 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
     if (!project.coverImageId && newImages.length) patch.coverImageId = newImages[0].id;
     updateProject(patch);
     if (!activeImageId) setActiveImageId(additions[0].id);
+  };
+
+  const chooseImageFiles = async () => {
+    if (!desktop?.pickGalleryImages) {
+      fileInputRef.current?.click();
+      return;
+    }
+    try {
+      const result = await desktop.pickGalleryImages();
+      if (!result?.ok) throw new Error(result?.error || 'Image picker failed.');
+      const files = (result.files || []).map((item) => {
+        const binary = atob(item.base64 || '');
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+        return new File([bytes], item.name, { type: item.type || 'application/octet-stream' });
+      });
+      if (files.length) await handleImageFiles(files);
+    } catch (error) {
+      setImgNotice(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const addSamples = async (specs) => {
@@ -3757,6 +4162,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
       {project.images.length === 0 ? (
         <ImageDropZone
           onDrop={handleImageFiles}
+          onBrowse={chooseImageFiles}
           inputRef={fileInputRef}
           onSamples={() => addSamples([
             { label: 'SAMPLE 1', tint: ['#FF5722', '#FFB627', '#1A1A1A'] },
@@ -3771,10 +4177,10 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
               <span className="mp-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.55)' }}>
                 {project.images.length} images · first selected cover stays first
               </span>
-              <button onClick={() => fileInputRef.current?.click()} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
+              <button onClick={chooseImageFiles} className="mp-mono text-[12px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
                 <Plus size={11} /> Add
               </button>
-              <input ref={fileInputRef} type="file" multiple accept="image/*,.heic,.heif" onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
+              <input ref={fileInputRef} type="file" multiple accept={GALLERY_IMAGE_ACCEPT || undefined} onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
             </div>
 
             <p className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1" style={{ color: 'rgba(21,23,28,0.4)' }}>
@@ -3927,7 +4333,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
-function ImageDropZone({ onDrop, inputRef, onSamples }) {
+function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
   return (
     <>
       <div
@@ -3938,17 +4344,17 @@ function ImageDropZone({ onDrop, inputRef, onSamples }) {
         style={{ borderColor: 'rgba(21,23,28,0.25)' }}
         onMouseEnter={(e) => e.currentTarget.style.borderColor = '#FF5722'}
         onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(21,23,28,0.25)'}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBrowse(); } }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
-        onClick={() => inputRef.current?.click()}
+        onClick={onBrowse}
       >
         <input ref={inputRef} type="file" multiple accept="image/*" onChange={(e) => onDrop(e.target.files)} className="hidden" />
         <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#15171C' }}>
           <ImageIcon size={22} strokeWidth={2.5} style={{ color: '#FF5722' }} />
         </div>
         <h2 className="mp-display text-[36px] leading-none mb-2">Load renders &amp; photos</h2>
-        <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>jpg, png, webp · first image becomes the cover</p>
+        <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>jpg, png, webp, gif, heic · first image becomes the cover</p>
         <p className="mp-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.4)' }}>
           ◯ min recommended 2000 × 1500 px
         </p>
@@ -4646,22 +5052,47 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
             <ThangsOptions opts={state} project={project} onUpdate={onUpdate} />
           )}
           {platform.id === 'thingiverse' && state.enabled && (
-            <ThingiverseOptions opts={state} onUpdate={onUpdate} />
+            <ThingiverseOptions opts={state} project={project} onUpdate={onUpdate} />
           )}
           {platform.id === 'mmf' && state.enabled && (
             <MyMiniFactoryOptions opts={state} onUpdate={onUpdate} />
           )}
-          {platform.id === 'cults' && state.enabled && (
-            <div className="mt-3">
-              <Label>Visibility</Label>
-              <div className="flex items-center gap-3 text-xs">
-                <label className="flex items-center gap-1.5"><input type="radio" checked={(state.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: '#FF5722' }} /> Secret (unlisted)</label>
-                <label className="flex items-center gap-1.5"><input type="radio" checked={state.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: '#FF5722' }} /> Public</label>
-              </div>
-            </div>
-          )}
+          {platform.id === 'cults' && state.enabled && <CultsOptions opts={state} onUpdate={onUpdate} />}
         </div>
       )}
+    </div>
+  );
+}
+
+export function CultsOptions({ opts, onUpdate }) {
+  const metaTags = Array.isArray(opts.metaTags) ? opts.metaTags : [];
+  const toggleMetaTag = (value) => onUpdate('metaTags', metaTags.includes(value)
+    ? metaTags.filter((tag) => tag !== value)
+    : [...metaTags, value]);
+  return (
+    <div className="mt-3 space-y-3">
+      <div>
+        <Label>Visibility</Label>
+        <div className="flex items-center gap-3 text-xs">
+          <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: '#FF5722' }} /> Secret (unlisted)</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: '#FF5722' }} /> Public</label>
+        </div>
+      </div>
+      <div>
+        <Label>Manufacturing settings <span className="opacity-50">(optional)</span></Label>
+        <textarea value={opts.details || ''} onChange={(event) => onUpdate('details', event.target.value)} placeholder="Print, CNC or laser settings" rows={2} className="w-full mp-card text-xs p-2" />
+      </div>
+      <div>
+        <Label>Platform labels</Label>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          {CULTS_META_TAGS.map(([value, label]) => <label key={value} className="flex items-center gap-1.5"><input type="checkbox" checked={metaTags.includes(value)} onChange={() => toggleMetaTag(value)} style={{ accentColor: '#FF5722' }} /> {label}</label>)}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.madeWithAi} onChange={(event) => onUpdate('madeWithAi', event.target.checked)} style={{ accentColor: '#FF5722' }} /> Made with AI</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={opts.showComments !== false} onChange={(event) => onUpdate('showComments', event.target.checked)} style={{ accentColor: '#FF5722' }} /> Allow comments</label>
+      </div>
+      <p className="text-[11px] opacity-60">3D printing usage is selected automatically. Current Cults terms still require a separate review before public or paid publishing.</p>
     </div>
   );
 }
@@ -4733,23 +5164,31 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
         </div>
         <div>
           <Label>Material quantity</Label>
-          <input aria-label="Material quantity" className="mp-input" value={opts.materialQuantity || ''} onChange={(event) => onUpdate('materialQuantity', event.target.value)} placeholder="For example: 45 g" />
+          <input aria-label="Material quantity" className="mp-input" maxLength={45} value={opts.materialQuantity || ''} onChange={(event) => onUpdate('materialQuantity', event.target.value)} placeholder="For example: 45 g" />
         </div>
         <div>
           <Label>Dimensions</Label>
+          {/* `.mp-input` sets width:100%, which outranks the w-20 utility in the
+              cascade and collapsed this text field to a few pixels in the
+              packaged app. Inline flex sizing wins deterministically. */}
           <div className="flex gap-2">
-            <input aria-label="Dimensions" className="mp-input flex-1" value={opts.dimensions || ''} onChange={(event) => onUpdate('dimensions', event.target.value)} placeholder="120 × 75 × 45" />
-            <select aria-label="Dimensions unit" className="mp-input w-20" value={Number(opts.dimensionsUnit || 0)} onChange={(event) => onUpdate('dimensionsUnit', Number(event.target.value))}>
+            <input aria-label="Dimensions" className="mp-input" style={{ flex: '1 1 0%', minWidth: 0 }} maxLength={100} value={opts.dimensions || ''} onChange={(event) => onUpdate('dimensions', event.target.value)} placeholder="120 × 75 × 45" />
+            <select aria-label="Dimensions unit" className="mp-input" style={{ flex: '0 0 5rem', width: '5rem' }} value={Number(opts.dimensionsUnit || 0)} onChange={(event) => onUpdate('dimensionsUnit', Number(event.target.value))}>
               <option value={0}>mm</option><option value={1}>cm</option><option value={2}>in</option>
             </select>
           </div>
         </div>
         <div>
-          <Label>Print time range (hours)</Label>
+          {/* MyMiniFactory stores this range in MINUTES: its native field reads
+              "Time to print … in minutes" and the object page renders
+              "Time to do 3 - 5 minutes". ModelPrep previously labelled it hours,
+              so an entered 3–5 was published as 3–5 minutes. Numbers round-trip
+              unchanged, so no read-back check could detect the mismatch. */}
+          <Label>Print time range (minutes)</Label>
           <div className="flex items-center gap-2">
-            <input type="number" min="0" className="mp-input w-24" value={opts.timeFrom ?? 0} onChange={(event) => onUpdate('timeFrom', Number(event.target.value))} />
+            <input type="number" min="0" placeholder="Min" className="mp-input w-24" value={opts.timeFrom ?? ''} onChange={(event) => onUpdate('timeFrom', event.target.value === '' ? '' : Number(event.target.value))} />
             <span className="text-xs opacity-50">to</span>
-            <input type="number" min="0" className="mp-input w-24" value={opts.timeTo ?? 50} onChange={(event) => onUpdate('timeTo', Number(event.target.value))} />
+            <input type="number" min="0" placeholder="Max" className="mp-input w-24" value={opts.timeTo ?? ''} onChange={(event) => onUpdate('timeTo', event.target.value === '' ? '' : Number(event.target.value))} />
           </div>
         </div>
       </div>
@@ -4760,6 +5199,11 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
       <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.supportFree} onChange={(event) => onUpdate('supportFree', event.target.checked)} style={{ accentColor: '#4FB286' }} /><span>This model prints without supports.</span></label>
       <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(event) => onUpdate('remix', event.target.checked)} style={{ accentColor: '#4FB286' }} /><span>This object is a remix.</span></label>
       {opts.remix && <div><Label>Parent MyMiniFactory object IDs</Label><input aria-label="Parent MyMiniFactory object IDs" className="mp-input" value={parentIds} onChange={(event) => onUpdate('remixParentIds', event.target.value.split(',').map((value) => value.trim()).filter(Boolean))} placeholder="Comma-separated object IDs" /></div>}
+      <div>
+        <Label>Verify an existing object (read-only)</Label>
+        <input aria-label="Existing MyMiniFactory object ID to verify" className="mp-input" value={opts.verifyObjectId || ''} onChange={(event) => onUpdate('verifyObjectId', event.target.value.replace(/[^0-9]/g, ''))} placeholder="Existing object ID, e.g. 829284" />
+        <p className="text-[11px] mt-1 opacity-55">Re-reads an object this account already owns and compares the persisted state above. It only reads; it never creates or edits an object.</p>
+      </div>
       <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', background: 'rgba(79,178,134,0.08)' }}>
         <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: '#4FB286' }} />
         <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory’s Terms and Conditions.</span>
@@ -4807,8 +5251,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
   const accounts = useAccounts();
   const active = accounts.getActive('nexprint');
   const secret = active?.secret || '';
-  const [categories, setCategories] = useState(THANGS_CATEGORIES);
-  const [categorySource, setCategorySource] = useState('snapshot');
+  const [categories, setCategories] = useState([]);
   const [dynamic, setDynamic] = useState({ activities: [], collections: [], error: '', loading: false });
 
   useEffect(() => {
@@ -5072,6 +5515,32 @@ export function CrealityOptions({ opts, project, onUpdate }) {
 
 function makerRoadOptionId(value) { return String(value?.id ?? value?.value ?? value?.classifyId ?? ''); }
 function makerRoadOptionName(value) { return String(value?.name ?? value?.label ?? value?.title ?? makerRoadOptionId(value)); }
+function makerRoadReadbackValues(value) {
+  if (Array.isArray(value)) return value.filter((item) => item != null && item !== '').map((item) => String(item?.id ?? item?.fileId ?? item));
+  return String(value || '').split('|').filter(Boolean);
+}
+export function makerRoadReadbackIssues(expected, model) {
+  const issues = [];
+  if (!model || typeof model !== 'object') return ['MakerRoad edit read-back returned no model.'];
+  const own = (field) => Object.prototype.hasOwnProperty.call(model, field);
+  const title = model.name ?? model.title ?? model.modelTitle;
+  if (title != null && String(title) !== String(expected.title)) issues.push('MakerRoad read-back changed the title.');
+  const visible = model.visible ?? model.visibility;
+  if (visible != null && Number(visible) !== (expected.visibility === 'public' ? 1 : 2)) issues.push('MakerRoad read-back changed visibility.');
+  const plan = model.plan;
+  if (plan != null && Number(plan) !== (expected.scheduled ? 2 : 1)) issues.push('MakerRoad read-back changed the publication plan.');
+  const payType = model.payType;
+  if (payType != null && Number(payType) !== ({ free: 1, points: 2, cash: 3 }[expected.payType] || 1)) issues.push('MakerRoad read-back changed the download price type.');
+  for (const [field, label, expectedCount] of [
+    ['fileModel', 'model files', expected.models], ['filePrintconf', 'print configurations', expected.profiles],
+    ['fileDoc', 'instruction documents', expected.documents], ['pics', 'images', expected.images],
+  ]) {
+    if (own(field) && makerRoadReadbackValues(model[field]).length !== expectedCount) {
+      issues.push(`MakerRoad read-back returned a different number of ${label}.`);
+    }
+  }
+  return issues;
+}
 function flattenMakerRoadOptions(values, prefix = '') {
   return (Array.isArray(values) ? values : values?.list || values?.rows || []).flatMap((value) => {
     const name = `${prefix}${makerRoadOptionName(value)}`;
@@ -5128,7 +5597,7 @@ export function MakerRoadOptions({ opts, onUpdate }) {
       <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.scheduled} onChange={(e) => onUpdate('scheduled', e.target.checked)} /> Schedule public availability</label>
       {opts.scheduled && <input aria-label="MakerRoad schedule" className="mp-input" type="datetime-local" value={opts.planTime || ''} onChange={(e) => onUpdate('planTime', e.target.value)} />}
       {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><span>I agree to MakerRoad’s current Terms and Privacy Policy for this public submission.</span></label>}
-      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3–10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and price.</p>
+      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3–10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and price. MakerRoad’s current native form has no video field, so video media is not sent.</p>
     </div>
   );
 }
@@ -5169,13 +5638,15 @@ export function ThangsOptions({ opts, project, onUpdate }) {
   </div>;
 }
 
-export function ThingiverseOptions({ opts, onUpdate }) {
+export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) {
+  const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
     <div className="p-2.5 text-[11px]" style={{ background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate('license', e.target.value)}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select></div></div>
     <div><Label>Summary (required)</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /></div>
     <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate('categoryId', e.target.value)}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><p className="text-[11px] opacity-55">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
-    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label><input type="checkbox" checked={!!opts.customizable} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
+    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
+    {!hasScad && <p className="text-[11px] opacity-60">Thingiverse enables Customizer only when the upload includes a .SCAD model file.</p>}
     <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
     {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /> Accept Thingiverse’s current publishing terms at action time</label>}
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Printer / model</Label><input className="mp-input" value={opts.printSettings?.printer || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), printer: e.target.value })} /></div><div><Label>Material</Label><input className="mp-input" value={opts.printSettings?.material || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), material: e.target.value })} /></div><div><Label>Resolution</Label><input className="mp-input" value={opts.printSettings?.resolution || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), resolution: e.target.value })} /></div><div><Label>Infill</Label><input className="mp-input" value={opts.printSettings?.infill || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), infill: e.target.value })} /></div></div>
@@ -5357,7 +5828,11 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
 }
 
 export function PrintablesOptions({ opts, onUpdate }) {
+  const accounts = useAccounts();
+  const active = accounts.getActive('printables');
   const [metaState, setMetaState] = useState({ categories: [], licenses: [], error: '' });
+  const [capabilityState, setCapabilityState] = useState(opts.capabilities || null);
+  const [capabilityError, setCapabilityError] = useState('');
   useEffect(() => {
     let active = true;
     fetch(`${WORKER_URL}/api/v1/printables/meta`)
@@ -5374,9 +5849,45 @@ export function PrintablesOptions({ opts, onUpdate }) {
       });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    if (!active?.secret) return;
+    let current = true;
+    printablesFetch(`${WORKER_URL}/api/v1/printables/web/whoami`, {}, active.secret)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(printablesResponseError(data, response.status, 'Printables account capability check failed'));
+        return data;
+      })
+      .then((data) => {
+        if (!current) return;
+        const capability = {
+          designerStatus: data.designerStatus || null,
+          storeActive: !!data.storeActive,
+          storeFee: data.storeFee == null ? null : Number(data.storeFee),
+          storeModelsCount: Number(data.storeModelsCount || 0),
+          maxStoreModels: data.maxStoreModels == null ? null : Number(data.maxStoreModels),
+          tiers: (data.tiers || []).map((tier) => ({ id: String(tier.id), name: tier.name || '' })),
+        };
+        setCapabilityState(capability);
+        setCapabilityError('');
+        onUpdate('capabilities', capability);
+      })
+      .catch((error) => {
+        if (current) setCapabilityError(error instanceof Error ? error.message : String(error));
+      });
+    return () => { current = false; };
+    // Account identity is the request trigger; onUpdate is intentionally not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.secret]);
   const categories = metaState.categories.filter((category) => category.level !== 0);
+  const paidSelected = !!opts.club || !!opts.store;
   const licenses = metaState.licenses.filter((license) =>
-    license.isSelectable !== false && license.freeModels !== false);
+    license.isSelectable !== false && (paidSelected ? license.storeModels !== false : license.freeModels !== false));
+  const paidEligible = !!capabilityState?.storeActive || [
+    'PUBLISHED', 'APPROVED', 'REVIEW_REQUESTED', 'REVIEW_REJECTED', 'EDIT_APPROVED',
+  ].includes(capabilityState?.designerStatus);
+  const storeLimitReached = !!capabilityState?.maxStoreModels
+    && capabilityState.storeModelsCount >= capabilityState.maxStoreModels;
   return (
     <div className="mt-3 space-y-3">
       <div>
@@ -5461,6 +5972,42 @@ export function PrintablesOptions({ opts, onUpdate }) {
           )}
         </div>
       )}
+      <div className="p-2.5 space-y-2" style={{ background: 'rgba(250,104,49,0.05)', border: '1px solid rgba(250,104,49,0.24)' }}>
+        <Label>Free, Store, or Club</Label>
+        {!active && <p className="text-[11px]">Connect Printables to check account-specific paid and Club eligibility.</p>}
+        {active && !capabilityState && !capabilityError && <p className="text-[11px]">Checking account eligibility…</p>}
+        {capabilityError && <p className="text-[11px]" style={{ color: '#b91c1c' }}>{capabilityError}</p>}
+        {capabilityState && !paidEligible && (
+          <p className="text-[11px]">This account currently exposes only free models. Store/Club controls stay hidden until Printables reports designer eligibility.</p>
+        )}
+        {capabilityState && paidEligible && (
+          <div className="space-y-2 text-xs">
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={!!opts.store} disabled={!capabilityState.storeActive || storeLimitReached || opts.authorship === 'reupload'} onChange={(event) => onUpdate('store', event.target.checked)} />
+              Paid Store model
+            </label>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={!!opts.club} disabled={!capabilityState.tiers?.length || opts.authorship === 'reupload'} onChange={(event) => onUpdate('club', event.target.checked)} />
+              Club model
+            </label>
+            {opts.store && (
+              <div>
+                <Label>Store price (whole USD, ${PRINTABLES_PRICE_MIN}–${PRINTABLES_PRICE_MAX})</Label>
+                <input className="mp-input" type="number" min={PRINTABLES_PRICE_MIN} max={PRINTABLES_PRICE_MAX} step="1" value={opts.price || ''} onChange={(event) => onUpdate('price', event.target.value)} />
+              </div>
+            )}
+            {opts.club && (
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={!!opts.excludeCommercialUsage} onChange={(event) => onUpdate('excludeCommercialUsage', event.target.checked)} />
+                Exclude commercial usage for Club tiers
+              </label>
+            )}
+            {capabilityState.storeFee != null && <p className="text-[11px]">Current account Store fee: {capabilityState.storeFee}%.</p>}
+            {storeLimitReached && <p className="text-[11px]" style={{ color: '#b91c1c' }}>Store model limit reached ({capabilityState.maxStoreModels}).</p>}
+            {opts.authorship === 'reupload' && <p className="text-[11px]" style={{ color: '#b91c1c' }}>Printables does not permit paid or Club reuploads.</p>}
+          </div>
+        )}
+      </div>
       <div>
         <Label>ZIP handling</Label>
         <div className="flex gap-3 text-xs">
@@ -5549,6 +6096,15 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
       };
     });
   const [publishBatch, setPublishBatch] = useState(null);
+  const [resourceTelemetry, setResourceTelemetry] = useState(null);
+  const [resourceReportStatus, setResourceReportStatus] = useState('idle');
+  const [retainedResourceReport, setRetainedResourceReport] = useState(() => {
+    try {
+      return loadRetainedPublishBatchResourceReports(window.localStorage)[0] || null;
+    } catch {
+      return null;
+    }
+  });
   // Broadcast signals so the parent can expand/collapse every card at once.
   // Cards keep their own `expanded` state; they just react to a signal change.
   // `allExpanded` tracks the last bulk action so the single toggle button can
@@ -5573,6 +6129,66 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
   };
   const retryFailedBatch = () => {
     setPublishBatch((current) => retryFailedPublishBatch(current, `batch-retry-${Date.now()}`));
+  };
+  const readyTargetCount = publishTargets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0).length;
+  const resourceSummary = publishBatchSummary(publishBatch);
+  const resourceSignature = [
+    publishBatch?.runId || 'ready',
+    publishBatch?.status || 'idle',
+    (publishBatch?.activeIds || []).length,
+    resourceSummary.succeeded,
+    resourceSummary.failed,
+    readyTargetCount,
+  ].join(':');
+  const resourceReport = useMemo(
+    () => createPublishBatchResourceReport(publishBatch, resourceTelemetry),
+    [publishBatch, resourceTelemetry],
+  );
+
+  useEffect(() => {
+    const capture = typeof window !== 'undefined' ? window.modelprepDesktop?.captureResourceTelemetry : null;
+    if (!allReady || directEnabled.length === 0 || typeof capture !== 'function') return undefined;
+    let cancelled = false;
+    const batchAtRequest = publishBatch;
+    Promise.resolve(capture(publishBatchResourceRequest(batchAtRequest, readyTargetCount)))
+      .then((sample) => {
+        if (cancelled || Number(sample?.schemaVersion) !== 1) return;
+        setResourceTelemetry(sample);
+        if (batchAtRequest) {
+          setPublishBatch((current) => current?.runId === batchAtRequest.runId
+            ? appendPublishBatchResourceSample(current, sample)
+            : current);
+        }
+      })
+      .catch(() => { /* resource telemetry must never block publishing */ });
+    return () => { cancelled = true; };
+  }, [allReady, directEnabled.length, readyTargetCount, resourceSignature]);
+
+  useEffect(() => {
+    if (!resourceReport) {
+      setResourceReportStatus('idle');
+      return;
+    }
+    try {
+      const retained = retainPublishBatchResourceReport(window.localStorage, resourceReport);
+      setRetainedResourceReport(retained[0] || resourceReport);
+      setResourceReportStatus('saved');
+    } catch {
+      setResourceReportStatus('unavailable');
+    }
+  }, [resourceReport]);
+
+  const downloadableResourceReport = resourceReport || retainedResourceReport;
+  const downloadResourceReport = () => {
+    if (!downloadableResourceReport) return;
+    const blob = new Blob([`${JSON.stringify(downloadableResourceReport, null, 2)}\n`], { type: 'application/json' });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = (downloadableResourceReport.completedAt || new Date().toISOString()).replace(/[:.]/g, '-');
+    link.href = href;
+    link.download = `modelprep-resource-report-${stamp}.json`;
+    link.click();
+    URL.revokeObjectURL(href);
   };
 
   if (!allReady) {
@@ -5616,8 +6232,12 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
         <BatchPublishPanel
           targets={publishTargets}
           batch={publishBatch}
+          resourceTelemetry={resourceTelemetry}
+          resourceReport={downloadableResourceReport}
+          resourceReportStatus={resourceReport ? resourceReportStatus : retainedResourceReport ? 'previous' : 'idle'}
           onPublish={startPublishBatch}
           onRetryFailed={retryFailedBatch}
+          onDownloadResourceReport={downloadResourceReport}
           onOpenConnections={() => openConnections('accounts')}
           isTestProject={!!project.__testProject}
         />
@@ -5777,7 +6397,7 @@ function nowLocalMin() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function BatchPublishPanel({ targets, batch, onPublish, onRetryFailed, onOpenConnections, isTestProject = false }) {
+export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, resourceReport = null, resourceReportStatus = 'idle', onPublish, onRetryFailed, onDownloadResourceReport, onOpenConnections, isTestProject = false }) {
   const missing = targets.filter((target) => target.mode === 'missing');
   const blockedTargets = targets.filter((target) => target.issues.errors.length > 0);
   const blocking = blockedTargets.flatMap((target) => target.issues.errors.map((issue) => `${target.name}: ${issue}`));
@@ -5789,6 +6409,8 @@ export function BatchPublishPanel({ targets, batch, onPublish, onRetryFailed, on
   const disabled = running || readyTargets.length === 0;
   const safeDemo = targets.some((target) => target.safeDemo);
   const summary = publishBatchSummary(batch);
+  const batchResources = publishBatchResourceSummary(batch);
+  const latestResources = batchResources.latest || resourceTelemetry;
   const adaptation = {
     makerworld: 'Landscape + portrait covers · up to 16 model pictures · adapted listing and Bambu profile',
     printables: 'Ordered photos · adapted listing, tags and category · per-file details',
@@ -5813,6 +6435,27 @@ export function BatchPublishPanel({ targets, batch, onPublish, onRetryFailed, on
           <p className="mp-body text-[12px] leading-relaxed mt-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
             The desktop app safely runs up to four platforms at once, while every platform keeps its own required request order. Browser fallback runs one at a time. A failure never stops the other selected destinations.
           </p>
+          {latestResources && (
+            <p data-testid="batch-resource-telemetry" className="mp-mono text-[10px] uppercase tracking-[0.08em] mt-1.5" style={{ color: 'rgba(21,23,28,0.52)' }}>
+              Resource telemetry · {batchResources.sampleCount ? `peak ${batchResources.peakActivePublishers}` : latestResources.publishers.active} active · {batchResources.sampleCount ? `peak ${batchResources.peakAppWorkingSetMb}` : latestResources.memory.appWorkingSetMb} MB app working set · {latestResources.processes.total} processes · {batchResources.sampleCount ? `peak ${batchResources.peakAppCpuPercent}` : latestResources.cpu.appPercent}% CPU
+            </p>
+          )}
+          {resourceReport && (batch?.status === 'done' || resourceReportStatus === 'previous') && (
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+              <span className="mp-mono text-[10px] uppercase tracking-[0.08em]" style={{ color: resourceReportStatus === 'unavailable' ? '#8A4B08' : 'rgba(21,23,28,0.52)' }}>
+                {resourceReportStatus === 'saved'
+                  ? `Resource report retained locally · ${resourceReport.samples.length} sample${resourceReport.samples.length === 1 ? '' : 's'}`
+                  : resourceReportStatus === 'previous'
+                    ? `Latest retained resource report · ${resourceReport.samples.length} sample${resourceReport.samples.length === 1 ? '' : 's'}`
+                  : resourceReportStatus === 'unavailable'
+                    ? 'Local resource-report retention unavailable'
+                    : 'Preparing local resource report'}
+              </span>
+              <button type="button" onClick={onDownloadResourceReport} className="mp-btn mp-btn-ghost text-[10px] py-1 px-2">
+                <Download size={11} /> Download resource report
+              </button>
+            </div>
+          )}
           {noPublicRealTargets && (
             <p className="text-[12px] leading-relaxed mt-1.5" style={{ color: '#24634f' }}>
               No public listings: {targets.map((target) => `${target.name} ${target.visibility}`).join(' · ')}.
@@ -6723,6 +7366,10 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       fd.append('free', String(project.platforms?.cults?.free ?? true));
       fd.append('price', String(project.platforms?.cults?.price ?? 0));
       fd.append('visibility', effectiveVisibility);
+      fd.append('details', project.platforms?.cults?.details || '');
+      fd.append('metaTags', JSON.stringify(project.platforms?.cults?.metaTags || []));
+      fd.append('madeWithAi', String(!!project.platforms?.cults?.madeWithAi));
+      fd.append('showComments', String(project.platforms?.cults?.showComments !== false));
       // Tags — Worker joins these into space-separated `flat_keywords`.
       fd.append('tags', JSON.stringify(project.tags ?? []));
 
@@ -6756,15 +7403,28 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       if (!data.designUrl || !data.slug) {
         throw new Error('Publish completed but response was missing designUrl / slug — check Worker logs.');
       }
-      setResult({
+      const receipt = {
         designUrl: data.designUrl,
         slug: data.slug,
         substituted: data.substituted || [],
         uploadedFiles: modelFiles.length + galleryImgs.length + galleryVideos.length + 1,
         visibility: effectiveVisibility, // remember what we published with
-      });
+        readback: data.readback || null,
+        readbackIssues: data.readbackIssues || [],
+      };
+      setResult(receipt);
+      if (receipt.readbackIssues.length) {
+        const message = `Cults3D created and retained the listing, but persisted readback did not certify it: ${receipt.readbackIssues.join(' ')}`;
+        setErrorMsg(message);
+        setStatus('error');
+        reportBatch(batchRunId, 'error', message, {
+          publicationState: effectiveVisibility,
+          url: data.designUrl,
+        });
+        return;
+      }
       setStatus('done');
-      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted listing' : 'Public listing'} created`, {
+      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted listing' : 'Public listing'} created and read back`, {
         publicationState: effectiveVisibility,
         url: data.designUrl,
       });
@@ -7143,15 +7803,19 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
     });
   };
 
+  const decimalOverride = (value, fallback = null) => value === '' || value == null
+    ? fallback
+    : String(value);
   const cleanGcode = (file, source) => ({
     ...applyPrintablesFileSettings(file, source),
-    weight: file.weight ?? null,
+    weight: source?.printables?.weight === '' || source?.printables?.weight == null
+      ? file.weight ?? null
+      : Number(source.printables.weight),
     material: file.material?.id ?? file.material ?? null,
-    printer: file.printer?.id ?? file.printer ?? null,
-    nozzleDiameter: file.nozzleDiameter ?? null,
-    layerHeight: file.layerHeight ?? null,
-    printDuration: file.printDuration ?? null,
-    excludeFromTotalSum: !!file.excludeFromTotalSum,
+    nozzleDiameter: decimalOverride(source?.printables?.nozzleDiameter, file.nozzleDiameter ?? null),
+    layerHeight: decimalOverride(source?.printables?.layerHeight, file.layerHeight ?? null),
+    printDuration: decimalOverride(source?.printables?.printDuration, file.printDuration ?? null),
+    excludeFromTotalSum: source?.printables?.excludeFromTotalSum ?? !!file.excludeFromTotalSum,
   });
 
   const validate = () => {
@@ -7305,6 +7969,9 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
         nsfw: !!options.nsfw,
         aiGenerated: !!options.aiGenerated,
         politicalContent: !!options.politicalContent,
+        club: !!options.club,
+        price: options.store ? Number(options.price) : 0,
+        excludeCommercialUsage: !!options.club && !!options.excludeCommercialUsage,
         images: images.map((image) => ({ id: String(image.id) })),
         stls: stls.map((entry) => applyPrintablesFileSettings(entry.file, entry.source)),
         slas: slas.map((entry) => applyPrintablesFileSettings(entry.file, entry.source)),
@@ -8244,6 +8911,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
     if (simulate) { setStatus('uploading'); setProgress('Simulating MakerRoad private save…'); await new Promise((resolve) => setTimeout(resolve, 500)); setResult({ demo: true, state: publish ? 'pending' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'MakerRoad save simulated — nothing uploaded', { publicationState: publish ? 'pending' : 'draft', simulated: true }); return; }
     if (!isDesktopMakerRoadSession(secret)) { const message = 'Connect MakerRoad in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
     setStatus('uploading'); setError(''); setResult(null);
+    let saved = null;
     try {
       let resolvedCategoryIds = (options.categoryIds || []).map(String);
       if (!resolvedCategoryIds.length && (options.categoryPaths || []).length) {
@@ -8283,7 +8951,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
       const documents = await uploadMany(documentFiles, 'document', 'document');
       const license = MAKEROAD_LICENSES[Number(options.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
       setProgress(publish ? 'Submitting MakerRoad model for review…' : 'Saving private MakerRoad draft…');
-      const saved = await request('submit', {
+      saved = await request('submit', {
         action: publish ? 'publish' : 'save', uploadType: Number(options.uploadType || 1), referUrl: options.referUrl,
         models, profiles, images, documents, title: project.title, description: mdToHtml(project.description),
         categoryIds: resolvedCategoryIds, tags: project.tags, printMethods: options.printMethods || [],
@@ -8294,7 +8962,11 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
       });
       setProgress('Reading the saved MakerRoad model back…');
       const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null, 'GET');
-      if (!readback.model || typeof readback.model !== 'object') throw new Error('MakerRoad accepted the model but edit read-back returned no model.');
+      const readbackIssues = makerRoadReadbackIssues({
+        title: project.title.trim(), visibility: options.visibility || 'private', scheduled: !!options.scheduled,
+        payType: options.payType || 'free', models: models.length, profiles: profiles.length, documents: documents.length, images: images.length,
+      }, readback.model);
+      if (readbackIssues.length) throw new Error(readbackIssues.join(' '));
       const publicationState = publish ? 'pending' : 'draft';
       setResult({ ...saved, verified: true, state: publicationState }); setStatus('done');
       report(runId, 'success', publish ? 'MakerRoad submission saved and read back; review pending' : 'Private MakerRoad draft saved and read back', { publicationState, url: saved.url });
@@ -8595,6 +9267,44 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
     if (!response.ok || !data.ok) throw new Error(myMiniFactoryResponseError(data, response.status, `MyMiniFactory ${route} failed`));
     return data;
   };
+  // Read-only certification of an object this account already owns. It calls
+  // the GET status route only, so it can never create or duplicate an object;
+  // `Retry failed only` and the submit buttons stay untouched.
+  const verifyExisting = async () => {
+    let url = '';
+    try { url = myMiniFactoryObjectUrl(options.verifyObjectId); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setStatus('error'); return; }
+    setStatus('uploading'); setError(''); setProgress(`Re-reading existing MyMiniFactory object ${options.verifyObjectId}…`);
+    try {
+      const { object } = await request(`status?url=${encodeURIComponent(url)}`, null, 'GET');
+      const verified = verifyMyMiniFactoryObjectState({
+        object,
+        title: project.title,
+        publication: options.publication || 'private',
+        categoryIds: options.categoryIds || [],
+        advanced: {
+          licenseId: Number(options.licenseId || 5),
+          printingTips: String(options.printingTips || ''),
+          timeFrom: Number(options.timeFrom || 0),
+          timeTo: Number(options.timeTo || 0),
+          dimensions: String(options.dimensions || ''),
+          dimensionsUnit: Number(options.dimensionsUnit || 0),
+          technology: String(options.technology || ''),
+          materialQuantity: String(options.materialQuantity || ''),
+          supportFree: !!options.supportFree,
+          remix: !!options.remix,
+          remixParentIds: options.remixParentIds || [],
+        },
+      });
+      setResult({
+        id: String(options.verifyObjectId), state: verified.visibility, url, verified: true, readOnly: true,
+        detail: `${verified.visibility} · ${verified.imageNames.length} images (ordered by ${verified.imageOrderSource}${verified.primaryImage ? `, cover ${verified.primaryImage}` : ''}) · ${verified.fileNames.length} files · categories ${verified.categoryIds.join('/')}${verified.remix ? ` · remix of ${verified.remixParentIds.join(', ')}` : ''}`,
+      });
+      setStatus('done');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause)); setStatus('error');
+    } finally { setProgress(''); }
+  };
   const projectFile = (source) => source.blob instanceof File && source.blob.name === source.name
     ? source.blob
     : new File([source.blob], source.name, { type: source.type || 'application/octet-stream' });
@@ -8626,6 +9336,7 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
       const message = 'Connect MyMiniFactory in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
     }
     setStatus('uploading'); setError(''); setResult(null);
+    let saved = null;
     try {
       const orderedImages = orderedPlatformImages(platform, project).slice(0, platform.maxImages || 20);
       const modelFiles = project.files.filter((file) => file.blob && MYMINIFACTORY_MODEL_FORMATS.includes(fileExt(file.name)));
@@ -8644,7 +9355,7 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
         fileRecords.push(await uploadMyMiniFactoryFile({ workerUrl: WORKER_URL, secret, uploadSessionId: prepared.uploadSessionId, role: 'file', file: projectFile(modelFiles[index]) }));
       }
       setProgress(publication === 'public' ? 'Submitting the MyMiniFactory object for public review…' : 'Creating the private MyMiniFactory object…');
-      const saved = await request('submit', {
+      saved = await request('submit', {
         uploadSessionId: prepared.uploadSessionId,
         publication,
         title: project.title.trim(),
@@ -8655,8 +9366,8 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
         files: fileRecords,
         licenseId: Number(options.licenseId || 5),
         printingTips: String(options.printingTips || ''),
-        timeFrom: Number(options.timeFrom || 0),
-        timeTo: Number(options.timeTo || 50),
+        timeFrom: options.timeFrom === '' || options.timeFrom == null ? '' : Number(options.timeFrom),
+        timeTo: options.timeTo === '' || options.timeTo == null ? '' : Number(options.timeTo),
         dimensions: String(options.dimensions || ''),
         dimensionsUnit: Number(options.dimensionsUnit || 0),
         technology: String(options.technology || ''),
@@ -8675,12 +9386,31 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
         categoryIds: options.categoryIds || [],
         imageNames: imageRecords.map((image) => image.name),
         fileNames: modelFiles.map((file) => file.name),
+        advanced: {
+          licenseId: Number(options.licenseId || 5),
+          printingTips: String(options.printingTips || ''),
+          timeFrom: Number(options.timeFrom || 0),
+          timeTo: Number(options.timeTo || 0),
+          dimensions: String(options.dimensions || ''),
+          dimensionsUnit: Number(options.dimensionsUnit || 0),
+          technology: String(options.technology || ''),
+          materialQuantity: String(options.materialQuantity || ''),
+          supportFree: !!options.supportFree,
+          remix: !!options.remix,
+          remixParentIds: options.remixParentIds || [],
+        },
         },
       });
       setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: true }); setStatus('done');
       reportBatch(batchRunId, 'success', `${saved.state} MyMiniFactory object saved and read back`, { publicationState: saved.state, url: saved.url });
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message);
+      const message = cause instanceof Error ? cause.message : String(cause);
+      // A submit can create a retained private object before a later read-back
+      // detects a mismatch. Preserve that safe receipt so it is auditable and
+      // never invites a duplicate retry.
+      if (saved?.id && saved?.url) setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: false });
+      setError(message); setStatus('error');
+      reportBatch(batchRunId, 'error', message, saved?.url ? { publicationState: saved.state, url: saved.url, retained: true } : undefined);
     } finally { setProgress(''); }
   };
 
@@ -8696,9 +9426,9 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
       <div className="mp-card p-3" style={{ background: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-[14px]">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-55">isolated desktop session</span></div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
-        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-[12px] mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only—no files or metadata leave the app.' : 'Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory’s review flow.'}</p><div className="flex gap-2 flex-wrap"><button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
+        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-[12px] mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only—no files or metadata leave the app.' : 'Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory’s review flow.'}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
         {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
-        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete — nothing uploaded (${result.state}).` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete — nothing uploaded (${result.state}).` : result?.readOnly ? `Existing ${result.state} MyMiniFactory object ${result.id} re-read and verified.` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{result?.readOnly && result?.detail && <p className="mp-mono text-[12px] mb-2 break-all opacity-70">{result.detail}</p>}{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : result?.readOnly ? 'Done' : 'Upload another'}</button></>}
         {status === 'error' && <><div className="text-[12px] p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
@@ -8784,22 +9514,23 @@ function SettingsModal({ open, onClose, tab, setTab }) {
     };
     return rank(left) - rank(right);
   });
-  const aiProvider = getAiConfig().provider;
+  const aiPrimary = readAiConfig().primary;
   const TABS = [
     { id: 'accounts', label: 'Accounts', icon: User, badge: connectedCount || null },
-    { id: 'ai', label: 'AI', icon: Sparkles, badge: aiProvider !== 'none' ? '•' : null },
+    { id: 'ai', label: 'AI', icon: Sparkles, badge: aiPrimary ? '•' : null },
     { id: 'defaults', label: 'Defaults', icon: Globe, badge: null },
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(21,23,28,0.45)' }} onClick={onClose}>
-      <div className="mp-card w-full max-w-xl my-8" style={{ background: '#EDE9DE' }} onClick={(e) => e.stopPropagation()}>
+      <div className="mp-card w-full max-w-2xl my-8" style={{ background: '#EDE9DE' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(21,23,28,0.12)', background: '#EDE9DE' }}>
           <div className="flex items-center gap-2"><Settings size={16} /><span className="mp-display text-[18px]">Settings</span></div>
           <button onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         {/* Tab strip */}
-        <div className="flex gap-1 px-4 pt-3 border-b" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+        {/* Wraps rather than clipping the last tab on a narrow window. */}
+        <div className="flex flex-wrap gap-1 px-4 pt-3 border-b" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
           {TABS.map((t) => {
             const Icon = t.icon; const on = tab === t.id;
             return (
@@ -8836,8 +9567,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
           )}
           {tab === 'ai' && (
             <>
-              <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>Pick the AI used to generate titles, descriptions and tags from your photos. Use a free/cheap model with your own key, a local model ($0), or none. Your key is stored only in this browser and sent per-request.</p>
-              <div className="mp-card p-3"><AiSettings /></div>
+              <AiSettings />
             </>
           )}
           {tab === 'defaults' && <SettingsDefaults />}
@@ -10069,7 +10799,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
       }, cookie);
       const data = await res.json();
       if (!res.ok || !data.id) throw new Error(makerWorldResponseError(data, res.status, 'MakerWorld publish failed'));
-      setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + designVideo.length + 1 + (model3mf || lacFile ? 1 : 0), visibility, draftOnly });
+      setResult({ id: data.id, status: data.status, url: data.url, kind: data.kind || '3d', files: mfList.length + galleryUrls.length + designVideo.length + 1 + (model3mf || lacFile ? 1 : 0), visibility, draftOnly, designVideo });
       setStatus('done');
       reportBatch(batchRunId, 'success', draftOnly ? 'Unpublished draft saved' : `${visibility} listing submitted`, {
         publicationState: draftOnly ? 'draft' : visibility,
@@ -10139,8 +10869,18 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           status: sdata.status || 1,
           url: liveUrl,
           profileId: sdata.profileId,
+          designVideo: sdata.designVideo || [],
         };
         setResult((current) => ({ ...current, status: 'live', designId: sdata.designId, profileId: sdata.profileId, url: liveUrl }));
+        const videoReadbackIssues = makerWorldVideoReadbackIssues(result.designVideo, sdata.designVideo);
+        if (videoReadbackIssues.length) {
+          setLiveCheck({
+            loading: false,
+            error: `MakerWorld listing is live, but model-video readback failed: ${videoReadbackIssues.join(' ')}`,
+            model,
+          });
+          return;
+        }
         setLiveCheck({ loading: false, live: true, model });
         return;
       }
@@ -10154,6 +10894,14 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.message || data?.error || 'Status check failed');
       const found = (data.designs || []).find((m) => String(m.id) === String(result.designId || result.id));
+      if (found && result.designVideo?.length) {
+        setLiveCheck({
+          loading: false,
+          error: 'MakerWorld listing is live, but the fallback listing response does not contain model-video metadata. Retry the draft readback before certifying the video.',
+          model: found,
+        });
+        return;
+      }
       setLiveCheck({ loading: false, live: !!found, model: found });
     } catch (e) { setLiveCheck({ loading: false, error: e instanceof Error ? e.message : String(e) }); }
   };

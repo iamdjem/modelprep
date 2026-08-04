@@ -4,6 +4,13 @@ import {
   buildPrintablesSummary,
   normalizePrintablesTags,
   parsePrintablesRemixSource,
+  PRINTABLES_FILE_NOTE_MAX,
+  PRINTABLES_FOLDER_NAME_MAX,
+  PRINTABLES_RICH_IMAGE_MAX_BYTES,
+  PRINTABLES_PRICE_MIN,
+  PRINTABLES_PRICE_MAX,
+  printablesFileSettingIssues,
+  printablesPaidIssues,
   publishVerifiedPrintablesModel,
   printablesPublishStrategy,
   printablesReadbackMismatches,
@@ -14,7 +21,7 @@ import {
 describe('Printables model contract helpers', () => {
   it('canonicalizes tags exactly as the live API expects', () => {
     expect(normalizePrintablesTags(['Print in place', 'no-supports', 'NO supports', '🔥 Dragon']))
-      .toEqual(['printinplace', 'nosupports', 'dragon']);
+      .toEqual(['print', 'in', 'place', 'nosupports', 'no', 'supports', 'dragon']);
   });
 
   it('uses an explicit summary and enforces the 120 character limit', () => {
@@ -108,6 +115,46 @@ describe('Printables model contract helpers', () => {
       name: 'dragon.stl',
       note: 'Print twice',
     });
+  });
+
+  it('matches the live Printables file-note and folder-name limits', () => {
+    expect(PRINTABLES_FILE_NOTE_MAX).toBe(95);
+    expect(PRINTABLES_FOLDER_NAME_MAX).toBe(60);
+    expect(applyPrintablesFileSettings(
+      { id: 42, name: 'dragon.stl', note: '' },
+      { printables: { note: 'n'.repeat(100) } },
+    ).note).toHaveLength(95);
+    expect(printablesFileSettingIssues([{
+      name: 'dragon.stl',
+      printables: { note: 'n'.repeat(96), folder: `parts/${'x'.repeat(61)}` },
+    }])).toEqual([
+      'dragon.stl: Printables file notes must be at most 95 characters.',
+      'dragon.stl: each Printables folder name must be at most 60 characters.',
+    ]);
+    expect(printablesFileSettingIssues([{
+      name: 'dragon.gcode',
+      printables: { layerHeight: '0', nozzleDiameter: 'bad', printDuration: '1000', weight: '12.5' },
+    }])).toEqual([
+      'dragon.gcode: Printables layer height override must be a positive number.',
+      'dragon.gcode: Printables nozzle diameter override must be a positive number.',
+      'dragon.gcode: Printables printed weight override must be a whole number of grams.',
+      'dragon.gcode: Printables print duration override must be at most 999 hours.',
+    ]);
+  });
+
+  it('enforces the live rich-image and account-gated Store/Club contract', () => {
+    expect(PRINTABLES_RICH_IMAGE_MAX_BYTES).toBe(8 * 1024 * 1024);
+    expect(PRINTABLES_PRICE_MIN).toBe(5);
+    expect(PRINTABLES_PRICE_MAX).toBe(150);
+    expect(printablesPaidIssues({ store: true, price: '4', authorship: 'author' }, {
+      designerStatus: 'APPROVED', storeActive: true, storeModelsCount: 0, maxStoreModels: 10, tiers: [],
+    })).toEqual(['Printables Store price must be a whole dollar amount from $5 to $150.']);
+    expect(printablesPaidIssues({ club: true, authorship: 'reupload' }, {
+      designerStatus: 'APPROVED', storeActive: false, tiers: [{ id: '1' }],
+    })).toEqual(['Printables does not allow paid or Club reuploads.']);
+    expect(printablesPaidIssues({ club: true, store: true, price: '25', authorship: 'author' }, {
+      designerStatus: 'APPROVED', storeActive: true, storeModelsCount: 1, maxStoreModels: 10, tiers: [{ id: '1' }],
+    })).toEqual([]);
   });
 
   it('validates author, remix, and reupload combinations', () => {

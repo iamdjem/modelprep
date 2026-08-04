@@ -1,6 +1,6 @@
 # Desktop account persistence and live-upload testing
 
-Last audited: 2026-08-01
+Last audited: 2026-08-02
 
 This runbook separates three states that look similar in the UI but prove very
 different things:
@@ -105,12 +105,12 @@ maximum session lifetime.
 
 | Platform | Direct connect/upload | Safest real action | Current account-backed evidence | Important remaining gaps |
 |---|---|---|---|---|
-| MakerWorld | Implemented | Private | 3MF private publish and Laser & Cut create have live evidence | Model video; genuine `.lac` final submit; CyberBrick combinations |
-| Printables | Implemented | Draft | Core draft-first flow/readback has live evidence | Current session may expire; Store/Club, approval, retained ZIP, G-code/SLA/HEIC branches |
-| Cults3D | Implemented | Secret | Core signed-upload/create/readback flow has live evidence | Video in shared media model; paid/open price, multi-usage and more category/license combinations |
-| Nexprint | Implemented | Draft | Browser and Electron draft/readback certified | Gallery ordering, activity eligibility, broad extension matrix, public publish |
-| Creality Cloud | Implemented | Private | Original/private STL plus covers created and read back; new-draft rejection diagnosed against the native route | Existing-draft edit, public and other media/files; non-original structured attribution; paid/account-gated branches |
-| MakerOnline | Implemented | Draft | One ordered image + one STL saved and read back as unpublished Private draft `316077` | 3MF/profile, docs, remix/public/Creative Kit/China/exclusive branches |
+| MakerWorld | Implemented | Private | Latest exact-app private receipt `9053658`; earlier deep 3MF and Laser & Cut evidence | Model video; genuine `.lac` final submit; CyberBrick combinations |
+| Printables | Implemented | Draft by default; explicit public branch | Core draft, specialist G-code/SLA/retained-ZIP/converted-HEIC draft `1797772`, and public model `1797774` have exact-app readback evidence | Delete `1797774` only after confirmation; Store/Club and approval need eligible accounts; unpacked ZIP/remix/reupload/rich-image round trips remain |
+| Cults3D | Implemented | Secret | Latest exact-app secret slug ends `6f02ba1cd366b9cb06a5`; ordered media/file and metadata readback passed | Live typed video; paid/open price, multi-usage and more category/license combinations |
+| Nexprint | Implemented | Draft | Latest exact-app unpublished draft `2083625532272496640` passed complete core readback | Public, activity eligibility, broad extension/attachment matrix |
+| Creality Cloud | Implemented | Private | Latest exact-app Original/private model `6a6e3f28753b84f6aab190a8` passed file/cover/metadata readback | Existing-draft edit, public and other media/files; non-original structured attribution; paid/account-gated branches |
+| MakerOnline | Implemented | Draft | Latest exact-app unpublished draft `316221` passed ordered image/file, metadata, taxonomy/license and visibility readback | 3MF/profile, docs, remix/public/Creative Kit/China/exclusive branches |
 | MyMiniFactory | Implemented and core-certified | Private default | Exact-app object `829056` plus independent hydrated-editor readback verified categories, ordered images/files, metadata and private state | Public review, declarations/remix/advanced fields and optional combinations |
 | MakerRoad | Implemented and core-certified | Private Save | Exact-app draft `M2134222528` passed authenticated Save and required `uploadType=1` edit readback | Video contract unknown; public/review, paid, remix, schedule and optional combinations |
 | Thangs | Implemented and core-certified | Private | Exact-app model `1583272` passed single-part details/attachments/license and metadata readback | Multipart/bulk/assembly, versions, plans/membership/paid/public and optional branches |
@@ -124,3 +124,6 @@ For the current implementation ledger, continuation order, critical lessons,
 and copy-paste next-agent prompt, read
 `modelprep-current-handoff-2026-08-01.md` and `NEXT_AGENT_PROMPT.md` before
 touching a platform adapter.
+
+For the repeatable screen/bundle/request mapping and three-layer implementation
+method, also read `platform-one-by-one-implementation-playbook.md`.

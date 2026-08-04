@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   advancePublishBatch,
+  appendPublishBatchResourceSample,
   batchPublishIntent,
   concisePublishDetail,
+  createPublishBatchResourceReport,
   createPublishBatch,
   DESKTOP_PUBLISH_CONCURRENCY,
   LIVE_PUBLISH_PLATFORM_IDS,
+  loadRetainedPublishBatchResourceReports,
   orderedPlatformImages,
+  publishBatchResourceRequest,
+  publishBatchResourceSummary,
   publishBatchSummary,
   publishReceiptLabel,
   publishVisibility,
+  RESOURCE_REPORT_STORAGE_KEY,
+  retainPublishBatchResourceReport,
   retryFailedPublishBatch,
 } from './batch-publish.js';
 
@@ -159,6 +166,33 @@ describe('multi-platform publish batches', () => {
     expect(batch.results.creality.state).toBe('publishing');
   });
 
+  it('records bounded aggregate resource samples without changing scheduler state', () => {
+    const batch = createPublishBatch(targets, 'resource-run', 2);
+    expect(publishBatchResourceRequest(batch)).toEqual({
+      phase: 'start', active: 2, queued: 1, completed: 0, failed: 0, total: 3,
+    });
+    const sample = {
+      schemaVersion: 1,
+      timestamp: '2026-08-01T20:00:00.000Z',
+      phase: 'start',
+      publishers: { active: 2, queued: 1, completed: 0, failed: 0, total: 3 },
+      memory: { mainPrivateMb: 50, appWorkingSetMb: 180, appPeakWorkingSetMb: 200 },
+      cpu: { appPercent: 12.5 },
+      processes: { total: 4, renderers: 1, utilities: 1, gpu: 1 },
+    };
+    const measured = appendPublishBatchResourceSample(batch, sample);
+    expect(measured.activeIds).toEqual(batch.activeIds);
+    expect(measured.results).toEqual(batch.results);
+    expect(publishBatchResourceRequest(measured).phase).toBe('progress');
+    expect(publishBatchResourceSummary(measured)).toEqual({
+      sampleCount: 1,
+      latest: sample,
+      peakActivePublishers: 2,
+      peakAppWorkingSetMb: 180,
+      peakAppCpuPercent: 12.5,
+    });
+  });
+
   it('ignores stale or out-of-order flow completions', () => {
     const batch = createPublishBatch(targets, 'run-current', 1);
     expect(advancePublishBatch(batch, {
@@ -249,5 +283,70 @@ describe('multi-platform publish batches', () => {
     expect(selected).toHaveLength(20);
     expect(selected[0].id).toBe('image-7');
     expect(selected.filter((image) => image.id === 'image-7')).toHaveLength(1);
+  });
+
+  it('creates a privacy-safe resource report without batch, platform, account, file, URL, or token identifiers', () => {
+    let batch = createPublishBatch(targets, 'secret-run-id', 3);
+    batch = appendPublishBatchResourceSample(batch, {
+      schemaVersion: 1,
+      timestamp: '2026-08-02T00:00:00.000Z',
+      phase: 'start',
+      publishers: { active: 3, queued: 0, completed: 0, failed: 0, total: 3 },
+      memory: { mainPrivateMb: 40, appWorkingSetMb: 180, appPeakWorkingSetMb: 200 },
+      cpu: { appPercent: 12.4 },
+      processes: { total: 4, renderers: 1, utilities: 1, gpu: 1 },
+      platformIds: ['makerworld'],
+      token: 'must-not-retain',
+    });
+    for (const id of batch.targetIds) {
+      batch = advancePublishBatch(batch, {
+        runId: 'secret-run-id', platformId: id, state: 'success', url: `https://example.test/${id}`,
+      });
+    }
+
+    const report = createPublishBatchResourceReport(batch);
+    expect(report).toMatchObject({
+      schemaVersion: 1,
+      completedAt: '2026-08-02T00:00:00.000Z',
+      batch: { status: 'complete', total: 3, succeeded: 3, failed: 0, concurrency: 3 },
+      peaks: { activePublishers: 3, appWorkingSetMb: 180, appCpuPercent: 12.4 },
+    });
+    const serialized = JSON.stringify(report);
+    for (const forbidden of ['secret-run-id', 'makerworld', 'printables', 'cults', 'example.test', 'must-not-retain']) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it('deduplicates and bounds retained resource reports while sanitizing stored input', () => {
+    const values = new Map();
+    const storage = {
+      getItem: (key) => values.get(key) || null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    const report = {
+      schemaVersion: 1,
+      completedAt: '2026-08-02T00:00:00.000Z',
+      batch: { status: 'complete', total: 1, succeeded: 1, failed: 0, concurrency: 1, account: 'remove-me' },
+      peaks: { activePublishers: 1, appWorkingSetMb: 100, appCpuPercent: 2 },
+      samples: [{
+        schemaVersion: 1,
+        timestamp: '2026-08-02T00:00:00.000Z',
+        phase: 'complete',
+        publishers: { active: 0, queued: 0, completed: 1, failed: 0, total: 1 },
+        memory: { mainPrivateMb: 40, appWorkingSetMb: 100, appPeakWorkingSetMb: 110 },
+        cpu: { appPercent: 2 },
+        processes: { total: 4, renderers: 1, utilities: 1, gpu: 1 },
+        url: 'https://remove.example',
+      }],
+    };
+
+    retainPublishBatchResourceReport(storage, report, 2);
+    retainPublishBatchResourceReport(storage, report, 2);
+
+    const retained = JSON.parse(values.get(RESOURCE_REPORT_STORAGE_KEY));
+    expect(retained).toHaveLength(1);
+    expect(JSON.stringify(retained)).not.toContain('remove-me');
+    expect(JSON.stringify(retained)).not.toContain('remove.example');
+    expect(loadRetainedPublishBatchResourceReports(storage)).toEqual(retained);
   });
 });

@@ -94,3 +94,13 @@ The current form sends `category` (numeric ID), `description` (summary), pending
 ## ModelPrep parity requirements
 
 The enabled implementation covers isolated session storage; ordered files/images; Markdown metadata; AI/WIP/customizable/remix/source/NSFW; print settings; custom and education sections; draft-first safety; publish as a separate explicit action; edit/files/images readback; and independent receipts. The current 80-value production taxonomy is stored by ID (never picker position). The unpublished core path is browser-proven and exact-packaged-app live-certified; public and optional branches remain separate evidence gaps.
+
+## 2026-08-04 independent browser revalidation
+
+The retained editor was rechecked visually and through its rendered controls.
+Files, gallery, category, tags, license, AI/WIP/Remix/NSFW, print settings and
+custom/education sections remain represented. The platform disables **Let
+Others Customize** unless at least one `.SCAD` model file exists. Therefore
+ModelPrep must disable that option without SCAD, fail preflight if stale saved
+state still requests it, and repeat the same validation in the desktop adapter
+before constructing a Thing payload.

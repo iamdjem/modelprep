@@ -1,12 +1,12 @@
 # MakerRoad upload flow map
 
-Audit date: **2026-08-01**
+Audit date: **2026-08-02** (refreshed against the current production page and bundles)
 Surface: authenticated production upload page `https://www.makeroad.com/printable_3D_model/upload`, live English DOM, current Nuxt bundles, and first-party request definitions
-Mutation update: on **2026-08-01** an early packaged attempt transmitted private-test assets but `/api/models/info` rejected the final Save because the `X-Token` login cookie was not mirrored into the required `X-Token` header. ModelPrep now mirrors it and validates sessions through authenticated `GET /api/user` instead of the public taxonomy endpoint. After the service returned, exact-app private draft `M2134222528` saved successfully and passed edit readback through `/api/models/getEdit?id=M2134222528&uploadType=1`, completing safe-core certification. Recheck authenticated availability after future service outages.
+Mutation update: on **2026-08-01** an early packaged attempt transmitted private-test assets but `/api/models/info` rejected the final Save because the `X-Token` login cookie was not mirrored into the required `X-Token` header. ModelPrep now mirrors it and validates sessions through authenticated `GET /api/user` instead of the public taxonomy endpoint. After the service returned, exact-app private draft `M2134222528` saved successfully and passed edit readback through `/api/models/getEdit?id=M2134222528&uploadType=1`, completing safe-core certification. Recheck authenticated availability after future service outages. On **2026-08-02**, the live upload DOM and the current route bundle (`COhJdF3H.js`, SHA-256 `1ff4c2d8ba040c8380a1c6535012e543d653e34c92f06866eeabf7f087b08f35`; application bundle `BZUL9akC.js`, SHA-256 `7b2e368859cd0dff8f4a9dbd915ad6e15813c54f5fb361b0f31557ae0d541578`) showed no native video input, upload role, or `/api/models/info` serializer field.
 
 ## Integration decision
 
-**NO PUBLIC DEVELOPER UPLOAD API FOUND; EXPERIMENTAL DESKTOP PATH IMPLEMENTED AND SAFE CORE LIVE-CERTIFIED.** The production site exposes a complete first-party JSON/multipart contract under `https://www.makeroad.com/api`. Treat it as a **REQUEST CONTRACT**, not a supported public API. ModelPrep has a tested UI, isolated-session transport, dynamic metadata, four upload roles, token-aware save/review submission, and edit-readback path. Private Save is live-certified; public/review, paid, remix, schedule and other optional branches remain separate. Native video format, size and serializer behavior remain unknown.
+**NO PUBLIC DEVELOPER UPLOAD API FOUND; EXPERIMENTAL DESKTOP PATH IMPLEMENTED AND SAFE CORE LIVE-CERTIFIED.** The production site exposes a complete first-party JSON/multipart contract under `https://www.makeroad.com/api`. Treat it as a **REQUEST CONTRACT**, not a supported public API. ModelPrep has a tested UI, isolated-session transport, dynamic metadata, four upload roles, token-aware save/review submission, and edit-readback path. Private Save is live-certified; public/review, paid, remix, schedule and other optional branches remain separate. The current native upload form has no video input or save serializer field, so ModelPrep must warn and not send video media rather than guessing a contract.
 
 ## Live workflow
 
@@ -22,7 +22,7 @@ Six sections: Upload Type, Upload Files, Model Description, Print Information, M
 
 - **LIVE DOM / CURRENT BUNDLE:** model files require at least one 3MF/STL/OBJ; maximum 80; total model files maximum 500 MB; drag reorders. The broad drop area also advertises SCAD and other 2D/3D files.
 - **LIVE DOM / CURRENT BUNDLE:** print-configuration files are `.3mf`, maximum 10.
-- **LIVE DOM / CURRENT BUNDLE:** images `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`; 3–10 images; recommended 1:1; maximum 10 MB each; order determines cover. The current translation also exposes Upload Video, but accepted video format/size and submission serialization remain **UNKNOWN**.
+- **LIVE DOM / CURRENT BUNDLE (2026-08-02):** images `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`; 3–10 images; recommended 1:1; maximum 10 MB each; order determines cover. There is no native video input, upload role, or create/update serializer field in the current route bundle. Video media is unsupported by the current form and must not be guessed or sent.
 - **LIVE DOM / CURRENT BUNDLE:** instruction documents `pdf`, `txt`, `doc`, `docx`, `ppt`, `pptx`, `xls`, `xlsx`; maximum 5; total maximum 50 MB.
 - **REQUEST CONTRACT:** `POST /api/upload/webuploader` sends multipart field `file` and returns an uploaded-file id. `/api/upload/ossurl` and `/api/upload/base64upload` also exist in the current client.
 
@@ -85,4 +85,24 @@ The current serializer sends uploaded IDs as pipe-delimited strings (`fileModel`
 
 ## ModelPrep parity requirements
 
-Parity requires a UI card and isolated session; original/remix; all four file roles with ordering and exact limits; rich description; live categories/tags/printers/materials/colors; all seven licenses; AI/NSFW; public/private; scheduled and paid branches gated by eligibility; terms as an action-time gate; Save as the safest initial state; preview and edit readback; pending-review receipts; and per-platform failure isolation. The free private Save core is certified at `M2134222528`; certify public/review, paid, remix, scheduled and other optional combinations independently. Do not implement native video until its current request contract is captured.
+Parity requires a UI card and isolated session; original/remix; all four file roles with ordering and exact limits; rich description; live categories/tags/printers/materials/colors; all seven licenses; AI/NSFW; public/private; scheduled and paid branches gated by eligibility; terms as an action-time gate; Save as the safest initial state; preview and edit readback; pending-review receipts; and per-platform failure isolation. The free private Save core is certified at `M2134222528`; certify public/review, paid, remix, scheduled and other optional combinations independently. Keep video unsupported unless a future first-party UI and serializer contract appears.
+
+## 2026-08-02 full form-to-adapter audit
+
+The signed-in create page and retained private draft editor were reopened
+read-only on 2026-08-02. The current page still presents all six native
+sections and the current route bundle fingerprint in the opening audit note.
+The retained editor repopulated its title after hydration. No Save, Preview,
+Publish, visibility change, or upload was triggered. The exact package now
+fails closed after a save when `getEdit` changes title, visibility, publication
+plan, price type, or any present model/profile/document/image role count.
+
+| Current form concern | ModelPrep state | Evidence and boundary |
+| --- | --- | --- |
+| Original/private/free Save, title/rich description, category, tags, license, FDM, models and ordered images | Live-certified safe core | Exact packaged draft `M2134222528` and `getEdit?uploadType=1` readback. |
+| Title, privacy, plan, price type and asset-role counts at readback | Implemented and locally verified | New fail-closed renderer check has focused test coverage; its stronger comparison has not yet been exercised by another live save. |
+| 3MF print configurations and instruction documents | Implemented and request-mapped | Current form/bundle limits and role serializer are mapped; no specialist live draft was authorized. |
+| Dynamic printers/materials/colors and free-entry tags | Implemented and browser-mapped | Values come from current authenticated metadata endpoints; exact optional combinations remain untested live. |
+| Remix/source, AI, NSFW, seven licenses, schedule, points/cash | Implemented/mapped, action-gated | Current UI and bundle contracts are mapped, but each is a separate authorized certification branch. |
+| Terms and public review submission | Explicit-action-only | Native UI blocks Publish until terms agreement; no public review submission was made. |
+| Video | Unavailable in current native form | No video input, upload role, or serializer field exists. ModelPrep warns and never sends it. |

@@ -5,9 +5,9 @@ Consolidates what we know about each marketplace's listing limits. Confidence:
 not verified (we deliberately do NOT enforce a guessed number). Mirrored in
 `deploy/src/App.jsx` → `PLATFORMS[].limits` / `.covers`; enforced on the Details + Images steps.
 
-For the full authenticated 2026-07-29 audit of every currently implemented
-publisher, including conditional flows, formats, taxonomies, API contracts,
-media behavior, fingerprints, and the implementation-gap ledger, see
+For the authenticated base audit from 2026-07-29 and certification updates
+through 2026-08-02, including conditional flows, formats, taxonomies, API
+contracts, media behavior, fingerprints, and the implementation-gap ledger, see
 `platform-upload-requirements-live.md`. It supersedes older assumed crop/count
 values for MakerWorld, Printables, and Cults3D.
 
@@ -23,7 +23,7 @@ matrix, not the primary handoff.
 | **Printables** | 255 | UNKNOWN | 25 | lowercase a–z0–9, **no spaces/punctuation** | no client cap | HIGH title/tag-format; tagMax UNKNOWN |
 | **Nexprint** | 80 | 20 | 50 | Unicode text/emoji/spaces; trimmed and deduplicated | 10000 | HIGH (signed-in form + current prod bundle, 2026-07-31) |
 | **Cults3D** | UNKNOWN | 20 | UNKNOWN | free tags in a 300-char field; separate fixed meta tags | UNKNOWN | HIGH tag count/current DOM; other caps UNKNOWN |
-| **MyMiniFactory** | no form cap observed | 20 | no form cap observed | comma-separated; leading `#` removed | no form cap observed | HIGH (signed-in form + first-party requests, 2026-07-31) |
+| **MyMiniFactory** | UNKNOWN (`required`, no `maxlength`) | 20 | UNKNOWN | comma-separated; leading `#` removed | UNKNOWN (no client cap); dimensions 100 chars and material quantity 45 chars | HIGH dimensions/material + tag count; title/desc/per-tag UNKNOWN (signed-in form, 2026-08-03) |
 | **Thingiverse** | no current client cap observed | UNKNOWN | UNKNOWN | free-create/autocomplete; spaces normalize to `_` | no current client cap observed | HIGH signed-in DOM/bundle, 2026-08-01; counts UNKNOWN |
 | **Thangs** | UNKNOWN | UNKNOWN | UNKNOWN | dynamic tags/category path | UNKNOWN | current bundle + official help, 2026-08-01; caps UNKNOWN |
 | **MakerRoad** | 60 | UNKNOWN | UNKNOWN | autocomplete/free-entry; custom values encoded separately | no current client cap observed | HIGH signed-in DOM/bundle, 2026-08-01; tag caps UNKNOWN |
@@ -32,6 +32,8 @@ matrix, not the primary handoff.
 
 Notes:
 - Printables also has a separate **summary** field = 120 chars (HIGH).
+- Printables rich-description images use a separate active-editor upload with
+  an **8 MiB** pre-presign limit; this is not the unknown gallery-image limit.
 - MakerWorld text limits are **UI-only** (the PUT accepts over-limit values). See `makerworld-web-flow.md`.
 - The remaining UNKNOWN platforms expose no documented caps — verify from each authenticated upload
   form's `maxlength` (same approach as the MakerWorld capture) before enforcing numbers.
@@ -43,7 +45,7 @@ Notes:
 | **MakerWorld** | required 4:3 + optional 3:4 | 16 model pictures, separate from covers | ≤30 MiB (20 MiB CN) | jpg/png/webp/gif; one MP4/MOV video ≤30s | HIGH (live DOM + current bundle, 2026-07-29) |
 | **Printables** | no upload-time ratio/crop observed | UNKNOWN | UNKNOWN | jpg/jpeg/png/webp/gif/heic/heif; ZIP input | HIGH behavior/formats; count/size UNKNOWN |
 | **Cults3D** | no upload-time ratio/crop observed | UNKNOWN | ≤10 MiB / images ≤8000×8000 px | jpg/jpeg/png/webp/gif/webm/mp4 | HIGH (live DOM + current bundle, 2026-07-29) |
-| **MyMiniFactory** | first ordered image is primary | UNKNOWN; no enforced ModelPrep cap | ≤5 MiB | jpg/jpeg/png/gif | HIGH behavior/size; count UNKNOWN (signed-in form + first-party requests, 2026-07-31) |
+| **MyMiniFactory** | first ordered image is primary (`primary_image` radio keyed by filename) | UNKNOWN — no client cap in current DOM/bundle | ≤5 MiB (`maxFileSize: 5*1024*1024`) | no client allow-list; server-side only. ModelPrep normalizes to JPEG | HIGH size/behavior (current inline uploader, 2026-08-03); count and extensions UNKNOWN |
 | **Thingiverse** | no required crop observed; pictures recommend ≥1024 px width | UNKNOWN | ≤5 MB images | stl/obj/3mf/scad plus broad CAD/docs; jpg/png/gif images | HIGH form/formats + official image limit, 2026-08-01; count/model size UNKNOWN |
 | **Thangs** | no required crop verified | UNKNOWN | model 250 MB threshold; references ≤500 MB | stl/3mf/step/stp/obj/glb/fbx/blend/usdz/gltf; jpg/jpeg/png/gif/webp/avif/heic media | HIGH current bundle, 2026-08-01; image cap UNKNOWN |
 | **MakerRoad** | recommended 1:1 | 3–10 images | ≤10 MB each | jpg/jpeg/png/gif/bmp/webp; video role exposed but contract UNKNOWN | HIGH signed-in DOM/current bundle, 2026-08-01 |
@@ -75,15 +77,15 @@ Status vocabulary used here and in the handoff:
 | Platform | Publish | Notes |
 |---|---|---|
 | MakerWorld | ✅ real (direct Electron flow; Worker fallback on web) | STL + Bambu-3MF + Laser & Cut paths; encrypted desktop session; direct metadata and signed-S3 uploads; one ≤30s MP4/MOV model-video path is implemented but not live-certified |
-| Cults3D | ✅ real (direct Electron flow; Worker fallback on web) | Markdown + flat-keyword/meta-tag mapping, typed image/video media, category/license flow, encrypted multi-account credentials and direct signed-S3 uploads; no guessed crop/count policy |
-| Printables | ✅ real (first-party web contract) | draft-first GraphQL flow, rich HTML, taxonomy IDs, file folders/notes and publication readback; original ordered media with unknown platform cap |
-| Nexprint | ✅ real draft path certified in browser and Electron | encrypted desktop session; first-party REST + presigned object upload; production browser draft `2083124902374207488` and ModelPrep Electron draft `2083139560975958016` were each saved and read back on 2026-07-31; neither run published the model |
-| Creality Cloud | ✅ real private path certified | encrypted isolated desktop session; first-party JSON + short-lived Aliyun STS upload; native new uploads support Private/Public, while `modelDraft/edit` only edits an existing `draftId`; Original/private STL + web/app covers created and read back as model `6a6cc6ab96c1c2d13f2b1a6b` on 2026-07-31; public and conditional branches remain uncertified; current map in `creality-web-flow.md` |
-| MakerOnline | ✅ real unpublished draft path certified | encrypted isolated desktop session; first-party multipart/JSON contract; packaged ModelPrep uploaded one ordered image + one STL and read back unpublished Private draft `316077` on 2026-07-31; `.3mf`, docs, public, and conditional branches remain uncertified |
-| MyMiniFactory | ✅ real private path certified | encrypted passwordless desktop session; first-party image/presign/form contract; hierarchical categories, metadata/license/declarations, Private default, object readback, sanitized failure diagnostics; latest exact-app private object `829056` passed independent hydrated-editor verification |
+| Cults3D | ✅ real (direct Electron flow; Worker fallback on web) | Markdown + flat-keyword/current-meta-tag mapping, manufacturing settings, AI/comments, typed image/video media, category/license flow, encrypted multi-account credentials and direct signed-S3 uploads; no guessed crop/count policy |
+| Printables | ✅ real (first-party web contract) | draft-first GraphQL flow, rich HTML, taxonomy IDs, file folders/notes, native HEIC conversion, G-code/SLA/retained ZIP and publication readback; specialist draft `1797772` and public model `1797774` live-certified; gallery cap remains unknown |
+| Nexprint | ✅ real draft path certified in browser and Electron | encrypted desktop session; first-party REST + presigned object upload; latest exact-app unpublished draft `2083625532272496640` passed model/image/BOM/taxonomy/license readback; public and broader attachment/eligibility branches remain |
+| Creality Cloud | ✅ real private path certified | encrypted isolated desktop session; first-party JSON + short-lived Aliyun STS upload; latest exact-app Original/private model `6a6e3f28753b84f6aab190a8` passed file/cover/metadata readback; existing-draft edit, public and conditional branches remain |
+| MakerOnline | ✅ real unpublished draft path certified | encrypted isolated desktop session; first-party multipart/JSON contract; latest exact-app unpublished draft `316221` passed ordered image/file, metadata, taxonomy/license and visibility readback; `.3mf`, docs, public and conditional branches remain |
+| MyMiniFactory | ✅ real private path certified, core **and** advanced | encrypted passwordless desktop session; first-party image/presign/form contract; hierarchical categories, metadata/license/declarations, Private default and object readback. Advanced private object `829284` was re-read read-only by the corrected exact package on 2026-08-03 and verified for private state, categories `60/462`, 10 images, 3 files and remix parent `829056`. Public review, ZIP/archive and premium branches (account-gated) remain uncertified |
 | Thingiverse | ✅ real unpublished draft path certified | complete upload/create/finalize/publish/readback path; same-page token recovery; latest exact-app draft `7390480` saved and read back; public and optional editor branches remain separate |
 | Thangs | ✅ real private single-part path certified | encrypted local-storage bearer-token recovery, authenticated current-user check, signed uploads, validation, model/assets and three-part readback; latest exact-app private model `1583272` passed full readback |
-| MakerRoad | ✅ real private Save path certified | authenticated `X-Token`, four file roles, dynamic metadata, save/review submission and required `uploadType=1` edit readback; latest exact-app private draft `M2134222528` passed; native video contract remains unknown |
+| MakerRoad | ✅ real private Save path certified | authenticated `X-Token`, four file roles, dynamic metadata, save/review submission and required `uploadType=1` edit readback; title/privacy/plan/price-type/role-count mismatches fail closed; latest exact-app private draft `M2134222528` passed; native video is absent from the current form |
 
 The latest exact-app closeout batch ran four destinations at once and finished
 10 succeeded, 0 failed using only private/draft/secret defaults. See
@@ -118,8 +120,7 @@ draft, secret/unlisted Cults3D listing, unpublished Nexprint draft, and a privat
 sending files or metadata to any platform. Non-demo projects preserve each
 platform's configured publish visibility; Printables and Nexprint are draft-first,
 while Creality is private-first unless the user explicitly selects public publishing. MakerOnline is
-draft-first; its core unpublished image + STL path is live-certified as retained
-draft `316077`.
+draft-first; its latest exact-app safe-core receipt is retained draft `316221`.
 
 The Publish panel labels every target `real`, `simulation`, or `missing`, then
 keeps a per-platform receipt with queued/working, draft, private, secret, public,

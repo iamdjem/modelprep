@@ -34,7 +34,7 @@ describe('shared section navigation layout', () => {
     expect(screen.getByTestId('top-header-actions')).toHaveClass('grid-cols-2', 'sm:flex', 'xl:flex-nowrap', 'xl:justify-end');
     expect(screen.getByTestId('modelprep-logo')).toHaveAttribute('src', '/modelprep-logo.svg');
     expect(screen.getByText(/^v0\.3$/i)).toHaveClass('whitespace-nowrap');
-    expect(screen.getByTestId('visible-build-stamp')).toHaveTextContent(/Build f8b1e49 ·/i);
+    expect(screen.getByTestId('visible-build-stamp')).toHaveTextContent(/^Build [0-9a-f]{7} · .+$/i);
     expect(screen.getByTestId('visible-build-stamp')).toHaveClass('whitespace-nowrap');
   });
 

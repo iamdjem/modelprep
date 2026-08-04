@@ -14,6 +14,13 @@ JavaScript bundles were re-audited read-only on **2026-07-29**. See
 snapshot, current taxonomy, the new model-video field, fingerprints, and the
 current implementation-gap ledger.
 
+Current certification update: the latest exact packaged four-at-a-time closeout
+retained private receipt `9053658` and passed safe-core readback. The one-video
+MP4/MOV path now fails closed when returned `designVideo` metadata differs, but
+the user deferred its account-backed verification. Genuine `.lac` final submit,
+public, remix, Exclusive/CyberBrick and other optional combinations remain
+separate certification branches.
+
 ## Auth model
 
 > **MAJOR UPDATE (browser-agent verified 2026-06-23): server-side email/password login IS
@@ -353,6 +360,12 @@ draft endpoint, cookie-only auth). New/corrected details:
   loading gate. ModelPrep now exposes typed video media, reads duration before
   upload, sends the file through the same `makerworld/model` presigned-media
   contract, and serializes the completed upload as `designVideo: [{name,url}]`.
+  Post-submit verification retains that submitted reference and compares it to
+  `designVideo` from the live draft-status readback. A missing video, changed
+  filename, missing URL, or changed storage path fails certification instead of
+  treating an otherwise-live private listing as video proof. This readback gate
+  is locally verified; the branch still needs one explicitly authorized private
+  account-backed upload.
 - **License = two radio groups → one string.** Matrix: adaptation(shared?) × commercial?
   → `BY` / `BY-NC` / `BY-SA` / `BY-NC-SA` / `BY-ND` / `BY-NC-ND`; adaptation "MW Exclusive" →
   `"MakerWorld Exclusive License"`; "MW + community" → `"Standard Digital File License - Community Use"`.
@@ -372,3 +385,12 @@ draft endpoint, cookie-only auth). New/corrected details:
 - **Global Creator Center → Customization** header/footer are prepended/appended SERVER-SIDE
   at render — NOT part of `summary`. ModelPrep can't read or control them.
 - **`parentId`** in the body = the design id (matters for update-vs-create).
+
+## 2026-08-04 independent browser revalidation
+
+The retained draft editor was rechecked visually, through the rendered DOM and
+through the current Next.js route asset observed in Chrome's CDP network log.
+Original and Remix remain selectable while Share is disabled for this account.
+The cover/gallery control still states JPG/GIF/PNG at no more than **30 MB per
+image**. ModelPrep previously mapped that rule but did not enforce it in publish
+preflight; the implementation correction is tracked in the shared live audit.

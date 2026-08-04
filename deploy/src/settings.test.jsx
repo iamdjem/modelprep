@@ -309,25 +309,166 @@ describe('Unified Settings page', () => {
     expect(serialized).not.toContain('super-secret-password');
   });
 
-  it('moves the AI config into Settings and persists it across runs', async () => {
-    const user = userEvent.setup();
-    render(<App />);
+  // ── AI tab ──────────────────────────────────────────────────────────────────
+  // The panel's job: detect what this machine can already use, make picking it one click,
+  // and explain any provider that is present but not working.
+
+  // Codex installed and signed in; the other CLI agent absent, so assertions stay unambiguous.
+  const codexReady = (models = [{ slug: 'gpt-5.5', label: 'GPT-5.5' }]) => ({
+    isDesktop: true,
+    cliAiStatus: vi.fn(async ({ agent }) => (agent === 'codex'
+      ? { ok: true, available: true, signedIn: true, method: 'chatgpt', plan: 'ChatGPT', models }
+      : { ok: true, available: false, signedIn: false, models: [] })),
+    generateCliListing: vi.fn(),
+  });
+  const openAiTab = async (user) => {
     await user.click(screen.getByRole('button', { name: /settings/i }));
     await user.click(screen.getByRole('button', { name: /^AI/i }));
+  };
+  const savedConfig = () => JSON.parse(localStorage.getItem('modelprep:ai-config'));
 
-    // Provider picker is here now (not on the Details page).
-    const provider = screen.getByRole('combobox');
-    await user.selectOptions(provider, 'openrouter');
+  it('starts with an honest empty state instead of a half-configured provider', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
 
-    // Key + model fields appear and write through to localStorage.
-    const key = await screen.findByPlaceholderText(/sk-/i);
-    await user.type(key, 'test-key-123');
+    expect(screen.getByText(/no ai picked yet/i)).toBeInTheDocument();
+    // Every provider is listed so the maker can see the options, not just the ones that work.
+    for (const name of ['Codex CLI', 'Ollama', 'LM Studio', 'OpenRouter', 'Google Gemini']) {
+      expect(screen.getByRole('button', { name: new RegExp(name, 'i') })).toBeInTheDocument();
+    }
+  });
 
-    const saved = JSON.parse(localStorage.getItem('modelprep:ai-config'));
-    expect(saved.provider).toBe('openrouter');
-    expect(saved.apiKey).toBe('test-key-123');
-    // Default model preset applied for the provider.
-    expect(saved.model).toContain('llama');
+  it('explains that local providers need the desktop app rather than offering a dead button', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+    await user.click(screen.getByRole('button', { name: /Codex CLI/i }));
+
+    expect(await screen.findByText(/cannot start a program on your computer/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^use this$/i })).not.toBeInTheDocument();
+  });
+
+  it('configures a detected provider in one click, model included', async () => {
+    window.modelprepDesktop = codexReady();
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+
+    await user.click(await screen.findByRole('button', { name: /^use this$/i }));
+    expect(savedConfig()).toMatchObject({ version: 2, primary: 'codex', fallbacks: [] });
+    expect(screen.getByText(/ModelPrep asks/i)).toHaveTextContent(/Codex CLI/);
+  });
+
+  it('lets the maker switch models from what the provider actually offers', async () => {
+    window.modelprepDesktop = codexReady([{ slug: 'gpt-5.5', label: 'GPT-5.5' }, { slug: 'gpt-5.4', label: 'GPT-5.4' }]);
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+    await user.click(await screen.findByRole('button', { name: /^use this$/i }));
+    await user.click(screen.getByRole('button', { name: /Codex CLI/i }));
+
+    const model = await screen.findByRole('combobox', { name: /model/i });
+    expect(within(model).getByRole('option', { name: 'GPT-5.4' })).toBeInTheDocument();
+    await user.selectOptions(model, 'gpt-5.4');
+    expect(savedConfig().providers.codex.model).toBe('gpt-5.4');
+  });
+
+  it('separates a signed-out CLI from a missing one and names the command that fixes it', async () => {
+    window.modelprepDesktop = {
+      isDesktop: true,
+      cliAiStatus: vi.fn(async ({ agent }) => ({ ok: true, available: agent === 'codex', signedIn: false, models: [] })),
+      generateCliListing: vi.fn(),
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+    await user.click(await screen.findByRole('button', { name: /Codex CLI/i }));
+
+    expect(await screen.findByText(/codex login/i)).toBeInTheDocument();
+    expect(screen.getByText(/Installed, but signed out/i)).toBeInTheDocument();
+  });
+
+  it('detects a local model server and picks one of its vision models automatically', async () => {
+    window.modelprepDesktop = {
+      isDesktop: true,
+      detectLocalAi: vi.fn(async () => ({ ok: true, ollama: { available: true, models: [{ slug: 'llama3.2-vision', label: 'llama3.2-vision' }] }, lmstudio: { available: false } })),
+      localAiChat: vi.fn(),
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+
+    expect(await screen.findByText(/1 model that can read photos/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^use this$/i }));
+    expect(savedConfig()).toMatchObject({ primary: 'ollama', providers: { ollama: { model: 'llama3.2-vision' } } });
+  });
+
+  it('tells the maker a rejected key is a sign-in problem, before any listing is generated', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, text: async () => 'Invalid API key' })));
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+    await user.click(screen.getByRole('button', { name: /OpenRouter/i }));
+    await user.type(screen.getByLabelText(/api key/i), 'sk-wrong');
+    await user.click(screen.getByRole('button', { name: /check key/i }));
+
+    expect(await screen.findByText(/sign-in problem/i)).toBeInTheDocument();
+    expect(screen.getByText(/re-enter the key/i)).toBeInTheDocument();
+  });
+
+  it('accepts a working key, lists its vision models and can then be used', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [{ id: 'vision-a:free', name: 'Vision A', architecture: { input_modalities: ['text', 'image'] } }] }),
+    })));
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+    await user.click(screen.getByRole('button', { name: /OpenRouter/i }));
+    await user.type(screen.getByLabelText(/api key/i), 'sk-good');
+    await user.click(screen.getByRole('button', { name: /check key/i }));
+
+    const model = await screen.findByRole('combobox', { name: /model/i });
+    expect(within(model).getByRole('option', { name: 'Vision A' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /use for listings/i }));
+    expect(savedConfig()).toMatchObject({ primary: 'openrouter', providers: { openrouter: { apiKey: 'sk-good', model: 'vision-a:free' } } });
+  });
+
+  it('builds a fallback chain and promotes the backup when the primary is removed', async () => {
+    window.modelprepDesktop = {
+      ...codexReady(),
+      detectLocalAi: vi.fn(async () => ({ ok: true, ollama: { available: true, models: [{ slug: 'llama3.2-vision', label: 'llama3.2-vision' }] }, lmstudio: { available: false } })),
+      localAiChat: vi.fn(),
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+
+    await user.click(await screen.findByRole('button', { name: /Codex CLI/i }));
+    await user.click(screen.getByRole('button', { name: /use for listings/i }));
+    await user.click(screen.getByRole('button', { name: /Ollama/i }));
+    await user.click(screen.getByRole('button', { name: /add as backup/i }));
+
+    expect(savedConfig()).toMatchObject({ primary: 'codex', fallbacks: ['ollama'] });
+    expect(screen.getByText(/ModelPrep asks/i)).toHaveTextContent(/Codex CLI.*then Ollama if that fails/i);
+    expect(screen.getByText(/backups take over automatically/i)).toBeInTheDocument();
+
+    // Dropping the primary must not leave the maker with nothing while a backup is configured.
+    await user.click(screen.getByRole('button', { name: /Codex CLI/i }));
+    await user.click(screen.getByRole('button', { name: /remove from chain/i }));
+    expect(savedConfig()).toMatchObject({ primary: 'ollama', fallbacks: [] });
+  });
+
+  it('carries an older single-provider setup forward without losing the saved key', async () => {
+    localStorage.setItem('modelprep:ai-config', JSON.stringify({ provider: 'groq', apiKey: 'sk-old', model: 'llama-vision' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await openAiTab(user);
+
+    expect(screen.getByText(/ModelPrep asks/i)).toHaveTextContent(/Groq/);
+    await user.click(screen.getByRole('button', { name: /Groq/i }));
+    expect(screen.getByLabelText(/api key/i)).toHaveValue('sk-old');
   });
 
   it('About tab shows the build label', async () => {
@@ -362,8 +503,8 @@ describe('Unified Settings page', () => {
     await user.click(screen.getAllByRole('button', { name: /details/i })[0]);
     // The AI shortcut on Details opens Settings on the AI tab.
     await user.click(screen.getByRole('button', { name: /set up ai/i }));
-    // AI tab content (the provider hint about keys) is now visible.
-    expect(screen.getByText(/stored only in this browser/i)).toBeInTheDocument();
-    expect(screen.getByRole('combobox')).toBeInTheDocument();
+    // AI tab content (the provider list) is now visible.
+    expect(screen.getByText(/writing your listings/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /OpenRouter/i })).toBeInTheDocument();
   });
 });

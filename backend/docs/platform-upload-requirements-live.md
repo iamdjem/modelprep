@@ -1,6 +1,8 @@
 # Live upload requirements for all ten ModelPrep publishers
 
-Last live audit: **2026-08-01**
+Last live audit: **2026-08-02** (Printables read-only mapping plus authorized
+specialist-draft and normal-public closeout; MyMiniFactory current-form and
+retained-editor refresh; other platform dates remain in their sections)
 Audited account surfaces: authenticated browser/desktop sessions for ten platforms
 Scope: every upload platform currently implemented or implemented locally as a direct ModelPrep publisher
 
@@ -15,7 +17,8 @@ and next-agent operating prompt, start with
 `modelprep-current-handoff-2026-08-01.md`, then use this file for the detailed
 cross-platform contract.
 
-No listing was publicly published or deleted during this audit. Nexprint draft
+During the initial cross-platform mapping audit, no listing was publicly
+published or deleted. Nexprint draft
 `2083124902374207488` was created from the bundled demo model and cover, then
 reopened read-only at its canonical edit URL. Existing drafts on the other
 platforms were opened read-only to inspect conditional steps. MakerOnline discovery
@@ -47,6 +50,34 @@ advanced fields, declaration, and read-back contract are recorded in
 verified title, private state, categories `[60, 462]`, ten ordered images, three
 files, tags and full description. Public review and optional branches remain
 separate certification gates.
+
+On 2026-08-02, the exact packaged app created and retained private specialist
+object `829284` with advanced print data, CC BY-NC-SA and remix parent `829056`.
+The app failed closed at readback because the current hydrated editor names the
+checked remix control `remix-checkbox`; the parser now accepts that current name
+and the older submitted form.
+
+On 2026-08-03 the corrected exact package re-read `829284` **read-only** and the
+receipt succeeded (`private · 10 images · 3 files · categories 60/462 · remix of
+829056`), so the advanced print/license/remix branch is now exact-app
+live-certified. Reaching it exposed three defects, all fixed: `status()` used a
+manual redirect that Electron cancels when re-reading an existing `/object/<id>`;
+the readback parser could not interpret `selected=""`, so **`license_id` never
+read back at all**; and `.mp-input`'s `width: 100%` collapsed the packaged
+Dimensions field to ~19 px. A GET-only `Verify existing object` control now
+exists so a failed receipt can be re-read without any chance of duplication.
+
+Current authoritative limits, read from the server-rendered `UploadFilesWrapper`
+props on 2026-08-03: `fileSizeLimit` 104,857,600 bytes (100 MiB) per object file,
+`filesPerObject` `"500"`, `archiveFileSizeLimit` 5,368,710,000 bytes (~5 GB),
+`archiveFilesPerObject` 25, and 55 accepted model extensions. Images are capped
+at 5 MiB by the current inline uploader (`maxFileSize: 5*1024*1024`, `fileType`
+`1`, `primary_image` keyed by filename). **`can_use_zip_mode` and
+`isPremiumCreator` are both `false` on this account**, so ZIP/archive mode and
+premium branches are account-gated, not missing. Image count, image extension
+allow-list and title/description character caps are absent from the current
+client and remain UNKNOWN. Scan The World (11 controls) and
+`threedobject_temp_type[license_store]` are visible but deliberately unmapped.
 
 Nexprint is a different completion class from the other three: its signed-in
 DOM/request contract and local adapter are implemented. The authenticated
@@ -86,6 +117,12 @@ Thingiverse draft `7390480`, Thangs private model `1583272`, Nexprint draft
 draft `M2134222528`. Every result passed its adapter readback. This certifies all
 ten safe core paths and the four-slot scheduler for the bundled fixture, not the
 optional/public/paid matrices below. The artifacts are intentionally retained.
+
+On 2026-08-02 the exact packaged app additionally created Printables specialist
+draft `1797772` and public model `1797774`. The draft passed ordered converted
+HEIC, G-code, SLA/SL1, retained ZIP and full metadata readback. The public model
+passed verified-draft, publish and persisted-live readback and remains public
+pending exact deletion confirmation. No artifact was deleted.
 
 ## Evidence labels
 
@@ -580,7 +617,7 @@ session. ModelPrep's desktop session lives in the Electron
 
 ```text
 GraphQL endpoint: https://api.printables.com/graphql/
-Graphql-Client-Version: v4.8.4
+Graphql-Client-Version: v4.8.10
 media root: https://media.printables.com
 file root: https://files.printables.com
 ```
@@ -655,9 +692,12 @@ Rich-description image input:
 image/png, image/jpeg, image/gif, image/webp
 ```
 
-The previously documented 8 MiB rich-description-image limit was not found in
-the current inspected production route. The current byte cap is **UNKNOWN**
-until an explicit current client/server validation is captured.
+Rich-description images use `FileUploadCreate(kind: RichContent)`, a signed
+multipart upload, and `richContentFileUploadFinished`. The active `v4.8.10`
+editor imports the uploader's **8 MiB** maximum from
+`chunks/2.B59PbNQS.js`; `chunks/2.DSTJce1t.js` rejects larger images before
+presigning. This is separate from the 16 MiB constant in the general limits
+bundle.
 
 ## 2.4 Gallery media
 
@@ -728,12 +768,13 @@ Other Files:
 - ZIP retained without unpacking: **256 MiB** (`268,435,456` bytes)
 - total filename maximum: **150 characters**
 - per-file note maximum: **95 characters**
+- each folder name/path segment maximum: **60 characters**
 - folders supported in all buckets
 - alphabetical sorting supported
 - Shift multi-selection supported
 - published models cannot remove their last file
 
-Processed G-code fields include:
+Processed G-code readback includes:
 
 - name, folder, note, order
 - weight/material
@@ -742,8 +783,16 @@ Processed G-code fields include:
 - print duration
 - `excludeFromTotalSum`
 
-Processed SLA files include layer height and print duration. Print files may
-require current printer selection/metadata based on detected FFF/SLA type.
+The current `GcodeFileInputType` accepts whole-number `weight`, `material`,
+decimal-string nozzle diameter, layer height and print duration in hours, plus
+`excludeFromTotalSum`. Its duration validation permits at most three digits
+before the decimal, so ModelPrep caps the control at 999 hours. Processed
+readback can include a display-only `printer` object, but the mutation input
+rejects that field; both direct adapters strip it.
+
+Processed SLA readback can include layer height and print duration, but the
+current `SLAFileInputType` accepts only id, folder, name and note. Do not replay
+computed SLA readback fields into `modelUpdate`.
 
 ## 2.6 Categories
 
@@ -877,16 +926,20 @@ drafts / moreDrafts / userModels
 HTTP 429 must be surfaced as rate limiting. HTTP success with GraphQL `errors`
 or mutation `errors { field messages }` is still failure.
 
-Production fingerprint at audit:
+Production fingerprint at the 2026-08-02 signed-in audit:
 
 ```text
-SvelteKit client version: v4.8.4
-editor bundle: chunks/2.CQ-LZHFQ.js
-editor SHA-256: 7d7b83c6472262b1262d81e12d113277524ef7d9be03eda924eb8ffe373fbb93
-file-types bundle: chunks/2.Ci95b0cj.js
-file-types SHA-256: d6c9ff8cea8d9851fc754d2a4a1cbb162263b5d442a910521ec2b5c4de29cba3
-limits bundle: chunks/2.Def0z5xh.js
-limits SHA-256: b1ac69cf78657f3d84822da292a188436024e866b3f4b5f26295b91fb11c2bfe
+SvelteKit/Graphql-Client-Version: v4.8.10
+editor/model-form bundle: chunks/2.bQT76bXE.js
+editor SHA-256: 69f94631947f3df45b414c41597989775b4cd7f58ce1fe0901e8d38962f88153
+file-types bundle: chunks/2.BSEC-uPg.js
+file-types SHA-256: f9335820ff3dd0839bc15aab681200cc706b3be9d8e47f43644439a3dcb6f1da
+file-size limits bundle: chunks/2.DCumiKvf.js
+file-size limits SHA-256: 4212c178e518d486c3ed04131428fb4035f4184d6c49336815e89eacd74c567f
+text/file-detail limits bundle: chunks/2.vLWdOE1_.js
+text/file-detail limits SHA-256: 03ec358b5464a93c834ad7f3d34737c9eec716b6c0121e26461c7b5092d20496
+file-row bundle: chunks/2.CP5svT1t.js
+file-row SHA-256: 337099946744dfdb114f8196edaccfbf1662d29125673e814125c31c5caccc4a
 ```
 
 ---
@@ -1022,8 +1075,18 @@ Effective accepted formats:
 - external-download-link documents are forbidden; files must be uploaded to
   Cults
 - filename characters `&`, `>`, and `<` are rejected by the current uploader
-- the raw input includes `.rar`, but the current client explicitly rejects RAR
-  with “use .zip instead”; RAR is therefore not effectively accepted
+  before it requests an S3 policy, with the message `Invalid character “X”`.
+  Confirmed present in both the originally captured upload pack and the newer
+  pack the deployed manifest points at (2026-08-02). ModelPrep's direct Electron
+  and Worker transports now mirror this rule and fail closed before
+  authenticating.
+- `.rar`: the raw input includes it. The **originally captured** pack rejected
+  RAR client-side with “use .zip instead”, but the pack the deployed manifest
+  currently points at has **removed that check** (2026-08-02 signed-out
+  bundle diff). Which pack the auth-gated create page loads today is UNKNOWN,
+  and server-side RAR behavior was never tested. Do not restate “RAR is not
+  accepted” as a current platform requirement; ModelPrep implements no `.rar`
+  branch in either direction.
 
 ## 3.5 Photos and videos
 
@@ -1047,6 +1110,12 @@ GIF input. The `accept` attribute is the stronger source.
 - no total media-count cap was exposed by the page/bundle: **UNKNOWN**
 - creators are told to put photos of actual prints first
 - filenames should be descriptive for search ranking
+
+ModelPrep's direct Electron and Worker-fallback preflight mirror the supported
+JPEG/PNG/WebP/GIF/MP4/WebM MIME types, require an image first, and reject every
+media item over 10 MiB before any authenticated upload request. Image dimensions
+and total media count remain server/UI concerns because the current transport
+does not receive decoded pixel dimensions and Cults exposes no count cap.
 
 Therefore Cults **does not currently justify ModelPrep's 1:1 crop or 20-media
 cap as platform requirements**. The production thumbnail service may visually
@@ -1202,6 +1271,25 @@ application SHA-256: b9c3effe7240fbf86b4654003c1faa1eaf44d03eea754cda6c0f187b514
 stylesheet: assets/cults-2927b7e4264b8fefcb47c71771bc61c6030d0ee461595d6f25ac669c653e0540.css
 ```
 
+Drift re-check, 2026-08-02 (signed-out public assets only):
+
+```text
+both bundles above still resolve with byte-identical SHA-256
+rendered login page still loads application-55aa4a3c30b1ef4b0a5b.js
+login-page stylesheet changed to cults-0b91bd688519750ef53d08431c3db22e787f2dc0e27c616dac0e76cc850bc8a3.css
+
+deployed packs/manifest.json now points at NEWER packs:
+  upload.js      -> packs/js/upload-f6d1a2a902153d3b47f2.js
+  upload SHA-256 -> 88e20ebd7825d23e19792358d9e4567d3f027dc4e45e4b39c049cd5b1809b956
+  application.js -> packs/js/application-458468f4077b74a265e5.js
+```
+
+The only contract-relevant difference between the captured upload pack and the
+manifest-current pack is the removed `.rar` check described in 3.4. The
+`&`/`>`/`<` file-name rule is unchanged in both. Which pack the auth-gated
+create page serves is UNKNOWN until a signed-in capture is possible. Full diff
+and evidence classes are in `cults3d-web-flow.md`.
+
 ---
 
 # 4. Cross-platform transformation contract
@@ -1233,19 +1321,19 @@ payload unchanged to all sites.
 | files | model/CAD/document formats; ordered finalization | model, reference, attachment, standalone, dependencies, versions | model, print-config 3MF, images, instructions |
 | model structure | one Thing with ordered files | single, bulk, multipart, assembly, primary parts, units | original/remix listing with ordered ids |
 | metadata | name, Markdown summary/details, tags, dynamic category | name/description, categories/tags, folder/workspace, units | title ≤60, rich description, 1–3 categories, tags |
-| media | ordered images; no verified count/crop; video URL in rich sections | image attachments plus reference files; count/crop unknown | 3–10 ordered 1:1-recommended images ≤10 MB; video contract incomplete |
+| media | ordered images; no verified count/crop; video URL in rich sections | image attachments plus reference files; count/crop unknown | 3–10 ordered 1:1-recommended images ≤10 MB; current native form has no video field |
 | print data | detailed print/filament settings | print instructions, license file, model assets | FDM/LCD/Others, printer, material, color; separate 3MF configs |
 | provenance | original/remix/source, AI, WIP, customizable, NSFW | remix permission, AI, feedback | original/remix/source, AI, NSFW |
 | license | 13 open-source/CC/hardware licenses | license metadata plus PDF/TXT/MD license file | seven CC/CC0 combinations |
 | monetization | not mapped | plans/tiers, marketplace, memberships, bundle/print-store branches | Free/Points/Cash; paid branches may be gated |
 | publication | draft/publish and complete readback | private/public/access/plans and details/attachments/license readback | save/preview/publish, public/private, schedule, review, edit readback |
-| current code | complete draft/publish adapter, UI, session bridge and readback; exact-app draft `7390480` live-certified | complete encrypted-token adapter, UI, signed uploads and three-part readback; exact-app private model `1583272` live-certified | complete `X-Token` adapter, UI, four upload roles and readback; exact-app private draft `M2134222528` live-certified; video contract unknown |
+| current code | complete draft/publish adapter, UI, session bridge and readback; exact-app draft `7390480` live-certified | complete encrypted-token adapter, UI, signed uploads and three-part readback; exact-app private model `1583272` live-certified | complete `X-Token` adapter, UI, four upload roles and readback; exact-app private draft `M2134222528` live-certified; video explicitly unsupported because the current form has no field |
 
 All three now have their own encrypted persistent desktop partition, account
 marker, options card, adapter, IPC/preload route namespace, request ordering,
 error normalization, per-platform receipt, safe default, canonical readback, and
 safe-core exact-app live certification. What remains is optional-branch
-certification; MakerRoad's native video contract is still unknown.
+certification; MakerRoad's current native form has no video field, so video is explicitly unsupported until a future contract appears.
 
 Rules for the coordinator:
 
@@ -1261,7 +1349,7 @@ Rules for the coordinator:
 
 ---
 
-# 5. Current ModelPrep parity and gaps (2026-08-01)
+# 5. Current ModelPrep parity and gaps (2026-08-02)
 
 ## Implemented
 
@@ -1276,9 +1364,13 @@ Rules for the coordinator:
 - MakerWorld Laser & Cut raw/`.lac` payload support and draft/create coverage
 - Printables draft-first GraphQL upload, CRC32C finish/poll, original/remix/
   reupload payload support, configurable draft/public batch action, file
-  folders/notes, readback/publish/delete
+  folders/notes, native HEIC conversion, G-code/SLA/retained-ZIP controls,
+  readback/publish/delete; specialist draft `1797772` and public model `1797774`
+  are live-certified, while deletion remains pending exact confirmation
 - Cults signed upload, blueprint/illustration registration, creation form,
-  price/license/visibility, unpublish, and readback
+  manufacturing settings, current allow-listed meta tags, AI/comments,
+  price/license/visibility, unpublish, and fail-closed ordered edit/list
+  readback for persisted IDs, filenames, title and visibility
 - Nexprint encrypted desktop session, first-party REST/presigned upload,
   dynamic taxonomy/account options, draft-first create/update, and edit-info
   readback; both production browser and ModelPrep Electron
@@ -1287,11 +1379,11 @@ Rules for the coordinator:
   maturity controls, first-party JSON plus Aliyun STS upload, existing-draft
   edit, private/public create, and read-back verification; the Original/private
   STL plus web/app-cover path is account-certified as model
-  `6a6cc6ab96c1c2d13f2b1a6b`
+  `6a6e3f28753b84f6aab190a8`
 - MakerOnline encrypted desktop session, live category/kit/eligibility reads,
   all current metadata branches, multipart scenes 1/2/5/6/8, server 3MF parsing,
   draft/public create, and edit-info readback; the core unpublished one-image +
-  one-STL path is account-certified as retained draft `316077`
+  one-STL path is account-certified as retained draft `316221`
 - MyMiniFactory encrypted desktop session, current form metadata and all license
   choices, JPEG-normalized ordered images, presigned object-file upload,
   hierarchical category ids, Private/Public submit, and canonical object
@@ -1304,7 +1396,9 @@ Rules for the coordinator:
   signed uploads, validation, model structures/assets and three-part readback
 - MakerRoad authenticated `X-Token` session, four upload roles, dynamic metadata,
   private Save/review Publish and required `uploadType=1` edit readback; latest
-  exact-app private draft `M2134222528` passed
+  exact-app private draft `M2134222528` passed. The current renderer now also
+  fails closed on readback title/privacy/plan/price-type or present role-count
+  mismatches before it reports a save verified.
 
 ## Confirmed current gaps or misleading local defaults
 
@@ -1318,19 +1412,31 @@ Rules for the coordinator:
    previously guessed 1:1 crop and 20-media cap were removed.
 4. **Cults typed video media is implemented but not live-certified.** MP4/WebM
    records remain separate from images and are sent only to Cults-compatible
-   illustration upload paths.
+   illustration upload paths. The 2026-08-01 signed-in edit-page audit proved
+   ordered illustration IDs and persisted filenames are readable after submit;
+   desktop and Worker transports now preflight the live MIME list (including
+   GIF), image-first ordering, and the 10 MiB media cap; they retain the receipt
+   but refuse certification when any ordered ID/name, title, or visibility
+   differs. No video listing was created during this read-only audit.
 5. **Cults title/description hard caps remain unknown.** Do not add guessed
    caps. Continue to enforce requiredness and server errors.
-6. **Printables current rich-description-image cap is unknown.** The stale
-   8 MiB claim is removed and no replacement cap is enforced.
+6. **Printables rich-description-image cap is 8 MiB in the active `v4.8.10`
+   editor.** It is enforced before presign. Gallery count, gallery-image byte
+   cap and fixed aspect-ratio requirements remain unknown.
 7. **MakerWorld eligible CyberBrick combinations remain unsubmitted.**
 8. **MakerWorld final `.lac` submit remains unverified with a genuine Bambu
    Suite fixture.**
-9. **Printables Store/Club, approval-required publishing, retained ZIP, G-code,
-   SLA, and HEIC/HEIF paths need dedicated account/file live certification.**
+9. **Printables specialist and normal-public branches are live-certified.**
+   Exact-app draft `1797772` passed retained ZIP, G-code, SLA/SL1 and converted
+   HEIC plus full readback; public model `1797774` reached persisted live state.
+   Deletion awaits explicit confirmation. Store/Club and approval-required
+   publishing require eligible accounts; unpacked ZIP, remix/reupload and rich
+   description image upload remain separate round trips.
 10. **Cults paid/open-price, multi-usage, subcategory, meta-tag, video, and
     public publication combinations need non-destructive dedicated test
-    listings and cleanup.**
+    listings and cleanup.** Manufacturing settings, the current 12 fixed meta
+    tags, AI disclosure and comments are now propagated and locally tested;
+    that does not replace an authorized secret-branch persistence check.
 11. **Nexprint's gallery ordering, activity eligibility, and
     extension matrix remain only mapped or locally tested.** Public publishing
     was deliberately excluded from the certification boundary.
@@ -1347,7 +1453,13 @@ Rules for the coordinator:
     `829056` and independent hydrated-editor readback confirmed hierarchical
     categories, assets, metadata and private visibility. Public review, remix,
     declarations, advanced print data and other optional combinations remain
-    separate certification gates. Sanitized failure diagnostics are implemented.
+    separate certification gates. The current signed-in refresh additionally
+    observed native dimensions `maxlength=100` and material quantity
+    `maxlength=45`; ModelPrep now enforces and reads those advanced fields back
+    locally. Retained private specialist `829284` independently proved the
+    advanced print/license/remix fields, but the original app readback receipt
+    failed closed on the now-corrected `remix-checkbox` name; do not duplicate it.
+    Sanitized failure diagnostics are implemented.
 15. **Thingiverse's unpublished safe core is live-certified.** Exact-app draft
     `7390480` passed upload/create/finalize/readback after same-page token recovery.
     Public publication and rich-section/education/remix/optional fields remain
@@ -1358,7 +1470,9 @@ Rules for the coordinator:
     optional structures remain; see `thangs-web-flow.md`.
 17. **MakerRoad's private Save core is live-certified.** Exact-app draft
     `M2134222528` passed authenticated create and required `uploadType=1` edit
-    readback. Native video remains unmapped; public/review, paid, remix, schedule
+    readback. A subsequent full form/bundle audit added local fail-closed
+    comparisons for title, privacy, plan, price type and present asset-role
+    counts. The current native form has no video input or serializer; public/review, paid, remix, schedule
     and other optional combinations remain separate gates; see
     `makeroad-web-flow.md`.
 
@@ -1386,12 +1500,19 @@ Repeat this audit before a public release and whenever a platform upload breaks.
 
 ## Printables
 
-- record SvelteKit/`Graphql-Client-Version`
-- inspect create/edit for original, remix, reupload, free, Store/Club capability
-- diff file input accept lists, text counters, licenses, and categories
-- diff GraphQL operation names and input objects
-- verify upload presign, direct storage fields, CRC32C finish, processing poll,
-  draft update, publish/approval request, readback, and delete
+- completed read-only on 2026-08-02: recorded `v4.8.10`; inspected signed-in
+  create and retained-draft edit surfaces; exercised unsaved author/remix/
+  reupload and draft/public UI branches; diffed file types, text limits,
+  categories, licenses, and current GraphQL operations; updated ModelPrep's
+  client header and 95-character note/60-character folder-name controls
+- completed exact-app specialist/private proof on 2026-08-02: draft `1797772`
+  retained ZIP, G-code, SLA/SL1 and converted HEIC with ordered asset and
+  metadata readback
+- completed exact-app normal-public proof on 2026-08-02: model `1797774`
+  reached persisted live state and remains public pending deletion confirmation
+- still account/action gated: eligible Store/Club/price/tier/commercial-use
+  rendered state; approval-required publishing; permanent deletion; unpacked
+  ZIP, remix/reupload and authenticated rich-description image upload
 
 ## Cults3D
 
@@ -1446,6 +1567,16 @@ Repeat this audit before a public release and whenever a platform upload breaks.
   do not restore `redirect: manual`
 - inspect `/object/edit/{id}` and confirm title, Private state, ordered images,
   object files, tags, description, license, and every required category id
+- use the GET-only `Verify existing object` control to re-read an existing
+  object; never use `Retry N failed only` for a MyMiniFactory receipt failure,
+  because that re-enters the create flow and can duplicate a retained object
+- treat boolean attributes per the HTML spec: the same edit page emits
+  `selected=""`, `selected="selected"` and bare `checked`, and
+  `threedobject_type[support_free]` is a hidden input carrying its value rather
+  than a checkbox
+- recheck `can_use_zip_mode` and `isPremiumCreator` in the `UploadFilesWrapper`
+  props before assuming ZIP/archive or premium branches are unavailable; they
+  are account-gated, not absent
 - keep Node-standalone/Cloudflare 403 distinct from an expired browser session
 
 ## Creality Cloud

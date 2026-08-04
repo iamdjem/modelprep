@@ -15,8 +15,9 @@ The renderer owns:
 - shared title, description, tags, category, license, and print fields;
 - platform-specific transforms and option panels for ten direct targets;
 - Settings, opaque account markers, status and Reconnect UI;
-- preflight, individual publishing, two-at-a-time desktop batch scheduling, and
+- preflight, individual publishing, four-at-a-time desktop batch scheduling, and
   isolated receipts;
+- failed-only retry and privacy-safe aggregate resource reports;
 - simulation-only Demo and explicit Real Upload Test fixtures;
 - responsive layout and visible development build timestamp.
 
@@ -51,9 +52,8 @@ Point local development at a Worker with `deploy/.env.local`:
 VITE_WORKER_URL=http://localhost:8787
 ```
 
-Current automated baseline on 2026-08-01: 37 test files and 156 tests pass.
-Known non-blocking test noise: one missing React key warning in
-`NexprintOptions`.
+Current automated baseline on 2026-08-02: 37 test files and 173 tests pass. The
+former `NexprintOptions` missing-key warning is fixed and regression-covered.
 
 ## Packaged renderer pairing
 
@@ -92,5 +92,7 @@ deployment. Verify the hosted build separately from the packaged app.
 - Safe defaults are private, secret, or unpublished draft.
 - Public publication must remain explicit.
 - Do not restore guessed Printables/Cults crop or count limits.
+- Printables rich-description images have a separate proven 8 MiB limit; its
+  gallery count, per-gallery-image bytes and fixed aspect ratio remain unknown.
 - Every successful mutation needs platform id/status/readback evidence; a submit
   response alone is not certification.

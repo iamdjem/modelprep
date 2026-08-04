@@ -26,6 +26,61 @@
 
 const CULTS_BASE = 'https://cults3d.com';
 const USER_AGENT = 'Mozilla/5.0 (compatible; ModelPrep/0.2; +https://github.com/iamdjem/modelprep)';
+const CULTS_ILLUSTRATION_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const CULTS_ILLUSTRATION_VIDEO_TYPES = new Set(['video/mp4', 'video/webm']);
+const CULTS_ILLUSTRATION_MAX_BYTES = 10 * 1024 * 1024;
+// The current first-party uploader rejects these characters in any file name
+// before it requests an S3 policy: `["&",">","<"]` with the message
+// `Invalid character “X”`. Verified in the documented upload bundle
+// (upload-dfc75bcc2698cddf6698.js) and in the newer bundle the deployed
+// webpacker manifest currently points at (upload-f6d1a2a902153d3b47f2.js).
+const CULTS_FORBIDDEN_FILENAME_CHARS = ['&', '>', '<'];
+
+/**
+ * Mirror the uploader's file-name rule for every blueprint and illustration.
+ * Cults refuses these names client-side, so ModelPrep must fail closed before
+ * authenticating rather than let a rejected or half-registered upload happen.
+ */
+export function cultsWebFilenameValidationIssue(
+  files: ReadonlyArray<{ name?: unknown }>,
+): string | null {
+  for (const file of files) {
+    const name = String(file?.name ?? '');
+    for (const char of CULTS_FORBIDDEN_FILENAME_CHARS) {
+      if (name.includes(char)) {
+        return `Cults3D rejects the character “${char}” in file names. Rename “${name}” before publishing.`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Match the current first-party uploader before requesting an authenticated
+ * upload policy. The Worker fallback must not be more permissive than the
+ * direct Electron transport: illustrations are ordered media, the first one
+ * is an image cover, and Cults caps every image or video at 10 MiB.
+ */
+export function cultsWebIllustrationValidationIssue(
+  illustrations: ReadonlyArray<{ type?: unknown; size?: unknown }>,
+): string | null {
+  const kinds = illustrations.map((file) => {
+    const type = String(file.type || '').toLowerCase();
+    if (CULTS_ILLUSTRATION_IMAGE_TYPES.has(type)) return 'image';
+    if (CULTS_ILLUSTRATION_VIDEO_TYPES.has(type)) return 'video';
+    return null;
+  });
+  if (kinds.some((kind) => kind == null)) {
+    return 'Cults3D illustrations must be JPEG, PNG, WebP, GIF, MP4, or WebM.';
+  }
+  if (kinds[0] !== 'image') {
+    return 'The first Cults3D illustration must be an image cover, not a video.';
+  }
+  if (illustrations.some((file) => Number(file.size) > CULTS_ILLUSTRATION_MAX_BYTES)) {
+    return 'Cults3D media must not exceed 10 MiB each.';
+  }
+  return null;
+}
 
 // -------------------- Session + cookie helpers --------------------------
 
@@ -613,6 +668,99 @@ export async function cultsWebListMyCreations(
     });
   }
   return rows;
+}
+
+export interface CultsWebCreationReadback {
+  slug: string;
+  title: string;
+  status: CultsWebMyCreation['status'] | 'missing';
+  blueprints: { ids: number[]; filenames: string[] };
+  illustrations: { ids: number[]; filenames: string[] };
+}
+
+export interface CultsWebReadbackExpected {
+  title: string;
+  visibility: 'public' | 'secret';
+  blueprintIds: number[];
+  blueprintFilenames: string[];
+  illustrationIds: number[];
+  illustrationFilenames: string[];
+}
+
+function htmlAttribute(tag: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return tag.match(new RegExp(`\\b${escaped}=(['"])([\\s\\S]*?)\\1`, 'i'))?.[2] ?? '';
+}
+
+function cultsAssetReadback(html: string, kind: 'blueprint' | 'illustration') {
+  const fieldName = `creation[${kind}_ids][]`;
+  const ids = Array.from(html.matchAll(/<input\b[^>]*>/gi), (match) => match[0])
+    .filter((tag) => decodeHtmlEntities(htmlAttribute(tag, 'name')) === fieldName)
+    .map((tag) => Number(htmlAttribute(tag, 'value')))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  const pathMarker = `/${kind}-file/`;
+  const filenames = Array.from(html.matchAll(/<a\b[^>]*>/gi), (match) => htmlAttribute(match[0], 'href'))
+    .filter((href) => href.includes(pathMarker))
+    .map((href) => {
+      try {
+        return decodeURIComponent(new URL(href, CULTS_BASE).pathname.split('/').pop() ?? '');
+      } catch {
+        return '';
+      }
+    })
+    .filter(Boolean);
+  return { ids, filenames };
+}
+
+/** Read the canonical edit form after publish. The current form persists
+ * ordered numeric upload IDs and ordered asset links for both blueprints and
+ * illustrations, so MP4/WebM media can be certified without downloading it. */
+export async function cultsWebReadCreation(
+  session: CultsWebSession,
+  slug: string,
+): Promise<CultsWebCreationReadback> {
+  const res = await fetch(`${CULTS_BASE}/en/creations/${encodeURIComponent(slug)}/edit`, {
+    method: 'GET',
+    headers: { 'User-Agent': USER_AGENT, 'Accept': 'text/html', 'Cookie': session.cookies },
+    redirect: 'manual',
+  });
+  if (!res.ok) throw new Error(`cults web readback: GET edit returned ${res.status}`);
+  const html = await res.text();
+  const nameInput = Array.from(html.matchAll(/<input\b[^>]*>/gi), (match) => match[0])
+    .find((tag) => decodeHtmlEntities(htmlAttribute(tag, 'name')) === 'creation[name]');
+  const listing = (await cultsWebListMyCreations(session)).find((item) => item.slug === slug) ?? null;
+  return {
+    slug,
+    title: nameInput ? decodeHtmlEntities(htmlAttribute(nameInput, 'value')) : '',
+    status: listing?.status ?? 'missing',
+    blueprints: cultsAssetReadback(html, 'blueprint'),
+    illustrations: cultsAssetReadback(html, 'illustration'),
+  };
+}
+
+/** Return exact persisted-state mismatches while preserving the creation
+ * receipt. Callers treat a non-empty result as an uncertified retained item. */
+export function cultsWebReadbackIssues(
+  expected: CultsWebReadbackExpected,
+  actual: CultsWebCreationReadback,
+): string[] {
+  const issues: string[] = [];
+  const compare = (label: string, expectedValues: Array<string | number>, actualValues: Array<string | number>) => {
+    if (expectedValues.length !== actualValues.length) {
+      issues.push(`Cults readback returned ${actualValues.length} ${label}; expected ${expectedValues.length}.`);
+      return;
+    }
+    expectedValues.forEach((value, index) => {
+      if (String(value) !== String(actualValues[index])) issues.push(`Cults readback changed ordered ${label} item ${index + 1}.`);
+    });
+  };
+  if (actual.title !== expected.title) issues.push('Cults readback changed the listing title.');
+  if (actual.status !== expected.visibility) issues.push(`Cults readback returned ${actual.status} visibility; expected ${expected.visibility}.`);
+  compare('blueprint IDs', expected.blueprintIds, actual.blueprints.ids);
+  compare('blueprint filenames', expected.blueprintFilenames, actual.blueprints.filenames);
+  compare('illustration IDs', expected.illustrationIds, actual.illustrations.ids);
+  compare('illustration filenames', expected.illustrationFilenames, actual.illustrations.filenames);
+  return issues;
 }
 
 /** Permanently DELETE a listing. Discovered via probing 2026-05-23 —

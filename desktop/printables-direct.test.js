@@ -17,13 +17,23 @@ test('desktop Printables identity probe calls GraphQL from the user connection w
   const calls = [];
   const user = await printablesWhoamiDirect('sessionid=private', async (url, init) => {
     calls.push({ url, init });
-    return graphQlResponse({ data: { me: { id: '3163385', handle: 'iamdjem' } } });
+    return graphQlResponse({ data: { me: {
+      id: 'me-3163385', designerStatus: 'APPROVED', storeActive: true,
+      storeFee: 20, maxStoreModels: 10,
+      user: { id: '3163385', handle: 'iamdjem', storeModelsCount: 1 },
+    } } });
   });
 
   assert.equal(user.handle, 'iamdjem');
   assert.equal(calls[0].url, 'https://api.printables.com/graphql/');
   assert.equal(calls[0].init.headers.Cookie, 'sessionid=private');
   assert.equal(calls[0].init.headers['Graphql-Client-Version'], GRAPHQL_CLIENT_VERSION);
+  assert.equal(GRAPHQL_CLIENT_VERSION, 'v4.8.10');
+  assert.equal(user.storeActive, true);
+  assert.equal(user.maxStoreModels, 10);
+  assert.deepEqual(user.tiers, []);
+  assert.match(JSON.parse(calls[0].init.body).query, /maxStoreModels:\s*maxPaidModels/);
+  assert.match(JSON.parse(calls[0].init.body).query, /storeModelsCount:\s*paidModelsCount/);
 });
 
 test('desktop route relay preserves the Worker-compatible whoami response without exposing cookies', async () => {
@@ -32,13 +42,14 @@ test('desktop route relay preserves the Worker-compatible whoami response withou
     method: 'GET',
     bodyType: 'none',
   }, 'sessionid=private', async () =>
-    graphQlResponse({ data: { me: { id: '3163385', handle: 'iamdjem' } } }));
+    graphQlResponse({ data: { me: { id: 'me-3163385', user: { id: '3163385', handle: 'iamdjem' } } } }));
 
   assert.equal(result.status, 200);
   assert.deepEqual(JSON.parse(result.body), {
     ok: true,
     id: '3163385',
     handle: 'iamdjem',
+    tiers: [],
   });
   assert.doesNotMatch(result.body, /sessionid|private/);
 });
@@ -74,6 +85,10 @@ test('desktop model relay sends canonical Printables tag labels, not numeric IDs
       name: 'Dragon',
       tags: ['print in place', 'no-supports', 'dragon'],
       draft: true,
+      club: true,
+      price: 25,
+      excludeCommercialUsage: true,
+      gcodes: [{ id: 'gcode-1', name: 'dragon.gcode', printer: { id: 'printer-1' } }],
     }),
   }, 'sessionid=private', async (_url, init) => {
     const request = JSON.parse(init.body);
@@ -92,6 +107,11 @@ test('desktop model relay sends canonical Printables tag labels, not numeric IDs
   assert.equal(result.status, 200);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].variables.tags, ['printinplace', 'nosupports', 'dragon']);
+  assert.equal(calls[0].variables.club, true);
+  assert.equal(calls[0].variables.price, 25);
+  assert.equal(calls[0].variables.excludeCommercialUsage, true);
+  assert.equal(calls[0].variables.gcodes[0].printer, undefined);
+  assert.match(calls[0].query, /premium: \$club/);
 });
 
 test('desktop model list uses the current argument-free drafts query', async () => {
@@ -104,7 +124,7 @@ test('desktop model list uses the current argument-free drafts query', async () 
     const request = JSON.parse(init.body);
     calls.push(request);
     if (request.query.includes('ModelPrepPrintablesMe')) {
-      return graphQlResponse({ data: { me: { id: '3163385', handle: 'iamdjem' } } });
+      return graphQlResponse({ data: { me: { id: 'me-3163385', user: { id: '3163385', handle: 'iamdjem' } } } });
     }
     return graphQlResponse({
       data: {

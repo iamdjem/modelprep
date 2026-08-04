@@ -195,6 +195,9 @@ export function makerWorldPublishIssues(project, opts = {}, runtime = {}) {
   if (String(project?.title || '').length > 50) errors.push('MakerWorld model titles are limited to 50 characters.');
   if (!images.length || !project?.coverImageId) errors.push('Select a cover image.');
   if (images.length > 17) warnings.push(`MakerWorld accepts one cover plus 16 model pictures; ${images.length - 17} image(s) will not upload.`);
+  for (const image of images) {
+    if ((image.size || 0) > 30 * MB) errors.push(`${image.name || image.alt || 'Image'} exceeds MakerWorld's 30MB per-image limit.`);
+  }
   errors.push(...(runtime.videoIssues || []));
   if (!files.length) errors.push(productMode === 'laser-cut'
     ? 'Add at least one Laser & Cut file (.lac, .svg, .dxf, image, or .ai).'

@@ -1,6 +1,6 @@
 const PRINTABLES_BASE = 'https://www.printables.com';
 const PRINTABLES_GRAPHQL = 'https://api.printables.com/graphql/';
-const GRAPHQL_CLIENT_VERSION = 'v4.8.4';
+const GRAPHQL_CLIENT_VERSION = 'v4.8.10';
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
@@ -73,12 +73,27 @@ async function printablesWhoamiDirect(cookie, fetchImpl = fetch) {
   const data = await graphQl(cookie, `query ModelPrepPrintablesMe {
     me {
       id
-      handle
-      publicUsername
-      avatarFilePath
+      designerStatus
+      storeActive
+      storeFee
+      maxStoreModels: maxPaidModels
+      user {
+        id
+        handle
+        publicUsername
+        avatarFilePath
+        storeModelsCount: paidModelsCount
+      }
     }
   }`, {}, fetchImpl);
-  return data.me ?? null;
+  if (!data.me) return null;
+  const { user, ...capabilities } = data.me;
+  return {
+    ...capabilities,
+    ...user,
+    id: user?.id ?? data.me.id,
+    tiers: [],
+  };
 }
 
 async function presign(cookie, input, fetchImpl) {
@@ -170,13 +185,17 @@ async function updateModel(cookie, input, fetchImpl) {
   const variables = {
     ...input,
     tags: canonicalPrintablesTags(input.tags),
+    // Processing readback includes a display-only printer object, but the
+    // active GcodeFileInputType rejects that field on model updates.
+    gcodes: input.gcodes?.map(({ printer: _printer, ...gcode }) => gcode),
   };
   const data = await graphQl(cookie, `mutation ModelPrepModelUpdate(
     $tags: [ID], $id: ID, $description: String, $category: ID, $license: ID,
     $mainImage: ID, $name: String, $draft: Boolean, $summary: String,
     $remixParents: [ID], $nsfw: Boolean, $aiGenerated: Boolean,
     $politicalContent: Boolean, $authorship: PrintAuthorshipEnum,
-    $remixDescription: String, $slas: [SLAFileInputType],
+    $remixDescription: String, $club: Boolean, $price: Int,
+    $excludeCommercialUsage: Boolean, $slas: [SLAFileInputType],
     $gcodes: [GcodeFileInputType], $stls: [STLFileInputType],
     $otherFiles: [OtherFileInputType], $images: [PrintImageInputType]
   ) {
@@ -186,6 +205,8 @@ async function updateModel(cookie, input, fetchImpl) {
       summary: $summary, remixParents: $remixParents, nsfw: $nsfw,
       aiGenerated: $aiGenerated, politicalContent: $politicalContent,
       authorship: $authorship, remixDescription: $remixDescription,
+      premium: $club, price: $price,
+      excludeCommercialUsage: $excludeCommercialUsage,
       slas: $slas, gcodes: $gcodes, stls: $stls,
       otherFiles: $otherFiles, images: $images
     ) {
@@ -213,7 +234,7 @@ async function publishModel(cookie, id, fetchImpl) {
 async function modelStatus(cookie, id, fetchImpl) {
   const data = await graphQl(cookie, `query ModelPrepModelStatus($id: ID!) {
     model: print(id: $id) {
-      id slug name summary description authorship
+      id slug name summary description authorship club: premium price excludeCommercialUsage
       nsfw aiGenerated politicalContent datePublished draftReason publishApprovalRequired
       category { id name }
       license { id name disallowRemixing }

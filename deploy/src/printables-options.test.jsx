@@ -30,6 +30,7 @@ describe('Printables-specific options', () => {
     expect(screen.getByLabelText(/Keep ZIP as Other file/i)).not.toBeChecked();
     expect(screen.getByLabelText('NSFW')).not.toBeChecked();
     expect(screen.getByLabelText(/Political content/i)).not.toBeChecked();
+    expect(screen.getByText(/Connect Printables to check account-specific paid and Club eligibility/i)).toBeInTheDocument();
 
     rerender(<PrintablesOptions
       opts={{ summary: 'Poseable dragon', categoryId: '36', licenseId: '3', authorship: 'remix', remixParents: [], remixDescription: '', aiGenerated: true, zipMode: 'archive' }}
@@ -57,8 +58,40 @@ describe('Printables-specific options', () => {
     const settings = screen.getByText(/Printables file settings/i).closest('details');
     await user.click(within(settings).getByText(/Printables file settings/i));
     await user.type(within(settings).getByPlaceholderText('parts/large'), 'parts');
-    await user.type(within(settings).getByPlaceholderText(/Print this part twice/i), 'Two copies');
+    const note = within(settings).getByPlaceholderText(/Print this part twice/i);
+    expect(note).toHaveAttribute('maxlength', '95');
+    expect(within(settings).getByText(/Each folder path segment is limited to 60 characters/i)).toBeInTheDocument();
+    await user.type(note, 'Two copies');
     expect(onUpdatePrintables).toHaveBeenCalledWith({ folder: expect.any(String) });
     expect(onUpdatePrintables).toHaveBeenCalledWith({ note: expect.any(String) });
+  });
+
+  it('offers specialist metadata overrides for Printables G-code files', async () => {
+    const user = userEvent.setup();
+    const onUpdatePrintables = vi.fn();
+    render(<FileRow
+      file={{
+        id: 'gcode-1', name: 'dragon.gcode', size: 100, type: 'text/plain',
+        isProfile: false, isImage: false, printables: { folder: '', note: '' },
+      }}
+      onRemove={vi.fn()}
+      onRename={vi.fn()}
+      onUpdateMakerWorld={vi.fn()}
+      onUpdatePrintables={onUpdatePrintables}
+    />);
+
+    const settings = screen.getByText(/Printables file settings/i).closest('details');
+    await user.click(within(settings).getByText(/Printables file settings/i));
+    await user.type(within(settings).getByLabelText(/Layer height/i), '0.2');
+    await user.type(within(settings).getByLabelText(/Nozzle diameter/i), '0.4');
+    await user.type(within(settings).getByLabelText(/Print duration/i), '1.5');
+    await user.type(within(settings).getByLabelText(/Printed weight/i), '13');
+    await user.click(within(settings).getByLabelText(/Exclude this G-code/i));
+
+    expect(onUpdatePrintables).toHaveBeenCalledWith({ layerHeight: expect.any(String) });
+    expect(onUpdatePrintables).toHaveBeenCalledWith({ nozzleDiameter: expect.any(String) });
+    expect(onUpdatePrintables).toHaveBeenCalledWith({ printDuration: expect.any(String) });
+    expect(onUpdatePrintables).toHaveBeenCalledWith({ weight: expect.any(String) });
+    expect(onUpdatePrintables).toHaveBeenCalledWith({ excludeFromTotalSum: true });
   });
 });

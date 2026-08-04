@@ -18,6 +18,10 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_FILES = 500;
 const MAX_TAGS = 20;
+const MAX_DIMENSIONS_CHARS = 100;
+const MAX_FILAMENT_QUANTITY_CHARS = 45;
+const DIMENSIONS_UNITS = new Set([0, 1, 2]);
+const TECHNOLOGIES = new Set(['', 'FDM', 'DLP/SLA', 'SLS']);
 
 function jsonResponse(body, status = 200) {
   return { status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
@@ -94,24 +98,52 @@ function matchValue(html, name) {
   return '';
 }
 
+// An HTML boolean attribute is true whenever it is present, whatever its
+// value. The current editor proves why this must be handled generically: one
+// page emits `selected=""` for the license, `selected="selected"` for
+// visibility/technology/dimension units, and a bare `checked` for the remix
+// control. Requiring a preceding space keeps `data-selected`/`unselected` out.
+function hasBooleanAttribute(tag, name) {
+  return new RegExp(`\\s${name}(?=[\\s=/>])`, 'i').test(String(tag || ''));
+}
+
 function matchSelectValue(html, name) {
   for (const match of String(html || '').matchAll(/<select\b[^>]*>[\s\S]*?<\/select>/gi)) {
     const openingTag = /^<select\b[^>]*>/i.exec(match[0])?.[0] || '';
     if (tagAttribute(openingTag, 'name') !== name) continue;
     for (const option of match[0].matchAll(/<option\b[^>]*>/gi)) {
-      if (/\bselected(?:\s*=\s*(["'])?selected\1)?(?=\s|\/?>)/i.test(option[0])) {
-        return tagAttribute(option[0], 'value');
-      }
+      if (hasBooleanAttribute(option[0], 'selected')) return tagAttribute(option[0], 'value');
     }
     return '';
   }
   return '';
 }
 
+function matchTextareaValue(html, name) {
+  for (const match of String(html || '').matchAll(/<textarea\b[^>]*>[\s\S]*?<\/textarea>/gi)) {
+    const openingTag = /^<textarea\b[^>]*>/i.exec(match[0])?.[0] || '';
+    if (tagAttribute(openingTag, 'name') === name) {
+      return decodeHtml(match[0].replace(/^<textarea\b[^>]*>/i, '').replace(/<\/textarea>$/i, ''));
+    }
+  }
+  return '';
+}
+
+function inputChecked(html, name) {
+  for (const match of String(html || '').matchAll(/<input\b[^>]*>/gi)) {
+    if (tagAttribute(match[0], 'name') === name && hasBooleanAttribute(match[0], 'checked')) return true;
+  }
+  return false;
+}
+
 function objectIdFromUrl(value) {
   try {
     const pathname = new URL(String(value || ''), MMF_ORIGIN).pathname;
-    return /^\/object\/3d-print-(?:.*-)?(\d+)\/?$/i.exec(pathname)?.[1] || '';
+    // Submit returns the canonical slug URL; a re-read of an existing object
+    // is addressed by bare numeric id, which redirects to that slug.
+    return /^\/object\/3d-print-(?:.*-)?(\d+)\/?$/i.exec(pathname)?.[1]
+      || /^\/object\/(\d+)\/?$/.exec(pathname)?.[1]
+      || '';
   } catch {
     return '';
   }
@@ -154,14 +186,27 @@ function parseEditPage(html, objectId) {
     throw new Error('MyMiniFactory category read-back returned invalid data.');
   }
 
-  const images = [];
+  // Each gallery row renders fileName, uploadedBy and an explicit position.
+  // The array index and the position agree today, but `position` is the value
+  // MyMiniFactory actually persists for ordering, so prefer it and keep the
+  // array index only as a fallback when any row omits it.
+  const imageRows = new Map();
+  let primaryImage = '';
   for (const match of String(html || '').matchAll(/<input\b[^>]*>/gi)) {
     const name = tagAttribute(match[0], 'name');
-    const index = /^threedobject_type\[images\]\[(\d+)\]\[fileName\]$/.exec(name)?.[1];
-    const fileName = tagAttribute(match[0], 'value');
-    if (index != null && fileName) images.push({ index: Number(index), fileName });
+    const value = tagAttribute(match[0], 'value');
+    if (name === 'primary_image' && hasBooleanAttribute(match[0], 'checked') && value) primaryImage = value;
+    const field = /^threedobject_type\[images\]\[(\d+)\]\[(fileName|position)\]$/.exec(name);
+    if (!field) continue;
+    const index = Number(field[1]);
+    const row = imageRows.get(index) || { index, fileName: '', position: null };
+    if (field[2] === 'fileName') row.fileName = value;
+    else if (value !== '' && Number.isFinite(Number(value))) row.position = Number(value);
+    imageRows.set(index, row);
   }
-  images.sort((a, b) => a.index - b.index);
+  const images = [...imageRows.values()].filter((row) => row.fileName);
+  const orderedByPosition = images.length > 0 && images.every((row) => row.position != null);
+  images.sort((a, b) => (orderedByPosition ? a.position - b.position : a.index - b.index));
 
   const fileNames = [];
   for (const match of String(html || '').matchAll(/<a\b[^>]*>/gi)) {
@@ -199,7 +244,26 @@ function parseEditPage(html, objectId) {
     visibility: visibilityValue === '0' ? 'private' : visibilityValue === '2' ? 'public' : 'unknown',
     categoryIds,
     imageNames: images.map((image) => image.fileName),
+    // Submitted as `primary_image` but never previously read back. Exposed so a
+    // re-read can prove the cover survived; the certified upload path keeps its
+    // existing checks unchanged.
+    primaryImage,
+    imageOrderSource: orderedByPosition ? 'position' : 'index',
     fileNames,
+    licenseId: Number(matchSelectValue(html, 'license_id')) || null,
+    printingTips: matchTextareaValue(html, 'threedobject_type[howto]'),
+    timeFrom: Number(matchValue(html, 'threedobject_type[time_to_do_from]') || 0),
+    timeTo: Number(matchValue(html, 'threedobject_type[time_to_do_to]') || 0),
+    dimensions: matchValue(html, 'threedobject_type[dimensions]'),
+    dimensionsUnit: Number(matchSelectValue(html, 'threedobject_type[dimensionsUnit]') || 0),
+    technology: matchSelectValue(html, 'threedobject_type[technology]'),
+    materialQuantity: matchValue(html, 'threedobject_type[filament_quantity]'),
+    supportFree: matchValue(html, 'threedobject_type[support_free]') === '1',
+    // The current hydrated editor uses `remix-checkbox`, while older server
+    // responses used the submitted `threedobject_type[remix]` name. Keep both
+    // forms fail-closed: a remix must be explicitly checked in read-back.
+    remix: inputChecked(html, 'threedobject_type[remix]') || inputChecked(html, 'remix-checkbox'),
+    remixParentIds: (matchValue(html, 'threedobject_type[remix_parents]') || matchValue(html, 'threedObjectRemixParents')).split(',').map((id) => id.trim()).filter(Boolean),
   };
 }
 
@@ -265,6 +329,10 @@ function validateSubmit(input) {
   if (!['private', 'public'].includes(input.publication)) issues.push('visibility must be private or public');
   if (!input.confirmOriginalNoAi) issues.push('the creator must confirm the original/no-generative-AI declaration');
   if (input.remix && !(input.remixParentIds || []).length) issues.push('remixes require at least one MyMiniFactory parent object');
+  if (String(input.dimensions || '').length > MAX_DIMENSIONS_CHARS) issues.push(`dimensions must be at most ${MAX_DIMENSIONS_CHARS} characters`);
+  if (String(input.materialQuantity || '').length > MAX_FILAMENT_QUANTITY_CHARS) issues.push(`material quantity must be at most ${MAX_FILAMENT_QUANTITY_CHARS} characters`);
+  if (!DIMENSIONS_UNITS.has(Number(input.dimensionsUnit || 0))) issues.push('dimensions unit is not supported');
+  if (!TECHNOLOGIES.has(String(input.technology || ''))) issues.push('technology is not supported');
   normalizeTags(input.tags);
   return issues;
 }
@@ -383,8 +451,13 @@ function createMyMiniFactoryDirectClient({ fetchImpl = fetch, uuid = randomUUID,
     add('categories', JSON.stringify(input.categoryIds.map(Number)));
     add('threedUploadedFileUuids', JSON.stringify(input.files.map((file) => file.uuid)));
     add('threedobject_temp_type[howto]', String(input.printingTips || ''));
-    add('threedobject_temp_type[time_to_do_from]', Number(input.timeFrom || 0));
-    add('threedobject_temp_type[time_to_do_to]', Number(input.timeTo || 50));
+    // Print time is a MINUTES range and the native form leaves it empty when the
+    // creator does not set one. Substituting a default here published a
+    // fabricated "0 - 50 minutes" on every object that never touched the field,
+    // and it read back unchanged so no check caught it. Empty stays empty.
+    const optionalNumber = (value) => (value === '' || value == null ? '' : Number(value));
+    add('threedobject_temp_type[time_to_do_from]', optionalNumber(input.timeFrom));
+    add('threedobject_temp_type[time_to_do_to]', optionalNumber(input.timeTo));
     add('threedobject_temp_type[dimensions]', String(input.dimensions || ''));
     add('threedobject_temp_type[dimensionsUnit]', Number(input.dimensionsUnit || 0));
     add('threedobject_temp_type[technology]', String(input.technology || ''));
@@ -443,23 +516,41 @@ function createMyMiniFactoryDirectClient({ fetchImpl = fetch, uuid = randomUUID,
 
   async function status(context, url) {
     if (!String(url || '').startsWith(`${MMF_ORIGIN}/object/`)) throw new Error('MyMiniFactory read-back requires an object URL.');
-    const response = await request(context, url, { accept: 'text/html' });
+    // A submit returns the canonical slug URL, but a re-read of an existing
+    // object is addressed as /object/<id>, which MyMiniFactory redirects to
+    // that slug. Electron's session.fetch cancels a manual redirect with
+    // ERR_ABORTED, so follow it in the managed Chromium session exactly as
+    // submit does. This stays read-only: it is still a GET.
+    const response = await request(context, url, { accept: 'text/html', redirect: managedSession ? 'follow' : 'manual' });
     const html = await response.text();
     if (!response.ok) throw new Error(`MyMiniFactory read-back failed (HTTP ${response.status}).`);
-    const objectId = objectIdFromUrl(url);
+    const objectId = objectIdFromUrl(response.url || url) || objectIdFromUrl(url);
     if (!objectId) throw new Error('MyMiniFactory read-back returned no object id.');
     const editResponse = await request(context, `/object/edit/${objectId}`, { accept: 'text/html' });
     const editHtml = await editResponse.text();
     if (!editResponse.ok) throw new Error(`MyMiniFactory edit-form read-back failed (HTTP ${editResponse.status}).`);
     const edit = parseEditPage(editHtml, objectId);
     return {
-      url,
+      url: response.url && response.url.startsWith(`${MMF_ORIGIN}/object/`) ? response.url : url,
       title: edit.title || decodeHtml(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i.exec(html)?.[1] || /<title>([^<]+)<\/title>/i.exec(html)?.[1] || ''),
       visibility: edit.visibility,
       private: edit.visibility === 'private',
       categoryIds: edit.categoryIds,
       imageNames: edit.imageNames,
+      primaryImage: edit.primaryImage,
+      imageOrderSource: edit.imageOrderSource,
       fileNames: edit.fileNames,
+      licenseId: edit.licenseId,
+      printingTips: edit.printingTips,
+      timeFrom: edit.timeFrom,
+      timeTo: edit.timeTo,
+      dimensions: edit.dimensions,
+      dimensionsUnit: edit.dimensionsUnit,
+      technology: edit.technology,
+      materialQuantity: edit.materialQuantity,
+      supportFree: edit.supportFree,
+      remix: edit.remix,
+      remixParentIds: edit.remixParentIds,
     };
   }
 
@@ -487,6 +578,6 @@ function createMyMiniFactoryDirectClient({ fetchImpl = fetch, uuid = randomUUID,
 }
 
 module.exports = {
-  IMAGE_FORMATS, LICENSE_IDS, MAX_FILE_BYTES, MAX_FILES, MAX_IMAGE_BYTES, MMF_ORIGIN,
+  DIMENSIONS_UNITS, IMAGE_FORMATS, LICENSE_IDS, MAX_DIMENSIONS_CHARS, MAX_FILE_BYTES, MAX_FILES, MAX_FILAMENT_QUANTITY_CHARS, MAX_IMAGE_BYTES, MMF_ORIGIN,
   MODEL_FORMATS, UPLOAD_URL, createMyMiniFactoryDirectClient, parseUploadPage, validateFile, validateSubmit,
 };

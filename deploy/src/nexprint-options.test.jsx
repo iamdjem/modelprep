@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { NexprintOptions } from './App.jsx';
@@ -22,8 +22,13 @@ beforeEach(() => {
   })));
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('Nexprint-specific upload options', () => {
   it('exposes the live originality, license, disclosure, BOM, and category fields', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<NexprintOptions
       opts={{
         publication: 'draft',
@@ -56,5 +61,6 @@ describe('Nexprint-specific upload options', () => {
     expect(screen.getByRole('checkbox', { name: /AI-generated content/i })).toBeChecked();
     expect(screen.getByDisplayValue('PLA')).toBeInTheDocument();
     expect(screen.getByText(/at least two images, including one real printed photo/i)).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 });

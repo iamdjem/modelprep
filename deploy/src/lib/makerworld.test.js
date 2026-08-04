@@ -63,6 +63,13 @@ describe('MakerWorld upload contracts', () => {
     ]));
   });
 
+  it('blocks images over the live 30 MB per-image limit', () => {
+    const project = completeProject();
+    project.images[1] = { ...project.images[1], name: 'oversized.png', size: 30 * 1024 * 1024 + 1 };
+    expect(makerWorldPublishIssues(project, { productMode: '3d', categoryId: 401 }).errors)
+      .toContain("oversized.png exceeds MakerWorld's 30MB per-image limit.");
+  });
+
   it('validates remix attribution and derivative licenses', () => {
     expect(makerWorldLicenseAllowsRemix('BY')).toBe(true);
     expect(makerWorldLicenseAllowsRemix('BY-ND')).toBe(false);

@@ -44,16 +44,17 @@ preserve unrelated files.
 3. `platform-specs.md` - compact status, limits, and media rules.
 4. `platform-upload-requirements-live.md` - dated cross-platform DOM/API/requirement audit.
 5. `desktop-live-upload-testing.md` - account persistence and safe certification procedure.
-6. `platform-integration-handoff-2026-07-31.md` - this historical implementation narrative.
-6. The target platform map:
+6. `platform-one-by-one-implementation-playbook.md` - current repeatable mapping and implementation method.
+7. `platform-integration-handoff-2026-07-31.md` - this historical implementation narrative.
+8. The target platform map:
    - `makerworld-web-flow.md`
    - `printables-web-flow.md`
    - `cults3d-web-flow.md`
    - `nexprint-web-flow.md`
    - `creality-web-flow.md`
    - `makeronline-web-flow.md`
-7. `../../desktop/README.md` - Electron trust boundary and file map.
-8. `../../README.md` - current repository overview.
+9. `../../desktop/README.md` - Electron trust boundary and file map.
+10. `../../README.md` - current repository overview.
 
 For MakerWorld also read `makerworld-upload-flow-map.md`. The older
 `makerworld-HANDOFF.md` contains useful history but is not the cross-platform
@@ -91,6 +92,12 @@ reuse cookies between platforms or invent a shared browser profile.
 
 ## Current status at a glance
 
+The table below is intentionally frozen at the July 31 checkpoint. It is not
+current status: all ten safe cores were later live-certified, and the latest
+receipts and optional-branch queue are in
+`modelprep-current-handoff-2026-08-01.md`. Printables specialist draft `1797772`
+and public model `1797774` are later August evidence.
+
 | Platform | Mapping | Code | Account-backed evidence | Current completion class |
 |---|---|---|---|---|
 | MakerWorld | Complete core + many conditional branches | Implemented | Private raw/3MF flows and Laser create; four-platform batch artifact `9036878` | Core live-certified; optional matrix incomplete |
@@ -100,7 +107,7 @@ reuse cookies between platforms or invent a shared browser profile.
 | Creality Cloud | Complete current form/category/license/JSON/OSS map | Implemented | Original/private model `6a6cc6ab96c1c2d13f2b1a6b` | Core private path live-certified |
 | MakerOnline | Complete signed-in DOM/options/multipart map | Implemented | Electron unpublished draft `316077` | Core unpublished draft path live-certified |
 | MyMiniFactory | Complete signed-in form/options/upload/category map | Implemented | Private object `828462`; submit reached production but the old redirect receipt failed and categories were empty | Core private create proven; fixed redirect/category readback requires one controlled recheck |
-| Thingiverse | Complete signed-in DOM/category/license/request map plus official API review | Implemented and enabled after written clearance recorded 2026-08-01; draft-first path mock-tested | Read-only account/form inspection only | One harmless draft/readback certification remains |
+| Thingiverse | Complete signed-in DOM/category/license/request map plus official API review | Implemented and enabled after written clearance recorded 2026-08-01; draft-first path mock-tested | Read-only account/form inspection only | At this checkpoint one harmless draft/readback remained; later completed as exact-app draft `7390480` |
 | Thangs | Official-help, authenticated entry, file/limit/schema and first-party signed-upload map | Implemented and locally tested | Read-only account/bundle inspection only | Permission/live-certification gate; no generally available public model-upload API found |
 | MakerRoad | Complete live form, taxonomy, limit, license and create/update/readback map | Implemented and locally tested, including UI | Read-only authenticated form/bundle inspection only | Permission/live-certification gate |
 

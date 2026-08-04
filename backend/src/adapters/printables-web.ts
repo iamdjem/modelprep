@@ -8,7 +8,7 @@
 
 const PRINTABLES_BASE = 'https://www.printables.com';
 const PRINTABLES_GRAPHQL = 'https://api.printables.com/graphql/';
-const GRAPHQL_CLIENT_VERSION = 'v4.8.4';
+export const GRAPHQL_CLIENT_VERSION = 'v4.8.10';
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
 
@@ -51,6 +51,9 @@ export interface PrintablesModelUpdateInput {
   nsfw?: boolean;
   aiGenerated?: boolean;
   politicalContent?: boolean;
+  club?: boolean;
+  price?: number;
+  excludeCommercialUsage?: boolean;
   images?: Array<{ id: string }>;
   stls?: PrintablesFileInput[];
   slas?: PrintablesFileInput[];
@@ -168,16 +171,44 @@ export async function printablesMeta() {
 /** A read-only auth probe. `currentUser` is null for anonymous requests. */
 export async function printablesWhoami(session: PrintablesSession) {
   const data = await graphQl<{
-    me?: { id: string; handle?: string; publicUsername?: string; avatarFilePath?: string } | null;
+    me?: {
+      id: string;
+      designerStatus?: string | null;
+      storeActive?: boolean;
+      storeFee?: number | null;
+      maxStoreModels?: number | null;
+      user?: {
+        id: string;
+        handle?: string;
+        publicUsername?: string;
+        avatarFilePath?: string;
+        storeModelsCount?: number;
+      } | null;
+    } | null;
   }>(`query ModelPrepPrintablesMe {
     me {
       id
-      handle
-      publicUsername
-      avatarFilePath
+      designerStatus
+      storeActive
+      storeFee
+      maxStoreModels: maxPaidModels
+      user {
+        id
+        handle
+        publicUsername
+        avatarFilePath
+        storeModelsCount: paidModelsCount
+      }
     }
   }`, {}, session);
-  return data.me ?? null;
+  if (!data.me) return null;
+  const { user, ...capabilities } = data.me;
+  return {
+    ...capabilities,
+    ...user,
+    id: user?.id ?? data.me.id,
+    tiers: [] as Array<{ id: string; name?: string }>,
+  };
 }
 
 export async function printablesPresignUpload(session: PrintablesSession, input: PrintablesUploadRequest) {
@@ -289,6 +320,9 @@ export async function printablesUpdateModel(session: PrintablesSession, input: P
   const variables = {
     ...input,
     tags: canonicalPrintablesTags(input.tags),
+    // Processing readback includes a display-only printer object, but the
+    // active GcodeFileInputType rejects that field on model updates.
+    gcodes: input.gcodes?.map(({ printer: _printer, ...gcode }) => gcode),
   };
   const data = await graphQl<{
     modelUpdate: {
@@ -301,7 +335,8 @@ export async function printablesUpdateModel(session: PrintablesSession, input: P
     $mainImage: ID, $name: String, $draft: Boolean, $summary: String,
     $remixParents: [ID], $nsfw: Boolean, $aiGenerated: Boolean,
     $politicalContent: Boolean, $authorship: PrintAuthorshipEnum,
-    $remixDescription: String, $slas: [SLAFileInputType],
+    $remixDescription: String, $club: Boolean, $price: Int,
+    $excludeCommercialUsage: Boolean, $slas: [SLAFileInputType],
     $gcodes: [GcodeFileInputType], $stls: [STLFileInputType],
     $otherFiles: [OtherFileInputType], $images: [PrintImageInputType]
   ) {
@@ -311,6 +346,8 @@ export async function printablesUpdateModel(session: PrintablesSession, input: P
       summary: $summary, remixParents: $remixParents, nsfw: $nsfw,
       aiGenerated: $aiGenerated, politicalContent: $politicalContent,
       authorship: $authorship, remixDescription: $remixDescription,
+      premium: $club, price: $price,
+      excludeCommercialUsage: $excludeCommercialUsage,
       slas: $slas, gcodes: $gcodes, stls: $stls,
       otherFiles: $otherFiles, images: $images
     ) {
@@ -353,6 +390,9 @@ export async function printablesModelStatus(session: PrintablesSession, id: stri
       nsfw?: boolean;
       aiGenerated?: boolean;
       politicalContent?: boolean;
+      club?: boolean;
+      price?: number;
+      excludeCommercialUsage?: boolean;
       category?: { id: string; name?: string } | null;
       license?: { id: string; name?: string; disallowRemixing?: boolean | string } | null;
       tags?: Array<{ id: string; name: string }>;
@@ -371,7 +411,7 @@ export async function printablesModelStatus(session: PrintablesSession, id: stri
     } | null;
   }>(`query ModelPrepModelStatus($id: ID!) {
     model: print(id: $id) {
-      id slug name summary description authorship
+      id slug name summary description authorship club: premium price excludeCommercialUsage
       nsfw aiGenerated politicalContent datePublished draftReason publishApprovalRequired
       category { id name }
       license { id name disallowRemixing }
@@ -487,6 +527,8 @@ export const PRINTABLES_LIMITS = {
   modelName: 255,
   summary: 120,
   fileName: 150,
+  fileNote: 95,
+  folderName: 60,
   fileBytes: 1024 * 1024 * 1024,
   zipBytes: 256 * 1024 * 1024,
   richTextImageBytes: 8 * 1024 * 1024,

@@ -70,7 +70,7 @@ function exactStringArray(actual, expected) {
   return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 
-export function verifyMyMiniFactoryReadback({ object, title, publication, categoryIds, imageNames, fileNames }) {
+export function verifyMyMiniFactoryReadback({ object, title, publication, categoryIds, imageNames, fileNames, advanced }) {
   if (!object || typeof object !== 'object') throw new Error('MyMiniFactory returned no object read-back.');
 
   const expectedTitle = String(title || '').trim();
@@ -103,7 +103,124 @@ export function verifyMyMiniFactoryReadback({ object, title, publication, catego
     throw new Error('MyMiniFactory read-back returned a different object-file set.');
   }
 
+  if (advanced) {
+    const expectedAdvanced = {
+      licenseId: Number(advanced.licenseId || 5),
+      printingTips: String(advanced.printingTips || ''),
+      timeFrom: Number(advanced.timeFrom || 0), timeTo: Number(advanced.timeTo || 0),
+      dimensions: String(advanced.dimensions || ''), dimensionsUnit: Number(advanced.dimensionsUnit || 0),
+      technology: String(advanced.technology || ''), materialQuantity: String(advanced.materialQuantity || ''),
+      supportFree: !!advanced.supportFree, remix: !!advanced.remix,
+      remixParentIds: (advanced.remixParentIds || []).map(String),
+    };
+    const actualAdvanced = {
+      licenseId: Number(object.licenseId || 0), printingTips: String(object.printingTips || ''),
+      timeFrom: Number(object.timeFrom || 0), timeTo: Number(object.timeTo || 0),
+      dimensions: String(object.dimensions || ''), dimensionsUnit: Number(object.dimensionsUnit || 0),
+      technology: String(object.technology || ''), materialQuantity: String(object.materialQuantity || ''),
+      supportFree: !!object.supportFree, remix: !!object.remix,
+      remixParentIds: (object.remixParentIds || []).map(String),
+    };
+    if (JSON.stringify(actualAdvanced) !== JSON.stringify(expectedAdvanced)) {
+      throw new Error('MyMiniFactory read-back returned different advanced print, remix, or license fields.');
+    }
+  }
+
   return object;
+}
+
+// Read-only certification of an object that already exists on the account.
+// The upload path knows the exact image/file names it just sent; a later
+// re-read does not, because those names are generated at upload time. This
+// check therefore proves the persisted metadata branch — visibility, required
+// categories, license, print data, remix and its parents — and reports the
+// ordered asset names it actually found instead of inventing an expectation.
+// It never submits: callers must reach it through the GET status route only.
+export function verifyMyMiniFactoryObjectState({ object, title, publication, categoryIds, advanced, minImages = 1, minFiles = 1 }) {
+  if (!object || typeof object !== 'object') throw new Error('MyMiniFactory returned no object read-back.');
+
+  const actualTitle = String(object.title || '').trim();
+  const expectedTitle = String(title || '').trim();
+  if (!actualTitle) throw new Error('MyMiniFactory read-back returned no title.');
+  if (expectedTitle && actualTitle !== expectedTitle) {
+    throw new Error(`MyMiniFactory read-back returned a different title: ${actualTitle}.`);
+  }
+
+  const actualVisibility = String(object.visibility || 'unknown');
+  if (publication && actualVisibility !== publication) {
+    throw new Error(`MyMiniFactory read-back visibility is ${actualVisibility}, expected ${publication}.`);
+  }
+  if (actualVisibility !== 'private' && actualVisibility !== 'public') {
+    throw new Error(`MyMiniFactory read-back returned an unreadable visibility: ${actualVisibility}.`);
+  }
+
+  const actualCategories = Array.isArray(object.categoryIds) ? object.categoryIds.map(Number) : [];
+  if (!actualCategories.length) throw new Error('MyMiniFactory read-back returned no category IDs.');
+  const missingCategoryIds = (categoryIds || []).map(Number).filter((id) => !actualCategories.includes(id));
+  if (missingCategoryIds.length) {
+    throw new Error(`MyMiniFactory read-back is missing category IDs ${missingCategoryIds.join(', ')}.`);
+  }
+
+  const imageNames = Array.isArray(object.imageNames) ? object.imageNames.map(String) : [];
+  const fileNames = Array.isArray(object.fileNames) ? object.fileNames.map(String) : [];
+  if (imageNames.length < minImages) throw new Error(`MyMiniFactory read-back returned ${imageNames.length} images, expected at least ${minImages}.`);
+  if (fileNames.length < minFiles) throw new Error(`MyMiniFactory read-back returned ${fileNames.length} object files, expected at least ${minFiles}.`);
+
+  // ModelPrep always submits the first ordered image as `primary_image`. The
+  // edit page renders one radio per image and marks the persisted cover, so a
+  // re-read can prove the cover survived rather than assuming it did. Only
+  // enforced when the page actually reports a primary.
+  const primaryImage = String(object.primaryImage || '');
+  if (primaryImage && primaryImage !== imageNames[0]) {
+    throw new Error(`MyMiniFactory read-back cover is ${primaryImage}, expected the first ordered image ${imageNames[0]}.`);
+  }
+
+  if (advanced) {
+    const expectedAdvanced = {
+      licenseId: Number(advanced.licenseId || 5),
+      printingTips: String(advanced.printingTips || ''),
+      timeFrom: Number(advanced.timeFrom || 0), timeTo: Number(advanced.timeTo || 0),
+      dimensions: String(advanced.dimensions || ''), dimensionsUnit: Number(advanced.dimensionsUnit || 0),
+      technology: String(advanced.technology || ''), materialQuantity: String(advanced.materialQuantity || ''),
+      supportFree: !!advanced.supportFree, remix: !!advanced.remix,
+      remixParentIds: (advanced.remixParentIds || []).map(String),
+    };
+    const actualAdvanced = {
+      licenseId: Number(object.licenseId || 0), printingTips: String(object.printingTips || ''),
+      timeFrom: Number(object.timeFrom || 0), timeTo: Number(object.timeTo || 0),
+      dimensions: String(object.dimensions || ''), dimensionsUnit: Number(object.dimensionsUnit || 0),
+      technology: String(object.technology || ''), materialQuantity: String(object.materialQuantity || ''),
+      supportFree: !!object.supportFree, remix: !!object.remix,
+      remixParentIds: (object.remixParentIds || []).map(String),
+    };
+    // Name the differing fields. These are the creator's own product metadata,
+    // never session or storage values, and a bare "something differs" error
+    // leaves a failed certification impossible to diagnose without a re-read.
+    const differing = Object.keys(expectedAdvanced)
+      .filter((key) => JSON.stringify(actualAdvanced[key]) !== JSON.stringify(expectedAdvanced[key]));
+    if (differing.length) {
+      throw new Error(`MyMiniFactory read-back returned different advanced print, remix, or license fields: ${differing.join(', ')}.`);
+    }
+  }
+
+  return {
+    object,
+    title: actualTitle,
+    visibility: actualVisibility,
+    categoryIds: actualCategories,
+    imageNames,
+    fileNames,
+    primaryImage,
+    imageOrderSource: String(object.imageOrderSource || 'unknown'),
+    remix: !!object.remix,
+    remixParentIds: (object.remixParentIds || []).map(String),
+  };
+}
+
+export function myMiniFactoryObjectUrl(id) {
+  const value = String(id || '').trim();
+  if (!/^\d+$/.test(value)) throw new Error('Enter a numeric MyMiniFactory object ID to verify.');
+  return `https://www.myminifactory.com/object/${value}`;
 }
 
 export async function waitForMyMiniFactoryReadback({ read, expected, attempts = 8, delayMs = 1500, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {

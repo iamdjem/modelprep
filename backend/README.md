@@ -39,7 +39,7 @@ fallback testing belong in `.dev.vars`, which is gitignored. Never commit or log
 account credentials, cookies, bearer tokens, signed URLs, CSRF values, or
 verification phrases.
 
-Current automated baseline on 2026-08-01: 25 tests pass and `tsc --noEmit`
+Current automated baseline on 2026-08-02: 28 tests pass and `tsc --noEmit`
 passes.
 
 ## Deployment
@@ -64,6 +64,8 @@ automatic backend deployment on git push.
 - `docs/*-web-flow.md`: dated first-party request maps and platform gotchas.
 - `docs/platform-upload-requirements-live.md`: complete cross-platform field and
   limit evidence.
+- `docs/platform-one-by-one-implementation-playbook.md`: required mapping,
+  implementation, packaged-QA and live-certification sequence.
 
 The definitive current route list is the route dispatch in `src/index.ts` and
 its tests. Older README route inventories are intentionally not repeated here;

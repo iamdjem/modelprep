@@ -25,6 +25,10 @@ import {
   cultsWebUnpublish,
   cultsWebDelete,
   cultsWebListMyCreations,
+  cultsWebReadCreation,
+  cultsWebReadbackIssues,
+  cultsWebIllustrationValidationIssue,
+  cultsWebFilenameValidationIssue,
 } from './adapters/cults3d-web';
 import {
   mwCheckSession,
@@ -490,6 +494,27 @@ export default {
           flatKeywords = parsed.filter(Boolean).join(' ');
         }
 
+        const cultsMetaTags = new Set([
+          'articulated', 'customizable', 'functional_part', 'hollow_model', 'multicolor', 'multi_material',
+          'no_support', 'print_in_place', 'remix', 'resin_print', 'scale_model', 'scan',
+        ]);
+        let metaTags: string[] = [];
+        const metaTagsRaw = str('metaTags');
+        if (metaTagsRaw) {
+          try {
+            const parsed = JSON.parse(metaTagsRaw);
+            if (!Array.isArray(parsed)) throw new Error('not an array');
+            metaTags = parsed.map(String);
+          } catch {
+            return json({ error: 'invalid_meta_tags', hint: 'Cults3D meta tags must be a JSON array.' }, { status: 400 });
+          }
+        } else {
+          metaTags = form.getAll('metaTag').filter(v => typeof v === 'string').map(String);
+        }
+        if (metaTags.some(tag => !cultsMetaTags.has(tag))) {
+          return json({ error: 'invalid_meta_tags', hint: 'Cults3D received an unknown meta tag.' }, { status: 400 });
+        }
+
         // Pricing: Cults's actual enum values are 'free' / 'priced' / 'open_priced'
         // (NOT 'paid' / 'open' — those get "Pricing isn't included in the list").
         // The frontend sends platform-neutral `{free, price}`; we derive.
@@ -531,6 +556,14 @@ export default {
         if (illustrations.length === 0) {
           return json({ error: 'missing_files', hint: 'At least one `illustration` file part required (cover image). First one becomes the cover.' }, { status: 400 });
         }
+        const illustrationIssue = cultsWebIllustrationValidationIssue(illustrations);
+        if (illustrationIssue) {
+          return json({ error: 'invalid_illustrations', hint: illustrationIssue }, { status: 400 });
+        }
+        const filenameIssue = cultsWebFilenameValidationIssue([...models, ...illustrations]);
+        if (filenameIssue) {
+          return json({ error: 'invalid_filename', hint: filenameIssue }, { status: 400 });
+        }
 
         // ---- Step 1: log in (gets session cookie + CSRF) ----
         console.log('[web-publish] login');
@@ -556,11 +589,12 @@ export default {
           name, description, details,
           categoryId,
           usages: ['3dp'],
+          metaTags,
           flatKeywords,
           blueprintIds,
           illustrationIds,
-          madeWithAi: false,
-          showComments: true,
+          madeWithAi: str('madeWithAi') === 'true',
+          showComments: str('showComments') !== 'false',
         });
 
         // ---- Step 4: publish (set price + visibility) ----
@@ -593,6 +627,26 @@ export default {
           throw new Error(`${publishMsg} [auto-deactivated the draft so it won't show as live; check My Designs to permanently delete]`);
         }
 
+        // ---- Step 5: persisted edit/list readback ----
+        // A successful publish redirect proves only submission. Retain the
+        // receipt even if readback fails, but mark it uncertified so the UI
+        // cannot report a video/media branch as complete without persistence.
+        let readback = null;
+        let readbackIssues: string[] = [];
+        try {
+          readback = await cultsWebReadCreation(session, slug);
+          readbackIssues = cultsWebReadbackIssues({
+            title: name,
+            visibility,
+            blueprintIds,
+            blueprintFilenames: models.map((file) => file.name || 'model.stl'),
+            illustrationIds,
+            illustrationFilenames: illustrations.map((file) => file.name || 'cover.jpg'),
+          }, readback);
+        } catch (readbackErr) {
+          readbackIssues = [`Cults persisted readback failed: ${readbackErr instanceof Error ? readbackErr.message : String(readbackErr)}`];
+        }
+
         console.log('[web-publish] done →', designUrl, 'substituted:', substituted);
         return json({
           ok: true,
@@ -600,8 +654,10 @@ export default {
           designUrl,
           blueprintIds,
           illustrationIds,
+          readback,
+          readbackIssues,
           substituted,
-          payload: { name, description, categoryId, currency, pricing, downloadPrice, licenseType, visibility, flatKeywords },
+          payload: { name, description, categoryId, currency, pricing, downloadPrice, licenseType, visibility, flatKeywords, metaTags, madeWithAi: str('madeWithAi') === 'true', showComments: str('showComments') !== 'false' },
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1275,6 +1331,12 @@ export default {
           if (!apiKey) return json({ error: 'missing_key', hint: 'This provider needs your API key.' }, { status: 400 });
           if (!model) return json({ error: 'missing_model', hint: 'Choose a model (e.g. a free vision model).' }, { status: 400 });
           listing = await generateListingOpenAICompat({ baseUrl, apiKey, model, input });
+        } else if (provider === 'anthropic') {
+          // Claude with the maker's own key, over the native Messages API rather than the
+          // OpenAI-compatible shim — photos go as proper base64 image blocks.
+          const apiKey = String(body.apiKey ?? '');
+          if (!apiKey) return json({ error: 'missing_key', hint: 'This provider needs your API key.' }, { status: 400 });
+          listing = await generateListing(apiKey, input, body.model);
         } else if (provider === 'anthropic-server' && env.ANTHROPIC_API_KEY) {
           listing = await generateListing(env.ANTHROPIC_API_KEY, input);
         } else {

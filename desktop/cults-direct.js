@@ -1,9 +1,18 @@
 const CULTS_BASE = 'https://cults3d.com';
 const CULTS_S3_URL = 'https://s3.eu-west-3.amazonaws.com/files.cults3d.com';
 const USER_AGENT = 'Mozilla/5.0 (compatible; ModelPrep/0.2; +https://github.com/iamdjem/modelprep)';
-const CULTS_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const CULTS_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const CULTS_VIDEO_TYPES = new Set(['video/mp4', 'video/webm']);
-const CULTS_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const CULTS_MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+// The current first-party uploader rejects these characters in any file name
+// before requesting an S3 policy (`Invalid character “X”`). Verified in both
+// the documented upload bundle and the newer one the deployed manifest points
+// at, so ModelPrep fails closed here instead of at the platform.
+const CULTS_FORBIDDEN_FILENAME_CHARS = ['&', '>', '<'];
+const CULTS_META_TAGS = new Set([
+  'articulated', 'customizable', 'functional_part', 'hollow_model', 'multicolor', 'multi_material',
+  'no_support', 'print_in_place', 'remix', 'resin_print', 'scale_model', 'scan',
+]);
 
 const CATEGORY_IDS = {
   'Home & Living': 30,
@@ -271,12 +280,13 @@ async function createCreation(session, payload, fetchImpl) {
   form.set('creation[category_id]', String(payload.categoryId));
   form.append('creation[sub_category_ids][]', '');
   form.append('creation[meta_tags][]', '');
+  for (const tag of payload.metaTags) form.append('creation[meta_tags][]', tag);
   form.set('creation[flat_keywords]', payload.flatKeywords);
   for (const id of payload.blueprintIds) form.append('creation[blueprint_ids][]', String(id));
   for (const id of payload.illustrationIds) form.append('creation[illustration_ids][]', String(id));
-  form.set('creation[made_with_ai]', '0');
+  form.set('creation[made_with_ai]', payload.madeWithAi ? '1' : '0');
   form.append('creation[show_comments]', '0');
-  form.append('creation[show_comments]', '1');
+  if (payload.showComments) form.append('creation[show_comments]', '1');
   form.set('button', '');
   const response = await fetchImpl(`${CULTS_BASE}/en/creations`, {
     method: 'POST',
@@ -392,6 +402,73 @@ function decodeHtml(value) {
     .replace(/&nbsp;/g, ' ');
 }
 
+function htmlAttribute(tag, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return tag.match(new RegExp(`\\b${escaped}=(['"])([\\s\\S]*?)\\1`, 'i'))?.[2] || '';
+}
+
+function cultsAssetReadback(html, kind) {
+  const fieldName = `creation[${kind}_ids][]`;
+  const ids = [...html.matchAll(/<input\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .filter((tag) => decodeHtml(htmlAttribute(tag, 'name')) === fieldName)
+    .map((tag) => Number(htmlAttribute(tag, 'value')))
+    .filter((value) => Number.isInteger(value) && value > 0);
+  const pathMarker = `/${kind}-file/`;
+  const filenames = [...html.matchAll(/<a\b[^>]*>/gi)]
+    .map((match) => htmlAttribute(match[0], 'href'))
+    .filter((href) => href.includes(pathMarker))
+    .map((href) => {
+      try {
+        return decodeURIComponent(new URL(href, CULTS_BASE).pathname.split('/').pop() || '');
+      } catch {
+        return '';
+      }
+    })
+    .filter(Boolean);
+  return { ids, filenames };
+}
+
+async function readCreation(session, slug, fetchImpl) {
+  const response = await fetchImpl(`${CULTS_BASE}/en/creations/${encodeURIComponent(slug)}/edit`, {
+    headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', Cookie: session.cookies },
+    redirect: 'manual',
+  });
+  if (!response.ok) throw new Error(`Cults edit readback returned HTTP ${response.status}.`);
+  const html = await response.text();
+  const nameInput = [...html.matchAll(/<input\b[^>]*>/gi)]
+    .map((match) => match[0])
+    .find((tag) => decodeHtml(htmlAttribute(tag, 'name')) === 'creation[name]');
+  const listing = (await listCreations(session, fetchImpl)).find((item) => item.slug === slug) || null;
+  return {
+    slug,
+    title: nameInput ? decodeHtml(htmlAttribute(nameInput, 'value')) : '',
+    status: listing?.status || 'missing',
+    blueprints: cultsAssetReadback(html, 'blueprint'),
+    illustrations: cultsAssetReadback(html, 'illustration'),
+  };
+}
+
+function cultsReadbackIssues(expected, actual) {
+  const issues = [];
+  const compare = (label, expectedValues, actualValues) => {
+    if (expectedValues.length !== actualValues.length) {
+      issues.push(`Cults readback returned ${actualValues.length} ${label}; expected ${expectedValues.length}.`);
+      return;
+    }
+    expectedValues.forEach((value, index) => {
+      if (String(value) !== String(actualValues[index])) issues.push(`Cults readback changed ordered ${label} item ${index + 1}.`);
+    });
+  };
+  if (actual.title !== expected.title) issues.push('Cults readback changed the listing title.');
+  if (actual.status !== expected.visibility) issues.push(`Cults readback returned ${actual.status} visibility; expected ${expected.visibility}.`);
+  compare('blueprint IDs', expected.blueprintIds, actual.blueprints.ids);
+  compare('blueprint filenames', expected.blueprintFilenames, actual.blueprints.filenames);
+  compare('illustration IDs', expected.illustrationIds, actual.illustrations.ids);
+  compare('illustration filenames', expected.illustrationFilenames, actual.illustrations.filenames);
+  return issues;
+}
+
 async function listCreations(session, fetchImpl) {
   const response = await fetchImpl(`${CULTS_BASE}/en/creations/mine`, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', Cookie: session.cookies },
@@ -450,13 +527,22 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
     if (!illustrations.length) return jsonResponse({ error: 'missing_files', hint: 'At least one cover image is required.' }, 400);
     const illustrationKinds = illustrations.map(cultsIllustrationKind);
     if (illustrationKinds.some((kind) => !kind)) {
-      return jsonResponse({ error: 'unsupported_media', hint: 'Cults3D illustrations must be JPEG, PNG, WebP, MP4, or WebM.' }, 400);
+      return jsonResponse({ error: 'unsupported_media', hint: 'Cults3D illustrations must be JPEG, PNG, WebP, GIF, MP4, or WebM.' }, 400);
     }
     if (illustrationKinds[0] !== 'image') {
       return jsonResponse({ error: 'invalid_cover', hint: 'The first Cults3D illustration must be a cover image, not a video.' }, 400);
     }
-    if (illustrations.some((file, index) => illustrationKinds[index] === 'image' && file.blob.size > CULTS_IMAGE_MAX_BYTES)) {
-      return jsonResponse({ error: 'image_too_large', hint: 'Cults3D images must not exceed 10 MiB each.' }, 400);
+    if (illustrations.some((file) => file.blob.size > CULTS_MEDIA_MAX_BYTES)) {
+      return jsonResponse({ error: 'media_too_large', hint: 'Cults3D media must not exceed 10 MiB each.' }, 400);
+    }
+    for (const file of [...models, ...illustrations]) {
+      const bad = CULTS_FORBIDDEN_FILENAME_CHARS.find((char) => String(file.filename || '').includes(char));
+      if (bad) {
+        return jsonResponse({
+          error: 'invalid_filename',
+          hint: `Cults3D rejects the character “${bad}” in file names. Rename “${file.filename}” before publishing.`,
+        }, 400);
+      }
     }
 
     const explicitFree = form.text('free') === 'true' || form.text('pricing') === 'free' || form.text('price') === '0';
@@ -482,6 +568,14 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
         } catch { tags = values[0]; }
       } else tags = values.filter(Boolean).join(' ');
     }
+    let metaTags = [];
+    const metaTagsRaw = form.text('metaTags');
+    if (metaTagsRaw) {
+      try { metaTags = JSON.parse(metaTagsRaw); } catch { return jsonResponse({ error: 'invalid_meta_tags', hint: 'Cults3D meta tags must be a JSON array.' }, 400); }
+    } else metaTags = form.texts('metaTag');
+    if (!Array.isArray(metaTags) || metaTags.some((tag) => !CULTS_META_TAGS.has(String(tag)))) {
+      return jsonResponse({ error: 'invalid_meta_tags', hint: 'Cults3D received an unknown meta tag.' }, 400);
+    }
     const substituted = [];
     if (category.substituted) substituted.push('category');
     if (license.substituted) substituted.push('license');
@@ -497,8 +591,11 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
       details: form.text('details'),
       categoryId: category.categoryId,
       flatKeywords: tags,
+      metaTags,
       blueprintIds,
       illustrationIds,
+      madeWithAi: form.text('madeWithAi') === 'true',
+      showComments: form.text('showComments') !== 'false',
     }, fetchImpl);
     let designUrl;
     try {
@@ -514,12 +611,29 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
       try { await unpublish(session, slug, fetchImpl); } catch { /* preserve primary error */ }
       throw new Error(`${error instanceof Error ? error.message : String(error)} [the draft was automatically deactivated]`);
     }
+    let readback = null;
+    let readbackIssues = [];
+    try {
+      readback = await readCreation(session, slug, fetchImpl);
+      readbackIssues = cultsReadbackIssues({
+        title: form.text('name').trim() || 'ModelPrep web-flow publish',
+        visibility: form.text('visibility') || 'secret',
+        blueprintIds,
+        blueprintFilenames: models.map((file) => file.filename),
+        illustrationIds,
+        illustrationFilenames: illustrations.map((file) => file.filename),
+      }, readback);
+    } catch (error) {
+      readbackIssues = [`Cults persisted readback failed: ${error instanceof Error ? error.message : String(error)}`];
+    }
     return jsonResponse({
       ok: true,
       slug,
       designUrl,
       blueprintIds,
       illustrationIds,
+      readback,
+      readbackIssues,
       substituted,
       payload: {
         name: form.text('name'),
@@ -531,6 +645,9 @@ function createCultsDirectClient({ fetchImpl = fetch, sessionMaxAgeMs = 30 * 60 
         licenseType: license.licenseType,
         visibility: form.text('visibility') || 'secret',
         flatKeywords: tags,
+        metaTags,
+        madeWithAi: form.text('madeWithAi') === 'true',
+        showComments: form.text('showComments') !== 'false',
       },
     });
   }

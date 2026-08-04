@@ -5,7 +5,20 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('modelprepDesktop', {
   isDesktop: true,
-  bridgeVersion: 3,
+  bridgeVersion: 7,
+  // Returns aggregate process/resource counts only. No project, platform,
+  // account, request, file, URL, cookie, or token data crosses this channel.
+  captureResourceTelemetry: (state) => ipcRenderer.invoke('telemetry:resource-snapshot', state),
+  pickGalleryImages: () => ipcRenderer.invoke('media:pick-gallery-images'),
+  // Local CLI agents (Codex, Claude Code) as AI providers, so a maker can spend a subscription
+  // they already have instead of a metered API key. Photos + prompt only; each CLI's sign-in
+  // stays where that CLI keeps it and never crosses this bridge.
+  cliAiStatus: (options) => ipcRenderer.invoke('ai:cli-status', options),
+  generateCliListing: (payload) => ipcRenderer.invoke('ai:cli-generate', payload),
+  // Local model servers (Ollama, LM Studio): detection and a loopback-only chat proxy, so a
+  // free local model works without the maker configuring cross-origin access by hand.
+  detectLocalAi: () => ipcRenderer.invoke('ai:local-detect'),
+  localAiChat: (payload) => ipcRenderer.invoke('ai:local-chat', payload),
   // Rebuilds renderer-only account markers from encrypted main-process
   // sessions. The response contains identities/opaque ids only, never secrets.
   discoverAccounts: () => ipcRenderer.invoke('accounts:discover'),

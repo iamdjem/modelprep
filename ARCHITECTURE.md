@@ -1,6 +1,6 @@
 # ModelPrep architecture
 
-Current as of 2026-08-01. For implementation status and continuation, read
+Current as of 2026-08-02. For implementation status and continuation, read
 [`backend/docs/modelprep-current-handoff-2026-08-01.md`](backend/docs/modelprep-current-handoff-2026-08-01.md).
 
 ## Product flow
@@ -58,10 +58,13 @@ MakerWorld, Printables, Cults3D, MyMiniFactory, Nexprint, Creality Cloud,
 MakerOnline, MakerRoad, Thangs, and Thingiverse are wired through Settings,
 Platforms, preflight, individual Publish, and one-click batch receipts.
 
-Batch publishing runs at most two desktop flows concurrently, keeps each
+Batch publishing runs at most four desktop flows concurrently, keeps each
 platform's request ordering, and does not stop unaffected destinations after one
-failure. Browser fallback is serial. Safe defaults are private, secret, or
-unpublished draft; public publication remains explicit.
+failure. Failed-only retry preserves successful receipts. Browser fallback is
+serial. Safe defaults are private, secret, or unpublished draft; public
+publication remains explicit. Privacy-safe aggregate telemetry records only
+publisher/process counts, memory and CPU. Concurrency must remain four until a
+retained four-active sample is reviewed.
 
 ## Session lifecycle
 
@@ -73,6 +76,12 @@ Chrome login is unrelated to these partitions.
 Platform-specific session contracts and known failures are documented in
 `desktop/README.md`, `backend/docs/desktop-live-upload-testing.md`, and each
 `backend/docs/*-web-flow.md`.
+
+New platform branches follow
+`backend/docs/platform-one-by-one-implementation-playbook.md`: map the current
+signed-in flow read-only, capture request and persisted-readback contracts,
+separate shared adaptation from native controls, wire renderer/Electron/Worker
+surfaces, verify the exact package, then live-certify the safest branch first.
 
 ## Hosted fallback and deployment
 

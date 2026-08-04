@@ -27,6 +27,13 @@ that contract from Electron, following the same boundary as Nexprint and Crealit
    action;
 8. read the saved object back through `edit-info` before reporting success.
 
+Current certification update: the later exact packaged closeout retained
+unpublished draft `316221`; ordered images/files, metadata, taxonomy/license and
+private draft state passed readback. Draft `316077` below remains the earlier
+focused proof. Parsed 3MF/profile media, documentation, remix, public, paid,
+Creative Kit, China sync, Exclusive, resin and large/high-count branches remain
+separate.
+
 The current contract is first-party and undocumented, so it can drift. A successful
 mock suite/build proves the local mapping, not a live account-backed upload.
 

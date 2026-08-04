@@ -5,10 +5,113 @@ This is the canonical reference for everything ModelPrep knows about Cults3D's r
 For the high-level architecture (how this fits with the GraphQL flow, R2, CDN, etc.) see [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md). This doc is the deep dive on the web flow itself.
 
 The authenticated production create, edit, price, API, and GraphQL-documentation
-pages plus the current uploader bundle were re-audited on **2026-07-29**. See
+pages plus the current uploader bundle were re-audited on **2026-07-29**. The
+retained secret creation edit page was rechecked read-only on **2026-08-01**:
+it exposes ordered `creation[blueprint_ids][]` and
+`creation[illustration_ids][]` hidden fields alongside ordered persisted asset
+links and filenames. ModelPrep now uses that canonical edit form plus My
+Creations visibility as fail-closed submit readback in both desktop and Worker
+transports. See
 `platform-upload-requirements-live.md` for the current full option taxonomy,
 file/media formats and limits, price/license/visibility values, production
 fingerprints, and the current ModelPrep gap ledger.
+
+Current certification update: the latest exact packaged closeout retained the
+secret listing whose slug ends `6f02ba1cd366b9cb06a5`; ordered media/files,
+metadata, free CC BY-NC and secret visibility passed readback. Typed MP4/WebM is
+implemented and fail-closed against canonical edit-state IDs/order/filenames,
+but no typed-video listing has been live-certified. Public, paid/open-price,
+usage/subcategory/meta-tag and deactivate/reactivate branches remain separate.
+
+Follow-up local validation audit: both the direct Electron and Worker fallback
+now accept the live uploader's JPEG/PNG/WebP/**GIF** images and MP4/WebM videos,
+require an image cover before any video, and reject every media item above
+10 MiB before authentication or storage upload. This closes a transport-parity
+gap; it is local verification only and creates no new Cults artifact.
+
+## 2026-08-02 full form-to-adapter audit
+
+The current signed-in `/en/creations/new` form, retained secret edit form,
+price editor, My Creations page, and `upload-dfc75bcc2698cddf6698.js`
+(SHA-256 `d56b237a01987065d9881f26f3a81e87c105e9ab77ebf238bec677440b65d653`)
+were read-only audited on 2026-08-02. No creation, update, save, publish,
+deactivate, or delete was requested or performed. The current visible form has
+title/description/details; 3D-printing and four other usage values; a required
+top-level category; up to three subcategories; 12 fixed meta tags; a 300-char
+free-keyword field; AI and comments controls; model files; and ordered media.
+Its visible media text lists JPG/PNG/WebP/WEBM/MP4, 10 MiB each and 8000 px
+maximum dimensions. It does not state a media-count cap. The upload bundle's
+generic uploader still includes GIF support, so GIF remains implemented/local
+only until a dedicated live GIF listing is authorized.
+
+| Current form concern | ModelPrep state | Evidence and boundary |
+| --- | --- | --- |
+| Title, Markdown description, category, free keywords, 3D-print usage, ordered models/media | Live-certified safe core | Exact packaged secret receipt and canonical edit/list readback. |
+| Optional manufacturing settings, 12 fixed meta tags, AI disclosure, comments | Implemented and locally verified | Renderer controls now serialize only the current DOM values; both desktop and Worker reject unknown meta tags. No optional-branch live create was authorized. |
+| Subcategory and non-3DP usages | Request-mapped, not exposed | Native field names/values are current-browser mapped, but user-configurable propagation needs an isolated authorized secret run. |
+| Free/secret price and visibility | Live-certified safe core | Retained exact-app secret listing readback. |
+| Public, paid, open-price, license/store combinations | Mapped, action-gated | Price editor and license values were read-only mapped; no mutation authorization. |
+| JPG/PNG/WebP image cover, MP4/WebM media ordering | Implemented; video local-only | Cover-first and 10 MiB preflight are tested. No typed-video listing has been created. |
+| GIF media | Implemented from uploader-bundle evidence; local-only | Current visible form does not advertise GIF, so do not label it browser-proven or live-certified. |
+| YouTube embedding | Browser-mapped/manual | The form says YouTube links render alongside photos; ModelPrep does not turn this into an upload branch. |
+| Deactivate/reactivate/delete | Mapped and explicit-action-only | Retained artifacts must not be changed without separate authorization. |
+
+## 2026-08-02 signed-out bundle-drift re-audit
+
+A later same-day pass re-fetched the public asset host without any signed-in
+session. `https://cults3d.com/en/creations/new` redirected to
+`/en/log-in-choice`, so **no authenticated screen, form, or request was
+reachable in this pass**. Everything below is public-asset evidence only and
+does not refresh the signed-in form mapping above.
+
+| Asset | Documented value | Current observation | Evidence class |
+| --- | --- | --- | --- |
+| `packs/js/upload-dfc75bcc2698cddf6698.js` | SHA-256 `d56b237a…653` | Still resolves, **byte-identical** SHA-256 `d56b237a…653` | Public asset fetch |
+| `packs/js/application-55aa4a3c30b1ef4b0a5b.js` | SHA-256 `b9c3effe…41d` | Still resolves, **byte-identical**; still the bundle the rendered login page loads | Public asset fetch + rendered DOM |
+| Deployed `packs/manifest.json` → `upload.js` | not previously recorded | `packs/js/upload-f6d1a2a902153d3b47f2.js`, SHA-256 `88e20ebd7825d23e19792358d9e4567d3f027dc4e45e4b39c049cd5b1809b956` | Public manifest |
+| Deployed `packs/manifest.json` → `application.js` | not previously recorded | `packs/js/application-458468f4077b74a265e5.js` | Public manifest |
+| Layout stylesheet | `cults-2927b7e4…540.css` (245,603 B) | Login page now loads `cults-0b91bd68…8a3.css` (245,674 B) | Rendered DOM |
+
+The deployed manifest therefore points at a **newer upload pack than the one
+this document was captured from**, while the rendered signed-out page still
+loads the older application bundle. Which upload pack the authenticated
+`/en/creations/new` page actually loads today is **UNKNOWN** — that page is
+auth-gated and was not reachable in this pass.
+
+Contract diff between the documented pack and the manifest-current pack (the
+remaining differences are minifier/module-id noise):
+
+1. **The client-side `.rar` rejection is removed.** The documented pack contains
+   `e.name.match(/\.rar$/)` → `Invalid extension .rar, please use .zip instead`.
+   The manifest-current pack does not. Section 3.4 of
+   `platform-upload-requirements-live.md` says RAR "is therefore not effectively
+   accepted"; that statement is now **only true of the older pack**. Server-side
+   RAR behavior was never tested and remains UNKNOWN. ModelPrep implements no
+   `.rar` branch either way, so this is a documentation correction, not a code gap.
+2. **The forbidden file-name rule is unchanged and present in both packs:**
+   `const o=["&",">","<"]` compared with `e.name.match(r)`, failing with
+   `Invalid character “X”` *before* the S3 policy request, for every file that
+   passes through the uploader.
+3. The current pack sets the S3 param `Content-Type` to the empty string
+   (`t["Content-Type"]=""`) immediately before `enqueueFile`. Gotcha 4 below
+   still describes sending a populated `Content-Type` form field; ModelPrep's
+   own transports are unchanged and remain live-certified, so this is recorded
+   as an observation to re-check under a signed-in capture, not a required fix.
+
+Endpoint paths, per-file size caps and the media `accept` list are **not** in
+either pack — they come from data attributes on the auth-gated create page, so
+they could not be re-verified in this pass. The `1073741824` (1 GiB) constant is
+still present in the upload entrypoint's Dropzone chunk.
+
+### Resulting code change
+
+Rule 2 was a genuine unenforced first-party rule: ModelPrep previously sent any
+file name to Cults. Both transports now fail closed **before authentication**
+when any model or illustration file name contains `&`, `>`, or `<`, quoting the
+offending character and file name. See `desktop/cults-direct.js` and
+`cultsWebFilenameValidationIssue` in `backend/src/adapters/cults3d-web.ts`.
+This is implemented and locally tested only; it creates no artifact and is not
+live-certified.
 
 ---
 
@@ -254,6 +357,12 @@ Identical to step 2 but with `?illustration=true` instead of `?blueprint=true`, 
 
 The **first** illustration ID becomes the listing's primary cover image; remaining ones become the gallery in submission order.
 
+The authenticated edit form preserves those numeric IDs in ordered hidden
+`creation[illustration_ids][]` inputs and renders ordered asset links whose
+paths retain the submitted filename. This includes MP4/WebM illustrations, so
+video persistence can be certified by exact ID/order/filename readback without
+downloading the media. The same contract exists for blueprint IDs and names.
+
 ### 4. Create creation
 
 **`POST /en/creations`**
@@ -492,6 +601,9 @@ The cleanest reproduction account to use is the existing throwaway: `u05l7e8tls@
 - **Dedicated live matrix** — paid/open-price, WebM/MP4, multi-usage, three
   subcategories, every meta tag, public/secret/deactivated transitions, and
   cleanup still need disposable-listing certification.
+- **Video account proof** — automatic ordered edit-form readback is now
+  implemented and locally verified, but no new MP4/WebM listing has been
+  submitted through this path. The branch remains not live-certified.
 
 ---
 

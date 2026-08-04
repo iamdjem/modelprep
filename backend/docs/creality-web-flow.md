@@ -21,6 +21,12 @@ first-party-only integrations:
 5. edit an existing draft when a `draftId` exists, or create a new private/public model;
 6. read the saved object back before reporting success.
 
+Current certification update: the later exact packaged closeout retained
+Original/private model `6a6e3f28753b84f6aab190a8`; images, model files,
+metadata and private-state readback passed. The 2026-07-31 models below remain
+valid diagnostic evidence. Existing-draft edit, public, non-original/remix,
+instruction/print-settings and eligible paid branches remain separate.
+
 Official references:
 
 - <https://www.crealitycloud.com/help-center/how-to-upload-3d-models>

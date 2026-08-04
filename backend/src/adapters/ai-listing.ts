@@ -42,12 +42,15 @@ export const OPENAI_COMPAT_BASE: Record<string, string> = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
   groq: 'https://api.groq.com/openai/v1',
   openai: 'https://api.openai.com/v1',
+  xai: 'https://api.x.ai/v1',
+  mistral: 'https://api.mistral.ai/v1',
   deepseek: 'https://api.deepseek.com/v1', // text strong; vision support varies by model
 };
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
-// Sonnet 4.6 — strong vision + writing at a sane cost. Override per call if needed.
-const MODEL = 'claude-sonnet-4-6';
+// Used when the caller names no model. Claude Opus 5 is the current default Claude; makers who
+// want a cheaper tier pick one from the model list their key returns.
+const MODEL = 'claude-opus-5';
 const MAX_IMAGES = 8; // cap payload size + cost; the first few photos carry the signal.
 
 function buildSystemPrompt(input: GenerateListingInput): string {
@@ -118,7 +121,7 @@ function parseListing(text: string, categories: string[], limits?: GenerateListi
 
 /** Call Claude with the photos + constraints. Throws on transport/auth/parse errors so the
  *  route can map them (e.g. 503 → frontend falls back to the on-device heuristic). */
-export async function generateListing(apiKey: string, input: GenerateListingInput): Promise<GeneratedListing> {
+export async function generateListing(apiKey: string, input: GenerateListingInput, model?: string): Promise<GeneratedListing> {
   const images = input.images.slice(0, MAX_IMAGES);
   if (!images.length) throw new Error('no images supplied');
 
@@ -141,7 +144,7 @@ export async function generateListing(apiKey: string, input: GenerateListingInpu
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: String(model || '').trim() || MODEL,
       max_tokens: 1200,
       system: buildSystemPrompt(input),
       messages: [{ role: 'user', content }],

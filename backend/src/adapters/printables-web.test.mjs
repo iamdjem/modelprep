@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  GRAPHQL_CLIENT_VERSION,
   PRINTABLES_LIMITS,
   printablesModelStatus,
   printablesPresignUpload,
@@ -21,6 +22,13 @@ test('bundled Printables taxonomy fallback preserves the audited category and li
   assert.ok(PRINTABLES_META_SNAPSHOT.licenses.some((license) => license.id === '3'));
 });
 
+test('first-party requests identify the currently audited Printables client', () => {
+  assert.equal(GRAPHQL_CLIENT_VERSION, 'v4.8.10');
+  assert.equal(PRINTABLES_LIMITS.fileNote, 95);
+  assert.equal(PRINTABLES_LIMITS.folderName, 60);
+  assert.equal(PRINTABLES_LIMITS.richTextImageBytes, 8 * 1024 * 1024);
+});
+
 test('model status requests complete metadata and every asset collection for readback verification', async (t) => {
   const sent = [];
   const original = globalThis.fetch;
@@ -33,6 +41,9 @@ test('model status requests complete metadata and every asset collection for rea
   await printablesModelStatus({ cookie: 'sessionid=x' }, '123');
 
   for (const field of ['summary', 'authorship', 'aiGenerated', 'politicalContent', 'category', 'license', 'tags', 'images', 'stls', 'slas', 'gcodes', 'otherFiles', 'remixParents']) {
+    assert.match(sent[0].query, new RegExp(`\\b${field}\\b`));
+  }
+  for (const field of ['premium', 'price', 'excludeCommercialUsage']) {
     assert.match(sent[0].query, new RegExp(`\\b${field}\\b`));
   }
 });
@@ -125,12 +136,21 @@ test('model update preserves Printables lower-case authorship and draft flag', a
     draft: true,
     authorship: 'author',
     aiGenerated: false,
+    club: true,
+    price: 25,
+    excludeCommercialUsage: true,
     images: [{ id: 'image-1' }],
     stls: [{ id: 'stl-1', name: 'dragon.stl' }],
+    gcodes: [{ id: 'gcode-1', name: 'dragon.gcode', printer: { id: 'printer-1' } }],
   });
 
   assert.equal(sent[0].variables.authorship, 'author');
   assert.equal(sent[0].variables.draft, true);
+  assert.equal(sent[0].variables.club, true);
+  assert.equal(sent[0].variables.price, 25);
+  assert.equal(sent[0].variables.excludeCommercialUsage, true);
+  assert.equal(sent[0].variables.gcodes[0].printer, undefined);
+  assert.match(sent[0].query, /premium: \$club/);
   assert.deepEqual(sent[0].variables.tags, ['dragon', 'printinplace']);
   assert.deepEqual(sent[0].variables.images, [{ id: 'image-1' }]);
   assert.deepEqual(sent[0].variables.stls, [{ id: 'stl-1', name: 'dragon.stl' }]);

@@ -14,6 +14,12 @@ Nexprint does not currently publish a documented third-party upload API.
 ModelPrep therefore uses the same authenticated REST and presigned-storage
 contract as Nexprint's production web client, from Electron main only.
 
+Current certification update: the later exact packaged closeout created and
+read back unpublished draft `2083625532272496640`, including models, images,
+tags, BOM, taxonomy/license and draft state. The 2026-07-31 browser and Electron
+drafts below remain valid earlier evidence. Public, activity eligibility,
+broader extensions/attachments and high-count ordering remain separate.
+
 That contract is **undocumented and changeable**. A passing unit test proves the
 mapped contract, not that the current production account still accepts it.
 
@@ -366,7 +372,6 @@ Still not live-certified:
 - public publish and public URL visibility
 - dynamic activity/creator-fund eligibility for this new account
 - batch mode where each selected file becomes a separate listing
-- public publish and the broader optional/file-type matrix listed above
 
 The production browser upload/draft path passed its minimum unpublished
 certification gate as draft `2083124902374207488`. The source ModelPrep Electron

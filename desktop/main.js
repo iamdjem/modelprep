@@ -6,7 +6,7 @@
 // Raw cookies remain in the main process and an encrypted safeStorage fallback; the
 // renderer sees only opaque account markers.
 
-const { app, BrowserWindow, ipcMain, session, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, shell, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
@@ -24,6 +24,30 @@ const { UPLOAD_URL: MAKEROAD_LOGIN_URL, createMakerRoadDirectClient } = require(
 const { UPLOAD_URL: THANGS_LOGIN_URL, createThangsDirectClient } = require('./thangs-direct');
 const { UPLOAD_URL: THINGIVERSE_LOGIN_URL, createThingiverseDirectClient } = require('./thingiverse-direct');
 const { normalizeThingiverseExchange, normalizeThingiversePageCapture, resolveThingiverseSessionCandidates } = require('./thingiverse-session-capture');
+const { captureResourceTelemetry, resourceTelemetryLogLine } = require('./resource-telemetry');
+const { codexStatus, generateCodexListing, listCodexModels } = require('./codex-listing');
+const { claudeStatus, generateClaudeListing } = require('./claude-listing');
+const { detectLocalAi, localChat } = require('./local-ai');
+
+// Local CLI agents that can write a listing on the maker's own subscription. Each entry owns
+// its status probe (installed? signed in? which models?) and its generation call; everything
+// else about them is shared. Adding another agent is a row here plus its adapter module.
+const CLI_AI_AGENTS = {
+  codex: {
+    status: async (binPath) => {
+      const status = await codexStatus({ binPath });
+      // Only ask for the catalog once the CLI can answer; a signed-out login returns nothing
+      // useful and the renderer falls back to a free-text model box either way.
+      const models = status.signedIn ? (await listCodexModels({ binPath: status.binPath })).models : [];
+      return { ...status, models };
+    },
+    generate: (payload) => generateCodexListing(payload),
+  },
+  claude: {
+    status: (binPath) => claudeStatus({ binPath }),
+    generate: (payload) => generateClaudeListing(payload),
+  },
+};
 
 // Local integration testing can intentionally reuse the installed app's
 // encrypted sessions and renderer storage. This is opt-in so ordinary `npm
@@ -1478,6 +1502,81 @@ ipcMain.handle('makeroad:status', async () => {
 });
 ipcMain.handle('thangs:status', async () => { const context = await readThangsContext({ force: true }); return { connected: !!context, user: context?.identity || null }; });
 ipcMain.handle('thingiverse:status', async () => { const context = await readThingiverseContext({ force: true }); return { connected: !!context, user: context?.identity || null, legalApproved: !!context?.identity?.legalApproved }; });
+
+ipcMain.handle('telemetry:resource-snapshot', async (_event, state = {}) => {
+  const sample = await captureResourceTelemetry({ electronApp: app, electronProcess: process, state });
+  console.info(resourceTelemetryLogLine(sample));
+  return sample;
+});
+
+// Local Codex CLI as an AI provider. Photos and the prompt go to a process on this machine;
+// the ChatGPT credentials stay in $CODEX_HOME and never reach the renderer or the Worker.
+ipcMain.handle('ai:cli-status', async (_event, options = {}) => {
+  const agent = CLI_AI_AGENTS[options?.agent];
+  if (!agent) return { ok: false, available: false, signedIn: false, models: [], error: `unknown AI agent: ${options?.agent}` };
+  try {
+    return { ok: true, models: [], ...(await agent.status(options?.binPath)) };
+  } catch (error) {
+    return { ok: false, available: false, signedIn: false, models: [], error: String(error?.message || error) };
+  }
+});
+
+// Local model servers. The renderer is a remotely loaded page, so it cannot call
+// http://localhost without the server opting in; from here it is an ordinary request.
+ipcMain.handle('ai:local-detect', async () => {
+  try {
+    return { ok: true, ...(await detectLocalAi({})) };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('ai:local-chat', async (_event, payload = {}) => {
+  try {
+    return { ok: true, ...(await localChat({ baseUrl: payload?.baseUrl, model: payload?.model, messages: payload?.messages })) };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('ai:cli-generate', async (_event, payload = {}) => {
+  const agent = CLI_AI_AGENTS[payload?.agent];
+  if (!agent) return { ok: false, error: `unknown AI agent: ${payload?.agent}` };
+  try {
+    const { text } = await agent.generate({
+      prompt: payload?.prompt,
+      images: payload?.images,
+      model: payload?.model,
+      binPath: payload?.binPath,
+    });
+    return { ok: true, text };
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error) };
+  }
+});
+
+ipcMain.handle('media:pick-gallery-images', async (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(parent, {
+    title: 'Add gallery images',
+    properties: ['openFile', 'multiSelections'],
+  });
+  if (result.canceled) return { ok: true, files: [] };
+  const mimeByExtension = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+    gif: 'image/gif', heic: 'image/heic', heif: 'image/heif',
+  };
+  const files = [];
+  for (const filePath of result.filePaths) {
+    const name = path.basename(filePath);
+    const extension = path.extname(name).slice(1).toLowerCase();
+    const type = mimeByExtension[extension];
+    if (!type) continue;
+    const bytes = await fs.readFile(filePath);
+    files.push({ name, size: bytes.length, type, base64: bytes.toString('base64') });
+  }
+  return { ok: true, files };
+});
 
 ipcMain.handle('accounts:recover', async (_event, platform, accountId) => {
   try { return await recoverDesktopAccount(String(platform || ''), String(accountId || '')); }

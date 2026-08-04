@@ -33,7 +33,9 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   );
 
   assert.equal(exposed.isDesktop, true);
-  assert.equal(exposed.bridgeVersion, 3);
+  assert.equal(exposed.bridgeVersion, 7);
+  assert.equal(typeof exposed.captureResourceTelemetry, 'function');
+  assert.equal(typeof exposed.pickGalleryImages, 'function');
   assert.equal(typeof exposed.discoverAccounts, 'function');
   assert.equal(typeof exposed.recoverAccount, 'function');
   const contracts = {
@@ -52,12 +54,29 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
     for (const method of methods) assert.equal(typeof exposed[method], 'function', `${platform} is missing ${method}`);
   }
 
+  assert.equal(typeof exposed.cliAiStatus, 'function');
+  assert.equal(typeof exposed.generateCliListing, 'function');
+  assert.equal(typeof exposed.detectLocalAi, 'function');
+  assert.equal(typeof exposed.localAiChat, 'function');
+
+  exposed.captureResourceTelemetry({ phase: 'ready', active: 0, total: 10 });
+  exposed.pickGalleryImages();
+  exposed.cliAiStatus({ agent: 'codex' });
+  exposed.generateCliListing({ agent: 'claude', prompt: 'p', images: [] });
+  exposed.detectLocalAi();
+  exposed.localAiChat({ baseUrl: 'http://localhost:11434/v1', model: 'm', messages: [] });
   exposed.recoverAccount('makeronline', '');
   exposed.connectMakerOnline();
   exposed.requestMakerOnline({ url: 'https://worker/api/v1/makeronline/web/whoami' });
   exposed.makerOnlineStatus();
   exposed.disconnectMakerOnline();
   assert.deepEqual(invoked.map(([channel]) => channel), [
+    'telemetry:resource-snapshot',
+    'media:pick-gallery-images',
+    'ai:cli-status',
+    'ai:cli-generate',
+    'ai:local-detect',
+    'ai:local-chat',
     'accounts:recover',
     'makeronline:connect',
     'makeronline:request',

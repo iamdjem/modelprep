@@ -10,17 +10,20 @@ APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 APP_LOG="${TMPDIR:-/tmp}/modelprep-desktop.log"
 PREVIEW_SERVICE="io.makerstats.modelprep.preview"
 APP_SERVICE="io.makerstats.modelprep.local"
+QA_SERVICE="io.makerstats.modelprep.qa"
 INSTALLED_BINARY="/Applications/ModelPrep.app/Contents/MacOS/$APP_NAME"
 SIGN_IDENTITY="${MODELPREP_SIGN_IDENTITY:-Developer ID Application: Aleksei Adzhem (UTZ4TVACJS)}"
 ENTITLEMENTS="$ROOT_DIR/desktop/build/entitlements.mac.plist"
 local_process_pattern="^${APP_BINARY}( |$)"
 installed_process_pattern="^${INSTALLED_BINARY}( |$)"
+local_renderer_pattern="^${APP_BUNDLE}/Contents/Frameworks/ModelPrep Helper \\(Renderer\\)\\.app/Contents/MacOS/ModelPrep Helper \\(Renderer\\).*--app-path=${APP_BUNDLE}/Contents/Resources/app\\.asar( |$)"
 
 # Remove launch jobs before killing their processes so launchd cannot respawn an
 # old bundle during packaging. Both bundles share one identifier, so a stale
 # process would otherwise win Electron's single-instance lock after the build.
 launchctl remove "$PREVIEW_SERVICE" >/dev/null 2>&1 || true
 launchctl remove "$APP_SERVICE" >/dev/null 2>&1 || true
+launchctl remove "$QA_SERVICE" >/dev/null 2>&1 || true
 pkill -f "$installed_process_pattern" >/dev/null 2>&1 || true
 pkill -f "$local_process_pattern" >/dev/null 2>&1 || true
 modelprep_running() {
@@ -81,13 +84,14 @@ case "$MODE" in
     ;;
   --verify|verify)
     open_app
-    for _ in {1..20}; do
-      if pgrep -f "$local_process_pattern" >/dev/null; then
+    for _ in {1..100}; do
+      if pgrep -f "$local_process_pattern" >/dev/null \
+        && pgrep -f "$local_renderer_pattern" >/dev/null; then
         exit 0
       fi
       sleep 0.1
     done
-    echo "Local ModelPrep process did not remain running; see $APP_LOG" >&2
+    echo "Local ModelPrep main process and renderer did not both remain running; see $APP_LOG" >&2
     exit 1
     ;;
   *)

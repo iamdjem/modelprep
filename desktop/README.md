@@ -35,6 +35,9 @@ continuation order, critical lessons, and ready-to-paste next-agent prompt, see
 `backend/docs/modelprep-current-handoff-2026-08-01.md` and
 `backend/docs/NEXT_AGENT_PROMPT.md`.
 
+Before implementing another optional platform branch, also follow
+`backend/docs/platform-one-by-one-implementation-playbook.md`.
+
 For an intentional local live-account integration test, the development app
 can reuse the installed app's encrypted sessions and origin storage without
 copying credentials into the renderer:
@@ -80,6 +83,14 @@ For Printables, Settings → Accounts → Printables opens
 OAuth/PKCE page as needed, including social-account popups. The app validates
 the completed session with a read-only profile query and stores its encrypted
 fallback separately from MakerWorld in `persist:printables`.
+The native gallery chooser accepts HEIC/HEIF even where Chromium's file input
+filter does not; Electron passes only file bytes and safe metadata to the
+renderer, which converts HEIC/HEIF to JPEG before upload. Per-G-code controls
+cover layer height, nozzle diameter, duration hours, integer weight grams and
+exclude-from-total. The adapters strip processed readback's display-only
+`printer` field before `modelUpdate`, and SLA input remains id/folder/name/note.
+Exact-app specialist draft `1797772` and public model `1797774` passed persisted
+readback; `1797774` remains public and deletion requires exact confirmation.
 
 For Cults3D, Settings → Accounts → Cults3D accepts the account credentials in
 the renderer only long enough to pass them to Electron main. Electron validates
@@ -128,9 +139,10 @@ metadata submission, and object read-back run directly from the user's computer.
 
 For MakerRoad, Electron uses `persist:makeroad`, requires authenticated
 `GET /api/user`, and mirrors the `X-Token` login cookie into the first-party
-header. The adapter and private Save/readback flow are implemented, but fresh
-navigation currently reaches a parked HugeDomains page. Treat this as an
-external production-availability block, not as a green upload certification.
+header. The adapter's private Save and required `uploadType=1` edit readback are
+live-certified as draft `M2134222528`. Recheck authenticated availability after
+outages. Native video remains unmapped; public/review, paid, remix and schedule
+are separate branches.
 
 For Thangs, the current site stores its bearer access token in origin local
 storage and refresh state in cookies. Electron captures the token only inside
@@ -141,8 +153,8 @@ restore cookie-only validation or manually set a cross-origin `Referer` in
 
 For Thingiverse, the complete draft-first/publish adapter is enabled after
 written clearance recorded on 2026-08-01. Save Draft remains the safe default;
-public publication is a separate explicit action. One live draft/readback is
-still required before calling the path live-certified.
+public publication is a separate explicit action. Exact-app unpublished draft
+`7390480` passed upload, create, finalize and persisted readback.
 
 ## Files
 
@@ -175,6 +187,9 @@ still required before calling the path live-certified.
   status, list, delete, refresh, tags, BOM, and related-model lookup. The desktop
   build bundles it with the shared backend adapter into the generated
   `makerworld-direct.cjs` before start, test, or packaging.
+- `printables-direct.js` — direct Printables identity, GraphQL, signed-storage,
+  processing poll, draft/public, readback/list/remix/delete transport. It
+  normalizes mutation input independently from richer processed readback.
 - `nexprint-direct.js` — direct Nexprint identity, taxonomy, activity,
   collection, presign/upload/register, draft/publish, read-back, list, and
   delete transport. The renderer receives normalized file/model records but no
@@ -190,7 +205,46 @@ still required before calling the path live-certified.
   presigned object-file upload, URL-encoded metadata submit, and object read-back.
 - `preload.js` — exposes a minimal `window.modelprepDesktop` API to the web app, which
   feature-detects it to show the one-click sign-in (see `MakerWorldUploadFlow` in
-  `deploy/src/App.jsx`).
+  `deploy/src/App.jsx`). It also exposes a privacy-safe resource snapshot that
+  returns only aggregate publisher counts, process counts, memory, and CPU. The
+  bridge does not accept or return platform, account, file, listing, URL,
+  request, cookie, or token data.
+- `resource-telemetry.js` — bounds and aggregates Electron process metrics for
+  the Publish status panel. Samples are diagnostic only and never gate or alter
+  upload scheduling. After a batch completes, the renderer applies a second
+  allow-list sanitizer, retains at most 10 aggregate reports in local storage,
+  and offers a local JSON download for idle/active/completion comparison. These
+  reports exclude run, platform, account, file, listing, URL, request, cookie,
+  and token data.
+- `codex-listing.js` — runs listing generation through the Codex CLI already
+  installed on the maker's machine, so photo-based Title/Description/Tags come
+  out of their ChatGPT/Codex subscription instead of a metered API key. Only the
+  prompt and down-rezzed photos cross the bridge; the ChatGPT credentials stay in
+  `$CODEX_HOME` and never reach the renderer or the Worker. Each run is
+  `--ignore-user-config --ephemeral -s read-only` in a temp workspace that is
+  deleted afterwards, with `--output-schema` pinning the reply to the listing
+  JSON the renderer already parses. Browser builds cannot use this provider —
+  a web page cannot start a local process — so the AI picker disables it there.
+- `claude-listing.js` — the same deal for the Claude Code CLI, so a maker on a Claude
+  plan gets photo-based listings without an API key. Claude Code has no image flag:
+  it reads photos with its Read tool, so they are written into a temp working
+  directory and the prompt names them, with `--allowedTools Read` granting that one
+  capability and nothing else. `claude auth status` reports whether the CLI is signed
+  in to an account or to a metered key, which is what the panel shows.
+- `cli-process.js` — the plumbing both CLI agents share: finding a program on the bare
+  PATH a Finder-launched app inherits, running it with a timeout and bounded output,
+  writing the photos to disk, and deleting the workspace afterwards. Adding another CLI
+  agent is an adapter plus a row in `CLI_AI_AGENTS` in `main.js`.
+- `local-ai.js` — detects local model servers (Ollama, LM Studio) and proxies their
+  chat calls. Both jobs have to happen in the main process: the renderer is a
+  remotely loaded page, so a request to `http://localhost` is cross-origin and the
+  server would have to be reconfigured (`OLLAMA_ORIGINS`) before a free local model
+  worked at all. Detection keeps only models that can read an image, since every
+  listing starts from photos. Every URL is pinned to loopback, so renderer settings
+  can never point this bridge at a remote host.
+- `main.js` / `preload.js` also expose the native Printables gallery chooser.
+  It returns in-memory bytes and safe filename/type/size metadata, never local
+  filesystem paths or platform credentials.
 - `package.json` — Electron + electron-builder config (DMG / NSIS / AppImage targets).
 
 ## Build a signed + notarized macOS release
@@ -232,5 +286,6 @@ Connect API key can notarize but cannot create that cert. Current build is **arm
 - If sign-in is rejected after logging in, the session may need the Cloudflare check
   re-solved — click **Sign in to MakerWorld** again.
 - For local packaged QA, use `../script/build_and_run.sh --verify` and the exact
-  `dist/mac-arm64/ModelPrep.app`. Never create a respawning `launchctl submit`
-  job; stale jobs previously interfered with user input.
+  `dist/mac-arm64/ModelPrep.app`. Verification requires both that bundle's main
+  process and renderer. Never create a respawning `launchctl submit` job; stale
+  jobs previously interfered with user input.

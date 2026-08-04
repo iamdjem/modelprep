@@ -86,6 +86,10 @@ export function orderedPlatformImages(platform, project) {
 }
 
 export const DESKTOP_PUBLISH_CONCURRENCY = 4;
+const MAX_RESOURCE_TELEMETRY_SAMPLES = 32;
+export const RESOURCE_REPORT_STORAGE_KEY = 'modelprep:resource-telemetry-reports:v1';
+const RESOURCE_REPORT_LIMIT = 10;
+const RESOURCE_PHASES = new Set(['ready', 'start', 'progress', 'retry', 'complete']);
 
 export function createPublishBatch(targets, runId, requestedConcurrency = DESKTOP_PUBLISH_CONCURRENCY) {
   const results = Object.fromEntries(targets.map((target) => [
@@ -116,6 +120,7 @@ export function createPublishBatch(targets, runId, requestedConcurrency = DESKTO
     activeIds,
     currentId: activeIds[0] || null,
     results,
+    telemetry: { samples: [], peakActivePublishers: activeIds.length },
   };
 }
 
@@ -215,4 +220,185 @@ export function publishBatchSummary(batch) {
     failed: results.filter((result) => result.state === 'error').length,
     running: results.filter((result) => result.state === 'publishing').length,
   };
+}
+
+export function publishBatchResourceRequest(batch, readyTargetCount = 0) {
+  if (!batch) {
+    return {
+      phase: 'ready',
+      active: 0,
+      queued: Math.max(0, Number(readyTargetCount) || 0),
+      completed: 0,
+      failed: 0,
+      total: Math.max(0, Number(readyTargetCount) || 0),
+    };
+  }
+
+  const summary = publishBatchSummary(batch);
+  const samples = batch.telemetry?.samples || [];
+  const queued = batch.targetIds.filter((id) => batch.results[id]?.state === 'pending').length;
+  return {
+    phase: batch.status === 'done'
+      ? 'complete'
+      : samples.length === 0
+        ? (String(batch.runId || '').includes('retry') ? 'retry' : 'start')
+        : 'progress',
+    active: (batch.activeIds || []).length,
+    queued,
+    completed: summary.succeeded,
+    failed: summary.failed,
+    total: summary.total,
+  };
+}
+
+export function appendPublishBatchResourceSample(batch, sample) {
+  if (!batch || Number(sample?.schemaVersion) !== 1 || !sample.publishers || !sample.memory || !sample.processes) return batch;
+  const existing = batch.telemetry?.samples || [];
+  const samples = [...existing, sample].slice(-MAX_RESOURCE_TELEMETRY_SAMPLES);
+  return {
+    ...batch,
+    telemetry: {
+      samples,
+      peakActivePublishers: Math.max(
+        Number(batch.telemetry?.peakActivePublishers) || 0,
+        Number(sample.publishers.active) || 0,
+      ),
+    },
+  };
+}
+
+export function publishBatchResourceSummary(batch) {
+  const samples = batch?.telemetry?.samples || [];
+  const maximum = (path) => samples.reduce((peak, sample) => {
+    const value = Number(path(sample));
+    return Number.isFinite(value) ? Math.max(peak, value) : peak;
+  }, 0);
+  return {
+    sampleCount: samples.length,
+    latest: samples.at(-1) || null,
+    peakActivePublishers: Number(batch?.telemetry?.peakActivePublishers) || 0,
+    peakAppWorkingSetMb: maximum((sample) => sample.memory?.appWorkingSetMb),
+    peakAppCpuPercent: maximum((sample) => sample.cpu?.appPercent),
+  };
+}
+
+function safeMetric(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : fallback;
+}
+
+function safeCount(value) {
+  return Math.min(100, Math.trunc(safeMetric(value)));
+}
+
+export function sanitizePublishBatchResourceSample(sample) {
+  if (Number(sample?.schemaVersion) !== 1) return null;
+  const phase = RESOURCE_PHASES.has(sample.phase) ? sample.phase : 'progress';
+  const timestamp = /^\d{4}-\d{2}-\d{2}T/.test(String(sample.timestamp || ''))
+    ? String(sample.timestamp)
+    : '';
+  return {
+    schemaVersion: 1,
+    timestamp,
+    phase,
+    publishers: {
+      active: safeCount(sample.publishers?.active),
+      queued: safeCount(sample.publishers?.queued),
+      completed: safeCount(sample.publishers?.completed),
+      failed: safeCount(sample.publishers?.failed),
+      total: safeCount(sample.publishers?.total),
+    },
+    memory: {
+      mainPrivateMb: sample.memory?.mainPrivateMb == null ? null : safeMetric(sample.memory.mainPrivateMb),
+      appWorkingSetMb: safeMetric(sample.memory?.appWorkingSetMb),
+      appPeakWorkingSetMb: safeMetric(sample.memory?.appPeakWorkingSetMb),
+    },
+    cpu: { appPercent: safeMetric(sample.cpu?.appPercent) },
+    processes: {
+      total: safeCount(sample.processes?.total),
+      renderers: safeCount(sample.processes?.renderers),
+      utilities: safeCount(sample.processes?.utilities),
+      gpu: safeCount(sample.processes?.gpu),
+    },
+  };
+}
+
+export function createPublishBatchResourceReport(batch, fallbackSample = null) {
+  if (batch?.status !== 'done') return null;
+  const rawSamples = batch.telemetry?.samples?.length
+    ? batch.telemetry.samples
+    : fallbackSample ? [fallbackSample] : [];
+  const samples = rawSamples.map(sanitizePublishBatchResourceSample).filter(Boolean).slice(-MAX_RESOURCE_TELEMETRY_SAMPLES);
+  if (!samples.length) return null;
+  const summary = publishBatchSummary(batch);
+  const resources = publishBatchResourceSummary({
+    ...batch,
+    telemetry: { ...batch.telemetry, samples },
+  });
+  return {
+    schemaVersion: 1,
+    completedAt: samples.at(-1).timestamp,
+    batch: {
+      status: 'complete',
+      total: summary.total,
+      succeeded: summary.succeeded,
+      failed: summary.failed,
+      concurrency: safeCount(batch.concurrency || 1),
+    },
+    peaks: {
+      activePublishers: safeCount(resources.peakActivePublishers),
+      appWorkingSetMb: safeMetric(resources.peakAppWorkingSetMb),
+      appCpuPercent: safeMetric(resources.peakAppCpuPercent),
+    },
+    samples,
+  };
+}
+
+function sanitizePublishBatchResourceReport(report) {
+  if (Number(report?.schemaVersion) !== 1 || report?.batch?.status !== 'complete') return null;
+  const samples = (Array.isArray(report.samples) ? report.samples : [])
+    .map(sanitizePublishBatchResourceSample)
+    .filter(Boolean)
+    .slice(-MAX_RESOURCE_TELEMETRY_SAMPLES);
+  if (!samples.length) return null;
+  const completedAt = /^\d{4}-\d{2}-\d{2}T/.test(String(report.completedAt || ''))
+    ? String(report.completedAt)
+    : samples.at(-1).timestamp;
+  return {
+    schemaVersion: 1,
+    completedAt,
+    batch: {
+      status: 'complete',
+      total: safeCount(report.batch.total),
+      succeeded: safeCount(report.batch.succeeded),
+      failed: safeCount(report.batch.failed),
+      concurrency: safeCount(report.batch.concurrency || 1),
+    },
+    peaks: {
+      activePublishers: safeCount(report.peaks?.activePublishers),
+      appWorkingSetMb: safeMetric(report.peaks?.appWorkingSetMb),
+      appCpuPercent: safeMetric(report.peaks?.appCpuPercent),
+    },
+    samples,
+  };
+}
+
+export function retainPublishBatchResourceReport(storage, report, limit = RESOURCE_REPORT_LIMIT) {
+  const sanitized = sanitizePublishBatchResourceReport(report);
+  if (!storage || !sanitized) return [];
+  const existing = loadRetainedPublishBatchResourceReports(storage);
+  const retained = [sanitized, ...existing.filter((item) => item.completedAt !== sanitized.completedAt)]
+    .slice(0, Math.max(1, Math.min(50, safeCount(limit) || RESOURCE_REPORT_LIMIT)));
+  storage.setItem(RESOURCE_REPORT_STORAGE_KEY, JSON.stringify(retained));
+  return retained;
+}
+
+export function loadRetainedPublishBatchResourceReports(storage) {
+  if (!storage) return [];
+  try {
+    const parsed = JSON.parse(storage.getItem(RESOURCE_REPORT_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.map(sanitizePublishBatchResourceReport).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }
