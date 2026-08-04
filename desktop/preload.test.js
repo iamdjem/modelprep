@@ -35,7 +35,7 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   );
 
   assert.equal(exposed.isDesktop, true);
-  assert.equal(exposed.bridgeVersion, 9);
+  assert.equal(exposed.bridgeVersion, 10);
   assert.equal(typeof exposed.captureResourceTelemetry, 'function');
   assert.equal(typeof exposed.pickGalleryImages, 'function');
   assert.equal(typeof exposed.discoverAccounts, 'function');
@@ -62,6 +62,12 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   assert.equal(typeof exposed.localAiChat, 'function');
   for (const method of ['syncReleasePlans', 'getReleasePlans', 'onRunScheduledRelease', 'onOpenReleaseQueue']) {
     assert.equal(typeof exposed[method], 'function', `release scheduler is missing ${method}`);
+  }
+  for (const method of ['reportDiagnostic', 'getDiagnostics', 'exportDiagnostics', 'reportProblem']) {
+    assert.equal(typeof exposed[method], 'function', `diagnostics is missing ${method}`);
+  }
+  for (const method of ['updateStatus', 'checkForUpdate', 'installUpdate', 'onUpdateState']) {
+    assert.equal(typeof exposed[method], 'function', `auto-update is missing ${method}`);
   }
 
   exposed.captureResourceTelemetry({ phase: 'ready', active: 0, total: 10 });

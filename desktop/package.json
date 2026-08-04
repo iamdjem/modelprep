@@ -8,7 +8,7 @@
     "build:renderer": "npm --prefix ../deploy run build -- --base=./",
     "build:makerworld-direct": "node scripts/build-makerworld-direct.mjs",
     "start": "npm run build:makerworld-direct && electron .",
-    "test": "npm run build:makerworld-direct && node --test auth-bridge.test.js claude-listing.test.js cli-process.test.js codex-listing.test.js creality-direct.test.js local-ai.test.js cults-browser-profile.test.js cults-direct.test.js cults-window-fetch.test.js makeronline-direct.test.js makeroad-direct.test.js makerworld-direct.test.js myminifactory-direct.test.js nexprint-direct.test.js preload.test.js printables-direct.test.js printables-session-cache.test.js renderer-target.test.js resource-telemetry.test.js release-scheduler.test.js thangs-direct.test.js thingiverse-direct.test.js thingiverse-session-capture.test.js",
+    "test": "npm run build:makerworld-direct && node --test auth-bridge.test.js claude-listing.test.js cli-process.test.js codex-listing.test.js creality-direct.test.js local-ai.test.js cults-browser-profile.test.js cults-direct.test.js cults-window-fetch.test.js makeronline-direct.test.js makeroad-direct.test.js makerworld-direct.test.js myminifactory-direct.test.js nexprint-direct.test.js preload.test.js printables-direct.test.js printables-session-cache.test.js renderer-target.test.js resource-telemetry.test.js error-log.test.js release-scheduler.test.js thangs-direct.test.js thingiverse-direct.test.js thingiverse-session-capture.test.js",
     "dist": "npm run build:renderer && npm run build:makerworld-direct && electron-builder"
   },
   "build": {
@@ -18,6 +18,7 @@
       "main.js",
       "preload.js",
       "resource-telemetry.js",
+      "error-log.js",
       "release-scheduler.js",
       "auth-bridge.js",
       "codex-listing.js",
@@ -68,10 +69,18 @@
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "iamdjem",
+        "repo": "modelprep"
+      }
+    ]
   },
   "dependencies": {
-    "ali-oss": "^6.23.0"
+    "ali-oss": "^6.23.0",
+    "electron-updater": "6.8.9"
   },
   "devDependencies": {
     "electron": "43.2.0",

@@ -1524,6 +1524,19 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // Beta diagnostics: forward uncaught renderer errors to the main process,
+  // which sanitizes and stores them locally. Best-effort; never throws.
+  useEffect(() => {
+    const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+    if (!desktop?.reportDiagnostic) return undefined;
+    const send = (kind, message, stack) => { try { desktop.reportDiagnostic({ kind: 'rendererError', message: `${kind}: ${message}`, stack, context: location.hash || '', build: BUILD_LABEL }); } catch { /* ignore */ } };
+    const onError = (e) => send('error', e?.message || 'unknown', e?.error?.stack);
+    const onRejection = (e) => send('unhandledrejection', (e?.reason?.message || String(e?.reason)) || 'unknown', e?.reason?.stack);
+    window.addEventListener('error', onError);
+    window.addEventListener('unhandledrejection', onRejection);
+    return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
+  }, []);
+
   // Desktop: mirror release plans into the main process so reminders and
   // unattended publishes keep firing after the window is closed, and respond
   // when main reopens the app to run a due plan or show the queue.
@@ -6592,6 +6605,11 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
         subtitle="Review the adapted package, then publish to all selected platforms or individually."
       />
 
+      <div className="mp-card p-2.5 mb-4 text-[12px]" style={{ background: 'rgba(255,182,39,0.1)', border: '1px solid rgba(255,182,39,0.5)', color: 'rgba(21,23,28,0.75)' }}>
+        <span className="mp-mono text-[10px] uppercase tracking-[0.2em] mr-1.5" style={{ color: '#8A4B08' }}>Beta</span>
+        Private/draft publishing is fully certified. Public and paid publishing work but are still being verified per platform — check each platform’s visibility before publishing publicly.
+      </div>
+
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
       <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
@@ -9981,9 +9999,92 @@ function SettingsAbout({ onClose }) {
           ? `All direct-platform sessions are isolated and encrypted in the desktop app (bridge v${desktop.bridgeVersion || 'legacy'}); AI settings are saved in this renderer profile. Clearing removes them from this device.`
           : 'Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.'}
       </p>
+      {desktop && <UpdatePanel desktop={desktop} />}
+      {desktop && <DiagnosticsPanel desktop={desktop} />}
       <button onClick={clearAll} className="mp-btn mp-btn-ghost text-xs py-2 px-3" style={{ color: '#b91c1c' }}>
         <Trash2 size={13} /> Clear saved accounts &amp; AI settings
       </button>
+    </div>
+  );
+}
+
+// Auto-update status for the packaged app: shows checking/downloading/ready and
+// offers Restart to install. Desktop-only; silent when there's nothing to do.
+function UpdatePanel({ desktop }) {
+  const [state, setState] = useState({ status: 'idle' });
+  useEffect(() => {
+    if (!desktop?.updateStatus) return undefined;
+    desktop.updateStatus().then((s) => s && setState(s)).catch(() => {});
+    const off = desktop.onUpdateState?.((s) => setState(s || { status: 'idle' }));
+    return () => off?.();
+  }, [desktop]);
+  if (!desktop?.updateStatus) return null;
+  const label = {
+    checking: 'Checking for updates…',
+    downloading: `Downloading update${state.percent ? ` (${state.percent}%)` : ''}…`,
+    ready: `Update ${state.version || ''} ready`,
+    current: 'ModelPrep is up to date',
+  }[state.status];
+  return (
+    <div className="mp-card p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.45)' }}>Updates</div>
+        <button onClick={() => desktop.checkForUpdate?.()} className="mp-mono text-[10px] underline" style={{ color: '#FF5722' }}>check now</button>
+      </div>
+      <div className="text-[12px]" style={{ color: 'rgba(21,23,28,0.7)' }}>{label || 'Automatic updates are on.'}</div>
+      {state.status === 'ready' && (
+        <button onClick={() => desktop.installUpdate?.()} className="mp-btn text-[11px] py-1.5 px-2">Restart to update</button>
+      )}
+    </div>
+  );
+}
+
+// Beta diagnostics: shows the local error count, lets the user export the
+// sanitized log or open a prefilled problem report. Desktop-only.
+function DiagnosticsPanel({ desktop }) {
+  const [diag, setDiag] = useState({ count: 0, entries: [] });
+  const [note, setNote] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    if (!desktop?.getDiagnostics) return;
+    desktop.getDiagnostics().then((value) => setDiag(value || { count: 0, entries: [] })).catch(() => {});
+  }, [desktop]);
+  if (!desktop?.getDiagnostics) return null;
+  const recent = diag.entries?.slice(-3).reverse() || [];
+  return (
+    <div className="mp-card p-3 space-y-2">
+      <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.45)' }}>
+        Diagnostics · {diag.count} recorded
+      </div>
+      <p className="text-[12px]" style={{ color: 'rgba(21,23,28,0.6)' }}>
+        Errors are stored locally and sanitized (no cookies, tokens, or signed URLs). Nothing is sent unless you export or report.
+      </p>
+      {recent.length > 0 && (
+        <ul className="text-[11px] space-y-0.5" style={{ color: 'rgba(21,23,28,0.55)' }}>
+          {recent.map((e, i) => (
+            <li key={i} className="truncate mp-mono">{e.source}/{e.kind}: {String(e.message || '').split('\n')[0]}</li>
+          ))}
+        </ul>
+      )}
+      <textarea
+        aria-label="Problem description"
+        className="mp-card text-[12px] p-2 w-full"
+        rows={2}
+        placeholder="Describe a problem to report (optional)…"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+      />
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={async () => { const r = await desktop.exportDiagnostics(); setMsg(r?.ok ? `Saved to ${r.path}` : ''); }}
+          className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2"
+        >Export diagnostics</button>
+        <button
+          onClick={async () => { await desktop.reportProblem({ note, build: BUILD_LABEL }); setMsg('Opened a prefilled report in your browser.'); }}
+          className="mp-btn text-[11px] py-1.5 px-2"
+        >Report a problem</button>
+      </div>
+      {msg && <div className="text-[11px]" style={{ color: '#1a7f37' }}>{msg}</div>}
     </div>
   );
 }

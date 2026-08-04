@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('modelprepDesktop', {
   isDesktop: true,
-  bridgeVersion: 9,
+  bridgeVersion: 10,
   // Returns aggregate process/resource counts only. No project, platform,
   // account, request, file, URL, cookie, or token data crosses this channel.
   captureResourceTelemetry: (state) => ipcRenderer.invoke('telemetry:resource-snapshot', state),
@@ -53,6 +53,17 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   // due plan or open the queue.
   syncReleasePlans: (plans) => ipcRenderer.invoke('release-plans:sync', plans),
   getReleasePlans: () => ipcRenderer.invoke('release-plans:get'),
+  // Privacy-safe diagnostics: renderer errors are sanitized and stored locally;
+  // nothing leaves the machine unless the user exports or reports a problem.
+  reportDiagnostic: (entry) => ipcRenderer.invoke('diagnostics:report', entry),
+  getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
+  exportDiagnostics: () => ipcRenderer.invoke('diagnostics:export'),
+  reportProblem: (payload) => ipcRenderer.invoke('diagnostics:report-problem', payload),
+  // Auto-update (packaged builds): status + a manual check + install-on-restart.
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateState: (cb) => { const h = (_e, s) => cb(s); ipcRenderer.on('update:state', h); return () => ipcRenderer.removeListener('update:state', h); },
   onRunScheduledRelease: (cb) => { const h = (_e, id) => cb(id); ipcRenderer.on('release:run-scheduled', h); return () => ipcRenderer.removeListener('release:run-scheduled', h); },
   onOpenReleaseQueue: (cb) => { const h = () => cb(); ipcRenderer.on('release:open-queue', h); return () => ipcRenderer.removeListener('release:open-queue', h); },
   // Nexprint's real sign-in page writes an auth token into a dedicated session.

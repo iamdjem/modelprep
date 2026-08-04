@@ -789,3 +789,17 @@ signed-in window that clears the challenge is also the one requests run in
 context. `desktop/scripts/cults-transport-probe.js` reproduces the check
 (`node_modules/.bin/electron scripts/cults-transport-probe.js`). The earlier
 `cultsChromiumUserAgent` UA is now unused by the window transport.
+
+### Hiding the Cloudflare flash (2026-08-04)
+
+The managed challenge is Cults3D's server-side Cloudflare protection and cannot
+be removed by the client. It clears in ~1s once a legitimate browser context is
+present (verified: cold hidden window clears in ~3.6s). To keep the user from
+seeing the "Just a moment…" flash, `openCultsLoginAndCapture` now loads the
+sign-in window HIDDEN and reveals it only once the page is past the challenge
+and on a Cults auth URL, with an 8s fallback for a genuinely interactive
+challenge. Because the pre-check obtains `cf_clearance` on the same partition
+first, the sign-in navigation loads already-cleared (~1ms in testing), so the
+window appears directly on the login form. `cf_clearance` persists in the
+`persist:cults-v2-<id>` partition, so subsequent reconnects within its lifetime
+do not re-challenge at all.

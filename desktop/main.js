@@ -17,6 +17,9 @@ const { createPrintablesSessionCache } = require('./printables-session-cache');
 const { CULTS_BASE, createCultsDirectClient } = require('./cults-direct');
 const { createWindowFetch } = require('./cults-window-fetch');
 const { createReleaseScheduler, hasPendingUnattended, mergeSyncedPlans } = require('./release-scheduler');
+const errorLog = require('./error-log');
+let autoUpdater = null;
+try { ({ autoUpdater } = require('electron-updater')); } catch { /* dev without the dep */ }
 const { isCultsChallengePage } = require('./cults-browser-profile');
 const { handleMakerWorldRequest, makerWorldLoginDirect } = require('./makerworld-direct.cjs');
 const { createNexprintDirectClient } = require('./nexprint-direct');
@@ -989,6 +992,11 @@ function createMainWindow() {
   if (RENDERER_TARGET.kind === 'file') win.loadFile(RENDERER_TARGET.value);
   else win.loadURL(RENDERER_TARGET.value);
 
+  // Record renderer crashes/unresponsiveness for beta diagnostics.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    recordError({ source: 'renderer', kind: 'rendererError', message: `render-process-gone: ${details && details.reason}`, context: `exitCode ${details && details.exitCode}` });
+  });
+
   const isApp = (url) => isRendererNavigation(url, RENDERER_TARGET);
   // External links (the published-model URL, "open upload page", etc.) open in the user's
   // real browser — where they're already signed into MakerWorld — not blank inside the app.
@@ -1094,18 +1102,41 @@ function openPrintablesLoginAndCapture(parent) {
 function openCultsLoginAndCapture(parent, accountId) {
   return new Promise((resolve, reject) => {
     // Reuse the account's request window as the sign-in window, so the same
-    // Chromium context solves Cloudflare and later issues requests.
+    // Chromium context solves Cloudflare and later issues requests. Load it
+    // HIDDEN and reveal only once Cloudflare has cleared, so the user sees the
+    // login form appear directly instead of the "Just a moment…" flash. The
+    // pre-check already obtained cf_clearance on this partition, so the sign-in
+    // page usually loads already-cleared.
     let win = cultsPageWindows.get(accountId);
-    if (!win || win.isDestroyed()) win = createCultsWindow(accountId, { show: true });
-    try { if (parent) win.setParentWindow(parent); } catch { /* parent is optional */ }
-    win.show();
-    win.focus();
+    if (!win || win.isDestroyed()) win = createCultsWindow(accountId, { show: false });
     win.loadURL(`${CULTS_BASE}/en/users/sign-in`);
 
     let done = false;
+    let revealed = false;
+    const reveal = () => {
+      if (revealed || done || win.isDestroyed()) return;
+      revealed = true;
+      clearInterval(revealPoll);
+      clearTimeout(revealFallback);
+      try { if (parent) win.setParentWindow(parent); } catch { /* parent is optional */ }
+      win.show();
+      win.focus();
+    };
+    // Reveal as soon as the page is past the challenge and on a Cults auth page,
+    // with a short fallback so an interactive challenge still surfaces.
+    const revealPoll = setInterval(() => {
+      if (revealed || win.isDestroyed()) { clearInterval(revealPoll); return; }
+      const title = win.webContents.getTitle();
+      const url = win.webContents.getURL();
+      if (!isCultsChallengePage({ title, url }) && /sign-in|log-in-choice|creations|dashboard/.test(url)) reveal();
+    }, 300);
+    const revealFallback = setTimeout(reveal, 8000);
+
     const cleanup = () => {
       clearInterval(poll);
       clearTimeout(timer);
+      clearInterval(revealPoll);
+      clearTimeout(revealFallback);
       if (!win.isDestroyed()) {
         win.webContents.removeListener('did-finish-load', attempt);
         win.webContents.removeListener('did-navigate', attempt);
@@ -2060,6 +2091,89 @@ ipcMain.handle('release-plans:sync', async (_event, plans) => {
 });
 ipcMain.handle('release-plans:get', async () => readMainReleasePlans());
 
+// --- Diagnostics (privacy-safe local crash/error log) -----------------------
+function errorLogPath() { return path.join(app.getPath('userData'), 'diagnostics-log.json'); }
+function readErrorLog() {
+  try { return errorLog.parseLog(fs.readFileSync(errorLogPath(), 'utf8')); } catch { return []; }
+}
+function recordError(entry) {
+  try {
+    const at = new Date().toISOString();
+    const next = errorLog.appendEntry(readErrorLog(), errorLog.sanitizeEntry(entry, at));
+    fs.writeFileSync(errorLogPath(), JSON.stringify(next), { mode: 0o600 });
+  } catch { /* diagnostics must never throw into the app */ }
+}
+// Capture main-process crashes without killing the app silently.
+process.on('uncaughtException', (err) => {
+  recordError({ source: 'main', kind: 'uncaughtException', message: err && err.message, stack: err && err.stack });
+});
+process.on('unhandledRejection', (reason) => {
+  recordError({ source: 'main', kind: 'unhandledRejection', message: reason && (reason.message || String(reason)), stack: reason && reason.stack });
+});
+ipcMain.handle('diagnostics:report', async (_event, entry = {}) => {
+  recordError({ ...entry, source: 'renderer' });
+  return { ok: true };
+});
+ipcMain.handle('diagnostics:get', async () => {
+  const entries = readErrorLog();
+  return { count: entries.length, entries: entries.slice(-25) };
+});
+ipcMain.handle('diagnostics:export', async (event) => {
+  const parent = BrowserWindow.fromWebContents(event.sender);
+  const target = await dialog.showSaveDialog(parent, {
+    title: 'Export ModelPrep diagnostics',
+    defaultPath: 'modelprep-diagnostics.json',
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  });
+  if (target.canceled || !target.filePath) return { ok: false, canceled: true };
+  fs.writeFileSync(target.filePath, JSON.stringify(readErrorLog(), null, 2));
+  return { ok: true, path: target.filePath };
+});
+ipcMain.handle('diagnostics:report-problem', async (_event, payload = {}) => {
+  // Zero-backend beta feedback: open a prefilled GitHub issue with the user's
+  // note and a short sanitized error digest. The full log can be attached via
+  // Export. Nothing is sent automatically.
+  const note = errorLog.redact(String(payload.note || '')).slice(0, 1500);
+  const digest = errorLog.summarize(readErrorLog(), 5);
+  const body = `**What happened**\n${note || '(describe the problem)'}\n\n**Build**\n${errorLog.sanitizeEntry({ build: payload.build }).build || 'unknown'}\n\n**Recent diagnostics**\n\`\`\`\n${digest}\n\`\`\`\n\n_Attach the exported diagnostics file (Settings → Diagnostics → Export) if you can._`;
+  const url = `https://github.com/iamdjem/modelprep/issues/new?title=${encodeURIComponent('[beta] ' + (note.split('\n')[0] || 'Problem report').slice(0, 80))}&body=${encodeURIComponent(body)}`;
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
+// --- Auto-update (electron-updater via GitHub Releases) ---------------------
+// Beta testers must get fixes without re-downloading by hand. Runs only in the
+// packaged app; a missing/quiet update feed never blocks launch. Update state
+// is pushed to the renderer so the About tab can show it and offer Restart.
+let updateState = { status: 'idle' };
+function pushUpdateState(next) {
+  updateState = next;
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', updateState); } catch { /* window may be gone */ }
+}
+function initAutoUpdater() {
+  if (!autoUpdater || !app.isPackaged) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => pushUpdateState({ status: 'checking' }));
+  autoUpdater.on('update-available', (info) => pushUpdateState({ status: 'downloading', version: info && info.version }));
+  autoUpdater.on('update-not-available', () => pushUpdateState({ status: 'current' }));
+  autoUpdater.on('download-progress', (p) => pushUpdateState({ status: 'downloading', percent: Math.round((p && p.percent) || 0) }));
+  autoUpdater.on('update-downloaded', (info) => pushUpdateState({ status: 'ready', version: info && info.version }));
+  autoUpdater.on('error', (err) => {
+    // No published release / offline is normal; record but don't alarm the user.
+    recordError({ source: 'main', kind: 'unhandledRejection', message: `autoUpdater: ${err && err.message}`, context: 'update-check' });
+    pushUpdateState({ status: 'idle' });
+  });
+  autoUpdater.checkForUpdates().catch(() => { /* handled by 'error' */ });
+}
+ipcMain.handle('update:status', async () => updateState);
+ipcMain.handle('update:check', async () => { try { if (autoUpdater && app.isPackaged) await autoUpdater.checkForUpdates(); } catch { /* handled */ } return updateState; });
+ipcMain.handle('update:install', async () => {
+  if (updateState.status !== 'ready' || !autoUpdater) return { ok: false };
+  setImmediate(() => autoUpdater.quitAndInstall());
+  return { ok: true };
+});
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
@@ -2074,6 +2188,7 @@ app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   mainWindow = createMainWindow();
   releaseScheduler.start();
+  initAutoUpdater();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow();
   });
