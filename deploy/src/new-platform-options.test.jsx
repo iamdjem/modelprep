@@ -3,7 +3,7 @@ import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MakerRoadOptions, ThangsOptions, ThingiverseOptions, makerRoadReadbackIssues, platformPreflight } from './App.jsx';
+import { MakerRoadOptions, PlatformFilePicker, ThangsOptions, ThingiverseOptions, makerRoadReadbackIssues, platformPreflight } from './App.jsx';
 
 afterEach(cleanup);
 const noop = vi.fn();
@@ -35,6 +35,49 @@ describe('new direct-platform option parity', () => {
       platforms: { creality: { categoryId: '1575', license: 'CC BY-NC' } },
     });
     expect(result.errors).toContain('Creality Cloud tags may not exceed 30 characters.');
+  });
+  it('fails closed when every compatible file is excluded for a platform', () => {
+    const result = platformPreflight({ id: 'creality', name: 'Creality Cloud', formats: ['stl', '3mf'], limits: {} }, {
+      files: [{ id: 'f1', name: 'part.stl', size: 1 }], images: [{ id: 'cover' }], coverImageId: 'cover',
+      title: 'Dragon', description: 'A dragon', category: 'toys', tags: [],
+      platforms: { creality: { categoryId: '1575', license: 'CC BY-NC', excludedFileIds: ['f1'] } },
+    });
+    expect(result.errors).toContain('All compatible files are excluded for Creality Cloud — re-include at least one in its file list.');
+  });
+  it('lets per-platform file exclusions drop a slicer-specific variant', () => {
+    const files = [
+      { id: 'stl', name: 'dragon.stl', size: 1 },
+      { id: 'e3mf', name: 'dragon-E.3mf', size: 1, isProfile: true, threemf: { slicer: 'elegoo' } },
+    ];
+    const withExclusion = platformPreflight({ id: 'creality', name: 'Creality Cloud', formats: ['stl', '3mf'], limits: {} }, {
+      files, images: [{ id: 'cover' }], coverImageId: 'cover',
+      title: 'Dragon', description: 'A dragon', category: 'toys', tags: [],
+      platforms: { creality: { categoryId: '1575', license: 'CC BY-NC', excludedFileIds: ['e3mf'] } },
+    });
+    expect(withExclusion.errors).toEqual([]);
+    const withoutExclusion = platformPreflight({ id: 'creality', name: 'Creality Cloud', formats: ['stl', '3mf'], limits: {} }, {
+      files, images: [{ id: 'cover' }], coverImageId: 'cover',
+      title: 'Dragon', description: 'A dragon', category: 'toys', tags: [],
+      platforms: { creality: { categoryId: '1575', license: 'CC BY-NC' } },
+    });
+    expect(withoutExclusion.warnings.join(' ')).toMatch(/sliced outside Creality Print/);
+  });
+  it('renders the per-platform file picker with slicer badges and toggles exclusions', () => {
+    const onUpdate = vi.fn();
+    render(<PlatformFilePicker
+      platform={{ id: 'creality', name: 'Creality Cloud', formats: ['stl', '3mf'] }}
+      project={{ files: [
+        { id: 'stl', name: 'dragon.stl' },
+        { id: 'e3mf', name: 'dragon-E.3mf', isProfile: true, threemf: { slicer: 'elegoo' } },
+      ] }}
+      opts={{ excludedFileIds: [] }}
+      onUpdate={onUpdate}
+    />);
+    expect(screen.getByText('Elegoo Slicer')).toBeInTheDocument();
+    const checkbox = screen.getByLabelText('Send dragon-E.3mf to Creality Cloud');
+    expect(checkbox).toBeChecked();
+    checkbox.click();
+    expect(onUpdate).toHaveBeenCalledWith('excludedFileIds', ['e3mf']);
   });
   it('renders Thangs privacy and structure controls', () => {
     render(<ThangsOptions opts={{ publication: 'private', structure: 'single', units: 'mm' }} project={{ files: [] }} onUpdate={noop} />);

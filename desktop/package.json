@@ -8,7 +8,7 @@
     "build:renderer": "npm --prefix ../deploy run build -- --base=./",
     "build:makerworld-direct": "node scripts/build-makerworld-direct.mjs",
     "start": "npm run build:makerworld-direct && electron .",
-    "test": "npm run build:makerworld-direct && node --test auth-bridge.test.js claude-listing.test.js cli-process.test.js codex-listing.test.js creality-direct.test.js local-ai.test.js cults-direct.test.js makeronline-direct.test.js makeroad-direct.test.js makerworld-direct.test.js myminifactory-direct.test.js nexprint-direct.test.js preload.test.js printables-direct.test.js printables-session-cache.test.js renderer-target.test.js resource-telemetry.test.js thangs-direct.test.js thingiverse-direct.test.js thingiverse-session-capture.test.js",
+    "test": "npm run build:makerworld-direct && node --test auth-bridge.test.js claude-listing.test.js cli-process.test.js codex-listing.test.js creality-direct.test.js local-ai.test.js cults-browser-profile.test.js cults-direct.test.js cults-window-fetch.test.js makeronline-direct.test.js makeroad-direct.test.js makerworld-direct.test.js myminifactory-direct.test.js nexprint-direct.test.js preload.test.js printables-direct.test.js printables-session-cache.test.js renderer-target.test.js resource-telemetry.test.js release-scheduler.test.js thangs-direct.test.js thingiverse-direct.test.js thingiverse-session-capture.test.js",
     "dist": "npm run build:renderer && npm run build:makerworld-direct && electron-builder"
   },
   "build": {
@@ -18,13 +18,16 @@
       "main.js",
       "preload.js",
       "resource-telemetry.js",
+      "release-scheduler.js",
       "auth-bridge.js",
       "codex-listing.js",
       "claude-listing.js",
       "cli-process.js",
       "local-ai.js",
+      "cults-browser-profile.js",
       "creality-direct.js",
       "cults-direct.js",
+      "cults-window-fetch.js",
       "makerworld-direct.cjs",
       "makeronline-direct.js",
       "makeroad-direct.js",
@@ -42,7 +45,9 @@
       {
         "from": "../deploy/dist",
         "to": "renderer",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
@@ -69,7 +74,7 @@
     "ali-oss": "^6.23.0"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "43.2.0",
     "electron-builder": "^25.0.0",
     "esbuild": "0.28.1"
   }

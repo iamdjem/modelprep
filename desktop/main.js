@@ -15,6 +15,9 @@ const { resolveRendererTarget, isRendererNavigation } = require('./renderer-targ
 const { handlePrintablesRequest, printablesWhoamiDirect } = require('./printables-direct');
 const { createPrintablesSessionCache } = require('./printables-session-cache');
 const { CULTS_BASE, createCultsDirectClient } = require('./cults-direct');
+const { createWindowFetch } = require('./cults-window-fetch');
+const { createReleaseScheduler, hasPendingUnattended, mergeSyncedPlans } = require('./release-scheduler');
+const { isCultsChallengePage } = require('./cults-browser-profile');
 const { handleMakerWorldRequest, makerWorldLoginDirect } = require('./makerworld-direct.cjs');
 const { createNexprintDirectClient } = require('./nexprint-direct');
 const { CREATE_URL: CREALITY_LOGIN_URL, createCrealityDirectClient } = require('./creality-direct');
@@ -58,12 +61,19 @@ if (process.env.MODELPREP_USER_DATA_DIR) {
 
 // The app renders multiple <canvas> cover previews; GPU-accelerated canvas can crash the
 // renderer with EXC_BAD_ACCESS/SIGBUS on some Macs. Software rendering is plenty fast here
-// and avoids the crash.
+// and avoids the crash. Cults' current Cloudflare challenge also rejects a hardware-enabled
+// Electron 43 window, so enabling GPU is not a viable sign-in repair.
 app.disableHardwareAcceleration();
 
 // Must match the User-Agent used by the shared MakerWorld adapter so any
 // cf_clearance earned in the embedded login remains valid for direct requests.
 const WORKER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36';
+// Cloudflare compares the claimed browser with lower-level Chromium signals.
+// Cults3D windows use Electron's NATIVE user agent — do not override it. A
+// spoofed Chrome UA strips the matching User-Agent Client Hints
+// (navigator.userAgentData / sec-ch-ua), and Cloudflare reads that UA↔hints
+// mismatch as a bot and issues an unsolvable managed challenge. The honest
+// Electron UA keeps them consistent and passes the edge cleanly (verified live).
 // Packaged builds ship the matching renderer so a newer hosted UI can never run
 // against an older preload/IPC bridge. MODELPREP_URL remains an explicit local-QA
 // override; unpackaged `npm start` retains the hosted development fallback.
@@ -80,7 +90,10 @@ const NEXPRINT_LOGIN_URL = 'https://www.nexprint.com/en/upload';
 const WORKER_URL = process.env.MODELPREP_WORKER_URL || 'https://modelprep-backend.iamdjem.workers.dev';
 const MW_PARTITION = 'persist:makerworld'; // persistent session so cf_clearance survives
 const PRINTABLES_PARTITION = 'persist:printables';
-const CULTS_PARTITION_PREFIX = 'persist:cults-';
+// v2 intentionally starts clean: v1 partitions can contain clearance cookies
+// issued to the old mismatched Chrome-149/Chromium-130 fingerprint.
+const CULTS_PARTITION_PREFIX = 'persist:cults-v2-';
+const LEGACY_CULTS_PARTITION_PREFIX = 'persist:cults-';
 const NEXPRINT_PARTITION = 'persist:nexprint';
 const CREALITY_PARTITION = 'persist:creality';
 const MAKERONLINE_PARTITION = 'persist:makeronline';
@@ -90,8 +103,54 @@ const THANGS_PARTITION = 'persist:thangs';
 const THINGIVERSE_PARTITION = 'persist:thingiverse';
 const WANT = ['token', 'cf_clearance', 'refreshToken'];
 const printablesAuthCache = createPrintablesSessionCache();
+// Cults3D runs every request INSIDE the app's own signed-in Cults window (a
+// real Chromium page on the cults3d.com origin), not via session.fetch from the
+// Node context. Cloudflare accepts those because they carry the genuine browser
+// context that already passed its challenge — no extension, nothing to install.
+// One window per account is shared by BOTH interactive sign-in and the request
+// transport, so the exact Chromium context that clears Cloudflare is the one
+// requests run in. It is shown for sign-in and hidden the rest of the time.
+const cultsPageWindows = new Map(); // accountId -> BrowserWindow
+function createCultsWindow(accountId, { show } = {}) {
+  const win = new BrowserWindow({
+    show: !!show, width: 980, height: 900, title: 'Sign in to Cults3D',
+    webPreferences: { partition: cultsPartition(accountId), contextIsolation: true, nodeIntegration: false },
+  });
+  // Social sign-in (Google/Apple/…) opens popups; keep them in the same
+  // partition so the session cookie lands where requests read it. UA is left
+  // native on purpose (see the CULTS UA note above).
+  win.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      parent: win, width: 620, height: 780,
+      webPreferences: { partition: cultsPartition(accountId), contextIsolation: true, nodeIntegration: false },
+    },
+  }));
+  win.on('closed', () => { if (cultsPageWindows.get(accountId) === win) cultsPageWindows.delete(accountId); });
+  cultsPageWindows.set(accountId, win);
+  return win;
+}
+function ensureCultsPageWindow(accountId) {
+  const existing = cultsPageWindows.get(accountId);
+  if (existing && !existing.isDestroyed()) return Promise.resolve(existing);
+  const win = createCultsWindow(accountId, { show: false });
+  return new Promise((resolve) => {
+    win.webContents.once('did-finish-load', () => resolve(win));
+    win.webContents.once('did-fail-load', () => resolve(win)); // a Cloudflare interstitial still yields a usable cults3d.com origin
+    win.loadURL(`${CULTS_BASE}/en/creations/new`);
+  });
+}
+function cultsFetchForAccount(accountId) {
+  const runInPage = createWindowFetch({
+    executeInPage: async (code) => {
+      const win = await ensureCultsPageWindow(accountId);
+      return win.webContents.executeJavaScript(code, true);
+    },
+  });
+  return (url, options) => runInPage(url, options);
+}
 const cultsDirectClient = createCultsDirectClient({
-  fetchImplForAccount: (accountId) => cultsBrowserFetch(accountId),
+  fetchImplForAccount: (accountId) => cultsFetchForAccount(accountId),
   managedSession: true,
 });
 const nexprintDirectClient = createNexprintDirectClient();
@@ -123,18 +182,6 @@ function cultsPartition(accountId) {
   return `${CULTS_PARTITION_PREFIX}${id}`;
 }
 function cultsBrowserSession(accountId) { return session.fromPartition(cultsPartition(accountId)); }
-function cultsBrowserFetch(accountId) {
-  return async (url, options = {}) => {
-    const headers = new Headers(options.headers || {});
-    headers.delete('Cookie');
-    headers.set('User-Agent', WORKER_UA);
-    return cultsBrowserSession(accountId).fetch(url, {
-      ...options,
-      headers,
-      credentials: 'include',
-    });
-  };
-}
 function nexprintSession() { return session.fromPartition(NEXPRINT_PARTITION); }
 function crealitySession() { return session.fromPartition(CREALITY_PARTITION); }
 function makerOnlineSession() { return session.fromPartition(MAKERONLINE_PARTITION); }
@@ -1046,61 +1093,55 @@ function openPrintablesLoginAndCapture(parent) {
 
 function openCultsLoginAndCapture(parent, accountId) {
   return new Promise((resolve, reject) => {
-    const partition = cultsPartition(accountId);
-    const login = new BrowserWindow({
-      width: 860, height: 900, parent, modal: false, title: 'Sign in to Cults3D',
-      webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
-    });
-    login.webContents.setUserAgent(WORKER_UA);
-    login.loadURL(`${CULTS_BASE}/en/users/sign-in`, { userAgent: WORKER_UA });
-    login.webContents.setWindowOpenHandler(() => ({
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        parent: login, width: 620, height: 780,
-        webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
-      },
-    }));
-    login.webContents.on('did-create-window', (child) => {
-      try { child.webContents.setUserAgent(WORKER_UA); } catch { /* */ }
-    });
+    // Reuse the account's request window as the sign-in window, so the same
+    // Chromium context solves Cloudflare and later issues requests.
+    let win = cultsPageWindows.get(accountId);
+    if (!win || win.isDestroyed()) win = createCultsWindow(accountId, { show: true });
+    try { if (parent) win.setParentWindow(parent); } catch { /* parent is optional */ }
+    win.show();
+    win.focus();
+    win.loadURL(`${CULTS_BASE}/en/users/sign-in`);
 
     let done = false;
-    const finish = (fn, value) => {
-      if (done) return;
-      done = true;
+    const cleanup = () => {
       clearInterval(poll);
       clearTimeout(timer);
-      if (!login.isDestroyed()) login.close();
-      fn(value);
+      if (!win.isDestroyed()) {
+        win.webContents.removeListener('did-finish-load', attempt);
+        win.webContents.removeListener('did-navigate', attempt);
+        win.webContents.removeListener('did-navigate-in-page', attempt);
+        win.removeListener('closed', onClosed);
+      }
     };
     const attempt = async () => {
-      if (done) return;
-      try {
-        const identity = await cultsDirectClient.connect(null, accountId);
-        finish(resolve, identity);
-      } catch { /* Cloudflare or sign-in is still in progress */ }
-    };
-    const poll = setInterval(attempt, 1200);
-    login.webContents.on('did-finish-load', attempt);
-    login.webContents.on('did-navigate', attempt);
-    login.webContents.on('did-navigate-in-page', attempt);
-    const timer = setTimeout(
-      () => finish(reject, new Error('Cults3D sign-in timed out — please try again.')),
-      10 * 60 * 1000,
-    );
-    login.on('closed', async () => {
-      if (done) return;
-      clearInterval(poll);
-      clearTimeout(timer);
+      if (done || win.isDestroyed()) return;
+      if (isCultsChallengePage({ title: win.webContents.getTitle(), url: win.webContents.getURL() })) return;
       try {
         const identity = await cultsDirectClient.connect(null, accountId);
         done = true;
+        cleanup();
+        if (!win.isDestroyed()) win.hide(); // keep the authenticated window for requests
         resolve(identity);
-        return;
-      } catch { /* report the normal close result below */ }
+      } catch { /* Cloudflare or sign-in still in progress */ }
+    };
+    const onClosed = () => {
+      if (done) return;
       done = true;
+      cleanup();
       reject(new Error('Sign-in window was closed before ModelPrep could verify the Cults3D session.'));
-    });
+    };
+    const poll = setInterval(attempt, 1200);
+    win.webContents.on('did-finish-load', attempt);
+    win.webContents.on('did-navigate', attempt);
+    win.webContents.on('did-navigate-in-page', attempt);
+    win.on('closed', onClosed);
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      if (!win.isDestroyed()) win.hide();
+      reject(new Error('Cults3D sign-in timed out — please try again.'));
+    }, 10 * 60 * 1000);
   });
 }
 
@@ -1559,7 +1600,13 @@ ipcMain.handle('cults:disconnect', async (_event, accountId) => {
     delete accounts[id];
     await storeEncryptedCultsAccounts(accounts);
   }
-  if (id) await cultsBrowserSession(id).clearStorageData();
+  if (id) {
+    const pageWindow = cultsPageWindows.get(id);
+    if (pageWindow && !pageWindow.isDestroyed()) pageWindow.destroy();
+    cultsPageWindows.delete(id);
+    await cultsBrowserSession(id).clearStorageData();
+    await session.fromPartition(`${LEGACY_CULTS_PARTITION_PREFIX}${id}`).clearStorageData();
+  }
   cultsDirectClient.clear(id);
   return { ok: true };
 });
@@ -1966,6 +2013,53 @@ ipcMain.handle('thingiverse:request', async (_event, request = {}) => { const co
 ipcMain.handle('thingiverse:disconnect', async () => { await thingiverseSession().clearStorageData(); await clearEncryptedThingiverseSession(); thingiverseContextCache = null; return { ok: true }; });
 
 let mainWindow = null;
+
+// --- Release scheduler (fires even when the window is closed) ----------------
+// The renderer syncs its release plans here so the main process can persist them
+// and keep firing reminders / unattended publishes after the window is gone.
+function releasePlansPath() { return path.join(app.getPath('userData'), 'release-plans.json'); }
+function readMainReleasePlans() {
+  try { const raw = fs.readFileSync(releasePlansPath(), 'utf8'); const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : []; }
+  catch { return []; }
+}
+function writeMainReleasePlans(plans) {
+  try { fs.writeFileSync(releasePlansPath(), JSON.stringify(plans), { mode: 0o600 }); } catch { /* best effort */ }
+}
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow();
+  else { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
+  return mainWindow;
+}
+function notifyReleasePlanNative(plan, opts = {}) {
+  if (!Notification.isSupported || !Notification.isSupported()) return;
+  const title = opts.unattended
+    ? `ModelPrep: auto-publishing to ${plan.platformName || plan.platformId}`
+    : `ModelPrep: ${plan.platformName || plan.platformId} release due`;
+  const body = `${plan.projectTitle || 'A project'}${plan.note ? ` — ${plan.note}` : ''}`;
+  const notification = new Notification({ title, body });
+  notification.on('click', () => { const win = showMainWindow(); try { win.webContents.send('release:open-queue'); } catch { /* window may still be loading */ } });
+  notification.show();
+}
+const releaseScheduler = createReleaseScheduler({
+  getPlans: readMainReleasePlans,
+  savePlans: writeMainReleasePlans,
+  notify: (plan, opts) => notifyReleasePlanNative(plan, opts),
+  openWindowForPublish: (plan) => {
+    // Reopen the app so the renderer's own session-checked publish path runs;
+    // tell it exactly which plan came due so it navigates and auto-publishes.
+    const win = showMainWindow();
+    const send = () => { try { win.webContents.send('release:run-scheduled', plan.id); } catch { /* retry below */ } };
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send); else send();
+  },
+});
+ipcMain.handle('release-plans:sync', async (_event, plans) => {
+  const merged = mergeSyncedPlans(readMainReleasePlans(), Array.isArray(plans) ? plans : []);
+  writeMainReleasePlans(merged);
+  releaseScheduler.tick();
+  return { ok: true };
+});
+ipcMain.handle('release-plans:get', async () => readMainReleasePlans());
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
@@ -1979,8 +2073,16 @@ app.on('second-instance', () => {
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   mainWindow = createMainWindow();
+  releaseScheduler.start();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow();
   });
 });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+// Closing the window normally quits on Windows/Linux — unless the user opted a
+// plan into unattended publishing, in which case main stays alive (headless) so
+// the scheduler can still fire. macOS keeps the app alive as usual.
+app.on('window-all-closed', () => {
+  if (process.platform === 'darwin') return;
+  if (hasPendingUnattended(readMainReleasePlans(), Date.now())) return;
+  app.quit();
+});

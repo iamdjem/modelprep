@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('modelprepDesktop', {
   isDesktop: true,
-  bridgeVersion: 8,
+  bridgeVersion: 9,
   // Returns aggregate process/resource counts only. No project, platform,
   // account, request, file, URL, cookie, or token data crosses this channel.
   captureResourceTelemetry: (state) => ipcRenderer.invoke('telemetry:resource-snapshot', state),
@@ -48,6 +48,13 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   requestCults: (request) => ipcRenderer.invoke('cults:request', request),
   cultsStatus: (accountId) => ipcRenderer.invoke('cults:status', accountId),
   disconnectCults: (accountId) => ipcRenderer.invoke('cults:disconnect', accountId),
+  // Release scheduler: renderer syncs its plans so main can fire reminders and
+  // unattended publishes even after the window closes; main calls back to run a
+  // due plan or open the queue.
+  syncReleasePlans: (plans) => ipcRenderer.invoke('release-plans:sync', plans),
+  getReleasePlans: () => ipcRenderer.invoke('release-plans:get'),
+  onRunScheduledRelease: (cb) => { const h = (_e, id) => cb(id); ipcRenderer.on('release:run-scheduled', h); return () => ipcRenderer.removeListener('release:run-scheduled', h); },
+  onOpenReleaseQueue: (cb) => { const h = () => cb(); ipcRenderer.on('release:open-queue', h); return () => ipcRenderer.removeListener('release:open-queue', h); },
   // Nexprint's real sign-in page writes an auth token into a dedicated session.
   // The token and cookies remain in the main process for direct upload requests.
   connectNexprint: () => ipcRenderer.invoke('nexprint:connect'),

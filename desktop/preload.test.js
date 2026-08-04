@@ -22,6 +22,8 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
             invoked.push([channel, ...args]);
             return Promise.resolve({ ok: true });
           },
+          on() {},
+          removeListener() {},
         },
       };
     },
@@ -33,7 +35,7 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   );
 
   assert.equal(exposed.isDesktop, true);
-  assert.equal(exposed.bridgeVersion, 8);
+  assert.equal(exposed.bridgeVersion, 9);
   assert.equal(typeof exposed.captureResourceTelemetry, 'function');
   assert.equal(typeof exposed.pickGalleryImages, 'function');
   assert.equal(typeof exposed.discoverAccounts, 'function');
@@ -58,6 +60,9 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   assert.equal(typeof exposed.generateCliListing, 'function');
   assert.equal(typeof exposed.detectLocalAi, 'function');
   assert.equal(typeof exposed.localAiChat, 'function');
+  for (const method of ['syncReleasePlans', 'getReleasePlans', 'onRunScheduledRelease', 'onOpenReleaseQueue']) {
+    assert.equal(typeof exposed[method], 'function', `release scheduler is missing ${method}`);
+  }
 
   exposed.captureResourceTelemetry({ phase: 'ready', active: 0, total: 10 });
   exposed.pickGalleryImages();

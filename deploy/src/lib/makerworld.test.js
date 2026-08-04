@@ -154,4 +154,46 @@ describe('MakerWorld upload contracts', () => {
     }, { uploadAllowed: false });
     expect(bannedIssues.errors).toContain('MakerWorld upload is disabled for this account.');
   });
+
+  it('fails closed when the primary print profile was sliced outside Bambu Studio', () => {
+    const project = completeProject();
+    project.files[0].threemf = { slicer: 'elegoo', sliced: true };
+    const issues = makerWorldPublishIssues(project, {
+      productMode: '3d', categoryId: 401, primaryProfileFileId: 'profile-file',
+    });
+    expect(issues.errors.join(' ')).toMatch(/sliced in Elegoo Slicer.*only accepts Bambu Studio/);
+    // A user override back to Bambu clears the block (detection is advisory).
+    project.files[0].slicerOverride = 'bambu';
+    expect(makerWorldPublishIssues(project, {
+      productMode: '3d', categoryId: 401, primaryProfileFileId: 'profile-file',
+    }).errors.join(' ')).not.toMatch(/only accepts Bambu Studio/);
+  });
+
+  it('prefers a detected Bambu 3MF as the default primary profile', () => {
+    const project = completeProject();
+    project.files = [
+      { id: 'elegoo-file', name: 'organizer-E.3mf', threemf: { slicer: 'elegoo' } },
+      { id: 'bambu-file', name: 'organizer.3mf', threemf: { slicer: 'bambu' } },
+    ];
+    project.profiles = [
+      { fileId: 'elegoo-file', name: 'E', useMainCover: true, photoIds: ['image-2'], realPhotoConfirmed: true, guidelinesAccepted: true },
+      { fileId: 'bambu-file', name: '0.2mm standard', useMainCover: true, photoIds: ['image-2'], realPhotoConfirmed: true, guidelinesAccepted: true },
+    ];
+    const issues = makerWorldPublishIssues(project, { productMode: '3d', categoryId: 401 });
+    expect(issues.errors.join(' ')).not.toMatch(/only accepts Bambu Studio/);
+  });
+
+  it('drops files excluded for MakerWorld from its upload set', () => {
+    const project = completeProject();
+    project.files = [
+      { id: 'keep', name: 'organizer.stl' },
+      { id: 'drop', name: 'organizer-E.3mf', threemf: { slicer: 'elegoo' } },
+    ];
+    project.profiles = [];
+    const issues = makerWorldPublishIssues(project, {
+      productMode: '3d', categoryId: 401, excludedFileIds: ['drop'],
+    });
+    expect(issues.files.map((file) => file.id)).toEqual(['keep']);
+    expect(issues.errors.join(' ')).not.toMatch(/only accepts Bambu Studio/);
+  });
 });

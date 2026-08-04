@@ -348,3 +348,75 @@ Automated re-verification after these changes (2026-08-04 afternoon):
   `cults-direct.js` publish path was fixed (`request` → `requestFetch`) and the
   full desktop suite passes with it. Its live reconnect certification is still
   pending interactive sign-in.
+
+## 2026-08-04 feature addition — per-platform file selection and real 3MF slicer detection
+
+Two renderer features landed after the afternoon supplement:
+
+1. **Per-platform file selection.** Every platform's options now carry
+   `excludedFileIds`. Each publish flow and the shared preflight pass their
+   candidate list through `withoutExcluded()` (`deploy/src/lib/platform-files.js`),
+   and every enabled platform card renders a file checklist
+   (`PlatformFilePicker`) listing exactly the files its flow would upload.
+   An empty exclusion list is a strict no-op, so all certified flows behave
+   identically until a user unchecks something. Preflight fails closed when
+   every compatible file is excluded.
+2. **Real .3mf metadata parsing and slicer attribution.** The mock 3MF parser
+   is replaced for imported files by `deploy/src/lib/threemf.js`, which reads
+   the package's own metadata entries (Application string,
+   `Metadata/slice_info.config`, `Metadata/project_settings.config`,
+   `Metadata/Slic3r_PE.config`) via the bundled JSZip. Detected slicer
+   (Bambu Studio / OrcaSlicer / Elegoo / Creality Print / Anycubic / Prusa /
+   Cura / unknown), printer, material, layer height, plate count, time and
+   filament weight populate the file badge and the Profiles-step stats.
+   Detection is advisory: a per-file override select on the file row always
+   wins, and malformed packages resolve to "unknown" without blocking import.
+
+Wired consequences:
+
+- MakerWorld preflight fails closed when the primary print profile's effective
+  slicer is known and not Bambu Studio, before any upload (previously this
+  surfaced only as MakerWorld's post-upload rejection). The default primary
+  3MF now prefers a detected Bambu file.
+- Creality preflight warns when included profile 3MFs were sliced outside
+  Creality Print (they upload as plain files; the parsed print-settings branch
+  stays gated).
+- Demo mode keeps its synthetic profile stats; only real imported files are
+  scanned.
+
+Verification: renderer suite green after the change (see commit for exact
+counts) including new unit tests for the parser (real ZIP fixtures per
+slicer family), the exclusion helper no-op invariant, preflight exclusion
+errors, the MakerWorld Bambu gate with override, and the picker component.
+No platform contract changed; no live upload was performed for this work.
+
+## 2026-08-04 feature addition — release reminders and scheduled uploads
+
+Driven by creator feedback (staggered Thangs-premium → Cults releases with a
+two-week exclusivity window): each enabled direct platform's card now carries a
+**Release plan** (none / remind / publish automatically) with a date-time and a
+free-text note. Plans persist in renderer-local storage
+(`modelprep:release-plans:v1`, one pending plan per project+platform) and are
+implemented in `deploy/src/lib/release-plan.js` with a subscribable store in
+the renderer.
+
+Behavior, verified live in the dev renderer:
+
+- A root-level scheduler (always mounted) checks every 30 seconds; newly due
+  plans fire a system notification once and are marked notified.
+- Due **scheduled** plans additionally auto-navigate to the Publish step,
+  which auto-starts a normal single-target publish batch through the existing
+  pipeline **only if** the platform target is connected and preflight-clean;
+  otherwise the plan safely degrades to an overdue reminder (verified: with no
+  connected account the auto-start correctly refused and the queue showed the
+  overdue entry).
+- The Publish step renders a **Release queue** (also in the locked
+  incomplete-project state) with due badges, publish-now and dismiss actions;
+  plans for other projects are listed but publish-now requires opening that
+  project. Scheduled publishes run only while ModelPrep is open; there is no
+  background daemon and no unattended session handling.
+
+Verification: renderer 43 files / 253 tests passing (new: release-plan lib
+suite and ReleasePlanControls persistence/validation UI tests) plus production
+build. Desktop and backend are untouched by this feature. No live upload was
+performed.

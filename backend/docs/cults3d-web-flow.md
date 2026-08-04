@@ -146,6 +146,25 @@ Legacy encrypted email/password records are retained until reconnect succeeds,
 then overwritten by session-only metadata; legacy renderer passwords are
 scrubbed immediately and marked reconnect.
 
+The first packaged browser-session build still looped on the interactive
+challenge. It reused MakerWorld's fixed Chrome 149 user agent while Electron 33
+actually shipped Chromium 130, and it probed the protected create page every
+1.2 seconds while the challenge was still visible. Both are strong bot signals.
+The corrected build upgrades to Electron 43 / Chromium 150, derives the Cults
+UA from `process.versions.chrome`, skips background validation while the window
+is a Cloudflare challenge page, and starts with a clean `cults-v2` partition.
+MakerWorld's separate fixed-UA partition is unchanged.
+
+Interactive DevTools verification tested the historical
+`app.disableHardwareAcceleration()` canvas-crash workaround as a possible final
+mismatch. With it removed, WebGL and WebGL2 were hardware-backed by the Apple
+GPU, but Electron still exposed no WebGPU adapter and its client hints identified
+`Chromium 150`, not Google Chrome. Cloudflare closed the challenge POST at the
+network edge, then returned HTTP 403 and reloaded under a new Ray ID. Because a
+hardware-enabled Electron window still fails and restores the old multi-canvas
+SIGBUS risk, the GPU workaround remains in place. The embedded-window approach
+must not be presented as a reliable Cults sign-in path.
+
 Browser builds now fail closed with `desktop_required` for Cults routes. The
 Worker endpoints remain only as compatibility/reference code: forwarding a
 password cannot safely complete the current browser challenge, and a normal
@@ -646,3 +665,127 @@ Routes in `backend/src/index.ts`:
 - This file — every new gotcha goes in the gotchas list, every new enum value documented
 
 Documentation policy: edit this in the **same commit** as the adapter change. Never "I'll docs later." The next person to debug a Cults change will be you-in-three-months, and you won't remember.
+
+## Cults3D in-app browser sign-in (2026-08-04)
+
+Cloudflare bot-mitigation rejects both server-side login and requests made from
+Electron's Node context via `session.fetch` (403 `cf-mitigated: challenge`),
+even when they carry the partition's cookies. Testing on this machine:
+
+| Approach | Result |
+| --- | --- |
+| Node/Worker email-password login | 403 challenge before credentials |
+| Electron `session.fetch` with partition cookies | challenge / rejected |
+| Requests run inside a real signed-in Chromium page | works |
+
+The reason `session.fetch` fails is that it lacks the rendered page's browser
+context (TLS/JS fingerprint and the `cf_clearance` the challenge issued to the
+page). The fix — no extension, nothing to install: run every Cults request
+INSIDE the app's own signed-in Cults window, a real Chromium page on the
+`cults3d.com` origin, via `webContents.executeJavaScript`. Requests then go out
+with the exact browser context Cloudflare already cleared, the same way Cults'
+own uploader page issues them.
+
+Implementation:
+
+- `desktop/cults-window-fetch.js` — builds the in-page `fetch` script and turns
+  its result back into a normal `Response`, so the Cults client
+  (`cults-direct.js`, built around an injected `fetchImpl`) is unchanged. It
+  strips browser-forbidden request headers (`Cookie`/`User-Agent`/`Origin`/…,
+  which the page supplies itself), base64-encodes bodies for S3 uploads, and —
+  because page `fetch` can't expose `redirect: 'manual'` — follows redirects and
+  re-synthesizes a `302` whose `Location` is the final URL, preserving the
+  client's sign-in/confirmation redirect checks.
+- `desktop/main.js` — keeps one hidden `BrowserWindow` per account on the
+  `persist:cults-v2-<id>` partition, loaded on `cults3d.com`, and routes the
+  account's `fetchImpl` through `executeJavaScript` in it. Interactive sign-in
+  still opens the visible Cults window (same partition); after sign-in the
+  hidden request window is rebuilt so it starts authenticated. Disconnect
+  destroys the window and clears the partition.
+
+The earlier Chrome-extension companion (loopback bridge + `extension-cults/`)
+was removed: the user does not want a browser extension, and an owned Electron
+window is a real browser too, so no external Chrome is needed.
+
+**Certification status.** `cults-window-fetch` is unit-tested, including
+executing the generated in-page script against a mock page `fetch`
+(request/response encoding, forbidden-header stripping, manual-redirect
+synthesis, error surfacing). End-to-end certification is user-interactive: open
+the packaged app, Reconnect Cults3D, sign in through the ModelPrep window, and
+confirm identity + the create form read back. Then, with explicit action-time
+authorization, publish one secret draft before relying on it.
+
+## Superseded: Cults3D Chrome companion (2026-08-04)
+
+Cloudflare bot-mitigation now rejects both server-side login and Electron's own
+replayed session with `403 cf-mitigated: challenge`. Testing on this machine:
+
+| Approach | Result |
+| --- | --- |
+| Node/Worker email-password login | 403 `cf-mitigated: challenge` before credentials |
+| Electron browser-window session (commit d635129) | challenge appears, Cloudflare rejects the verification |
+| Real signed-in Chrome profile | works: account recognized, `/en/creations/new` loads with model/media inputs |
+| Cults GraphQL API key | endpoint available; not tested (no key configured) and narrower than the web flow |
+
+Commit d635129 did not create the challenge; it attempted to handle a
+server-side Cloudflare change after the old direct login began failing.
+
+**Implemented solution — Chrome companion (read-only first).** ModelPrep tunnels
+each Cults request out to a Chrome extension that executes it in the user's real,
+signed-in Chrome, then returns the response. Cookies and Cloudflare clearance
+never leave Chrome. The Cults client (`desktop/cults-direct.js`) is unchanged —
+it is built around an injected `fetchImpl`, so the companion is simply a
+different fetch that routes through the bridge when a companion is connected for
+that account, falling back to the Electron partition otherwise.
+
+Components:
+
+- `desktop/cults-chrome-bridge.js` — loopback reverse-tunnel core: per-account
+  request queue, long-poll waiters, bearer-token auth, timing-safe token
+  compare, base64 body transport with a size cap, and a **read-only gate**
+  (non-GET requests are refused until publishing is explicitly authorized per
+  account). Returns a normal `Response` so the client is unaware of the tunnel.
+- `desktop/cults-chrome-bridge-server.js` — 127.0.0.1-only HTTP wrapper
+  (`/pull`, `/result`, `/health`); every non-health call requires the token.
+- `extension-cults/` — MV3 companion. `background.js` long-polls the bridge and
+  runs each request with `credentials: 'include'`; `bridge-core.js` holds the
+  unit-tested host allow-list (only `cults3d.com` + its S3 bucket, https only),
+  Cloudflare-challenge detection, and request/response base64 encoding; the
+  popup does one-time bridge setup and shows a live Cults sign-in dot.
+- `desktop/main.js` — starts the bridge lazily, routes Cults through it when a
+  companion is connected, and exposes `cults:companion-info` / `-status` /
+  `-authorize-publish` IPC. The renderer's `CultsCompanionPanel` surfaces the
+  bridge address/token/account id and connection state in Settings → Cults3D.
+
+**Certification status.** The bridge, server and extension core are unit-tested
+(bridge 10, server 3, extension core 4). End-to-end certification is
+user-interactive and not yet done: load the unpacked `extension-cults/`, sign in
+to Cults3D in that Chrome, connect the companion, and confirm ModelPrep reads
+identity and the create form read-only. Only then, with explicit action-time
+authorization, should one secret draft be published through the companion before
+it replaces the Electron sign-in as the default. One caveat: the passing Chrome
+test used an existing signed-in profile, so a fresh-profile login/CAPTCHA path is
+still unproven.
+
+### Root cause of the Cloudflare challenge (2026-08-04, live-tested)
+
+Headless Electron probes against live `cults3d.com/en/creations/new` isolated
+the actual cause and the fix:
+
+- **Spoofed UA → challenge.** Setting a fake `Chrome/150…` user agent (what the
+  code did) strips the matching User-Agent Client Hints: `navigator.userAgentData`
+  came back `null` while the UA string claimed Chrome. Cloudflare reads that
+  UA↔hints inconsistency as a bot and serves an unsolvable managed challenge —
+  the page stayed on "Just a moment…" and the in-page fetch returned
+  `403 cf-mitigated: challenge`.
+- **Native Electron UA → passes.** With no UA override, `navigator.userAgentData`
+  is consistent (`"Not;A=Brand","Chromium"`) and Cloudflare's managed challenge
+  auto-cleared even in a hidden window: the page reached `Log in・Cults` and the
+  in-page fetch returned a clean `302 → /en/log-in-choice`, no challenge.
+
+Fix: `desktop/main.js` no longer sets a custom UA on any Cults window. The
+signed-in window that clears the challenge is also the one requests run in
+(one window per account), so authenticated fetches carry the same cleared
+context. `desktop/scripts/cults-transport-probe.js` reproduces the check
+(`node_modules/.bin/electron scripts/cults-transport-probe.js`). The earlier
+`cultsChromiumUserAgent` UA is now unused by the window transport.

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, createContext, useContext } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, createContext, useContext, useSyncExternalStore } from 'react';
 import {
   mdToHtml, mdToPlain, mdToMakerWorldHtml, formatBytes,
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
@@ -38,6 +38,13 @@ import {
   isDesktopCrealitySession,
 } from './lib/creality-auth.js';
 import { crealityResponseError, uploadCrealityFile } from './lib/creality-upload.js';
+import { fileSlicer, parseThreeMF, slicerLabel, SLICERS } from './lib/threemf.js';
+import { isFileExcluded, toggleExcludedFileId, withoutExcluded } from './lib/platform-files.js';
+import {
+  describeDue, dueReleasePlans, dueScheduledTargets, loadReleasePlans, patchReleasePlan,
+  pendingReleasePlans, planForProjectPlatform, releasePlanIssues, removeReleasePlan,
+  saveReleasePlans, unnotifiedDuePlans, upsertReleasePlan,
+} from './lib/release-plan.js';
 import {
   CREALITY_CATEGORIES,
   CREALITY_INSTRUCTION_FORMATS,
@@ -470,6 +477,48 @@ function galleryCapacity(platform) {
 // title/tag length caps (their APIs declare the fields as bare strings). We deliberately
 // leave their `limits` unset rather than invent numbers — so they impose no cap until a
 // value is verified from their authenticated upload form (same approach as the MW capture).
+
+// Files a platform's upload flow would consider, before per-platform exclusions.
+// Mirrors what each flow's own format filter accepts, so the Platforms-step file
+// picker shows exactly the set that would otherwise upload.
+const FORMAT_FILTERED_PLATFORM_IDS = new Set(['printables', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs']);
+export function platformCandidateFiles(platform, project) {
+  return FORMAT_FILTERED_PLATFORM_IDS.has(platform.id)
+    ? project.files.filter((file) => platform.formats.includes(fileExt(file.name)) && !file.isImage)
+    : project.files.filter((f) => f.isModel);
+}
+
+// --- Release plans (reminders + scheduled uploads) ---------------------------
+// A tiny subscribable store over localStorage so the Platforms cards, the
+// Publish queue and the root scheduler all see one consistent list without
+// prop-drilling. Scheduled publishes run only while the app is open.
+export const releasePlanStore = (() => {
+  const storage = typeof window !== 'undefined' ? window.localStorage : null;
+  let plans = loadReleasePlans(storage);
+  const listeners = new Set();
+  return {
+    get: () => plans,
+    set(next) {
+      plans = next;
+      saveReleasePlans(storage, plans);
+      listeners.forEach((listener) => listener());
+    },
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+  };
+})();
+function useReleasePlans() {
+  return useSyncExternalStore(releasePlanStore.subscribe, releasePlanStore.get, releasePlanStore.get);
+}
+function notifyReleasePlan(plan) {
+  if (typeof Notification === 'undefined') return;
+  const show = () => new Notification(`ModelPrep: ${plan.platformName || plan.platformId} release due`, {
+    body: `${plan.projectTitle} — ${plan.mode === 'scheduled' ? 'scheduled publish is starting from the Publish step' : 'time to publish'}${plan.note ? ` (${plan.note})` : ''}`,
+  });
+  try {
+    if (Notification.permission === 'granted') show();
+    else if (Notification.permission !== 'denied') Notification.requestPermission().then((perm) => { if (perm === 'granted') show(); });
+  } catch { /* notifications are best-effort */ }
+}
 
 // The binding limit for a shared field across several targets is the STRICTEST (min) of the
 // targeted platforms that actually declare one. Returns {titleMax, titleMaxBy, ...}.
@@ -1451,6 +1500,47 @@ function buildImportSummaryText(s) {
 export default function App() {
   const [project, dispatchProject] = useReducer(projectReducer, initialProject);
   const [currentSection, setCurrentSection] = useState('files');
+
+  // Release-plan scheduler: while the app is open, surface due reminders as
+  // system notifications and, for scheduled uploads, jump to the Publish step
+  // so its (only-mounted-there) batch machinery can auto-start the publish.
+  const releasePlans = useReleasePlans();
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      const plans = releasePlanStore.get();
+      const due = unnotifiedDuePlans(plans, now);
+      if (!due.length) return;
+      let next = plans;
+      for (const plan of due) {
+        notifyReleasePlan(plan);
+        next = patchReleasePlan(next, plan.id, { notifiedAt: now });
+      }
+      releasePlanStore.set(next);
+      if (due.some((plan) => plan.mode === 'scheduled')) setCurrentSection('publish');
+    };
+    tick();
+    const timer = setInterval(tick, 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Desktop: mirror release plans into the main process so reminders and
+  // unattended publishes keep firing after the window is closed, and respond
+  // when main reopens the app to run a due plan or show the queue.
+  useEffect(() => {
+    const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+    if (!desktop?.syncReleasePlans) return undefined;
+    const push = () => { try { desktop.syncReleasePlans(releasePlanStore.get()); } catch { /* main may be busy */ } };
+    push();
+    const unsub = releasePlanStore.subscribe(push);
+    const offRun = desktop.onRunScheduledRelease?.((planId) => {
+      const plan = releasePlanStore.get().find((p) => p.id === planId);
+      if (plan) setCurrentSection('publish'); // PublishSection's effect does the session-checked publish
+    });
+    const offQueue = desktop.onOpenReleaseQueue?.(() => setCurrentSection('publish'));
+    return () => { unsub?.(); offRun?.(); offQueue?.(); };
+  }, []);
+
   const workspaceMainRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('modelprep.sidebarCollapsed') === 'true'; } catch (error) { return false; }
@@ -1618,6 +1708,35 @@ export default function App() {
   const updateProject = (patch) => dispatchProject({ type: 'PATCH', patch });
   const setProject = (v) => dispatchProject(typeof v === 'function' ? { type: 'APPLY', updater: v } : { type: 'SET', value: v });
 
+  // Scan newly added 3MF files for their real slicer/print metadata. Detection
+  // is advisory: it sets badges, profile stats and smart defaults, and the user
+  // can override the attribution per file. Failures mark the file scanned with
+  // slicer "unknown" so a malformed package never blocks import or loops here.
+  useEffect(() => {
+    const pending = project.files.filter((f) => f.isProfile && f.blob && !f.threemf);
+    if (!pending.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const file of pending) {
+        const scan = await parseThreeMF(file.blob, loadJSZip);
+        if (cancelled) return;
+        setProject((prev) => ({
+          ...prev,
+          files: prev.files.map((f) => (f.id === file.id ? { ...f, threemf: scan } : f)),
+          profiles: prev.profiles.map((p) => (p.fileId === file.id && !p.parsed
+            ? { ...p, parsed: scan.sliced || scan.printer ? {
+              printer: scan.printer || '', material: scan.material || '',
+              layerHeight: scan.layerHeight || '', plates: scan.plates || null,
+              estimatedTime: scan.estimatedTime || '', filamentGrams: scan.filamentGrams || null,
+            } : p.parsed }
+            : p)),
+        }));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.files]);
+
   // Auto-generate profile entries when 3MF files are added
   useEffect(() => {
     // Single functional update derived from the previous state, so adding new
@@ -1641,7 +1760,8 @@ export default function App() {
           compatiblePrinters: [],
           realPhotoConfirmed: false,
           guidelinesAccepted: false,
-          parsed: mockParseThreeMF(f.name),
+          // Real stats arrive asynchronously from the 3MF metadata scan.
+          parsed: null,
         }));
       // No change → return prev to avoid an extra render.
       if (!added.length && kept.length === prev.profiles.length) return prev;
@@ -2321,11 +2441,15 @@ export function platformPreflight(platform, project) {
   const errors = [], warnings = [];
   const lim = platform.limits || {};
   const MB = 1024 * 1024;
-  const modelFiles = platform.id === 'printables' || platform.id === 'nexprint' || platform.id === 'creality' || platform.id === 'makeronline' || platform.id === 'mmf' || platform.id === 'makeroad' || platform.id === 'thangs'
-    ? project.files.filter((file) => platform.formats.includes(fileExt(file.name)) && !file.isImage)
-    : project.files.filter(f => f.isModel);
+  const candidateFiles = platformCandidateFiles(platform, project);
+  const platformOpts = project.platforms?.[platform.id];
+  const modelFiles = withoutExcluded(candidateFiles, platformOpts);
 
-  if (!modelFiles.length) errors.push('No model file to upload (add an .stl/.3mf in Files).');
+  if (!modelFiles.length) {
+    errors.push(candidateFiles.length
+      ? `All compatible files are excluded for ${platform.name} — re-include at least one in its file list.`
+      : 'No model file to upload (add an .stl/.3mf in Files).');
+  }
   for (const f of modelFiles) {
     const ext = fileExt(f.name);
     if (!platform.formats.includes(ext)) errors.push(`${f.name}: .${ext} isn't accepted here (this file won't upload).`);
@@ -2420,6 +2544,11 @@ export function platformPreflight(platform, project) {
     if (project.files.some((file) => ['mp4', 'webm'].includes(fileExt(file.name)))) {
       warnings.push('The current Creality model form has no direct video upload; add a YouTube link in the rich description instead.');
     }
+    const nonCreality3mfs = withoutExcluded(project.files, creality)
+      .filter((file) => file.isProfile && !['crealityprint', 'unknown'].includes(fileSlicer(file)));
+    if (nonCreality3mfs.length) {
+      warnings.push(`${nonCreality3mfs.length} 3MF file${nonCreality3mfs.length === 1 ? ' was' : 's were'} sliced outside Creality Print and will upload as plain model files; Creality's parsed print-settings branch is not enabled yet.`);
+    }
   }
   const makeronline = project.platforms?.makeronline;
   if (platform.id === 'makeronline' && makeronline) {
@@ -2449,7 +2578,7 @@ export function platformPreflight(platform, project) {
     if (makeronline.syncChina && (Number(makeronline.permission || 2) !== 1 || makeronline.nsfw)) {
       errors.push('MakerOnline China sync requires a public, non-NSFW model.');
     }
-    const profileFiles = project.files.filter((file) => fileExt(file.name) === '3mf' && file.blob);
+    const profileFiles = withoutExcluded(project.files.filter((file) => fileExt(file.name) === '3mf' && file.blob), makeronline);
     if (makeronline.includePrintProfile && Number(makeronline.printMethod || 3) !== 2 && !profileFiles.length) {
       errors.push('MakerOnline print profiles are enabled, but no .3mf profile file is available.');
     }
@@ -2581,6 +2710,9 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   };
 
   const removeFile = (id) => updateProject({ files: project.files.filter(f => f.id !== id) });
+  const updateFile = (id, patch) => updateProject({
+    files: project.files.map((file) => (file.id === id ? { ...file, ...patch } : file)),
+  });
 
   const updateMakerWorldFile = (id, patch) => updateProject({
     files: project.files.map((file) => file.id === id
@@ -2716,7 +2848,8 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
             {project.files.map(f => (
               <FileRow key={f.id} file={f} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)}
                 onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)}
-                onUpdatePrintables={(patch) => updatePrintablesFile(f.id, patch)} />
+                onUpdatePrintables={(patch) => updatePrintablesFile(f.id, patch)}
+                onUpdateFile={(patch) => updateFile(f.id, patch)} />
             ))}
           </div>
         </div>
@@ -2735,7 +2868,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
-export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdatePrintables }) {
+export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdatePrintables, onUpdateFile }) {
   const isProf = file.isProfile;
   const isImg = file.isImage;
   const ext = fileExt(file.name);
@@ -2790,6 +2923,23 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
             <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#FF5722', color: '#fff' }}>
               Print profile
             </span>
+          )}
+          {isProf && onUpdateFile && (
+            <select
+              aria-label={`Slicer for ${file.name}`}
+              title="Detected from the file's own metadata; override if the detection is wrong"
+              className="mp-mono text-[11px] uppercase tracking-[0.15em] bg-transparent border px-1 py-0.5"
+              style={{ borderColor: 'rgba(21,23,28,0.2)', color: 'rgba(21,23,28,0.7)' }}
+              value={file.slicerOverride || ''}
+              onChange={(e) => onUpdateFile({ slicerOverride: e.target.value || null })}
+            >
+              <option value="">
+                {file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…'}
+              </option>
+              {Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
           )}
           {isImg && (
             <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: 'rgba(21,23,28,0.4)', color: '#fff' }}>
@@ -4576,12 +4726,12 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                     Estimated from file (preview)
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                    <Stat label="Printer" value={active.parsed.printer} />
-                    <Stat label="Material" value={active.parsed.material} />
-                    <Stat label="Layer height" value={active.parsed.layerHeight} />
-                    <Stat label="Plates" value={active.parsed.plates} />
-                    <Stat label="Print time" value={active.parsed.estimatedTime} />
-                    <Stat label="Filament" value={`${active.parsed.filamentGrams}g`} />
+                    <Stat label="Printer" value={active.parsed.printer || '—'} />
+                    <Stat label="Material" value={active.parsed.material || '—'} />
+                    <Stat label="Layer height" value={active.parsed.layerHeight || '—'} />
+                    <Stat label="Plates" value={active.parsed.plates || '—'} />
+                    <Stat label="Print time" value={active.parsed.estimatedTime || '—'} />
+                    <Stat label="Filament" value={active.parsed.filamentGrams ? `${active.parsed.filamentGrams}g` : '—'} />
                   </div>
                 </div>
               )}
@@ -4885,6 +5035,144 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
   );
 }
 
+// Per-platform release plan: no plan (default), a reminder, or a scheduled
+// upload. One pending plan per project+platform; plans persist locally and
+// scheduled ones auto-start from the Publish step while the app is open.
+export function ReleasePlanControls({ platform, project }) {
+  const plans = useReleasePlans();
+  const desktopBridge = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+  const active = planForProjectPlatform(plans, project.title, platform.id);
+  const [draft, setDraft] = useState(null); // {mode, dueAt, note} while editing
+  const current = draft || active || { mode: '', dueAt: '', note: '' };
+  const issues = current.mode ? releasePlanIssues({ ...current, platformId: platform.id }, draft ? Date.now() : 0) : [];
+
+  const apply = (patch) => {
+    const next = { ...current, ...patch };
+    if (!next.mode) {
+      setDraft(null);
+      if (active) releasePlanStore.set(removeReleasePlan(plans, active.id));
+      return;
+    }
+    setDraft(next);
+    if (releasePlanIssues({ ...next, platformId: platform.id }, Date.now()).length) return;
+    releasePlanStore.set(upsertReleasePlan(plans, {
+      id: active?.id || `plan-${platform.id}-${Date.now()}`,
+      projectTitle: project.title || 'Untitled Project',
+      platformId: platform.id,
+      platformName: platform.name,
+      mode: next.mode,
+      dueAt: next.dueAt,
+      note: next.note || '',
+      unattended: next.mode === 'scheduled' ? !!next.unattended : false,
+      createdAt: active?.createdAt || Date.now(),
+      status: 'pending',
+    }));
+  };
+
+  return (
+    <div className="mt-3">
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(21,23,28,0.55)' }}>
+        Release plan{active ? ` · ${describeDue(active, Date.now())}` : ''}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          aria-label={`${platform.name} release plan`}
+          className="mp-input text-xs py-1 w-auto"
+          value={current.mode}
+          onChange={(e) => apply({ mode: e.target.value })}
+        >
+          <option value="">No plan</option>
+          <option value="remind">Remind me to publish</option>
+          <option value="scheduled">Publish automatically</option>
+        </select>
+        {current.mode && (
+          <input
+            aria-label={`${platform.name} release date`}
+            type="datetime-local"
+            className="mp-input text-xs py-1 w-auto"
+            value={current.dueAt || ''}
+            onChange={(e) => apply({ dueAt: e.target.value })}
+          />
+        )}
+        {current.mode && (
+          <input
+            aria-label={`${platform.name} release note`}
+            placeholder="note (e.g. after Thangs exclusivity)"
+            maxLength={120}
+            className="mp-input text-xs py-1 flex-1 min-w-[140px]"
+            value={current.note || ''}
+            onChange={(e) => apply({ note: e.target.value })}
+          />
+        )}
+      </div>
+      {current.mode === 'scheduled' && (
+        <>
+          {desktopBridge?.syncReleasePlans && (
+            <label className="flex items-start gap-2 text-[11px] mt-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                aria-label={`${platform.name} unattended publish`}
+                checked={!!current.unattended}
+                onChange={(e) => apply({ unattended: e.target.checked })}
+                style={{ accentColor: '#FF5722', marginTop: 2 }}
+              />
+              <span>Publish even if ModelPrep is closed (unattended). ModelPrep reopens at the set time and publishes only if this account's session is still valid; otherwise it becomes an overdue reminder.</span>
+            </label>
+          )}
+          <p className="text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.55)' }}>
+            {current.unattended
+              ? 'Runs in the background at the set time using this platform’s saved action and visibility, after a session pre-flight.'
+              : 'Publishes through the normal pipeline at the set time while ModelPrep is open, using this platform’s saved action and visibility. If the app is closed it becomes an overdue reminder instead.'}
+          </p>
+        </>
+      )}
+      {issues.length > 0 && (
+        <p className="text-[11px] mt-1" style={{ color: '#B23A1A' }}>{issues.join(' ')}</p>
+      )}
+    </div>
+  );
+}
+
+// Per-platform file checklist. Everything compatible is included by default;
+// unchecking a file adds it to this platform's excludedFileIds so slicer-
+// specific variants (e.g. an Elegoo 3MF) can be kept off platforms where they
+// only add noise. Preflight fails closed if every file ends up excluded.
+export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
+  const candidates = platformCandidateFiles(platform, project);
+  if (candidates.length < 2) return null; // nothing to choose between
+  const excludedCount = candidates.filter((file) => isFileExcluded(file, opts)).length;
+  return (
+    <div className="mt-3">
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(21,23,28,0.55)' }}>
+        Files for {platform.name}{excludedCount ? ` · ${excludedCount} excluded` : ''}
+      </div>
+      <div className="space-y-1">
+        {candidates.map((file) => {
+          const included = !isFileExcluded(file, opts);
+          const slicer = file.isProfile ? fileSlicer(file) : null;
+          return (
+            <label key={file.id} className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={included}
+                aria-label={`Send ${file.name} to ${platform.name}`}
+                onChange={() => onUpdate('excludedFileIds', toggleExcludedFileId(opts, file.id))}
+                style={{ accentColor: '#FF5722' }}
+              />
+              <span className="truncate" style={{ opacity: included ? 1 : 0.45 }}>{file.name}</span>
+              {slicer && slicer !== 'unknown' && (
+                <span className="mp-mono text-[10px] uppercase tracking-[0.15em] px-1 py-0.5 flex-shrink-0" style={{ background: 'rgba(21,23,28,0.08)' }}>
+                  {slicerLabel(slicer)}
+                </span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PlatformCard({ platform, state, project, connectionLabel, onConnect, onToggle, onUpdate }) {
   const [expanded, setExpanded] = useState(false);
   const acceptedFormats = platform.id === 'makerworld' && state.productMode === 'laser-cut'
@@ -5032,6 +5320,12 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
             </div>
           )}
 
+          {state.enabled && (
+            <PlatformFilePicker platform={platform} project={project} opts={state} onUpdate={onUpdate} />
+          )}
+          {state.enabled && LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id) && (
+            <ReleasePlanControls platform={platform} project={project} />
+          )}
           {platform.id === 'makerworld' && state.enabled && (
             <MakerWorldOptions opts={state} project={project} onUpdate={onUpdate} />
           )}
@@ -6133,6 +6427,27 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
     setPublishBatch((current) => retryFailedPublishBatch(current, `batch-retry-${Date.now()}`));
   };
   const readyTargetCount = publishTargets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0).length;
+
+  // Release queue: due scheduled plans for THIS project auto-start a normal
+  // single-target batch as soon as this step is mounted and idle. Reminders
+  // never auto-start; they stay in the queue until acted on or dismissed.
+  const releasePlans = useReleasePlans();
+  const queuedPlans = pendingReleasePlans(releasePlans);
+  const startPlanPublish = (plan) => {
+    if (publishBatch?.status === 'running') return false;
+    const target = publishTargets.find((candidate) => candidate.id === plan.platformId);
+    if (!target || target.mode === 'missing' || target.issues.errors.length) return false;
+    const isDesktop = typeof window !== 'undefined' && !!window.modelprepDesktop;
+    setPublishBatch(createPublishBatch([target], `plan-${plan.id}-${Date.now()}`, isDesktop ? DESKTOP_PUBLISH_CONCURRENCY : 1));
+    releasePlanStore.set(patchReleasePlan(releasePlanStore.get(), plan.id, { status: 'done', firedAt: Date.now() }));
+    return true;
+  };
+  useEffect(() => {
+    if (publishBatch?.status === 'running') return;
+    const due = dueScheduledTargets(releasePlans, project.title, publishTargets, Date.now());
+    if (due.length) startPlanPublish(due[0].plan);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [releasePlans, publishBatch?.status]);
   const resourceSummary = publishBatchSummary(publishBatch);
   const resourceSignature = [
     publishBatch?.runId || 'ready',
@@ -6193,6 +6508,56 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
     URL.revokeObjectURL(href);
   };
 
+  const releaseQueuePanel = (
+    <>
+      {queuedPlans.length > 0 && (
+        <div className="mt-6 mp-card p-4" data-testid="release-queue">
+          <div className="mp-mono text-[12px] uppercase tracking-[0.2em] mb-2" style={{ color: 'rgba(21,23,28,0.55)' }}>
+            Release queue · {queuedPlans.length} planned
+          </div>
+          <div className="space-y-2">
+            {queuedPlans.map((plan) => {
+              const due = Date.parse(plan.dueAt) <= Date.now();
+              const mine = (plan.projectTitle || '').trim().toLowerCase() === (project.title || 'Untitled Project').trim().toLowerCase();
+              return (
+                <div key={plan.id} className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: due ? '#FF5722' : 'rgba(21,23,28,0.08)', color: due ? '#fff' : 'inherit' }}>
+                    {describeDue(plan, Date.now())}
+                  </span>
+                  <span className="font-bold">{plan.platformName || plan.platformId}</span>
+                  <span className="truncate" style={{ opacity: 0.7 }}>{plan.projectTitle}{plan.note ? ` · ${plan.note}` : ''}</span>
+                  <span className="mp-mono text-[10px] uppercase tracking-[0.15em]" style={{ opacity: 0.5 }}>
+                    {plan.mode === 'scheduled' ? 'auto-publish' : 'reminder'}
+                  </span>
+                  <span className="flex-1" />
+                  {mine && (
+                    <button
+                      className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"
+                      onClick={() => { if (!startPlanPublish(plan)) setCurrentSection('platforms'); }}
+                    >
+                      Publish now
+                    </button>
+                  )}
+                  {!mine && <span className="text-[11px]" style={{ opacity: 0.55 }}>open “{plan.projectTitle}” to publish</span>}
+                  <button
+                    className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"
+                    aria-label={`Dismiss ${plan.platformName} plan`}
+                    onClick={() => releasePlanStore.set(removeReleasePlan(releasePlanStore.get(), plan.id))}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.5)' }}>
+            Scheduled publishes start automatically from this step while ModelPrep is open; reminders wait for you.
+          </p>
+        </div>
+      )}
+    </>
+  );
+
   if (!allReady) {
     return (
       <div className="w-full min-w-0">
@@ -6213,6 +6578,7 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
             </button>
           ))}
         </div>
+        {releaseQueuePanel}
         <SectionNav backLabel="Back to Platforms" onBack={() => setCurrentSection('platforms')} />
       </div>
     );
@@ -6229,6 +6595,8 @@ function PublishSection({ project, allReady, completion, setCurrentSection }) {
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
       <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
+
+      {releaseQueuePanel}
 
       {publishTargets.length > 0 && (
         <BatchPublishPanel
@@ -7314,8 +7682,8 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       const coverImg = orderedImages[0];
       const galleryImgs = orderedImages.slice(1);
       const galleryVideos = cultsGalleryVideos(project.media || []);
-      const modelFiles = project.files.filter(f =>
-        f.isModel && f.blob && platform.formats.includes(fileExt(f.name)));
+      const modelFiles = withoutExcluded(project.files.filter(f =>
+        f.isModel && f.blob && platform.formats.includes(fileExt(f.name))), project.platforms?.cults);
       const preflight = platformPreflight(platform, project);
       if (preflight.errors.length) throw new Error(preflight.errors.join(' '));
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
@@ -7788,7 +8156,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
 
   const validate = () => {
     const cover = project.images.find((image) => image.id === project.coverImageId) || project.images[0];
-    const modelFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
+    const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage), project.platforms?.printables);
     return validatePrintablesModel({
       title: project.title,
       summary: options.summary,
@@ -7833,8 +8201,8 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
     try {
       const orderedImages = orderedPlatformImages(platform, project);
       const cover = orderedImages[0];
-      const modelFiles = project.files.filter((file) =>
-        file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage && !isHeicFile(file.name));
+      const modelFiles = withoutExcluded(project.files.filter((file) =>
+        file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage && !isHeicFile(file.name)), project.platforms?.printables);
       const uploadRecords = [];
 
       for (let index = 0; index < orderedImages.length; index += 1) {
@@ -8292,8 +8660,8 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       const orderedImages = orderedPlatformImages(platform, project);
       const cover = orderedImages[0];
       const gallery = orderedImages.slice(1, 10);
-      const modelFiles = project.files.filter((file) =>
-        file.blob && NEXPRINT_MODEL_FORMATS.includes(fileExt(file.name)));
+      const modelFiles = withoutExcluded(project.files.filter((file) =>
+        file.blob && NEXPRINT_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.nexprint);
       const attachments = project.files.filter((file) =>
         file.blob && NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(file.name)));
       if (!cover) throw new Error('Choose a cover image before sending to Nexprint.');
@@ -8626,9 +8994,9 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       const orderedImages = orderedPlatformImages(platform, project);
       const cover = orderedImages[0];
       const gallery = orderedImages.slice(1, 10);
-      const modelFiles = crealityRawModelFiles(project.files, project.profiles);
-      const instructionFiles = project.files.filter((file) =>
-        file.blob && CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name)));
+      const modelFiles = withoutExcluded(crealityRawModelFiles(project.files, project.profiles), project.platforms?.creality);
+      const instructionFiles = withoutExcluded(project.files.filter((file) =>
+        file.blob && CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name))), project.platforms?.creality);
       if (!cover) throw new Error('Choose a cover image before sending to Creality Cloud.');
       if (!modelFiles.length) throw new Error('Add at least one Creality-compatible model file.');
 
@@ -8800,7 +9168,7 @@ function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult 
     if (simulate) { setStatus('uploading'); setProgress('Simulating Thingiverse draft…'); await new Promise((resolve) => setTimeout(resolve, 450)); setResult({ demo: true, state: publish ? 'public' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'Thingiverse simulation complete — nothing uploaded', { publicationState: publish ? 'public' : 'draft', simulated: true }); return; }
     setStatus('uploading'); setError('');
     try {
-      const pending = []; const modelFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage);
+      const pending = []; const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage), project.platforms?.thingiverse);
       for (let i = 0; i < modelFiles.length; i += 1) { setProgress(`Uploading Thingiverse file ${i + 1} of ${modelFiles.length}…`); const source = modelFiles[i]; const file = source.blob instanceof File ? source.blob : new File([source.blob], source.name, { type: source.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'model', file })); }
       const images = orderedPlatformImages(platform, project); for (let i = 0; i < images.length; i += 1) { setProgress(`Uploading Thingiverse image ${i + 1} of ${images.length}…`); const blob = await fetch(images[i].dataUrl).then((response) => response.blob()); const file = new File([blob], `${String(i + 1).padStart(2, '0')}-${slugify(images[i].alt || 'image')}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'image', file })); }
       setProgress(publish ? 'Publishing Thingiverse Thing…' : 'Saving Thingiverse draft…'); const saved = await request('submit', { name: project.title, summary: options.summary, description: project.description, categoryId: options.categoryId, license: options.license, tags: project.tags, files: pending, publish, termsAccepted: !!options.termsAccepted, aiGenerated: !!options.aiGenerated, wip: !!options.wip, customizable: !!options.customizable, remix: !!options.remix, sourceThingId: options.sourceThingId, nsfw: !!options.nsfw, printSettings: options.printSettings || {}, sections: options.sections || [], education: options.education || null });
@@ -8834,7 +9202,7 @@ function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     if (!isDesktopThangsSession(secret)) { const message = 'Connect Thangs in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
     setStatus('uploading'); setError('');
     try {
-      const eligibleFiles = project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)));
+      const eligibleFiles = withoutExcluded(project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name))), project.platforms?.thangs);
       const { models: modelSources, references: referenceSources } = selectThangsSourceFiles(eligibleFiles, options);
       const uploadSources = async (values, role, convert = (file) => file.blob instanceof File ? file.blob : new File([file.blob], file.name, { type: file.type })) => { const receipts = []; for (let i = 0; i < values.length; i += 1) { setProgress(`Uploading Thangs ${role} ${i + 1} of ${values.length}…`); receipts.push(await uploadThangsFile({ workerUrl: WORKER_URL, secret, role, file: await convert(values[i], i) })); } return receipts; };
       const parts = await uploadSources(modelSources, 'model');
@@ -8895,9 +9263,9 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
         }
       }
       const orderedImages = orderedPlatformImages(platform, project).slice(0, 10);
-      const modelFiles = project.files.filter((file) => file.blob && MAKEROAD_MODEL_FORMATS.includes(fileExt(file.name)) && !file.isProfile);
-      const profileFiles = project.files.filter((file) => file.blob && fileExt(file.name) === '3mf' && file.isProfile).slice(0, 10);
-      const documentFiles = project.files.filter((file) => file.blob && MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(file.name))).slice(0, 5);
+      const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && MAKEROAD_MODEL_FORMATS.includes(fileExt(file.name)) && !file.isProfile), project.platforms?.makeroad);
+      const profileFiles = withoutExcluded(project.files.filter((file) => file.blob && fileExt(file.name) === '3mf' && file.isProfile), project.platforms?.makeroad).slice(0, 10);
+      const documentFiles = withoutExcluded(project.files.filter((file) => file.blob && MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(file.name))), project.platforms?.makeroad).slice(0, 5);
       const uploadMany = async (values, role, label, transform = sourceFile) => {
         const receipts = [];
         for (let index = 0; index < values.length; index += 1) {
@@ -9038,13 +9406,13 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
     setStatus('uploading'); setError(''); setResult(null);
     try {
       const orderedImages = orderedPlatformImages(platform, project).slice(0, 20);
-      const modelFiles = project.files.filter((file) => file.blob && MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
+      const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.makeronline);
       const documentationFiles = project.files.filter((file) =>
         file.blob
         && MAKERONLINE_DOCUMENT_FORMATS.includes(fileExt(file.name))
         && !MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
       const profileFiles = options.includePrintProfile && Number(options.printMethod || 3) !== 2
-        ? project.files.filter((file) => file.blob && fileExt(file.name) === '3mf')
+        ? withoutExcluded(project.files.filter((file) => file.blob && fileExt(file.name) === '3mf'), project.platforms?.makeronline)
         : [];
       if (!orderedImages.length) throw new Error('Choose a cover image before sending to MakerOnline.');
       if (!modelFiles.length) throw new Error('Add at least one MakerOnline-compatible raw model file.');
@@ -9307,7 +9675,7 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
     let saved = null;
     try {
       const orderedImages = orderedPlatformImages(platform, project).slice(0, platform.maxImages || 20);
-      const modelFiles = project.files.filter((file) => file.blob && MYMINIFACTORY_MODEL_FORMATS.includes(fileExt(file.name)));
+      const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && MYMINIFACTORY_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.mmf);
       if (!orderedImages.length) throw new Error('Choose a cover image before sending to MyMiniFactory.');
       if (!modelFiles.length) throw new Error('Add at least one MyMiniFactory-compatible object file.');
       setProgress('Preparing the MyMiniFactory upload form…');
@@ -9779,6 +10147,9 @@ function PlatformConnections({ platform }) {
       {accountNotice && <div role="status" className="text-[11px]" style={{ color: /connected|ready|refreshed/i.test(accountNotice) ? '#1a7f37' : /checking|complete the sign-in/i.test(accountNotice) ? '#8A4B08' : '#B91C1C' }}>{accountNotice}</div>}
       {accounts.some((account) => ['reconnect', 'error'].includes(account.status)) && (
         <p className="text-[11px] opacity-60">Reconnect checks the saved encrypted session first. A sign-in window opens only if {platform.name} rejects it.</p>
+      )}
+      {platform.id === 'cults' && (
+        <p className="text-[11px] opacity-60">Cults3D signs in through a ModelPrep window and publishes from that same in-app browser session, so it stays past Cloudflare without any extension.</p>
       )}
       {showForm
         ? <ConnectForm platform={platform} onDone={() => setAdding(false)} canCancel={accounts.length > 0} />
@@ -10517,6 +10888,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
 
   // The .3mf's print profile (name, photos, guidelines) is configured in the Profiles step.
   const mw3mfFile = modelFiles.find((file) => file.id === opts.primaryProfileFileId && /\.3mf$/i.test(file.name))
+    || modelFiles.find((f) => /\.3mf$/i.test(f.name) && fileSlicer(f) === 'bambu')
     || modelFiles.find(f => /\.3mf$/i.test(f.name));
   const mwProfile = !isLC ? makerWorldPrimaryProfile(project, { ...opts, primaryProfileFileId: mw3mfFile?.id }) : null;
   const laserProfile = { ...MW_DEFAULT_OPTS.laserProfile, ...(opts.laserProfile || {}) };

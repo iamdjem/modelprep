@@ -678,6 +678,27 @@ local evidence only. A packaged interactive reconnect plus read-only create-page
 validation remains required; no upload or platform mutation is authorized by
 this repair.
 
+The first packaged attempt did not pass that gate: checking Cloudflare's
+"Verify you are human" control looped on the challenge page. Root cause in our
+implementation was a Chrome 149 UA forced onto Electron 33 / Chromium 130 plus
+a 1.2-second authenticated-page probe running behind the challenge. The second
+repair upgrades the runtime to Electron 43 / Chromium 150, derives Cults's UA
+from the exact runtime, pauses validation while the challenge page is visible,
+and uses a fresh `persist:cults-v2-*` partition. This second repair is tested
+and packaged locally but must not be called live-verified until the interactive
+window reaches the real Cults sign-in/create page.
+
+Computer-use and DevTools verification of that packaged build showed that the
+global `app.disableHardwareAcceleration()` did remove both WebGL contexts, but
+it was not the decisive failure. A second signed build with normal GPU support
+reported hardware-backed WebGL/WebGL2, `navigator.webdriver: false`, and the
+correct Chromium 150 UA. It still exposed no WebGPU adapter, advertised only
+`Chromium` (not Google Chrome) in client hints, and Cloudflare closed the
+challenge POST before returning 403 under a new Ray ID. The GPU experiment is
+reverted because it did not solve sign-in and revives the prior multi-canvas
+SIGBUS risk. Current evidence therefore classifies Cults' managed challenge as
+rejecting the embedded Electron browser; this path is not live-verified.
+
 ## How to continue one platform at a time
 
 Use `platform-one-by-one-implementation-playbook.md` as the execution contract.
