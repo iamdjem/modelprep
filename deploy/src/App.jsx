@@ -2147,7 +2147,7 @@ function GlobalStyles() {
         height: 1px; opacity: 0.4;
       }
 
-      .mp-textarea::placeholder { color: rgba(21,23,28,0.3); }
+      .mp-textarea::placeholder { color: rgba(21,23,28,0.5); }
       .mp-prose h1,.mp-prose h2,.mp-prose h3 { font-family: 'Big Shoulders Display'; font-weight: 800; margin: 0.7em 0 0.25em; line-height: 1.05; text-transform: uppercase; letter-spacing: -0.005em; }
       .mp-prose h1 { font-size: 1.6em; } .mp-prose h2 { font-size: 1.35em; } .mp-prose h3 { font-size: 1.15em; }
       .mp-prose p { margin: 0.55em 0; line-height: 1.6; font-family: 'Space Grotesk'; }
@@ -2168,6 +2168,12 @@ function GlobalStyles() {
       .mp-btn:disabled { opacity: 0.35; cursor: not-allowed; }
       .mp-btn-ghost { background: transparent; color: #15171C; border: 1px solid rgba(21,23,28,0.25); }
       .mp-btn-ghost:hover:not(:disabled) { background: #15171C; color: #EDE9DE; border-color: #15171C; }
+      /* Keyboard focus is visible across the whole button system (WCAG 2.4.7).
+         A 2px offset accent ring reads on both the dark and paper surfaces. */
+      .mp-btn:focus-visible, .mp-btn-ghost:focus-visible { outline: 2px solid #FF5722; outline-offset: 2px; }
+      /* Interactive pills and any element opting in with .mp-focusable. */
+      .mp-focusable:focus-visible, [role="button"]:focus-visible, .mp-pill[tabindex]:focus-visible { outline: 2px solid #FF5722; outline-offset: 2px; }
+      @media (prefers-reduced-motion: no-preference) { .mp-btn { transition: background 0.15s, outline-color 0.1s; } }
 
       .mp-card { background: #FFFFFF; border: 1px solid rgba(21,23,28,0.12); }
       .mp-section-content > * { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
@@ -2360,7 +2366,7 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
               ))}
             </div>
           </details>
-          <div className="mp-mono text-[11px] uppercase tracking-[0.12em] pt-5" style={{ color: completion[currentSection] ? '#247255' : 'rgba(21,23,28,0.45)' }}>
+          <div className="mp-mono text-[11px] uppercase tracking-[0.12em] pt-5" style={{ color: completion[currentSection] ? '#247255' : 'rgba(21,23,28,0.66)' }}>
             {completion[currentSection] ? 'Complete' : 'In progress'}
           </div>
         </div>
@@ -2415,7 +2421,7 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
                   <span className="mp-mono text-[11px] tracking-[0.15em] opacity-50">{String(i + 1).padStart(2, '0')}/</span>
                   <span className="mp-display text-[17px] leading-none">{s.label}</span>
                 </div>
-                <div className="mp-body text-[13px] mt-1 leading-tight" style={{ color: active ? 'rgba(237,233,222,0.6)' : 'rgba(21,23,28,0.5)' }}>
+                <div className="mp-body text-[13px] mt-1 leading-tight" style={{ color: active ? 'rgba(237,233,222,0.6)' : 'rgba(21,23,28,0.66)' }}>
                   {s.description}
                 </div>
               </div>
@@ -3599,7 +3605,7 @@ function CategorySelect({ value, onChange, options }) {
         type="button"
         onClick={() => { setOpen(o => !o); setQuery(''); }}
         className="mp-input flex items-center justify-between text-left"
-        style={{ color: value ? '#15171C' : 'rgba(21,23,28,0.45)' }}
+        style={{ color: value ? '#15171C' : 'rgba(21,23,28,0.66)' }}
       >
         <span className="truncate">{value || 'Choose a category…'}</span>
         <ChevronDown size={14} style={{ color: 'rgba(21,23,28,0.66)' }} className="flex-shrink-0" />
@@ -3810,7 +3816,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           </button>
         </div>
         {aiMsg && (
-          <p className="text-[12px] mt-2" style={{ color: aiMsg.kind === 'warn' ? '#c83f10' : 'rgba(21,23,28,0.6)' }}>
+          <p className="text-[12px] mt-2" style={{ color: aiMsg.kind === 'warn' ? '#c83f10' : 'rgba(21,23,28,0.66)' }}>
             {aiMsg.text}
           </p>
         )}
@@ -3826,7 +3832,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             <div className="flex items-center justify-between mb-2">
               <Label className="mb-0">Title</Label>
               {lim.titleMax && (
-                <span className="mp-mono text-[12px]" style={{ color: titleOver ? '#FF5722' : 'rgba(21,23,28,0.4)' }}>
+                <span className="mp-mono text-[12px]" style={{ color: titleOver ? '#FF5722' : 'rgba(21,23,28,0.66)' }}>
                   {project.title.length}/{lim.titleMax}
                   {titleOver && ` · over ${lim.titleMaxBy}'s limit`}
                 </span>
@@ -3851,7 +3857,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                     className="mp-mono text-[12px] uppercase tracking-[0.15em] px-2 py-1 transition"
                     style={{
                       background: previewMode === m ? '#15171C' : 'transparent',
-                      color: previewMode === m ? '#EDE9DE' : 'rgba(21,23,28,0.5)',
+                      color: previewMode === m ? '#EDE9DE' : 'rgba(21,23,28,0.66)',
                     }}
                   >
                     {m}
@@ -3879,14 +3885,14 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               />
             )}
             {previewMode === 'preview' && (
-              <div className="mp-card p-5 mp-prose text-sm" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(21,23,28,0.3)">Preview shows once you write something</p>' }} />
+              <div className="mp-card p-5 mp-prose text-sm" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(21,23,28,0.6)">Preview shows once you write something</p>' }} />
             )}
             {previewMode === 'formats' && (
               <FormatTabs description={project.description} />
             )}
 
             <div className="flex items-center justify-between mt-1.5">
-              <span className="mp-mono text-[12px]" style={{ color: descOver ? '#FF5722' : 'rgba(21,23,28,0.4)' }}>
+              <span className="mp-mono text-[12px]" style={{ color: descOver ? '#FF5722' : 'rgba(21,23,28,0.66)' }}>
                 {project.description.length}{lim.descMax ? `/${lim.descMax}` : ''} chars
                 {descOver && ` · over ${lim.descMaxBy}'s limit`}
               </span>
@@ -3952,10 +3958,10 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   <div className="text-sm font-semibold leading-tight">{selectedLicense?.name || project.license}</div>
                   {selectedLicense && (
                     <div className="flex flex-wrap gap-2 mt-1.5">
-                      <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.commercial ? '#247255' : 'rgba(21,23,28,0.5)' }}>
+                      <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.commercial ? '#247255' : 'rgba(21,23,28,0.66)' }}>
                         {selectedLicense.commercial ? 'Commercial use allowed' : 'Non-commercial'}
                       </span>
-                      <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.derivatives ? '#247255' : 'rgba(21,23,28,0.5)' }}>
+                      <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.derivatives ? '#247255' : 'rgba(21,23,28,0.66)' }}>
                         {selectedLicense.derivatives ? 'Remixes allowed' : 'No derivatives'}
                       </span>
                     </div>
@@ -4009,10 +4015,10 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-semibold leading-tight">{l.name}</div>
                         <div className="flex gap-2 mt-1">
-                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(21,23,28,0.4)' }}>
+                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(21,23,28,0.66)' }}>
                             {l.commercial ? '$ commercial' : 'non-commercial'}
                           </span>
-                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(21,23,28,0.4)' }}>
+                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(21,23,28,0.66)' }}>
                             {l.derivatives ? '↻ remix ok' : 'no derivatives'}
                           </span>
                         </div>
@@ -4093,7 +4099,7 @@ function FormatTabs({ description }) {
           dangerouslySetInnerHTML={{ __html: html || '<span style="color:rgba(21,23,28,0.3)">Write something in markdown to see the formatted output</span>' }} />
       ) : (
         <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 overflow-auto" style={{ color: 'rgba(21,23,28,0.85)' }}>
-          {outputs[active] || <span style={{ color: 'rgba(21,23,28,0.3)' }}>Write something in markdown to see formatted outputs</span>}
+          {outputs[active] || <span style={{ color: 'rgba(21,23,28,0.6)' }}>Write something in markdown to see formatted outputs</span>}
         </pre>
       )}
     </div>
@@ -5202,7 +5208,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           className="flex-shrink-0 mt-0.5 mp-mono text-[12px] uppercase tracking-[0.15em] px-2.5 min-h-[40px] flex items-center justify-center gap-1.5 transition"
           style={{
             background: state.enabled ? '#FF5722' : 'transparent',
-            color: state.enabled ? '#fff' : 'rgba(21,23,28,0.5)',
+            color: state.enabled ? '#fff' : 'rgba(21,23,28,0.66)',
             border: `1px solid ${state.enabled ? '#FF5722' : 'rgba(21,23,28,0.25)'}`,
             minWidth: 58,
           }}
@@ -6925,7 +6931,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
                     : state === 'error' ? <X size={13} style={{ color: '#b91c1c' }} />
                       : <StatusDot status={target.mode === 'missing' ? 'unknown' : 'connected'} />}
                 <strong>{target.name}</strong>
-                <span className="mp-mono text-[10px] uppercase ml-auto" style={{ color: target.mode === 'simulation' ? '#3A86FF' : 'rgba(21,23,28,0.5)' }}>
+                <span className="mp-mono text-[10px] uppercase ml-auto" style={{ color: target.mode === 'simulation' ? '#3A86FF' : 'rgba(21,23,28,0.66)' }}>
                   {target.mode}
                 </span>
               </div>
@@ -7363,7 +7369,7 @@ function PackageLabel({ label, hint, children }) {
     <div className="flex items-center justify-between mb-2">
       <div>
         <span className="mp-mono text-[12px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{label}</span>
-        {hint && <span className="mp-mono text-[12px] uppercase tracking-[0.15em] ml-2" style={{ color: 'rgba(21,23,28,0.35)' }}>· {hint}</span>}
+        {hint && <span className="mp-mono text-[12px] uppercase tracking-[0.15em] ml-2" style={{ color: 'rgba(21,23,28,0.6)' }}>· {hint}</span>}
       </div>
       <div className="flex items-center gap-3">{children}</div>
     </div>
@@ -7975,7 +7981,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                   <div className="flex flex-col gap-1.5">
                     {listings.map(l => {
                       const isPending = pendingRow.slug === l.slug;
-                      const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(21,23,28,0.5)';
+                      const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(21,23,28,0.66)';
                       return (
                         <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ background: '#fff', border: '1px solid rgba(21,23,28,0.06)' }}>
                           {l.thumbnailUrl && (
@@ -9890,7 +9896,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className="px-3 py-2 mp-mono text-[12px] uppercase tracking-[0.12em] flex items-center gap-1.5 -mb-px border-b-2 transition"
-                style={{ borderColor: on ? '#FF5722' : 'transparent', color: on ? '#15171C' : 'rgba(21,23,28,0.5)' }}>
+                style={{ borderColor: on ? '#FF5722' : 'transparent', color: on ? '#15171C' : 'rgba(21,23,28,0.66)' }}>
                 <Icon size={13} /> {t.label}
                 {t.badge != null && <span className="mp-mono text-[10px]" style={{ color: '#1a7f37' }}>{t.badge}</span>}
               </button>
@@ -10353,7 +10359,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
       <div className="space-y-1.5">
         <input className={inputCls} placeholder="Account name (optional)" value={label} onChange={(event) => setLabel(event.target.value)} />
         <button disabled={busy || !desktop?.connectMyMiniFactory} onClick={connectMyMiniFactory} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">{busy ? 'Waiting for MyMiniFactory sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in via MyMiniFactory window (desktop)'}</button>
-        {!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.55)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
+        {!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
         <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>MyMiniFactory’s real sign-in/upload page opens in an isolated desktop session. Cookies, form tokens, and upload-folder identifiers never enter page storage or the ModelPrep Worker.</p>
         {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
         {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.66)' }}>Cancel</button>}
@@ -10399,7 +10405,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         <button disabled={busy || !desktop?.connectMakerOnline} onClick={connectMakerOnline} className="mp-btn text-sm py-2 px-4 w-full disabled:opacity-40">
           {busy ? 'Waiting for MakerOnline sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in via MakerOnline window (desktop)'}
         </button>
-        {!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.55)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
+        {!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
         <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>MakerOnline’s real sign-in/upload page opens in an isolated desktop session. Its access token and cookies never enter page storage or the ModelPrep Worker.</p>
         {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
         {canCancel && <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.66)' }}>Cancel</button>}
