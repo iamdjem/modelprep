@@ -2723,8 +2723,13 @@ export function platformPreflight(platform, project) {
       errors.push('MakerOnline China sync requires a public, non-NSFW model.');
     }
     const profileFiles = withoutExcluded(project.files.filter((file) => fileExt(file.name) === '3mf' && file.blob), makeronline);
+    // Not a blocker. Print profiles are an extra on top of the raw model files,
+    // and the publisher already uploads zero of them for Resin listings. Making
+    // this an error meant swapping your own files into a project that had the
+    // option on -- the demo turns it on -- silently disqualified MakerOnline
+    // from the whole batch, while the other nine platforms published fine.
     if (makeronline.includePrintProfile && Number(makeronline.printMethod || 3) !== 2 && !profileFiles.length) {
-      errors.push('MakerOnline print profiles are enabled, but no .3mf profile file is available.');
+      warnings.push('MakerOnline print profiles are enabled but this project has no .3mf; the raw model files still upload.');
     }
     if (Number(makeronline.printMethod || 3) === 2 && makeronline.includePrintProfile) {
       warnings.push('MakerOnline omits print profiles for Resin listings; the raw model files still upload.');

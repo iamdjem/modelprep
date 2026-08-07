@@ -98,4 +98,37 @@ describe('new direct-platform option parity', () => {
     });
     expect(result.errors).toContain('Thingiverse Customizer requires at least one .SCAD model file.');
   });
+
+  // Swapping your own files into a project that has print profiles enabled --
+  // which the demo does -- used to disqualify MakerOnline from the entire batch
+  // over an optional extra. The raw model files still upload, so it warns.
+  it('does not block MakerOnline when print profiles are on but no .3mf exists', () => {
+    const project = (files) => ({
+      files, images: [{ id: 'c' }], coverImageId: 'c', media: [], title: 'Desk Dragon',
+      description: 'A dragon', category: 'toys', tags: ['dragon'], license: 'CC BY-NC',
+      platforms: { makeronline: { categoryId: '104', includePrintProfile: true, printMethod: 3 } },
+    });
+    const platform = { id: 'makeronline', name: 'MakerOnline', formats: ['stl', '3mf'], limits: {} };
+    const blob = new Blob(['x']);
+
+    const missing = platformPreflight(platform, project([{ name: 'Ram.stl', size: 1, blob }]));
+    expect(missing.errors).toEqual([]);
+    expect(missing.warnings.join(' ')).toMatch(/no \.3mf; the raw model files still upload/i);
+
+    const present = platformPreflight(platform, project([
+      { name: 'Ram.stl', size: 1, blob }, { name: 'Ram.3mf', size: 1, blob },
+    ]));
+    expect(present.errors).toEqual([]);
+    expect(present.warnings.join(' ')).not.toMatch(/no \.3mf/i);
+  });
+
+  // The one MakerOnline field with no workable default, so it must stay a blocker.
+  it('still blocks MakerOnline when no leaf category is chosen', () => {
+    const result = platformPreflight({ id: 'makeronline', name: 'MakerOnline', formats: ['stl'], limits: {} }, {
+      files: [{ name: 'Ram.stl', size: 1, blob: new Blob(['x']) }], images: [{ id: 'c' }], coverImageId: 'c',
+      media: [], title: 'Desk Dragon', description: 'A dragon', category: 'toys', tags: ['dragon'],
+      license: 'CC BY-NC', platforms: { makeronline: { categoryId: '' } },
+    });
+    expect(result.errors.join(' ')).toMatch(/leaf category/i);
+  });
 });
