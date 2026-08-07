@@ -371,7 +371,7 @@ async function copyPlainText(text) {
 
 const PRINTABLES_FORMATS = ['3dm', '3ds', '3dxml', '3mf', 'ai', 'amf', 'asm', 'bgcode', 'blend', 'cdr', 'csv', 'ctb', 'dwg', 'dxf', 'easm', 'f3d', 'f3z', 'factory', 'fcstd', 'gcode', 'gif', 'heic', 'heif', 'iges', 'igs', 'ini', 'ino', 'ipt', 'jpeg', 'jpg', 'lys', 'lyt', 'obj', 'par', 'pdf', 'ply', 'png', 'prt', 'py', 'rsdoc', 'scad', 'shape', 'shapr', 'skp', 'sl1', 'sl1s', 'sldasm', 'sldprt', 'slvs', 'step', 'stl', 'stp', 'studio3', 'svg', 'txt', 'webp', 'zip', 'zpr'];
 
-const PLATFORMS = [
+export const PLATFORMS = [
   {
     id: 'makerworld', name: 'MakerWorld', org: 'Bambu Lab', dot: '#FF6900',
     covers: [
@@ -427,7 +427,13 @@ const PLATFORMS = [
   },
   {
     id: 'thangs', name: 'Thangs', org: 'Physna', dot: '#3A86FF',
-    covers: [{ id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' }],
+    covers: [
+      { id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' },
+      // Thangs uploads the original and shows it in the slideshow, but its model
+      // card crops to 1/1.22 and wants at least 336x410. Offering that crop lets
+      // you place the focal point instead of letting Thangs choose it for you.
+      { id: 'card', label: 'Model card (1:1.22)', w: 1200, h: 1464, aspect: '1:1.22' },
+    ],
     preserveOriginalImages: true,
     descFormat: 'markdown', maxImages: null, maxFileMb: null, maxTotalMb: null,
     formats: ['stl', '3mf', 'step', 'stp', 'obj', 'glb', 'fbx', 'blend', 'usdz', 'gltf'], hasApi: true, apiSupport: 'oneclick', apiLive: true,
@@ -5287,7 +5293,10 @@ function FocalPicker({ image, onUpdate }) {
 
 function PlatformCropPreview({ image, platform, cover }) {
   const canvasRef = useRef(null);
-  const preserveOriginal = platform.preserveOriginalImages || !cover.w || !cover.h;
+  // Per cover, not per platform. A platform that preserves originals declares
+  // its default cover with null dimensions, so this is unchanged for them --
+  // but it lets such a platform also offer a sized crop preview alongside.
+  const preserveOriginal = !cover.w || !cover.h;
   useEffect(() => {
     if (preserveOriginal || !canvasRef.current || !image) return;
     const img = document.createElement('img');
@@ -7965,7 +7974,7 @@ function PlatformPackageCard({
   const fileNamePrefix = (project.title || 'model').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'model';
 
   const downloadImage = async (image, w, h, suffix) => {
-    if (!w || !h || platform.preserveOriginalImages) {
+    if (!w || !h) {
       const blob = await fetch(image.dataUrl).then((response) => response.blob());
       const ext = fileExt(image.name || '') || (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
       triggerDownload(blob, `${fileNamePrefix}_${platform.id}_${suffix}_original.${ext}`);

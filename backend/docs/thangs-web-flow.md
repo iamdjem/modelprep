@@ -38,7 +38,9 @@ Official source: `https://thangs.com/resources/help-center-articles/how-do-i-upl
 - **CURRENT BUNDLE:** reference maximum 500 MB.
 - **CURRENT BUNDLE:** soft warning thresholds 50 MB and 220 MB; print threshold is represented as 95 MB/100,000,000 bytes.
 - **CURRENT BUNDLE:** empty files and filenames containing `" / \\ : $ # & @ ?` plus newline, tab, `* < > %` are rejected.
-- **UNKNOWN:** total file count, image count, per-image dimensions, and required crop. Do not guess them.
+- **CURRENT EDITOR (2026-08-07):** the Images field states "Image dimensions should be at least 336x410px, with a 1 / 1.22 aspect ratio for best results." Aspect is a recommendation for the model card, not a validity rule; originals of any aspect upload and display. ModelPrep now offers a `1200x1464` card crop alongside the original pass-through so the focal point is the author's choice.
+- **CURRENT EDITOR (2026-08-07):** Videos are **not uploadable files**. The field reads "Provide a YouTube or Instagram Reel link to feature a video in the model page slideshow." ModelPrep sends nothing here and has no video-link field for any platform; `project.media` holds uploaded video files, which Thangs cannot accept. NOT IMPLEMENTED.
+- **UNKNOWN:** total file count and image count. Do not guess them.
 
 ## Listing data model
 
@@ -81,7 +83,9 @@ POST standalone-files                         standalone metadata
 `${standalone ? 'standalone-files' : attachment ? 'attachments' : 'models'}/upload-urls`
 ```
 
-Only model parts take `models/upload-urls`; non-model files (photos and reference files) take `attachments/upload-urls`, which stores under `uploads/attachments/<uuid>/`. That storage location is what earns an attachment `attachmentType: "image"` on read-back, confirmed against a live public model. Routing photos through `models/upload-urls` still uploads and still attaches them, but Thangs types them as generic resources, so they appear in the editor's Attachments list and never in the image gallery. Attachment-route uploads are not sent to `models/validatefiles`. Licenses stay on the model route, matching `UPLOAD_MODEL_LICENSE`.
+Only model parts take `models/upload-urls`; non-model files (photos and reference files) take `attachments/upload-urls`, which stores under `uploads/attachments/<uuid>/`. Attachment-route uploads are not sent to `models/validatefiles`. Licenses stay on the model route, matching `UPLOAD_MODEL_LICENSE`.
+
+**CORRECTION (2026-08-07): the presign route does NOT determine `attachmentType`.** An earlier revision of this file claimed it did, reasoning from a live public model whose images sit under `uploads/attachments/`. A live end-to-end publish from the packaged app disproved it: with photos correctly presigned through `attachments/upload-urls`, model `1585777` still listed all ten `.jpg` files under the editor's Attachments section with an empty Images gallery. **The real cause is still unknown.** Do not treat the route as the fix. The leading untested hypothesis is the create path: Thangs' own uploader posts everything in one `POST v2/models` with attachments inline, whereas ModelPrep creates a bare draft with `POST v4/models` and then applies metadata with `PUT v4/models/{id}/details`, which may file every attachment as a resource. A secondary discrepancy: the web create sends attachment entries keyed `newFileName`, ModelPrep sends `filename`. Confirming either requires reading `GET models/{id}/attachments`, which needs the bearer token.
 
 `attachmentType` is server-assigned and is either `image` or `resource`; the client's own predicate is extension-based (`isImage = isAnAcceptedType(file, PHOTO_FILE_EXTS)`). At create time the web app filters the payload's `attachments` down to images only, sending everything else as `referenceFiles`.
 
