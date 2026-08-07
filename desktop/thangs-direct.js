@@ -134,7 +134,24 @@ function createThangsDirectClient({ fetchImpl = fetch, apiOrigin = process.env.M
     validateUpload(role, file);
     const directory = `modelprep-${Date.now()}`;
     const standalone = role === 'standalone';
-    const presigned = await api(context, standalone ? 'standalone-files/upload-urls?sendContentLengthRangeHeader=false' : 'models/upload-urls', { method: 'POST', body: standalone ? [{ fileName: file.name }] : { fileNames: [file.name], directory, sendContentLengthRangeHeader: false }, label: 'upload authorization' });
+    // Which presign route a file takes is what decides how Thangs classifies it
+    // later. Its own uploader picks the route by file kind:
+    //
+    //   `${standalone ? 'standalone-files' : attachment ? 'attachments' : 'models'}/upload-urls`
+    //
+    // Only model parts go through `models/upload-urls`. Photos and reference
+    // files go through `attachments/upload-urls`, which stores them under
+    // `uploads/attachments/<uuid>/` and is what earns them
+    // `attachmentType: "image"` on read-back. Sending photos down the model
+    // route stored them as model files, so Thangs filed them as generic
+    // resources: they showed up in the editor's Attachments list and never in
+    // the image gallery. Licenses stay on the model route, matching the
+    // first-party UPLOAD_MODEL_LICENSE flow.
+    const attachment = role === 'image' || role === 'reference';
+    const endpoint = standalone
+      ? 'standalone-files/upload-urls?sendContentLengthRangeHeader=false'
+      : `${attachment ? 'attachments' : 'models'}/upload-urls`;
+    const presigned = await api(context, endpoint, { method: 'POST', body: standalone ? [{ fileName: file.name }] : { fileNames: [file.name], directory, sendContentLengthRangeHeader: false }, label: 'upload authorization' });
     const entry = Array.isArray(presigned) ? presigned[0] : presigned?.urls?.[0] || presigned?.[file.name] || presigned;
     const uploadUrl = entry?.signedUrl || entry?.uploadUrl || entry?.url;
     const uploadedName = entry?.newFileName || entry?.filename || entry?.fileName || entry?.key || `${directory}/${file.name}`;
@@ -149,7 +166,10 @@ function createThangsDirectClient({ fetchImpl = fetch, apiOrigin = process.env.M
     const uploadContentTypes = { txt: 'text/plain', md: 'text/markdown', pdf: 'application/pdf' };
     const put = await fetchImpl(uploadUrl, { method: 'PUT', headers: { 'Content-Type': uploadContentTypes[ext(file.name)] || 'application/octet-stream' }, body: file.bytes });
     if (!put.ok) throw new Error(`Thangs storage upload failed (HTTP ${put.status}).`);
-    if (!standalone) await api(context, 'models/validatefiles', { method: 'POST', body: { fileNames: [uploadedName] }, label: 'file validation' });
+    // Validation builds the part tree, so it applies to files on the model
+    // route. Attachment-route uploads are not model files and are not validated
+    // by the first-party flow either.
+    if (!standalone && !attachment) await api(context, 'models/validatefiles', { method: 'POST', body: { fileNames: [uploadedName] }, label: 'file validation' });
     return { role, name: file.name, uploadedName, size: file.bytes.byteLength };
   }
   async function save(context, input) {

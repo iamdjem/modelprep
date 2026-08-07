@@ -98,3 +98,43 @@ test('Thangs rejects cookie-only sessions instead of falsely reporting connected
   const client = createThangsDirectClient({ fetchImpl: async () => new Response('{}', { status: 200 }), apiOrigin: 'https://api.test' });
   await assert.rejects(() => client.whoami({ cookie: 'refresh=x' }), /access token is missing/i);
 });
+
+// Which presign route a file takes is what decides how Thangs classifies it.
+// Photos sent down the model route were stored as model files, so Thangs filed
+// them as generic resources: they appeared in the editor's Attachments list and
+// never in the image gallery. Its own uploader routes non-model files to
+// `attachments/upload-urls`, which is what earns them attachmentType "image".
+test('Thangs photos and reference files use the attachment presign route', async () => {
+  for (const role of ['image', 'reference']) {
+    const calls = [];
+    const fetchImpl = async (url, init = {}) => {
+      calls.push([String(url), init.method || 'GET', init.body]);
+      if (String(url) === 'https://storage.test/a') return new Response('', { status: 200 });
+      return new Response(JSON.stringify([{ signedUrl: 'https://storage.test/a', newFileName: 'uploads/attachments/uuid/hero.jpg' }]), { status: 200 });
+    };
+    const client = createThangsDirectClient({ fetchImpl, apiOrigin: 'https://api.test' });
+    const name = role === 'image' ? 'hero.jpg' : 'notes.pdf';
+    const receipt = await client.upload({ cookie: 'session=x', accessToken: 'access-token' }, role, { name, bytes: Buffer.from('x') });
+
+    assert.equal(new URL(calls[0][0]).pathname, '/attachments/upload-urls', `${role} must presign as an attachment`);
+    assert.deepEqual(JSON.parse(calls[0][2]).fileNames, [name]);
+    // Not model files, so the part-tree validator does not apply to them.
+    assert.equal(calls.some(([url]) => url.includes('validatefiles')), false);
+    assert.equal(receipt.uploadedName, 'uploads/attachments/uuid/hero.jpg');
+  }
+});
+
+test('Thangs model parts and licenses stay on the model presign route', async () => {
+  for (const role of ['model', 'license']) {
+    const calls = [];
+    const fetchImpl = async (url, init = {}) => {
+      calls.push([String(url), init.method || 'GET']);
+      if (String(url) === 'https://storage.test/m') return new Response('', { status: 200 });
+      return new Response(JSON.stringify([{ signedUrl: 'https://storage.test/m', newFileName: 'm/dragon.stl' }]), { status: 200 });
+    };
+    const client = createThangsDirectClient({ fetchImpl, apiOrigin: 'https://api.test' });
+    const name = role === 'model' ? 'dragon.stl' : 'license.pdf';
+    await client.upload({ cookie: 'session=x', accessToken: 'access-token' }, role, { name, bytes: Buffer.from('x') });
+    assert.equal(new URL(calls[0][0]).pathname, '/models/upload-urls', `${role} must presign as a model file`);
+  }
+});

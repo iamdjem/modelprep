@@ -62,7 +62,8 @@ This is the current website contract observed in first-party bundles:
 
 ```text
 GET  users/current?likes=false                 authenticated session verification
-POST models/upload-urls                       {fileNames,directory,sendContentLengthRangeHeader:false}
+POST models/upload-urls                       {fileNames,directory,sendContentLengthRangeHeader:false} -- MODEL PARTS AND LICENSES ONLY
+POST attachments/upload-urls                  {fileNames,directory,sendContentLengthRangeHeader:false} -- PHOTOS AND REFERENCE FILES
 PUT  signed object URL                        raw bytes
 POST models/validatefiles                     {fileNames:[...]}
 POST v2/models                                array of model payloads -> model ids
@@ -73,6 +74,16 @@ GET  v2/models/{id}/license                   license readback
 POST standalone-files/upload-urls?...         standalone presign
 POST standalone-files                         standalone metadata
 ```
+
+**Presign route decides file classification.** The first-party uploader picks the route by file kind, in its upload worker (not the page bundle, which is why an earlier capture missed it):
+
+```js
+`${standalone ? 'standalone-files' : attachment ? 'attachments' : 'models'}/upload-urls`
+```
+
+Only model parts take `models/upload-urls`; non-model files (photos and reference files) take `attachments/upload-urls`, which stores under `uploads/attachments/<uuid>/`. That storage location is what earns an attachment `attachmentType: "image"` on read-back, confirmed against a live public model. Routing photos through `models/upload-urls` still uploads and still attaches them, but Thangs types them as generic resources, so they appear in the editor's Attachments list and never in the image gallery. Attachment-route uploads are not sent to `models/validatefiles`. Licenses stay on the model route, matching `UPLOAD_MODEL_LICENSE`.
+
+`attachmentType` is server-assigned and is either `image` or `resource`; the client's own predicate is extension-based (`isImage = isAnAcceptedType(file, PHOTO_FILE_EXTS)`). At create time the web app filters the payload's `attachments` down to images only, sending everything else as `referenceFiles`.
 
 The presign response uses `signedUrl` and `newFileName`. The submit builder creates one payload per root/single/multipart model. Each part uses the exact keys `originalFileName`, `originalPartName`, `filename`, `size`, and `isPrimary`. `POST v2/models/assets` takes only `{filenames,referenceFiles}`—there is no model ID in that request. The root carries attachments, dependencies, workspace/folder, visibility/access, license, remix, AI, tags/categories, units, marketplace/plans, and related metadata. Current categories are read from `GET categories/root?includeEmpty=true` and persisted as a path value rather than a picker index.
 
