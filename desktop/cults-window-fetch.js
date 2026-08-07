@@ -25,7 +25,44 @@ const FORBIDDEN_REQUEST_HEADERS = new Set([
   'connection', 'accept-encoding',
 ]);
 
-function buildRequestDescriptor(url, options = {}, maxBodyBytes = 64 * 1024 * 1024) {
+// A model file is uploaded as one base64 blob embedded in the script source, so
+// this bounds how much a single request may carry. Real STL/3MF meshes run well
+// past 64MB, which is where this used to sit; 256MB clears them while still
+// refusing anything that could only be a runaway.
+const DEFAULT_MAX_BODY_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Turn a request body into raw bytes.
+ *
+ * FormData is the case that matters. It has no useful `toString()`, so the
+ * previous fall-through to `Buffer.from(String(body))` encoded every Cults file
+ * upload as the 17-byte literal "[object FormData]" — S3 rejected the malformed
+ * POST, and because the error response carries no CORS headers the page's fetch
+ * surfaced it as a bare "Failed to fetch". Node's Response knows how to encode
+ * multipart and reports the boundary it picked, so we borrow it rather than
+ * hand-rolling a multipart writer.
+ */
+async function encodeBody(body) {
+  if (Buffer.isBuffer(body)) return { bytes: body, contentType: null };
+  if (body instanceof ArrayBuffer) return { bytes: Buffer.from(body), contentType: null };
+  if (ArrayBuffer.isView(body)) {
+    return { bytes: Buffer.from(body.buffer, body.byteOffset, body.byteLength), contentType: null };
+  }
+  if (typeof body === 'string') return { bytes: Buffer.from(body), contentType: null };
+
+  // FormData, Blob, URLSearchParams: anything Response can serialize.
+  const Encoder = globalThis.Response;
+  if (Encoder && (typeof body.arrayBuffer === 'function' || typeof body.getAll === 'function')) {
+    const encoded = new Encoder(body);
+    return {
+      bytes: Buffer.from(await encoded.arrayBuffer()),
+      contentType: encoded.headers.get('content-type'),
+    };
+  }
+  return { bytes: Buffer.from(String(body)), contentType: null };
+}
+
+async function buildRequestDescriptor(url, options = {}, maxBodyBytes = DEFAULT_MAX_BODY_BYTES) {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = {};
   const source = options.headers;
@@ -39,15 +76,13 @@ function buildRequestDescriptor(url, options = {}, maxBodyBytes = 64 * 1024 * 10
 
   let bodyBase64 = null;
   if (options.body != null) {
-    const buf = Buffer.isBuffer(options.body)
-      ? options.body
-      : options.body instanceof ArrayBuffer
-        ? Buffer.from(options.body)
-        : ArrayBuffer.isView(options.body)
-          ? Buffer.from(options.body.buffer, options.body.byteOffset, options.body.byteLength)
-          : Buffer.from(String(options.body));
-    if (buf.byteLength > maxBodyBytes) throw new Error(`Cults in-app request body ${buf.byteLength} exceeds the ${maxBodyBytes}-byte limit.`);
-    bodyBase64 = buf.toString('base64');
+    const { bytes, contentType } = await encodeBody(options.body);
+    if (bytes.byteLength > maxBodyBytes) throw new Error(`Cults in-app request body ${bytes.byteLength} exceeds the ${maxBodyBytes}-byte limit.`);
+    // The boundary is chosen during encoding, so the encoder's Content-Type is
+    // the only correct one: a caller-supplied header would name a boundary that
+    // is not in the body.
+    if (contentType) headers['Content-Type'] = contentType;
+    bodyBase64 = bytes.toString('base64');
   }
 
   return {
@@ -94,15 +129,22 @@ function buildFetchScript(descriptor) {
 })()`;
 }
 
+/** Strip query strings: they carry signed-URL credentials. */
+function redactUrl(url) {
+  const value = String(url || '');
+  const q = value.indexOf('?');
+  return q < 0 ? value : `${value.slice(0, q)}?[redacted]`;
+}
+
 // executeInPage(code) -> Promise<envelope> runs the script in the Cults window.
 function createWindowFetch(options = {}) {
   const executeInPage = options.executeInPage;
   const ResponseImpl = options.Response || (typeof Response !== 'undefined' ? Response : null);
-  const maxBodyBytes = options.maxBodyBytes || 64 * 1024 * 1024;
+  const maxBodyBytes = options.maxBodyBytes || DEFAULT_MAX_BODY_BYTES;
   if (typeof executeInPage !== 'function') throw new Error('createWindowFetch requires an executeInPage function.');
 
   return async (url, opts = {}) => {
-    const descriptor = buildRequestDescriptor(url, opts, maxBodyBytes);
+    const descriptor = await buildRequestDescriptor(url, opts, maxBodyBytes);
     let envelope;
     try {
       envelope = await executeInPage(buildFetchScript(descriptor));
@@ -110,7 +152,14 @@ function createWindowFetch(options = {}) {
       throw new Error(`Cults in-app window is unavailable: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (!envelope || envelope.error) {
-      throw new Error(envelope?.error || 'Cults in-app request returned no response.');
+      // A bare "Failed to fetch" from the page says nothing about which request
+      // died or how big it was, which is exactly what you need to know: this
+      // transport carries the whole upload as one base64 blob embedded in a
+      // script, so large publishes fail here and nowhere else.
+      const detail = envelope?.error || 'Cults in-app request returned no response.';
+      const bytes = descriptor.bodyBase64 ? Math.round((descriptor.bodyBase64.length * 3) / 4) : 0;
+      const size = bytes ? ` (${descriptor.method} ${bytes.toLocaleString()} bytes)` : ` (${descriptor.method})`;
+      throw new Error(`${detail}${size} while calling ${redactUrl(descriptor.url)}`);
     }
     if (!ResponseImpl) throw new Error('No Response implementation available in this runtime.');
     const body = envelope.bodyBase64 ? Buffer.from(envelope.bodyBase64, 'base64') : null;
@@ -122,4 +171,7 @@ function createWindowFetch(options = {}) {
   };
 }
 
-module.exports = { createWindowFetch, buildFetchScript, buildRequestDescriptor, FORBIDDEN_REQUEST_HEADERS };
+module.exports = {
+  createWindowFetch, buildFetchScript, buildRequestDescriptor,
+  FORBIDDEN_REQUEST_HEADERS, DEFAULT_MAX_BODY_BYTES,
+};

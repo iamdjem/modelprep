@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createWindowFetch, buildFetchScript, buildRequestDescriptor, FORBIDDEN_REQUEST_HEADERS } = require('./cults-window-fetch');
+const { createWindowFetch, buildFetchScript, buildRequestDescriptor, FORBIDDEN_REQUEST_HEADERS, DEFAULT_MAX_BODY_BYTES } = require('./cults-window-fetch');
 
 // Run the generated in-page script inside a sandbox that fakes the page's
 // fetch/atob/btoa, so we cover the actual code that runs inside the Cults window.
@@ -24,8 +24,8 @@ test('packaged desktop allowlist includes the in-app window fetch', () => {
   assert.ok(pkg.build.files.includes('cults-window-fetch.js'));
 });
 
-test('descriptor strips browser-forbidden headers and base64-encodes the body', () => {
-  const d = buildRequestDescriptor('https://cults3d.com/x', {
+test('descriptor strips browser-forbidden headers and base64-encodes the body', async () => {
+  const d = await buildRequestDescriptor('https://cults3d.com/x', {
     method: 'post',
     headers: { 'Content-Type': 'application/json', Cookie: 'secret=1', 'User-Agent': 'x', 'X-CSRF-Token': 't' },
     body: Buffer.from('hello'),
@@ -40,7 +40,7 @@ test('descriptor strips browser-forbidden headers and base64-encodes the body', 
 });
 
 test('in-page script performs the fetch and returns an encoded envelope', async () => {
-  const script = buildFetchScript(buildRequestDescriptor('https://cults3d.com/en/creations/new', { headers: { Accept: 'text/html' } }));
+  const script = buildFetchScript(await buildRequestDescriptor('https://cults3d.com/en/creations/new', { headers: { Accept: 'text/html' } }));
   const fakeFetch = async (url, init) => {
     assert.equal(url, 'https://cults3d.com/en/creations/new');
     assert.equal(init.credentials, 'include');
@@ -57,7 +57,7 @@ test('in-page script performs the fetch and returns an encoded envelope', async 
 });
 
 test('manual-redirect requests re-synthesize a 302 with the final URL', async () => {
-  const script = buildFetchScript(buildRequestDescriptor('https://cults3d.com/en/creations/new', { redirect: 'manual' }));
+  const script = buildFetchScript(await buildRequestDescriptor('https://cults3d.com/en/creations/new', { redirect: 'manual' }));
   const fakeFetch = async () => ({
     status: 200, statusText: 'OK', redirected: true, url: 'https://cults3d.com/en/users/sign-in',
     headers: new Map(), arrayBuffer: async () => new ArrayBuffer(0),
@@ -90,4 +90,77 @@ test('a dead window surfaces a clear unavailable error', async () => {
   const executeInPage = async () => { throw new Error('Object has been destroyed'); };
   const fetchImpl = createWindowFetch({ executeInPage });
   await assert.rejects(() => fetchImpl('https://cults3d.com/x'), /in-app window is unavailable/);
+});
+
+// A bare "Failed to fetch" from the page is the least useful thing this
+// transport can say: it carries the entire upload as one base64 blob inside a
+// script, so large publishes fail here and nowhere else, and the size is the
+// single most diagnostic fact.
+test('a page-fetch failure reports the method, body size and endpoint', async () => {
+  const windowFetch = createWindowFetch({
+    executeInPage: async () => ({ error: 'Failed to fetch' }),
+    Response: global.Response,
+  });
+  await assert.rejects(
+    () => windowFetch('https://cults3d.com/api/upload?sig=SECRET', { method: 'POST', body: Buffer.alloc(3 * 1024 * 1024) }),
+    (error) => {
+      assert.match(error.message, /Failed to fetch/);
+      assert.match(error.message, /POST/);
+      assert.match(error.message, /3,145,728 bytes/, 'the size is what identifies an oversized publish');
+      assert.match(error.message, /cults3d\.com\/api\/upload/);
+      assert.ok(!error.message.includes('SECRET'), 'signed-URL query strings stay out of the message');
+      return true;
+    },
+  );
+});
+
+test('a bodyless failure still names the request', async () => {
+  const windowFetch = createWindowFetch({
+    executeInPage: async () => ({ error: 'NetworkError' }),
+    Response: global.Response,
+  });
+  await assert.rejects(
+    () => windowFetch('https://cults3d.com/en/my/creations', {}),
+    /NetworkError \(GET\) while calling https:\/\/cults3d\.com\/en\/my\/creations/,
+  );
+});
+
+// The bug that broke every real Cults3D upload: FormData has no meaningful
+// toString(), so it used to encode as the 17-byte string "[object FormData]".
+// S3 rejected the malformed POST and, with no CORS headers on the error, the
+// page reported only "Failed to fetch".
+test('a FormData body is encoded as real multipart, not "[object FormData]"', async () => {
+  const form = new FormData();
+  form.set('key', 'uploads/Ram.stl');
+  form.set('file', new Blob([Buffer.alloc(2048, 7)], { type: 'model/stl' }), 'Ram.stl');
+
+  const d = await buildRequestDescriptor('https://s3.example/files', { method: 'POST', body: form });
+  const body = Buffer.from(d.bodyBase64, 'base64');
+
+  assert.ok(body.byteLength > 2048, `multipart body should carry the file, got ${body.byteLength} bytes`);
+  assert.equal(body.includes('[object FormData]'), false);
+  assert.match(body.toString('latin1'), /name="key"/);
+  assert.match(body.toString('latin1'), /filename="Ram\.stl"/);
+});
+
+test('multipart requests carry the Content-Type whose boundary is actually in the body', async () => {
+  const form = new FormData();
+  form.set('key', 'uploads/x');
+  // A caller-set Content-Type must lose: its boundary is not the one used.
+  const d = await buildRequestDescriptor('https://s3.example/files', {
+    method: 'POST', body: form, headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  const contentType = d.headers['Content-Type'];
+  assert.match(contentType, /^multipart\/form-data; boundary=/);
+  const boundary = contentType.split('boundary=')[1];
+  assert.ok(Buffer.from(d.bodyBase64, 'base64').toString('latin1').includes(boundary));
+});
+
+test('the size guard clears real mesh files but still refuses a runaway', async () => {
+  // 87MB STLs are ordinary on Cults3D; the old 64MB ceiling rejected them.
+  assert.ok(DEFAULT_MAX_BODY_BYTES >= 128 * 1024 * 1024);
+  await assert.rejects(
+    buildRequestDescriptor('https://s3.example/files', { method: 'POST', body: Buffer.alloc(2048) }, 1024),
+    /exceeds the 1024-byte limit/,
+  );
 });

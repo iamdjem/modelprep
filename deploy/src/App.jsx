@@ -7277,6 +7277,20 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   };
   const handleBatchResult = (outcome) => {
     setPublishBatch((current) => advancePublishBatch(current, outcome));
+    // Publish failures were shown in the receipt and then forgotten: nothing
+    // reached the diagnostics log, so "Export diagnostics" had nothing to say
+    // about the one thing a beta tester actually hit. Record them centrally,
+    // once, for every platform. Sanitising happens in the main process.
+    if (outcome?.state !== 'error') return;
+    const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
+    try {
+      desktop?.reportDiagnostic?.({
+        source: 'renderer',
+        kind: 'rendererError',
+        message: `publish failed: ${outcome.platformId}: ${outcome.detail || 'no detail'}`,
+        context: `run ${outcome.runId || 'unknown'}`,
+      });
+    } catch { /* diagnostics must never break a publish */ }
   };
   const retryFailedBatch = () => {
     setPublishBatch((current) => retryFailedPublishBatch(current, `batch-retry-${Date.now()}`));
