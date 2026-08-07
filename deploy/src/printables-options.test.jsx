@@ -60,7 +60,7 @@ describe('Printables-specific options', () => {
     await user.type(within(settings).getByPlaceholderText('parts/large'), 'parts');
     const note = within(settings).getByPlaceholderText(/Print this part twice/i);
     expect(note).toHaveAttribute('maxlength', '95');
-    expect(within(settings).getByText(/Each folder path segment is limited to 60 characters/i)).toBeInTheDocument();
+    expect(within(settings).getByText(/folder names up to 60/i)).toBeInTheDocument();
     await user.type(note, 'Two copies');
     expect(onUpdatePrintables).toHaveBeenCalledWith({ folder: expect.any(String) });
     expect(onUpdatePrintables).toHaveBeenCalledWith({ note: expect.any(String) });

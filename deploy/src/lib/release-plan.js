@@ -103,3 +103,19 @@ export function describeDue(plan, now) {
   if (deltaMinutes < 60 * 48) return `in ${Math.round(deltaMinutes / 60)}h`;
   return `in ${Math.round(deltaMinutes / (60 * 24))}d`;
 }
+
+// Why a due plan is not publishing. `dueScheduledTargets` filters unrunnable
+// plans out silently, which leaves a scheduled publish sitting at "10h overdue"
+// with nothing saying what is wrong. This turns that silence into a sentence.
+//
+// The common cause is not a bug in the schedule: ModelPrep persists a project's
+// text but never its model files or images, so a plan that outlives an app
+// restart has nothing left to upload.
+export function releasePlanBlockers(plan, targets = []) {
+  if (!plan || plan.mode !== 'scheduled') return [];
+  const target = (targets || []).find((candidate) => candidate.id === plan.platformId);
+  if (!target) return [`${plan.platformName || plan.platformId} is switched off in the Platforms step.`];
+  if (target.mode === 'missing') return [`Connect your ${target.name} account.`];
+  const errors = target.issues?.errors || [];
+  return errors.length ? errors.slice(0, 3) : [];
+}

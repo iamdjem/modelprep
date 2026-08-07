@@ -71,7 +71,7 @@ describe('error classification', () => {
     ['quota', new Error('provider 429: Rate limit exceeded'), 429],
     ['quota', new Error('You have exceeded your monthly included credits'), 0],
     ['auth', new Error('provider 401: invalid api key'), 401],
-    ['auth', new Error('codex is not signed in — run `codex login`'), 0],
+    ['auth', new Error('codex is not signed in: run `codex login`'), 0],
     ['model', new Error("The 'gpt-5.1' model is not supported when using Codex with a ChatGPT account."), 0],
     ['offline', new Error('Ollama is not running on this computer.'), 0],
     ['offline', new Error('Failed to fetch'), 0],
@@ -154,9 +154,9 @@ describe('detection', () => {
         }),
       },
     });
-    expect(detected.codex).toMatchObject({ state: 'ready', detail: 'Signed in — ChatGPT plan' });
+    expect(detected.codex).toMatchObject({ state: 'ready', detail: 'Signed in: ChatGPT plan' });
     // Both CLI agents are probed through the one bridge call, each with its own copy.
-    expect(detected.claudecode).toMatchObject({ state: 'ready', detail: 'Signed in — max plan' });
+    expect(detected.claudecode).toMatchObject({ state: 'ready', detail: 'Signed in: max plan' });
     expect(detected.ollama).toMatchObject({ state: 'ready', detail: '1 model that can read photos' });
     expect(detected.lmstudio).toMatchObject({ state: 'missing', detail: 'LM Studio is not running on this computer.' });
   });
@@ -270,8 +270,14 @@ describe('registry', () => {
     }
   });
 
-  it('covers both subscription CLIs and the popular key-based providers', () => {
-    expect(Object.keys(AI_PROVIDERS).filter((id) => AI_PROVIDERS[id].kind === 'cli')).toEqual(['codex', 'claudecode']);
+  it('covers every subscription CLI and the popular key-based providers', () => {
+    expect(Object.keys(AI_PROVIDERS).filter((id) => AI_PROVIDERS[id].kind === 'cli')).toEqual(['codex', 'claudecode', 'geminicli']);
+    // Each CLI names the desktop agent that runs it, and is desktop-only: a web
+    // page cannot spawn a process.
+    for (const id of ['codex', 'claudecode', 'geminicli']) {
+      expect(AI_PROVIDERS[id].agent, id).toBeTruthy();
+      expect(AI_PROVIDERS[id].desktopOnly, id).toBe(true);
+    }
     for (const id of ['anthropic', 'openai', 'openrouter', 'gemini', 'groq', 'xai', 'mistral']) {
       expect(AI_PROVIDERS[id]?.kind, id).toBe('cloud');
     }

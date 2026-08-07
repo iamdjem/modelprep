@@ -12,8 +12,7 @@ import {
   removeReleasePlan,
   saveReleasePlans,
   unnotifiedDuePlans,
-  upsertReleasePlan,
-} from './release-plan.js';
+  upsertReleasePlan, releasePlanBlockers } from './release-plan.js';
 
 const NOW = Date.parse('2026-08-04T12:00:00Z');
 const plan = (over = {}) => ({
@@ -96,5 +95,40 @@ describe('release plans', () => {
     plans = patchReleasePlan(plans, 'p1', { status: 'done' });
     expect(plans[0].status).toBe('done');
     expect(removeReleasePlan(plans, 'p1')).toEqual([]);
+  });
+});
+
+// --- Why a due plan is not publishing ---------------------------------------
+// A scheduled publish that cannot run used to sit at "10h overdue" saying
+// nothing. These pin the explanation.
+describe('releasePlanBlockers', () => {
+  const plan = { id: 'p1', mode: 'scheduled', platformId: 'makerworld', platformName: 'MakerWorld' };
+  const target = (over = {}) => ({ id: 'makerworld', name: 'MakerWorld', mode: 'real', issues: { errors: [] }, ...over });
+
+  it('says nothing when the plan can actually run', () => {
+    expect(releasePlanBlockers(plan, [target()])).toEqual([]);
+  });
+
+  it('explains a platform that was switched off', () => {
+    expect(releasePlanBlockers(plan, [])[0]).toMatch(/switched off/i);
+  });
+
+  it('explains a disconnected account', () => {
+    expect(releasePlanBlockers(plan, [target({ mode: 'missing' })])[0]).toMatch(/connect your MakerWorld/i);
+  });
+
+  it('reports the pre-flight blockers, which is the usual cause after a restart', () => {
+    const errors = ['No photos: at least one is required.', 'Title is missing.'];
+    expect(releasePlanBlockers(plan, [target({ issues: { errors } })])).toEqual(errors);
+  });
+
+  it('caps the list so one broken project cannot flood the queue', () => {
+    const errors = ['a', 'b', 'c', 'd', 'e'];
+    expect(releasePlanBlockers(plan, [target({ issues: { errors } })])).toHaveLength(3);
+  });
+
+  it('stays quiet for reminders, which never publish by themselves', () => {
+    expect(releasePlanBlockers({ ...plan, mode: 'remind' }, [])).toEqual([]);
+    expect(releasePlanBlockers(null, [])).toEqual([]);
   });
 });

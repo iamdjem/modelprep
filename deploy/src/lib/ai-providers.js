@@ -2,12 +2,12 @@
 // stops working.
 //
 // Three kinds of provider, and the difference decides everything else:
-//   cli        — a program on this machine (Codex). Desktop only; a web page cannot spawn one.
-//   local-http — a server on this machine (Ollama, LM Studio). Free, private, no key.
-//   cloud      — someone else's API, with the maker's own key.
+//   cli       : a program on this machine (Codex). Desktop only; a web page cannot spawn one.
+//   local-http: a server on this machine (Ollama, LM Studio). Free, private, no key.
+//   cloud     : someone else's API, with the maker's own key.
 //
-// A maker picks a primary and, optionally, backups. When the primary fails — expired key,
-// monthly quota gone, Ollama not running — the next one in the chain takes over instead of
+// A maker picks a primary and, optionally, backups. When the primary fails: expired key,
+// monthly quota gone, Ollama not running: the next one in the chain takes over instead of
 // dumping them back to an offline draft with a stack trace.
 
 export const AI_PROVIDERS = {
@@ -33,12 +33,23 @@ export const AI_PROVIDERS = {
     setupUrl: 'https://claude.com/claude-code',
     setupHint: 'Install Claude Code, then run `claude auth login` and sign in with your Claude account.',
   },
+  geminicli: {
+    id: 'geminicli',
+    agent: 'gemini',
+    name: 'Gemini CLI',
+    kind: 'cli',
+    desktopOnly: true,
+    cost: 'Included in your Google account',
+    blurb: 'Uses the Gemini CLI you are already signed in to. No API key, nothing billed per listing.',
+    setupUrl: 'https://github.com/google-gemini/gemini-cli',
+    setupHint: 'Install Gemini CLI, then run `gemini` once and sign in with your Google account.',
+  },
   ollama: {
     id: 'ollama',
     name: 'Ollama',
     kind: 'local-http',
     baseUrl: 'http://localhost:11434/v1',
-    cost: 'Free — runs on this computer',
+    cost: 'Free, runs on this computer',
     blurb: 'Open-source models on your own hardware. Your photos never leave the machine.',
     setupUrl: 'https://ollama.com',
     setupHint: 'Install Ollama, then run `ollama pull llama3.2-vision`.',
@@ -48,7 +59,7 @@ export const AI_PROVIDERS = {
     name: 'LM Studio',
     kind: 'local-http',
     baseUrl: 'http://localhost:1234/v1',
-    cost: 'Free — runs on this computer',
+    cost: 'Free, runs on this computer',
     blurb: 'Local models with a desktop UI. Start its server and load a vision model.',
     setupUrl: 'https://lmstudio.ai',
     setupHint: 'In LM Studio, load a vision model and start the local server.',
@@ -58,7 +69,7 @@ export const AI_PROVIDERS = {
     name: 'Anthropic Claude',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — pay per listing',
+    cost: 'Your own key, pay per listing',
     blurb: 'Claude reads photos closely and writes well. Best quality per listing if you have a key.',
     setupUrl: 'https://console.anthropic.com/settings/keys',
     defaultModel: 'claude-opus-5',
@@ -68,7 +79,7 @@ export const AI_PROVIDERS = {
     name: 'OpenAI',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — pay per listing',
+    cost: 'Your own key, pay per listing',
     blurb: 'GPT models with vision, on a standard OpenAI API key.',
     setupUrl: 'https://platform.openai.com/api-keys',
   },
@@ -77,7 +88,7 @@ export const AI_PROVIDERS = {
     name: 'OpenRouter',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — free models available',
+    cost: 'Your own key, free models available',
     blurb: 'One key, many models, including free ones.',
     setupUrl: 'https://openrouter.ai/keys',
     defaultModel: 'meta-llama/llama-3.2-11b-vision-instruct:free',
@@ -87,7 +98,7 @@ export const AI_PROVIDERS = {
     name: 'Google Gemini',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — generous free tier',
+    cost: 'Your own key, generous free tier',
     blurb: 'Gemini Flash reads photos well and is free up to a daily limit.',
     setupUrl: 'https://aistudio.google.com/apikey',
     defaultModel: 'gemini-2.0-flash',
@@ -97,7 +108,7 @@ export const AI_PROVIDERS = {
     name: 'Groq',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — free tier',
+    cost: 'Your own key, free tier',
     blurb: 'Very fast Llama vision models.',
     setupUrl: 'https://console.groq.com/keys',
     defaultModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
@@ -107,7 +118,7 @@ export const AI_PROVIDERS = {
     name: 'xAI Grok',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — pay per listing',
+    cost: 'Your own key, pay per listing',
     blurb: 'Grok vision models on an xAI key.',
     setupUrl: 'https://console.x.ai',
   },
@@ -116,7 +127,7 @@ export const AI_PROVIDERS = {
     name: 'Mistral',
     kind: 'cloud',
     needsKey: true,
-    cost: 'Your own key — free tier available',
+    cost: 'Your own key, free tier available',
     blurb: 'Pixtral vision models, European hosting.',
     setupUrl: 'https://console.mistral.ai/api-keys',
   },
@@ -197,7 +208,7 @@ export function aiChain(config) {
   return chain.filter((id, i) => id && AI_PROVIDERS[id] && chain.indexOf(id) === i);
 }
 
-/** Make `id` the primary, keeping the previous primary as the first backup — switching
+/** Make `id` the primary, keeping the previous primary as the first backup: switching
  *  providers because one ran out of quota should not throw away the other one. */
 export function setPrimaryProvider(config, id, settings = {}) {
   const previous = config.primary;
@@ -269,7 +280,7 @@ const ERROR_RULES = [
 const asClassified = (rule, detail) => ({ code: rule.code, title: rule.title, fix: rule.fix, detail });
 
 /** Classify a failure into { code, title, detail, fix }. `detail` keeps the provider's own
- *  words — makers forward those to support, and hiding them helps nobody. */
+ *  words: makers forward those to support, and hiding them helps nobody. */
 export function classifyAiError(error, status) {
   const detail = String(error?.message || error || '').trim();
   const httpStatus = Number(status) || Number(detail.match(/\b(4\d\d|5\d\d)\b/)?.[1]) || 0;
@@ -365,14 +376,14 @@ async function probeCliAgent(desktop, meta) {
     return { state: 'setup', models: [], detail: 'Installed, but signed out', error: { code: 'auth', message: meta.setupHint } };
   }
   // A CLI signed in with an API key bills that key instead of the plan the maker picked this
-  // provider for — worth saying plainly rather than letting an invoice explain it later.
+  // provider for: worth saying plainly rather than letting an invoice explain it later.
   const billed = status.method === 'api-key';
   return {
     state: 'ready',
     models: status.models || [],
     detail: billed
-      ? 'Signed in with an API key — billed to that key'
-      : (status.plan ? `Signed in — ${status.plan} plan` : 'Signed in'),
+      ? 'Signed in with an API key: billed to that key'
+      : (status.plan ? `Signed in: ${status.plan} plan` : 'Signed in'),
     warning: billed
       ? `${meta.name} is signed in with an API key, so runs are billed to it, not to your plan. Sign out and sign back in with your account to use the subscription.`
       : null,
@@ -447,7 +458,7 @@ export function parseCloudModels(id, body) {
   return [...mapped].sort((a, b) => Number(b.slug.endsWith(':free')) - Number(a.slug.endsWith(':free'))).slice(0, 200);
 }
 
-/** One sentence for the maker after a chain runs out — names the provider and the reason. */
+/** One sentence for the maker after a chain runs out: names the provider and the reason. */
 export function chainFailureMessage(attempts = []) {
   if (!attempts.length) return 'No AI provider is set up yet, so ModelPrep wrote an offline draft.';
   const parts = attempts.map(({ providerId, error }) => `${AI_PROVIDERS[providerId]?.name || providerId}: ${error.title.toLowerCase()}`);

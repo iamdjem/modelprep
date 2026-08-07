@@ -60,6 +60,33 @@ describe('one-click multi-platform publishing', () => {
     expect(screen.getByRole('status')).toHaveTextContent('1 failed');
   });
 
+
+  it('tells the OS when a batch finishes, once per run, with the failure count', async () => {
+    const notify = vi.fn().mockResolvedValue({ ok: true });
+    window.modelprepDesktop = { isDesktop: true, notify };
+    const targets = [
+      { id: 'makerworld', name: 'MakerWorld', mode: 'real', visibility: 'private', accountLabel: 'MakerWorld test', accountStatus: 'connected', issues: { errors: [] } },
+      { id: 'mmf', name: 'MyMiniFactory', mode: 'real', visibility: 'private', accountLabel: 'iamdjem', accountStatus: 'connected', issues: { errors: [] } },
+    ];
+    const batch = {
+      runId: 'notify-run', status: 'done', targetIds: ['makerworld', 'mmf'], concurrency: 2, activeIds: [],
+      results: {
+        makerworld: { id: 'makerworld', name: 'MakerWorld', state: 'done', publicationState: 'private', detail: 'ok' },
+        mmf: { id: 'mmf', name: 'MyMiniFactory', state: 'error', publicationState: 'private', detail: 'HTTP 500' },
+      },
+    };
+
+    const view = render(<BatchPublishPanel targets={targets} batch={batch} onPublish={vi.fn()} onRetryFailed={vi.fn()} onOpenConnections={vi.fn()} />);
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+    expect(notify.mock.calls[0][0].title).toMatch(/errors/i);
+    expect(notify.mock.calls[0][0].body).toMatch(/1 succeeded, 1 failed/);
+
+    // A re-render of the same finished run must not notify again.
+    view.rerender(<BatchPublishPanel targets={targets} batch={batch} onPublish={vi.fn()} onRetryFailed={vi.fn()} onOpenConnections={vi.fn()} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
   it('shows privacy-safe aggregate resource telemetry for a batch', () => {
     const targets = [
       { id: 'makerworld', name: 'MakerWorld', mode: 'simulation', visibility: 'draft', safeDemo: true, accountLabel: 'Demo simulation', accountStatus: 'connected', issues: { errors: [] } },
@@ -174,12 +201,12 @@ describe('one-click multi-platform publishing', () => {
     await user.click(publishNav);
 
     const publishAll = await screen.findByRole('button', {
-      name: /upload real test to 10 ready platforms/i,
+      name: /upload sample to 10 platforms/i,
     });
     expect(publishAll).toBeEnabled();
-    expect(screen.getAllByText('real')).toHaveLength(10);
+    expect(screen.getAllByText('live')).toHaveLength(10);
     expect(screen.getByText(/sends the bundled sample files/i)).toBeInTheDocument();
-    expect(screen.getByText(/runs up to four platforms at once/i)).toBeInTheDocument();
+    expect(screen.getByText(/up to four at a time in the desktop app/i)).toBeInTheDocument();
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('Thangs private');
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('MakerRoad draft');
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('Thingiverse draft');
@@ -196,7 +223,7 @@ describe('one-click multi-platform publishing', () => {
 
     await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
-    expect(await screen.findByRole('button', { name: /upload real test to 1 ready platform/i })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: /upload sample to 1 platform/i })).toBeEnabled();
     expect(screen.getByText(/Skipped until connected:/i)).toHaveTextContent('Printables');
     expect(fetch.mock.calls.some(([, init]) => String(init?.method || 'GET').toUpperCase() !== 'GET')).toBe(false);
   });
@@ -214,5 +241,36 @@ describe('one-click multi-platform publishing', () => {
 
     expect(screen.getAllByText('Settings').length).toBeGreaterThan(1);
     expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
+  });
+});
+
+// `__demo` was read in eight places and never assigned, so every "simulate"
+// branch was unreachable and the sample project always uploaded for real. The
+// dry-run opt-in is what makes those branches reachable; these pin both states.
+describe('dry run', () => {
+  it('offers a dry run on the real-capable sample project', () => {
+    render(
+      <BatchPublishPanel
+        targets={[{ id: 'makerworld', name: 'MakerWorld', mode: 'real', visibility: 'private', accountLabel: 'x', accountStatus: 'connected', issues: { errors: [] } }]}
+        batch={null}
+        isTestProject
+        onDryRun={() => {}}
+        onPublish={() => {}}
+      />,
+    );
+    expect(screen.getByText(/dry run instead/i)).toBeInTheDocument();
+  });
+
+  it('says plainly that a dry run reaches no account', () => {
+    render(
+      <BatchPublishPanel
+        targets={[{ id: 'makerworld', name: 'MakerWorld', mode: 'simulation', visibility: 'draft', accountLabel: 'x', accountStatus: 'connected', safeDemo: true, issues: { errors: [] } }]}
+        batch={null}
+        isTestProject
+        onPublish={() => {}}
+      />,
+    );
+    expect(screen.getByText(/nothing reaches your accounts/i)).toBeInTheDocument();
+    expect(screen.queryByText(/dry run instead/i)).not.toBeInTheDocument();
   });
 });

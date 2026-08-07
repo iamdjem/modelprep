@@ -42,7 +42,7 @@ describe('new direct-platform option parity', () => {
       title: 'Dragon', description: 'A dragon', category: 'toys', tags: [],
       platforms: { creality: { categoryId: '1575', license: 'CC BY-NC', excludedFileIds: ['f1'] } },
     });
-    expect(result.errors).toContain('All compatible files are excluded for Creality Cloud — re-include at least one in its file list.');
+    expect(result.errors).toContain('All compatible files are excluded for Creality Cloud: re-include at least one in its file list.');
   });
   it('lets per-platform file exclusions drop a slicer-specific variant', () => {
     const files = [

@@ -112,3 +112,54 @@ describe('3mf slicer detection', () => {
     expect(detectSlicerFromApplication('')).toBe('unknown');
   });
 });
+
+// --- Embedded plate render --------------------------------------------------
+// A sliced .3mf carries the slicer's own render of the build plate. Surfacing it
+// is what lets a creator confirm at a glance that a file was sliced as intended.
+
+const PNG_BYTES = Uint8Array.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03,
+]);
+
+describe('3mf embedded thumbnail', () => {
+  it('returns the sliced plate render as a data URL', async () => {
+    const blob = await makeZip({
+      '3D/3dmodel.model': bambuModel,
+      'Metadata/plate_1.png': PNG_BYTES,
+    });
+    const parsed = await parseThreeMF(blob, loadZip);
+    expect(parsed.thumbnail).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('prefers the full plate render over the small one', async () => {
+    const blob = await makeZip({
+      '3D/3dmodel.model': bambuModel,
+      'Metadata/plate_1_small.png': Uint8Array.from([1, 1, 1]),
+      'Metadata/plate_1.png': PNG_BYTES,
+    });
+    const parsed = await parseThreeMF(blob, loadZip);
+    // plate_1.png encodes to a distinct payload; the small variant must not win.
+    expect(parsed.thumbnail).toBe(`data:image/png;base64,${Buffer.from(PNG_BYTES).toString('base64')}`);
+  });
+
+  it('falls back to the OPC standard location', async () => {
+    const blob = await makeZip({ '3D/3dmodel.model': bambuModel, 'Metadata/thumbnail.png': PNG_BYTES });
+    expect((await parseThreeMF(blob, loadZip)).thumbnail).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('finds a preview from a slicer whose layout we have not seen', async () => {
+    const blob = await makeZip({ '3D/3dmodel.model': bambuModel, 'Metadata/some_vendor_view.png': PNG_BYTES });
+    expect((await parseThreeMF(blob, loadZip)).thumbnail).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('is null when the package carries no preview, never a broken image', async () => {
+    const blob = await makeZip({ '3D/3dmodel.model': bambuModel });
+    expect((await parseThreeMF(blob, loadZip)).thumbnail).toBeNull();
+  });
+
+  it('stays null for a file that is not a readable package', async () => {
+    const parsed = await parseThreeMF(new Uint8Array([1, 2, 3]), loadZip);
+    expect(parsed.thumbnail).toBeUndefined();
+    expect(parsed.slicer).toBe('unknown');
+  });
+});

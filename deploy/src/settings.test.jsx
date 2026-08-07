@@ -69,14 +69,46 @@ describe('Unified Settings page', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: /settings/i }));
 
-    expect(screen.getByRole('button', { name: /sign in via makerworld window/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in to makerworld/i })).toBeInTheDocument();
     const fallback = screen.getByText(/advanced fallback: email \+ password/i).closest('details');
     expect(fallback).not.toHaveAttribute('open');
-    expect(screen.getByRole('button', { name: /sign in via printables window/i })).toBeEnabled();
-    expect(screen.getByText(/real Printables\/Prusa OAuth page opens/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /sign in via nexprint window/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /sign in via creality cloud window/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /sign in via makeronline window/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /sign in to printables/i })).toBeEnabled();
+    expect(screen.getByText(/own Prusa sign-in page/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in to nexprint/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /sign in to creality cloud/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /sign in to makeronline/i })).toBeEnabled();
+  });
+
+  it('renders every platform connect form with the same shape', async () => {
+    // Each platform's sign-in used to be hand-rolled, so they drifted: a narrow
+    // button here, an unstyled Cancel there, the note above the field on Cults3D.
+    window.modelprepDesktop = {
+      isDesktop: true,
+      connectMakerWorld: vi.fn(), connectPrintables: vi.fn(), connectCults: vi.fn(),
+      connectNexprint: vi.fn(), connectCreality: vi.fn(), connectMakerOnline: vi.fn(),
+      connectMyMiniFactory: vi.fn(), connectThangs: vi.fn(), connectThingiverse: vi.fn(),
+      connectMakerRoad: vi.fn(),
+    };
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /settings/i }));
+
+    const signIns = screen.getAllByRole('button', { name: /^sign in to /i });
+    expect(signIns.length).toBe(10);
+    for (const button of signIns) {
+      // One full-width primary button per platform, same size class.
+      expect(button).toHaveClass('mp-btn', 'w-full', 'text-sm', 'py-2', 'px-4');
+      // The note sits after the button, never above the name field.
+      const form = button.parentElement;
+      const note = within(form).getByText(/^Signs in through /);
+      expect(button.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Exactly one explanatory note, not two.
+      expect(within(form).getAllByText(/^Signs in through /)).toHaveLength(1);
+    }
+    // Every account-name field uses the same placeholder.
+    const names = screen.getAllByLabelText(/account name/i);
+    expect(names).toHaveLength(10);
+    for (const field of names) expect(field).toHaveAttribute('placeholder', 'Account name (optional)');
   });
 
   it('explains when the web UI is newer than the running desktop bridge', async () => {
@@ -113,7 +145,7 @@ describe('Unified Settings page', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /settings/i }));
-    await user.click(screen.getByRole('button', { name: /sign in via nexprint window/i }));
+    await user.click(screen.getByRole('button', { name: /sign in to nexprint/i }));
 
     expect(connectNexprint).toHaveBeenCalledOnce();
     expect(requestNexprint).toHaveBeenCalledOnce();
@@ -136,7 +168,7 @@ describe('Unified Settings page', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /settings/i }));
-    await user.click(screen.getByRole('button', { name: /sign in via creality cloud window/i }));
+    await user.click(screen.getByRole('button', { name: /sign in to creality cloud/i }));
 
     expect(connectCreality).toHaveBeenCalledOnce();
     expect(requestCreality).toHaveBeenCalledOnce();
@@ -159,7 +191,7 @@ describe('Unified Settings page', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /settings/i }));
-    await user.click(screen.getByRole('button', { name: /sign in via makeronline window/i }));
+    await user.click(screen.getByRole('button', { name: /sign in to makeronline/i }));
 
     expect(connectMakerOnline).toHaveBeenCalledOnce();
     expect(requestMakerOnline).toHaveBeenCalledOnce();
@@ -294,7 +326,7 @@ describe('Unified Settings page', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /settings/i }));
-    const cultsButton = screen.getByRole('button', { name: /sign in via cults3d window/i });
+    const cultsButton = screen.getByRole('button', { name: /sign in to cults3d/i });
     const cultsForm = cultsButton.closest('.space-y-1\\.5');
     expect(within(cultsForm).queryByPlaceholderText('Password')).not.toBeInTheDocument();
     expect(within(cultsForm).queryByPlaceholderText('Cults3D email')).not.toBeInTheDocument();
@@ -330,8 +362,14 @@ describe('Unified Settings page', () => {
     await openAiTab(user);
 
     expect(screen.getByText(/no ai picked yet/i)).toBeInTheDocument();
-    // Every provider is listed so the maker can see the options, not just the ones that work.
-    for (const name of ['Codex CLI', 'Ollama', 'LM Studio', 'OpenRouter', 'Google Gemini']) {
+    // Key-based services are visible up front; CLIs and local runtimes that this
+    // machine can't run live behind the collapsed "Advanced & local" group.
+    for (const name of ['OpenRouter', 'Google Gemini']) {
+      expect(screen.getByRole('button', { name: new RegExp(name, 'i') })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: /Codex CLI/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /advanced & local/i }));
+    for (const name of ['Codex CLI', 'Ollama', 'LM Studio']) {
       expect(screen.getByRole('button', { name: new RegExp(name, 'i') })).toBeInTheDocument();
     }
   });
@@ -340,6 +378,7 @@ describe('Unified Settings page', () => {
     const user = userEvent.setup();
     render(<App />);
     await openAiTab(user);
+    await user.click(screen.getByRole('button', { name: /advanced & local/i }));
     await user.click(screen.getByRole('button', { name: /Codex CLI/i }));
 
     expect(await screen.findByText(/cannot start a program on your computer/i)).toBeInTheDocument();
@@ -466,6 +505,18 @@ describe('Unified Settings page', () => {
     expect(screen.getByText(/ModelPrep asks/i)).toHaveTextContent(/Groq/);
     await user.click(screen.getByRole('button', { name: /Groq/i }));
     expect(screen.getByLabelText(/api key/i)).toHaveValue('sk-old');
+  });
+
+  it('Help tab explains the flow and defines the domain terms', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /settings/i }));
+    await user.click(screen.getByRole('button', { name: /^Help/i }));
+
+    expect(screen.getByText(/how modelprep works/i)).toBeInTheDocument();
+    expect(screen.getByText(/^3MF$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Focal point$/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing goes public unless you choose it/i)).toBeInTheDocument();
   });
 
   it('About tab shows the build label', async () => {

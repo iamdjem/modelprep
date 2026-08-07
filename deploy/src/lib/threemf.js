@@ -143,5 +143,41 @@ export async function parseThreeMF(blob, loadZip) {
     else if (/elegoo/i.test(result.printer)) result.slicer = 'elegoo';
   }
 
+  // 5. The embedded plate render. Slicers in the Bambu/Orca family write the
+  // sliced plate as a PNG inside the package, and the 3MF/OPC standard location
+  // is Metadata/thumbnail.png. This is the most honest preview available: it is
+  // what the slicer itself produced, so it shows the actual arrangement on the
+  // build plate rather than a re-render of the raw mesh.
+  result.thumbnail = await readPackageThumbnail(zip);
+
   return result;
+}
+
+// Ordered by usefulness: a full plate render beats a small one, and both beat a
+// bare model thumbnail. Falls back to any PNG in Metadata/ so a slicer we have
+// not seen still gets a preview.
+const THUMBNAIL_ENTRIES = [
+  'Metadata/plate_1.png',
+  'Metadata/plate_no_light_1.png',
+  'Metadata/thumbnail.png',
+  'Metadata/plate_1_small.png',
+  'Metadata/top_1.png',
+];
+
+async function readPackageThumbnail(zip) {
+  const names = [...THUMBNAIL_ENTRIES];
+  try {
+    for (const name of Object.keys(zip.files || {})) {
+      if (/^Metadata\/.+\.png$/i.test(name) && !names.includes(name)) names.push(name);
+    }
+  } catch { /* fall back to the known names */ }
+  for (const name of names) {
+    const entry = zip.file(name);
+    if (!entry) continue;
+    try {
+      const base64 = await entry.async('base64');
+      if (base64) return `data:image/png;base64,${base64}`;
+    } catch { /* try the next candidate */ }
+  }
+  return null;
 }
