@@ -33,7 +33,9 @@ const { normalizeThingiverseExchange, normalizeThingiversePageCapture, resolveTh
 const { captureResourceTelemetry, resourceTelemetryLogLine } = require('./resource-telemetry');
 const { codexStatus, generateCodexListing, listCodexModels } = require('./codex-listing');
 const { claudeStatus, generateClaudeListing } = require('./claude-listing');
+const { geminiStatus, generateGeminiListing } = require('./gemini-listing');
 const { detectLocalAi, localChat } = require('./local-ai');
+const { runLoginCapture } = require('./login-capture');
 
 // Local CLI agents that can write a listing on the maker's own subscription. Each entry owns
 // its status probe (installed? signed in? which models?) and its generation call; everything
@@ -53,6 +55,10 @@ const CLI_AI_AGENTS = {
     status: (binPath) => claudeStatus({ binPath }),
     generate: (payload) => generateClaudeListing(payload),
   },
+  gemini: {
+    status: (binPath) => geminiStatus({ binPath }),
+    generate: (payload) => generateGeminiListing(payload),
+  },
 };
 
 // Local integration testing can intentionally reuse the installed app's
@@ -67,6 +73,10 @@ if (process.env.MODELPREP_USER_DATA_DIR) {
 // and avoids the crash. Cults' current Cloudflare challenge also rejects a hardware-enabled
 // Electron 43 window, so enabling GPU is not a viable sign-in repair.
 app.disableHardwareAcceleration();
+// Windows shows a toast only if the process declares the same AppUserModelID
+// the installer registered. Without this, every notification is silently
+// dropped on Windows while working fine on macOS.
+if (process.platform === 'win32') app.setAppUserModelId('io.makerstats.modelprep');
 
 // Must match the User-Agent used by the shared MakerWorld adapter so any
 // cf_clearance earned in the embedded login remains valid for direct requests.
@@ -880,7 +890,21 @@ async function readThingiversePersistentSessionCapture() {
     if (!probe.isDestroyed()) probe.destroy();
   }
 }
-async function validateThingiverseContext(context) { if (!context?.apiToken || !context?.accessToken) return null; try { return await thingiverseDirectClient.whoami(context); } catch { return null; } }
+async function validateThingiverseContext(context) {
+  // Log why a candidate was rejected. Silently returning null here made a failing
+  // sign-in impossible to diagnose from the outside: every candidate looked the
+  // same as "not signed in yet".
+  if (!context?.apiToken || !context?.accessToken) {
+    console.error('[thingiverse-auth] candidate rejected: missing', !context?.apiToken ? 'apiToken' : 'accessToken');
+    return null;
+  }
+  try {
+    return await thingiverseDirectClient.whoami(context);
+  } catch (error) {
+    console.error('[thingiverse-auth] whoami failed:', error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
 async function readThingiverseContext({ force = false } = {}) {
   if (!force && thingiverseContextCache?.expiresAt > Date.now()) return thingiverseContextCache.value;
   const resolved = await resolveThingiverseSessionCandidates([
@@ -1034,14 +1058,11 @@ function openLoginAndCapture(parent) {
     }));
     login.webContents.on('did-create-window', (child) => { try { child.webContents.setUserAgent(WORKER_UA); } catch { /* */ } });
 
-    let done = false;
-    const finish = (fn, val) => { if (done) return; done = true; clearInterval(poll); clearTimeout(timer); if (!login.isDestroyed()) login.close(); fn(val); };
-
-    const poll = setInterval(async () => {
-      try { const cookie = await readMwCookie(); if (cookie) finish(resolve, cookie); } catch { /* keep polling */ }
-    }, 1500);
-    const timer = setTimeout(() => finish(reject, new Error('Login timed out — please try again.')), 5 * 60 * 1000);
-    login.on('closed', () => { if (!done) { done = true; clearInterval(poll); clearTimeout(timer); reject(new Error('Sign-in window was closed.')); } });
+    return runLoginCapture({
+      login,
+      attempt: () => readMwCookie(),
+      timeoutMessage: 'Login timed out. Please try again.',
+    }).then(resolve, reject);
   });
 }
 
@@ -1068,34 +1089,32 @@ function openPrintablesLoginAndCapture(parent) {
       },
     }));
 
-    let done = false;
-    const finish = (fn, value) => {
-      if (done) return;
-      done = true;
-      clearInterval(poll);
-      clearTimeout(timer);
-      if (!login.isDestroyed()) login.close();
-      fn(value);
-    };
-    const poll = setInterval(async () => {
+    // Validating costs a GraphQL round trip, and Printables rate-limits (429).
+    // Only spend one when the partition's cookies have actually changed since the
+    // last check, so a five-minute sign-in can't exhaust the budget and miss the
+    // moment the session finally appears.
+    let knownSignedOut = null;
+    const attempt = async ({ final = false } = {}) => {
+      const cookie = await readPrintablesBrowserCookie();
+      if (!cookie) return null;
+      if (!final && cookie === knownSignedOut) return null;
       try {
-        const cookie = await readPrintablesBrowserCookie();
-        const identity = await validatePrintablesCookie(cookie);
-        if (cookie && identity) finish(resolve, { cookie, identity });
-      } catch { /* keep polling while OAuth completes */ }
-    }, 1500);
-    const timer = setTimeout(
-      () => finish(reject, new Error('Printables sign-in timed out — please try again.')),
-      5 * 60 * 1000,
-    );
-    login.on('closed', () => {
-      if (!done) {
-        done = true;
-        clearInterval(poll);
-        clearTimeout(timer);
-        reject(new Error('Sign-in window was closed.'));
+        const identity = await printablesWhoamiDirect(cookie);
+        // Only a definite "signed out" answer is cached. A rate-limited or failed
+        // check must not look like one, or we would stop asking for good.
+        knownSignedOut = identity ? null : cookie;
+        return identity ? { cookie, identity } : null;
+      } catch {
+        knownSignedOut = null;
+        return null;
       }
-    });
+    };
+
+    return runLoginCapture({
+      login,
+      attempt,
+      timeoutMessage: 'Printables sign-in timed out. Please try again.',
+    }).then(resolve, reject);
   });
 }
 
@@ -1155,10 +1174,18 @@ function openCultsLoginAndCapture(parent, accountId) {
         resolve(identity);
       } catch { /* Cloudflare or sign-in still in progress */ }
     };
-    const onClosed = () => {
+    const onClosed = async () => {
+      if (done) return;
+      cleanup();
+      // One last look: the sign-in may have completed moments before the close,
+      // and rejecting here would discard a session that actually exists. Bounded,
+      // because this path can rebuild a window to re-check.
+      await Promise.race([
+        attempt().catch(() => {}),
+        new Promise((settle) => setTimeout(settle, 8000)),
+      ]);
       if (done) return;
       done = true;
-      cleanup();
       reject(new Error('Sign-in window was closed before ModelPrep could verify the Cults3D session.'));
     };
     const poll = setInterval(attempt, 1200);
@@ -1199,34 +1226,16 @@ function openNexprintLoginAndCapture(parent) {
       },
     }));
 
-    let done = false;
-    const finish = (fn, value) => {
-      if (done) return;
-      done = true;
-      clearInterval(poll);
-      clearTimeout(timer);
-      if (!login.isDestroyed()) login.close();
-      fn(value);
-    };
-    const poll = setInterval(async () => {
-      try {
+    return runLoginCapture({
+      login,
+      attempt: async () => {
         const context = await readNexprintBrowserContext();
+        if (!context) return null;
         const identity = await validateNexprintContext(context);
-        if (context && identity) finish(resolve, { context, identity });
-      } catch { /* keep polling while sign-in completes */ }
-    }, 1500);
-    const timer = setTimeout(
-      () => finish(reject, new Error('Nexprint sign-in timed out — please try again.')),
-      5 * 60 * 1000,
-    );
-    login.on('closed', () => {
-      if (!done) {
-        done = true;
-        clearInterval(poll);
-        clearTimeout(timer);
-        reject(new Error('Sign-in window was closed.'));
-      }
-    });
+        return identity ? { context, identity } : null;
+      },
+      timeoutMessage: 'Nexprint sign-in timed out. Please try again.',
+    }).then(resolve, reject);
   });
 }
 
@@ -1253,34 +1262,16 @@ function openCrealityLoginAndCapture(parent) {
       },
     }));
 
-    let done = false;
-    const finish = (fn, value) => {
-      if (done) return;
-      done = true;
-      clearInterval(poll);
-      clearTimeout(timer);
-      if (!login.isDestroyed()) login.close();
-      fn(value);
-    };
-    const poll = setInterval(async () => {
-      try {
+    return runLoginCapture({
+      login,
+      attempt: async () => {
         const context = await readCrealityBrowserContext();
+        if (!context) return null;
         const identity = await validateCrealityContext(context);
-        if (context && identity) finish(resolve, { context, identity });
-      } catch { /* keep polling while sign-in completes */ }
-    }, 1500);
-    const timer = setTimeout(
-      () => finish(reject, new Error('Creality Cloud sign-in timed out — please try again.')),
-      5 * 60 * 1000,
-    );
-    login.on('closed', () => {
-      if (!done) {
-        done = true;
-        clearInterval(poll);
-        clearTimeout(timer);
-        reject(new Error('Sign-in window was closed.'));
-      }
-    });
+        return identity ? { context, identity } : null;
+      },
+      timeoutMessage: 'Creality Cloud sign-in timed out. Please try again.',
+    }).then(resolve, reject);
   });
 }
 
@@ -1307,34 +1298,16 @@ function openMakerOnlineLoginAndCapture(parent) {
       },
     }));
 
-    let done = false;
-    const finish = (fn, value) => {
-      if (done) return;
-      done = true;
-      clearInterval(poll);
-      clearTimeout(timer);
-      if (!login.isDestroyed()) login.close();
-      fn(value);
-    };
-    const poll = setInterval(async () => {
-      try {
+    return runLoginCapture({
+      login,
+      attempt: async () => {
         const context = await readMakerOnlineBrowserContext();
+        if (!context) return null;
         const identity = await validateMakerOnlineContext(context);
-        if (context && identity) finish(resolve, { context, identity });
-      } catch { /* keep polling while sign-in completes */ }
-    }, 1500);
-    const timer = setTimeout(
-      () => finish(reject, new Error('MakerOnline sign-in timed out — please try again.')),
-      5 * 60 * 1000,
-    );
-    login.on('closed', () => {
-      if (!done) {
-        done = true;
-        clearInterval(poll);
-        clearTimeout(timer);
-        reject(new Error('Sign-in window was closed.'));
-      }
-    });
+        return identity ? { context, identity } : null;
+      },
+      timeoutMessage: 'MakerOnline sign-in timed out. Please try again.',
+    }).then(resolve, reject);
   });
 }
 
@@ -1395,24 +1368,17 @@ function openMakerRoadLoginAndCapture(parent) {
       webPreferences: { partition: MAKEROAD_PARTITION, contextIsolation: true, nodeIntegration: false },
     });
     login.loadURL(MAKEROAD_LOGIN_URL);
-    let done = false;
-    const finish = (fn, value) => {
-      if (done) return;
-      done = true; clearInterval(poll); clearTimeout(timer);
-      if (!login.isDestroyed()) login.close();
-      fn(value);
-    };
-    const attempt = async () => {
-      try {
+    return runLoginCapture({
+      login,
+      attempt: async () => {
         const context = await readMakerRoadBrowserContext();
+        if (!context) return null;
         const identity = await validateMakerRoadContext(context);
-        if (context && identity) finish(resolve, { context, identity });
-      } catch { /* keep polling during sign-in */ }
-    };
-    const poll = setInterval(attempt, 1200);
-    login.webContents.on('did-finish-load', attempt);
-    const timer = setTimeout(() => finish(reject, new Error('MakerRoad sign-in timed out — please try again.')), 10 * 60 * 1000);
-    login.on('closed', () => { if (!done) { done = true; clearInterval(poll); clearTimeout(timer); reject(new Error('Sign-in window was closed.')); } });
+        return identity ? { context, identity } : null;
+      },
+      timeoutMessage: 'MakerRoad sign-in timed out. Please try again.',
+      timeoutMs: 10 * 60 * 1000,
+    }).then(resolve, reject);
   });
 }
 
@@ -1420,12 +1386,24 @@ function openThangsLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({ width: 1120, height: 900, parent, modal: false, title: 'Sign in to Thangs', webPreferences: { partition: THANGS_PARTITION, contextIsolation: true, nodeIntegration: false } });
     login.loadURL(THANGS_LOGIN_URL);
-    let done = false;
-    const finish = (fn, value) => { if (done) return; done = true; clearInterval(poll); clearTimeout(timer); if (!login.isDestroyed()) login.close(); fn(value); };
-    const attempt = async () => { try { const context = await readThangsStorageContext(login.webContents); const identity = await validateThangsContext(context); if (context && identity) finish(resolve, { context, identity }); } catch {} };
-    const poll = setInterval(attempt, 1200); login.webContents.on('did-finish-load', attempt);
-    const timer = setTimeout(() => finish(reject, new Error('Thangs sign-in timed out — please try again.')), 600000);
-    login.on('closed', () => { if (!done) { done = true; clearInterval(poll); clearTimeout(timer); reject(new Error('Sign-in window was closed.')); } });
+    // Thangs keeps its session in page storage, not in the partition's cookies, so
+    // the read needs a live webContents. Remember the last one seen: the attempt
+    // made after the window is destroyed can then still validate it.
+    let lastContext = null;
+    return runLoginCapture({
+      login,
+      attempt: async () => {
+        if (!login.isDestroyed()) {
+          const fresh = await readThangsStorageContext(login.webContents).catch(() => null);
+          if (fresh) lastContext = fresh;
+        }
+        if (!lastContext) return null;
+        const identity = await validateThangsContext(lastContext);
+        return identity ? { context: lastContext, identity } : null;
+      },
+      timeoutMessage: 'Thangs sign-in timed out. Please try again.',
+      timeoutMs: 10 * 60 * 1000,
+    }).then(resolve, reject);
   });
 }
 function openThingiverseLoginAndCapture(parent) {
@@ -2167,6 +2145,23 @@ function initAutoUpdater() {
   autoUpdater.checkForUpdates().catch(() => { /* handled by 'error' */ });
 }
 ipcMain.handle('update:status', async () => updateState);
+// Native notification for anything the renderer wants to surface while the
+// window is in the background: publish finished, publish failed, and so on.
+// Clicking brings the app forward, which is the only useful response.
+ipcMain.handle('notify:show', async (_event, payload = {}) => {
+  try {
+    if (!Notification.isSupported || !Notification.isSupported()) return { ok: false, reason: 'unsupported' };
+    const title = String(payload.title || 'ModelPrep').slice(0, 200);
+    const body = String(payload.body || '').slice(0, 500);
+    const notification = new Notification({ title, body, silent: !!payload.silent });
+    notification.on('click', () => { try { showMainWindow(); } catch { /* window may be gone */ } });
+    notification.show();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: String(error?.message || error) };
+  }
+});
+
 ipcMain.handle('update:check', async () => { try { if (autoUpdater && app.isPackaged) await autoUpdater.checkForUpdates(); } catch { /* handled */ } return updateState; });
 ipcMain.handle('update:install', async () => {
   if (updateState.status !== 'ready' || !autoUpdater) return { ok: false };

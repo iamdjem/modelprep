@@ -56,6 +56,9 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
     for (const method of methods) assert.equal(typeof exposed[method], 'function', `${platform} is missing ${method}`);
   }
 
+  // Publish outcomes reach the OS through this, so it is part of the contract.
+  assert.equal(typeof exposed.notify, 'function');
+
   assert.equal(typeof exposed.cliAiStatus, 'function');
   assert.equal(typeof exposed.generateCliListing, 'function');
   assert.equal(typeof exposed.detectLocalAi, 'function');

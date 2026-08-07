@@ -87,3 +87,74 @@ test('markPlan updates only the target', () => {
   assert.equal(next.find((p) => p.id === 'a').firedByMain, undefined);
   assert.equal(next.find((p) => p.id === 'b').firedByMain, 5);
 });
+
+// The full unattended path, end to end through the scheduler: a plan comes due
+// while the app is closed, main reopens the window to publish, and the plan is
+// marked so a second tick cannot fire it again. This is everything up to the
+// boundary where a real platform session is needed.
+test('an unattended plan reopens the app once and is never fired twice', () => {
+  let stored = [plan({ mode: 'scheduled', unattended: true, dueAt: '2026-08-04T11:00:00Z' })];
+  const opened = [];
+  const notified = [];
+  const scheduler = createReleaseScheduler({
+    getPlans: () => stored,
+    savePlans: (next) => { stored = next; },
+    notify: (p) => notified.push(p.id),
+    openWindowForPublish: (p) => opened.push(p.id),
+    now: () => NOW,
+  });
+
+  scheduler.tick();
+  assert.deepEqual(opened, ['p1'], 'the window is reopened so the publish can run');
+  assert.ok(stored[0].firedByMain, 'the plan records when main fired it');
+
+  // A second tick must be a no-op: firing twice would publish twice.
+  scheduler.tick();
+  assert.deepEqual(opened, ['p1']);
+});
+
+// Unattended plans are announced as they fire, so an auto-publish is never
+// silent, but they are carried on the unattended track rather than counted as
+// reminders, which would double-process them.
+test('an unattended plan is announced but not treated as a reminder', () => {
+  let stored = [plan({ mode: 'scheduled', unattended: true })];
+  const opened = [];
+  const notified = [];
+  const scheduler = createReleaseScheduler({
+    getPlans: () => stored,
+    savePlans: (next) => { stored = next; },
+    notify: (p) => notified.push(p.id),
+    openWindowForPublish: (p) => opened.push(p.id),
+    now: () => NOW,
+  });
+  scheduler.tick();
+  assert.deepEqual(notified, ['p1'], 'an auto-publish is announced, never silent');
+  assert.deepEqual(opened, ['p1']);
+  const { reminders } = computeSchedulerActions(stored, NOW);
+  assert.deepEqual(reminders, [], 'and is not queued again as a reminder');
+});
+
+test('a plan that is not yet due is left alone', () => {
+  let stored = [plan({ mode: 'scheduled', unattended: true, dueAt: '2026-08-05T12:00:00Z' })];
+  const opened = [];
+  const scheduler = createReleaseScheduler({
+    getPlans: () => stored,
+    savePlans: (next) => { stored = next; },
+    notify: () => {},
+    openWindowForPublish: (p) => opened.push(p.id),
+    now: () => NOW,
+  });
+  scheduler.tick();
+  assert.deepEqual(opened, []);
+  assert.ok(!stored[0].firedByMain);
+});
+
+// Synced state arrives from the renderer on every change; the marks main made
+// must survive it, or a restart would re-fire everything already published.
+test('marks made by main survive a sync from the renderer', () => {
+  const previous = [plan({ mode: 'scheduled', unattended: true, firedByMain: true, notifiedByMain: true })];
+  const incoming = [plan({ mode: 'scheduled', unattended: true })];
+  const merged = mergeSyncedPlans(previous, incoming);
+  assert.equal(merged[0].firedByMain, true);
+  assert.equal(merged[0].notifiedByMain, true);
+});

@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   disconnectMakerWorld: () => ipcRenderer.invoke('mw:disconnect'),
   // Printables uses its real Prusa Account OAuth window. As with MakerWorld,
   // the raw session remains in the Electron main process.
+  notify: (payload) => ipcRenderer.invoke('notify:show', payload),
   connectPrintables: () => ipcRenderer.invoke('printables:connect'),
   requestPrintables: (request) => ipcRenderer.invoke('printables:request', request),
   printablesStatus: () => ipcRenderer.invoke('printables:status'),

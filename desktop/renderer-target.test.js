@@ -29,3 +29,15 @@ test('explicit local preview wins while unpackaged development retains the hoste
   }), { kind: 'url', value: 'http://localhost:4173' });
   assert.deepEqual(resolveRendererTarget(), { kind: 'url', value: DEFAULT_REMOTE_URL });
 });
+
+// Windows drops every toast unless the process declares the same AppUserModelID
+// the installer registered. It is one line in main.js and invisible when wrong,
+// so it is pinned here rather than discovered by a Windows tester.
+test('main declares an AppUserModelID so Windows notifications appear', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  assert.match(main, /setAppUserModelId\(['"]io\.makerstats\.modelprep['"]\)/);
+  const appId = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).build.appId;
+  assert.equal(appId, 'io.makerstats.modelprep', 'the declared id must match the installer appId');
+});
