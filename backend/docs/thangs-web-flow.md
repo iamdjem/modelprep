@@ -69,7 +69,7 @@ POST attachments/upload-urls                  {fileNames,directory,sendContentLe
 PUT  signed object URL                        raw bytes
 POST models/validatefiles                     {fileNames:[...]}
 POST v2/models                                array of model payloads -> model ids
-POST v2/models/assets                         {filenames,referenceFiles}
+POST v2/models/assets                         GONE -- returns 404 (see note below); do not call
 GET  models/{id}/details                      edit/readback metadata
 GET  models/{id}/attachments                  attachment readback
 GET  v2/models/{id}/license                   license readback
@@ -91,7 +91,7 @@ Only model parts take `models/upload-urls`; non-model files (photos and referenc
 
 **Field names verified against `GET models/{id}` on a live public model.** Descriptions are **Markdown**, not HTML (`"**NN-14 Blaster**\n_Easy Print_\n\n..."`); sending HTML round-trips as literal tags in both the editor field and its Preview. The AI flag is **`isAiGenerated`**; the spelling `aiGenerated` appears nowhere in Thangs' client and is silently dropped. Remix permission is `allowRemix`, which is distinct from `isRemix` (the model is a derivative).
 
-The presign response uses `signedUrl` and `newFileName`. The submit builder creates one payload per root/single/multipart model. Each part uses the exact keys `originalFileName`, `originalPartName`, `filename`, `size`, and `isPrimary`. `POST v2/models/assets` takes only `{filenames,referenceFiles}`—there is no model ID in that request. The root carries attachments, dependencies, workspace/folder, visibility/access, license, remix, AI, tags/categories, units, marketplace/plans, and related metadata. Current categories are read from `GET categories/root?includeEmpty=true` and persisted as a path value rather than a picker index.
+The presign response uses `signedUrl` and `newFileName`. The submit builder creates one payload per root/single/multipart model. Each part uses the exact keys `originalFileName`, `originalPartName`, `filename`, `size`, and `isPrimary`. `POST v2/models/assets` **no longer exists (2026-08-07)**. Probed unauthenticated against the live API: `v2/models` and `v4/models` both answer `401` (route present, auth required) while `v2/models/assets`, `v4/models/assets` and `models/assets` all answer `404`. The first-party bundle still dispatches it from `GENERATE_ASSETS_ASYNC` with no `await` and no `catch`, so the 404 is invisible in Thangs' own client. ModelPrep added the call on the theory that it was what generated thumbnails and image derivatives; it made every publish fail with HTTP 404 and was reverted. Asset generation is **not** the missing piece. The root carries attachments, dependencies, workspace/folder, visibility/access, license, remix, AI, tags/categories, units, marketplace/plans, and related metadata. Current categories are read from `GET categories/root?includeEmpty=true` and persisted as a path value rather than a picker index.
 
 ## ModelPrep parity requirements
 
