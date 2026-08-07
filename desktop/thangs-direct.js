@@ -56,7 +56,10 @@ function buildModelPayload(input) {
     name: String(input.name).trim(), description: String(input.description || ''),
     category: input.category || null, tags: input.tags || [], isPublic: !!input.isPublic,
     accessTypeId: input.accessTypeId || null, planIds: input.planIds || [], allowRemix: !!input.allowRemix,
-    aiGenerated: !!input.aiGenerated, feedbackEnabled: input.feedbackEnabled !== false,
+    // `isAiGenerated`, not `aiGenerated`. The latter appears nowhere in Thangs'
+    // client and is not a field it knows, so the flag ModelPrep sent was
+    // silently dropped and the model kept whatever the server defaulted to.
+    isAiGenerated: !!input.aiGenerated, feedbackEnabled: input.feedbackEnabled !== false,
     units: input.units,
     modelType: input.structure, dependencies: input.dependencies || [], versionNotes: input.versionNotes || '',
     marketplace: !!input.marketplace, price: input.marketplace ? Number(input.price) : 0,

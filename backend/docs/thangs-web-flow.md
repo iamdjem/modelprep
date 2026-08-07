@@ -85,6 +85,8 @@ Only model parts take `models/upload-urls`; non-model files (photos and referenc
 
 `attachmentType` is server-assigned and is either `image` or `resource`; the client's own predicate is extension-based (`isImage = isAnAcceptedType(file, PHOTO_FILE_EXTS)`). At create time the web app filters the payload's `attachments` down to images only, sending everything else as `referenceFiles`.
 
+**Field names verified against `GET models/{id}` on a live public model.** Descriptions are **Markdown**, not HTML (`"**NN-14 Blaster**\n_Easy Print_\n\n..."`); sending HTML round-trips as literal tags in both the editor field and its Preview. The AI flag is **`isAiGenerated`**; the spelling `aiGenerated` appears nowhere in Thangs' client and is silently dropped. Remix permission is `allowRemix`, which is distinct from `isRemix` (the model is a derivative).
+
 The presign response uses `signedUrl` and `newFileName`. The submit builder creates one payload per root/single/multipart model. Each part uses the exact keys `originalFileName`, `originalPartName`, `filename`, `size`, and `isPrimary`. `POST v2/models/assets` takes only `{filenames,referenceFiles}`—there is no model ID in that request. The root carries attachments, dependencies, workspace/folder, visibility/access, license, remix, AI, tags/categories, units, marketplace/plans, and related metadata. Current categories are read from `GET categories/root?includeEmpty=true` and persisted as a path value rather than a picker index.
 
 ## ModelPrep parity requirements

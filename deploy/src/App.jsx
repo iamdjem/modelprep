@@ -429,7 +429,7 @@ const PLATFORMS = [
     id: 'thangs', name: 'Thangs', org: 'Physna', dot: '#3A86FF',
     covers: [{ id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' }],
     preserveOriginalImages: true,
-    descFormat: 'html', maxImages: null, maxFileMb: null, maxTotalMb: null,
+    descFormat: 'markdown', maxImages: null, maxFileMb: null, maxTotalMb: null,
     formats: ['stl', '3mf', 'step', 'stp', 'obj', 'glb', 'fbx', 'blend', 'usdz', 'gltf'], hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: [], note: 'Uploads through Thangs’ own upload flow. New uploads stay private unless you choose public.',
   },
@@ -10122,7 +10122,7 @@ function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       const references = await uploadSources(referenceSources, 'reference');
       const images = await uploadSources(orderedPlatformImages(platform, project), 'image', async (image, index) => { const blob = await fetch(image.dataUrl).then((response) => response.blob()); return new File([blob], `${String(index + 1).padStart(2, '0')}-${slugify(image.alt || 'image')}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type }); });
       setProgress('Creating Thangs model…');
-      const saved = await request('submit', { existingId: options.resumeDraftId || '', name: project.title, description: mdToHtml(project.description), category: options.category, tags: project.tags, isPublic, structure: options.structure || 'single', units: options.units || 'mm', parts, images, references, allowRemix: options.allowRemix !== false, aiGenerated: !!options.aiGenerated, feedbackEnabled: options.feedbackEnabled !== false, folderId: options.folderId, workspaceId: options.workspaceId, accessTypeId: options.accessTypeId, planIds: options.planIds || [], dependencies: options.dependencies || [], versionNotes: options.versionNotes || '', marketplace: !!options.marketplace, price: options.price || 0, license: options.license });
+      const saved = await request('submit', { existingId: options.resumeDraftId || '', name: project.title, description: project.description, category: options.category, tags: project.tags, isPublic, structure: options.structure || 'single', units: options.units || 'mm', parts, images, references, allowRemix: options.allowRemix !== false, aiGenerated: !!options.aiGenerated, feedbackEnabled: options.feedbackEnabled !== false, folderId: options.folderId, workspaceId: options.workspaceId, accessTypeId: options.accessTypeId, planIds: options.planIds || [], dependencies: options.dependencies || [], versionNotes: options.versionNotes || '', marketplace: !!options.marketplace, price: options.price || 0, license: options.license });
       setProgress('Verifying Thangs details, attachments, and license…'); const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null); if (!readback.readback?.details) throw new Error('Thangs details read-back was empty.');
       setResult({ ...saved, verified: true }); setStatus('done'); report(runId, 'success', `${isPublic ? 'Public' : 'Private'} Thangs model saved and fully read back`, { publicationState: isPublic ? 'public' : 'private', url: saved.url });
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }

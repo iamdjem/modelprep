@@ -138,3 +138,30 @@ test('Thangs model parts and licenses stay on the model presign route', async ()
     assert.equal(new URL(calls[0][0]).pathname, '/models/upload-urls', `${role} must presign as a model file`);
   }
 });
+
+// Thangs names this field `isAiGenerated`. `aiGenerated` appears nowhere in its
+// client, so the flag ModelPrep used to send was silently dropped and the model
+// kept whatever the server defaulted to.
+test('Thangs AI flag uses the field name Thangs actually reads', () => {
+  const on = buildModelPayload({ ...input, aiGenerated: true });
+  assert.equal(on[0].isAiGenerated, true);
+  assert.equal('aiGenerated' in on[0], false, 'the ignored key must not be sent');
+
+  const off = buildModelPayload({ ...input, aiGenerated: false });
+  assert.equal(off[0].isAiGenerated, false);
+});
+
+// allowRemix is spelled correctly and must keep working; it is a separate flag
+// from isRemix, which marks the model as a derivative.
+test('Thangs remix permission stays on allowRemix', () => {
+  assert.equal(buildModelPayload({ ...input, allowRemix: true })[0].allowRemix, true);
+  assert.equal(buildModelPayload({ ...input, allowRemix: false })[0].allowRemix, false);
+});
+
+// Thangs stores descriptions as Markdown ("**bold**\n_italic_"), so an HTML
+// conversion round-trips as literal tags in both the editor and the preview.
+test('Thangs descriptions pass through as Markdown, not HTML', () => {
+  const payload = buildModelPayload({ ...input, description: '**Desk Dragon**\n\nPrints in place.' });
+  assert.equal(payload[0].description, '**Desk Dragon**\n\nPrints in place.');
+  assert.equal(/<[a-z]+>/.test(payload[0].description), false);
+});
