@@ -2300,6 +2300,7 @@ function GlobalStyles() {
       .mp-focusable:focus-visible, [role="button"]:focus-visible, .mp-pill[tabindex]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
       .mp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
+      .t-num { font-variant-numeric: tabular-nums; }
 
       /* Disclosure summaries: explicit rotating chevron, since inline-flex
          summaries drop the native marker. */
@@ -3133,10 +3134,10 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           )}
           {groupProjectFiles(visibleFiles).map(({ key, title, hint, files }) => (
             <section key={key} className="mt-4 first:mt-0">
-              <div className="flex items-baseline gap-2 mb-1.5">
-                <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{title}</span>
-                <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.5)' }}>{files.length}</span>
-                {hint && <span className="text-[11px] truncate" style={{ color: 'rgba(38,42,35,0.5)' }}>{hint}</span>}
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{title}</span>
+                <span className="text-xs t-num" style={{ color: 'var(--ink-50)' }}>{files.length}</span>
+                {hint && <span className="text-xs truncate" style={{ color: 'var(--ink-50)' }}>· {hint}</span>}
               </div>
               {fileView === 'grid' ? (
                 <div className="flex flex-wrap gap-2">
@@ -3544,13 +3545,13 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
             .{ext} · {formatBytes(file.size)}
           </span>
           {isProf && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#5A7430', color: '#fff' }}>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: '#5A7430', color: '#fff' }}>
               Print profile
             </span>
           )}
           {duplicate && (
             <span
-              className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5"
+              className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full"
               style={{ background: 'rgba(255,182,39,0.25)', color: '#8A4B08' }}
               title="Another file has the same type and byte size"
             >
@@ -3575,12 +3576,12 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
             </select>
           )}
           {isImg && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: 'rgba(38,42,35,0.4)', color: '#fff' }}>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(38,42,35,0.4)', color: '#fff' }}>
               Reference image
             </span>
           )}
           {file.isLaserCut && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>
               Laser &amp; Cut
             </span>
           )}
@@ -4466,20 +4467,20 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
       {/* ✨ AI generate: reads the photos (+ an optional one-line hint) and fills in
           Title, Description, Tags and Category. The most you ever type is one line. */}
-      <div className="mp-card p-4 mt-6" style={{ background: 'rgba(90,116,48,0.05)', borderColor: 'rgba(90,116,48,0.3)' }}>
-        <div className="flex items-center gap-2 mb-2">
-          <Sparkles size={15} style={{ color: '#5A7430' }} />
-          <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: '#5A7430' }}>Generate with AI</span>
-          <span className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
+      <div className="mp-card p-4 mt-6" style={{ background: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
+        <div className="flex items-center gap-2 mb-2.5">
+          <Sparkles size={15} style={{ color: 'var(--primary)' }} />
+          <span className="text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>Generate with AI</span>
+          <span className="text-xs" style={{ color: 'var(--ink-65)' }}>
             from your {project.images.length} photo{project.images.length === 1 ? '' : 's'}
           </span>
           <button
             onClick={() => openSettings('ai')}
-            className="ml-auto mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1 hover:text-[#5A7430] transition"
-            style={{ color: 'rgba(38,42,35,0.66)' }}
+            className="ml-auto text-xs flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[rgba(255,255,255,0.7)]"
+            style={{ color: 'var(--ink-65)' }}
             title="Configure the AI provider in Settings"
           >
-            <Settings size={11} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : 'Set up AI'}
+            <Settings size={12} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : 'Set up AI'}
           </button>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -4495,7 +4496,6 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             onClick={runGenerate}
             disabled={aiBusy}
             className="mp-btn text-[13px] py-2 px-4 disabled:opacity-50 flex items-center gap-1.5 justify-center"
-            style={{ background: 'var(--accent-fill)', borderColor: 'var(--accent-fill)', color: '#fff' }}
           >
             {aiBusy ? <><Loader size={13} className="animate-spin" /> Generating…</> : <><Sparkles size={13} /> Generate</>}
           </button>
@@ -4534,16 +4534,13 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="mb-0">Description (markdown)</Label>
-              <div className="flex items-center gap-1">
+              <div className="mp-segmented" role="group" aria-label="Description mode" style={{ height: 30 }}>
                 {['write', 'preview', 'formats'].map(m => (
                   <button
                     key={m}
                     onClick={() => setPreviewMode(m)}
-                    className="mp-mono text-xs uppercase tracking-[0.15em] px-2 py-1 transition"
-                    style={{
-                      background: previewMode === m ? 'var(--primary-tint)' : 'transparent',
-                      color: previewMode === m ? 'var(--primary-ink)' : 'rgba(38,42,35,0.66)',
-                    }}
+                    aria-pressed={previewMode === m}
+                    style={{ height: 24, textTransform: 'capitalize' }}
                   >
                     {m}
                   </button>
@@ -4730,7 +4727,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 }
 
 function Label({ children, className = '' }) {
-  return <label className={`mp-mono text-xs uppercase tracking-[0.2em] block mb-2 ${className}`} style={{ color: 'rgba(38,42,35,0.66)' }}>{children}</label>;
+  return <label className={`text-[13px] font-medium block mb-1.5 ${className}`} style={{ color: 'var(--ink)' }}>{children}</label>;
 }
 
 function FormatTabs({ description }) {
@@ -5048,29 +5045,31 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                 return (
                   <div
                     key={img.id}
-                    className="w-full flex items-center gap-2 p-1.5 transition relative group"
+                    className="w-full flex items-center gap-2 p-1.5 rounded-lg transition relative group"
                     style={{
                       background: active ? 'var(--primary-tint)' : '#FFFFFF',
                       color: active ? 'var(--primary-ink)' : '#262A23',
-                      border: '1px solid rgba(38,42,35,0.1)',
+                      border: active ? '1px solid var(--primary-tint-border)' : '1px solid var(--border)',
                     }}
                   >
                     <button
                       onClick={() => setActiveImageId(img.id)}
-                      className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                      className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
                       style={{ color: 'inherit' }}
                     >
-                      <div className="w-14 h-14 flex-shrink-0 overflow-hidden" style={{ background: '#262A23' }}>
+                      <div className="w-14 h-14 flex-shrink-0 overflow-hidden rounded-md" style={{ background: 'var(--surface-sunken)' }}>
                         <img src={img.dataUrl} alt={img.alt || `Gallery image ${idx + 1}`} className="w-full h-full object-cover" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-60">{String(idx + 1).padStart(2, '0')}</div>
-                        <div className="text-[13px] truncate">{img.alt || 'Image'}</div>
-                        {project.coverImageId === img.id && (
-                          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mt-0.5 inline-flex items-center gap-1" style={{ color: '#5A7430' }}>
-                            <Star size={8} fill="#5A7430" /> Cover
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          <span className="mp-mono text-[11px] t-num" style={{ color: 'var(--ink-35)' }}>{idx + 1}</span>
+                          {project.coverImageId === img.id && (
+                            <span className="mp-mono text-[10px] inline-flex items-center gap-1 px-1.5 rounded-full" style={{ color: 'var(--primary-ink)', background: active ? 'rgba(255,255,255,0.6)' : 'var(--primary-tint)', height: 16 }}>
+                              <Star size={8} fill="currentColor" /> Cover
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[13px] truncate mt-0.5">{img.alt || 'Image'}</div>
                       </div>
                     </button>
                     <div className="flex flex-col flex-shrink-0">
@@ -5078,19 +5077,19 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                         onClick={() => moveImage(img.id, -1)}
                         disabled={idx === 0}
                         aria-label={`Move ${img.alt || 'image'} up`}
-                        className="p-2 transition disabled:opacity-20 disabled:cursor-not-allowed hover:text-[#5A7430]"
+                        className="p-1.5 rounded transition disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[var(--surface-hover)]"
                         style={{ color: 'inherit' }}
                       >
-                        <ChevronUp size={16} />
+                        <ChevronUp size={15} />
                       </button>
                       <button
                         onClick={() => moveImage(img.id, 1)}
                         disabled={idx === project.images.length - 1}
                         aria-label={`Move ${img.alt || 'image'} down`}
-                        className="p-2 transition disabled:opacity-20 disabled:cursor-not-allowed hover:text-[#5A7430]"
+                        className="p-1.5 rounded transition disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[var(--surface-hover)]"
                         style={{ color: 'inherit' }}
                       >
-                        <ChevronDown size={16} />
+                        <ChevronDown size={15} />
                       </button>
                     </div>
                   </div>
@@ -5103,22 +5102,20 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           <div className="md:col-span-9">
             {activeImage && (
               <>
-                <div role="tablist" aria-label="Image workspace" className="inline-flex mp-card p-1 mb-4">
+                <div role="tablist" aria-label="Image workspace" className="mp-segmented mb-4">
                   <button
                     role="tab"
                     aria-selected={imageWorkspace === 'gallery'}
+                    aria-pressed={imageWorkspace === 'gallery'}
                     onClick={() => setImageWorkspace('gallery')}
-                    className="mp-mono text-[11px] uppercase tracking-[0.15em] min-h-[38px] px-3"
-                    style={{ background: imageWorkspace === 'gallery' ? 'var(--primary-tint)' : 'transparent', color: imageWorkspace === 'gallery' ? 'var(--primary-ink)' : '#262A23' }}
                   >
                     Gallery editor
                   </button>
                   <button
                     role="tab"
                     aria-selected={imageWorkspace === 'crops'}
+                    aria-pressed={imageWorkspace === 'crops'}
                     onClick={() => setImageWorkspace('crops')}
-                    className="mp-mono text-[11px] uppercase tracking-[0.15em] min-h-[38px] px-3"
-                    style={{ background: imageWorkspace === 'crops' ? 'var(--primary-tint)' : 'transparent', color: imageWorkspace === 'crops' ? 'var(--primary-ink)' : '#262A23' }}
                   >
                     Platform crops
                   </button>
@@ -5418,11 +5415,11 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
             <button
               key={p.id}
               onClick={() => setActiveProfileId(p.id)}
-              className="w-full text-left p-2.5 transition-colors"
+              className="w-full text-left p-2.5 rounded-lg transition-colors"
               style={{
                 background: active?.id === p.id ? 'var(--primary-tint)' : '#FFFFFF',
                 color: active?.id === p.id ? 'var(--primary-ink)' : '#262A23',
-                border: '1px solid rgba(38,42,35,0.1)',
+                border: active?.id === p.id ? '1px solid var(--primary-tint-border)' : '1px solid var(--border)',
               }}
             >
               <div className="flex items-start gap-2">
@@ -5466,8 +5463,8 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               </div>
 
               {active.parsed && (
-                <div className="mp-card p-4">
-                  <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-3" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                <div className="mp-card p-4" style={{ background: 'var(--surface-sunken)' }}>
+                  <div className="text-[13px] font-medium mb-3" style={{ color: 'var(--ink)' }}>
                     Estimated from file
                   </div>
                   {/* Six stats: 2 or 3 per row divides evenly. A 4- or 5-column
@@ -5661,8 +5658,8 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 function Stat({ label, value }) {
   return (
     <div>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1" style={{ color: 'rgba(38,42,35,0.66)' }}>{label}</div>
-      <div className="mp-display font-bold text-sm">{value}</div>
+      <div className="text-xs mb-0.5" style={{ color: 'var(--ink-50)' }}>{label}</div>
+      <div className="text-sm t-num" style={{ fontWeight: 500, color: 'var(--ink)' }}>{value}</div>
     </div>
   );
 }
@@ -6138,7 +6135,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           <PanelSection title="Accepted formats">
             <div className="flex flex-wrap gap-1">
               {acceptedFormats.map(f => (
-                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(38,42,35,0.06)' }}>
+                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(38,42,35,0.06)' }}>
                   .{f}
                 </span>
               ))}
@@ -7423,7 +7420,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               const blockers = releasePlanBlockers(plan, publishTargets);
               return (
                 <div key={plan.id} className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: due ? '#5A7430' : 'rgba(38,42,35,0.08)', color: due ? '#fff' : 'inherit' }}>
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ background: due ? '#5A7430' : 'rgba(38,42,35,0.08)', color: due ? '#fff' : 'inherit' }}>
                     {describeDue(plan, Date.now())}
                   </span>
                   <span className="font-bold">{plan.platformName || plan.platformId}</span>
@@ -7854,7 +7851,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
                       : <StatusDot status={target.mode === 'missing' ? 'unknown' : 'connected'} />}
                 <strong>{target.name}</strong>
                 <span
-                  className="mp-mono text-[11px] mt-0 ml-auto inline-flex px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                  className="mp-mono text-[11px] mt-0 ml-auto inline-flex px-2 py-0.5 rounded-full whitespace-nowrap"
                   style={{ color: receiptColor, background: receiptBackground }}
                   aria-label={`${target.name} publish status: ${receiptLabel}`}
                 >
@@ -8414,7 +8411,7 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
       <div className="mp-card p-3" style={{ background: 'rgba(58,134,255,0.05)', border: '1px solid rgba(58,134,255,0.35)' }}>
         <div className="flex items-center gap-2 mb-2">
           <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>ONE-CLICK UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#3A86FF', color: '#fff' }}>Demo</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: '#3A86FF', color: '#fff' }}>Demo</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{platform.name} has an upload API</span>
         </div>
 
@@ -8826,7 +8823,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       <div className="mp-card p-3" style={{ background: 'rgba(90,116,48,0.06)', border: '1px solid rgba(90,116,48,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>CULTS3D PUBLISH</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
         </div>
 
@@ -9395,7 +9392,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
       <div className="mp-card p-3" style={{ background: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">PRINTABLES UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>desktop session</span>
         </div>
         {status === 'idle' && (
@@ -9751,7 +9748,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       <div className="mp-card p-3" style={{ background: 'rgba(255,182,39,0.08)', border: '1px solid rgba(255,182,39,0.55)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">NEXPRINT UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#262A23', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#262A23', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>direct desktop upload</span>
         </div>
 
@@ -10060,7 +10057,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       <div className="mp-card p-3" style={{ background: 'rgba(230,57,70,0.05)', border: '1px solid rgba(230,57,70,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">CREALITY CLOUD UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#E63946', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#E63946', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
 
@@ -10486,7 +10483,7 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
       <div className="mp-card p-3" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">MAKERONLINE UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MakerOnline’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MakerOnline</button></>}
@@ -10700,7 +10697,7 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
-        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
+        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
         {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : 'Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory’s review flow.'}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
         {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
@@ -11885,7 +11882,7 @@ function MwSection({ title, hint, badge, children, defaultOpen = false }) {
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
-        {badge != null && badge !== 0 && <span className="mp-mono text-[11px] px-1.5 py-0.5" style={{ background: 'rgba(255,105,0,0.15)', color: '#B23A1A' }}>{badge}</span>}
+        {badge != null && badge !== 0 && <span className="mp-mono text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,105,0,0.15)', color: '#B23A1A' }}>{badge}</span>}
         {hint && <span className="text-[11px] ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{hint}</span>}
       </button>
       {open && <div className="px-3 pb-3 space-y-2">{children}</div>}
@@ -12949,7 +12946,7 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
           ? <img src={image.dataUrl} alt="" className="w-full max-h-96 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
       </div>
-      <div className="absolute top-2 left-2 mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(0,0,0,0.7)', color: '#fff' }}>
+      <div className="absolute top-2 left-2 mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,0,0,0.7)', color: '#fff' }}>
         {preserveOriginal ? `${cover.label} · original aspect` : `${cover.label} · ${cover.w}×${cover.h}`}
       </div>
       {!hideDownload && (
