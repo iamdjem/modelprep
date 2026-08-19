@@ -166,7 +166,7 @@ import makerWorldCategoryTree from './data/makerworld-categories.json';
 import makerWorldForbiddenWords from './data/makerworld-forbidden-words.json';
 import {
   Upload, Download, Copy, Image as ImageIcon, FileText, Check, Sparkles,
-  Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronDown, ChevronUp,
+  Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
   Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut, Settings,
   PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus
@@ -4589,8 +4589,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-        <div className="lg:col-span-2 space-y-5">
+      <div className="mt-6 max-w-3xl space-y-5">
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="mb-0">Title</Label>
@@ -4662,46 +4661,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             </div>
           </div>
 
-          <div>
-            <Label>Tags</Label>
-            <div className="mp-card p-3">
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {project.tags.map(t => (
-                  <span key={t} className="inline-flex items-center gap-0.5 pl-2.5 pr-0.5 py-1 mp-mono text-xs rounded-full" style={{ background: 'var(--surface-sunken)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
-                    {t}
-                    <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[#5A7430] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
-                  </span>
-                ))}
-                <input
-                  aria-label="Add a tag"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={handleTagKey}
-                  onBlur={() => { if (tagInput) { addTag(tagInput); setTagInput(''); } }}
-                  placeholder={project.tags.length ? '+ tag' : 'type and press Enter'}
-                  className="bg-transparent outline-none text-xs flex-1 min-w-[100px]"
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                <span className="mp-mono uppercase tracking-[0.15em]">
-                  {project.tags.length}/{lim.tagMax ?? '∞'} tags
-                  {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
-                </span>
-                <button onClick={suggestTags} disabled={tagSuggestBusy} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#5A7430] transition disabled:opacity-40">
-                  {tagSuggestBusy ? <Loader size={10} className="animate-spin" /> : <Sparkles size={10} />} {tagSuggestBusy ? 'Checking MakerWorld…' : 'Suggest tags'}
-                </button>
-              </div>
-              {tagSuggestMsg && <p className="text-[11px] mt-1.5 opacity-70">{tagSuggestMsg}</p>}
-              {longTags.length > 0 && (
-                <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#5A7430' }}>
-                  {longTags.length} tag{longTags.length > 1 ? 's' : ''} over {lim.tagCharMax} chars ({lim.tagCharMaxBy} limit): {longTags.join(', ')}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2 items-start">
           <div>
             <Label>Category</Label>
             <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />
@@ -4712,7 +4672,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
           <div>
             <Label>License</Label>
-            <div className="mp-card p-3" style={{ borderColor: '#5A7430', background: 'rgba(90,116,48,0.035)' }}>
+            <div className="mp-card p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold leading-tight">{selectedLicense?.name || project.license}</div>
@@ -4789,7 +4749,44 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               </div>
             )}
           </div>
-        </div>
+          </div>
+          <div>
+            <Label>Tags</Label>
+            <div className="mp-card p-3">
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {project.tags.map(t => (
+                  <span key={t} className="inline-flex items-center gap-0.5 pl-2.5 pr-0.5 py-1 mp-mono text-xs rounded-full" style={{ background: 'var(--surface-sunken)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
+                    {t}
+                    <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[#5A7430] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
+                  </span>
+                ))}
+                <input
+                  aria-label="Add a tag"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={handleTagKey}
+                  onBlur={() => { if (tagInput) { addTag(tagInput); setTagInput(''); } }}
+                  placeholder={project.tags.length ? '+ tag' : 'type and press Enter'}
+                  className="bg-transparent outline-none text-xs flex-1 min-w-[100px]"
+                />
+              </div>
+              <div className="flex items-center justify-between text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                <span className="mp-mono uppercase tracking-[0.15em]">
+                  {project.tags.length}/{lim.tagMax ?? '∞'} tags
+                  {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
+                </span>
+                <button onClick={suggestTags} disabled={tagSuggestBusy} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#5A7430] transition disabled:opacity-40">
+                  {tagSuggestBusy ? <Loader size={10} className="animate-spin" /> : <Sparkles size={10} />} {tagSuggestBusy ? 'Checking MakerWorld…' : 'Suggest tags'}
+                </button>
+              </div>
+              {tagSuggestMsg && <p className="text-[11px] mt-1.5 opacity-70">{tagSuggestMsg}</p>}
+              {longTags.length > 0 && (
+                <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#5A7430' }}>
+                  {longTags.length} tag{longTags.length > 1 ? 's' : ''} over {lim.tagCharMax} chars ({lim.tagCharMaxBy} limit): {longTags.join(', ')}
+                </p>
+              )}
+            </div>
+          </div>
       </div>
 
       <SectionNav
@@ -5102,82 +5099,76 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           ]) : null}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-6">
-          <div className="md:col-span-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                {project.images.length} images
+        <div className="mt-6">
+          {/* Gallery order is a horizontal idea, so the picker is a filmstrip
+              rather than a narrow rail: bigger thumbnails, full-width editor,
+              and left/right arrows that match the direction of the order. */}
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mb-2">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{project.images.length} images</span>
+              <span className="text-xs truncate" style={{ color: 'var(--ink-50)' }}>
+                · this order is used on every platform, cover first
               </span>
-              <button onClick={chooseImageFiles} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#5A7430] transition flex items-center gap-1">
-                <Plus size={11} /> Add
-              </button>
-              <input ref={fileInputRef} type="file" multiple accept={GALLERY_IMAGE_ACCEPT || undefined} onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
             </div>
-
-            <p className="mp-body text-xs mb-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              This order is used on every platform, with the cover first. Use the arrows to reorder.
-            </p>
-            <div className="space-y-1.5 max-h-[600px] overflow-y-auto pr-1">
-              {project.images.map((img, idx) => {
-                const active = activeImageId === img.id;
-                return (
-                  <div
-                    key={img.id}
-                    className="w-full flex items-center gap-2 p-1.5 rounded-lg transition relative group"
-                    style={{
-                      background: active ? 'var(--primary-tint)' : '#FFFFFF',
-                      color: active ? 'var(--primary-ink)' : '#262A23',
-                      border: active ? '1px solid var(--primary-tint-border)' : '1px solid var(--border)',
-                    }}
-                  >
-                    <button
-                      onClick={() => setActiveImageId(img.id)}
-                      className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
-                      style={{ color: 'inherit' }}
-                    >
-                      <div className="w-14 h-14 flex-shrink-0 overflow-hidden rounded-md" style={{ background: 'var(--surface-sunken)' }}>
-                        <img src={img.dataUrl} alt={img.alt || `Gallery image ${idx + 1}`} className="w-full h-full object-cover" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="mp-mono text-[11px] t-num" style={{ color: 'var(--ink-35)' }}>{idx + 1}</span>
-                          {project.coverImageId === img.id && (
-                            <span className="mp-mono text-[10px] inline-flex items-center gap-1 px-1.5 rounded-full" style={{ color: 'var(--primary-ink)', background: active ? 'rgba(255,255,255,0.6)' : 'var(--primary-tint)', height: 16 }}>
-                              <Star size={8} fill="currentColor" /> Cover
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[13px] truncate mt-0.5">{img.alt || 'Image'}</div>
-                      </div>
-                    </button>
-                    <div className="flex flex-col flex-shrink-0">
-                      <button
-                        onClick={() => moveImage(img.id, -1)}
-                        disabled={idx === 0}
-                        aria-label={`Move ${img.alt || 'image'} up`}
-                        className="p-1.5 rounded transition disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[var(--surface-hover)]"
-                        style={{ color: 'inherit' }}
-                      >
-                        <ChevronUp size={15} />
-                      </button>
-                      <button
-                        onClick={() => moveImage(img.id, 1)}
-                        disabled={idx === project.images.length - 1}
-                        aria-label={`Move ${img.alt || 'image'} down`}
-                        className="p-1.5 rounded transition disabled:opacity-20 disabled:cursor-not-allowed hover:bg-[var(--surface-hover)]"
-                        style={{ color: 'inherit' }}
-                      >
-                        <ChevronDown size={15} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
+            <button onClick={chooseImageFiles} className="mp-btn mp-btn-ghost text-xs">
+              <Plus size={13} /> Add images
+            </button>
+            <input ref={fileInputRef} type="file" multiple accept={GALLERY_IMAGE_ACCEPT || undefined} onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
           </div>
 
-          <div className="md:col-span-9">
+          <ul className="flex gap-2 overflow-x-auto pb-2 mb-4 m-0 list-none p-0" aria-label="Gallery order">
+            {project.images.map((img, idx) => {
+              const active = activeImageId === img.id;
+              const isCover = project.coverImageId === img.id;
+              return (
+                <li key={img.id} className="relative flex-shrink-0 group" style={{ width: 104 }}>
+                  <button
+                    onClick={() => setActiveImageId(img.id)}
+                    aria-pressed={active}
+                    aria-label={`Edit ${img.alt || `image ${idx + 1}`}`}
+                    className="block w-full rounded-lg overflow-hidden transition hover:opacity-100"
+                    style={{
+                      outline: active ? '2px solid var(--primary)' : '1px solid var(--border)',
+                      outlineOffset: -1,
+                      opacity: active ? 1 : 0.6,
+                    }}
+                  >
+                    <span className="block w-full" style={{ aspectRatio: '1 / 1', background: 'var(--surface-sunken)' }}>
+                      <img src={img.dataUrl} alt="" className="w-full h-full object-cover" />
+                    </span>
+                  </button>
+                  <span
+                    className="absolute top-1 left-1 inline-flex items-center gap-1 rounded-full px-1.5 t-num"
+                    style={{ height: 17, fontSize: 10, fontWeight: 500, background: 'rgba(255,255,255,0.92)', color: isCover ? 'var(--primary-ink)' : 'var(--ink-65)' }}
+                  >
+                    {isCover ? <><Star size={8} fill="currentColor" /> Cover</> : idx + 1}
+                  </span>
+                  <div className="absolute inset-x-0 bottom-0 flex justify-between opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition">
+                    <button
+                      onClick={() => moveImage(img.id, -1)}
+                      disabled={idx === 0}
+                      aria-label={`Move ${img.alt || `image ${idx + 1}`} earlier`}
+                      className="p-1 rounded-tr-md disabled:opacity-25"
+                      style={{ background: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <button
+                      onClick={() => moveImage(img.id, 1)}
+                      disabled={idx === project.images.length - 1}
+                      aria-label={`Move ${img.alt || `image ${idx + 1}`} later`}
+                      className="p-1 rounded-tl-md disabled:opacity-25"
+                      style={{ background: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <div>
             {activeImage && (
               <>
                 <div role="tablist" aria-label="Image workspace" className="mp-segmented mb-4">
@@ -5487,13 +5478,15 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
       />
 
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-6">
-        <div className="md:col-span-3 space-y-1.5">
+      <div className="mt-6">
+        {project.profiles.length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-5">
           {project.profiles.map(p => (
             <button
               key={p.id}
               onClick={() => setActiveProfileId(p.id)}
-              className="w-full text-left p-2.5 rounded-lg transition-colors"
+              aria-pressed={active?.id === p.id}
+              className="text-left p-2.5 rounded-lg transition-colors min-w-[170px]"
               style={{
                 background: active?.id === p.id ? 'var(--primary-tint)' : '#FFFFFF',
                 color: active?.id === p.id ? 'var(--primary-ink)' : '#262A23',
@@ -5512,8 +5505,9 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
             </button>
           ))}
         </div>
+        )}
 
-        <div className="md:col-span-9 space-y-5">
+        <div className="space-y-5 max-w-3xl">
           {active && (
             <>
               <div>
@@ -7279,7 +7273,10 @@ export function PrintablesOptions({ opts, onUpdate }) {
 // Pre-flight: run platformPreflight for every enabled platform and surface issues BEFORE
 // the user publishes. Collapsed when everything's clean; expanded with details otherwise.
 function PreflightPanel({ enabled, project, setCurrentSection }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(() => enabled.some((p) => {
+    const report = platformPreflight(p, project);
+    return report.errors.length > 0 || report.warnings.length > 0;
+  }));
   const reports = enabled.map(p => ({ platform: p, ...platformPreflight(p, project) }));
   const totalErr = reports.reduce((n, r) => n + r.errors.length, 0);
   const totalWarn = reports.reduce((n, r) => n + r.warnings.length, 0);
@@ -7552,7 +7549,12 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
           ))}
         </div>
         {releaseQueuePanel}
-        <SectionNav backLabel="Back to Platforms" onBack={() => setCurrentSection('platforms')} />
+        <p className="mt-6 text-xs max-w-[80ch]" style={{ color: 'var(--ink-50)' }}>
+        <span style={{ fontWeight: 600, color: 'var(--warn-text)' }}>Beta.</span>{' '}
+        Private and draft publishing are fully tested. Public and paid publishing work but are still being double-checked per platform, so review each platform's visibility before publishing publicly.
+      </p>
+
+      <SectionNav backLabel="Back to Platforms" onBack={() => setCurrentSection('platforms')} />
       </div>
     );
   }
@@ -7567,35 +7569,28 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
 
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
-      {/* Prototype structure: preflight rides shotgun in a narrow left pane
-          while the publish queue takes the working width. */}
-      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(250px,300px)_minmax(0,1fr)] items-start">
-        <div className="grid gap-3 content-start lg:sticky lg:top-[70px]">
-          <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
-          <div className="mp-card p-2.5 text-xs" style={{ background: 'rgba(255,182,39,0.1)', border: '1px solid rgba(255,182,39,0.5)', color: 'rgba(38,42,35,0.75)' }}>
-            <span className="mp-mono text-[11px] mr-1.5 font-semibold" style={{ color: '#8A4B08' }}>Beta</span>
-            Private and draft publishing are fully tested. Public and paid publishing work but are still being double-checked per platform, so review each platform's visibility before publishing publicly.
-          </div>
-        </div>
-        <div className="grid gap-4 content-start min-w-0">
-          {releaseQueuePanel}
+      {/* Read in sequence, so laid out in sequence: what is wrong, then what
+          will be sent, then the per-platform detail. */}
+      <div className="mt-5 grid gap-4">
+        <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
 
-          {publishTargets.length > 0 && (
-            <BatchPublishPanel
-              targets={publishTargets}
-              batch={publishBatch}
-              resourceTelemetry={resourceTelemetry}
-              resourceReport={downloadableResourceReport}
-              resourceReportStatus={resourceReport ? resourceReportStatus : retainedResourceReport ? 'previous' : 'idle'}
-              onPublish={startPublishBatch}
-              onRetryFailed={retryFailedBatch}
-              onDownloadResourceReport={downloadResourceReport}
-              onOpenConnections={() => openConnections('accounts')}
-              isTestProject={!!project.__testProject}
-              onDryRun={project.__testProject && !project.__demo ? () => updateProject({ __demo: true }) : null}
-            />
-          )}
-        </div>
+        {releaseQueuePanel}
+
+        {publishTargets.length > 0 && (
+          <BatchPublishPanel
+            targets={publishTargets}
+            batch={publishBatch}
+            resourceTelemetry={resourceTelemetry}
+            resourceReport={downloadableResourceReport}
+            resourceReportStatus={resourceReport ? resourceReportStatus : retainedResourceReport ? 'previous' : 'idle'}
+            onPublish={startPublishBatch}
+            onRetryFailed={retryFailedBatch}
+            onDownloadResourceReport={downloadResourceReport}
+            onOpenConnections={() => openConnections('accounts')}
+            isTestProject={!!project.__testProject}
+            onDryRun={project.__testProject && !project.__demo ? () => updateProject({ __demo: true }) : null}
+          />
+        )}
       </div>
 
       {directEnabled.length > 0 && (

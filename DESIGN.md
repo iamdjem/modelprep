@@ -43,6 +43,27 @@ The wizard sidebar ("phase 01 of 04") becomes a plain project sidebar:
 - Top bar: breadcrumb, overall readiness, and one persistent "Review and publish" action.
 - The old bottom status bar is gone; its content lives in the nav statuses and top bar.
 
+## Screen layout: when two columns are allowed
+
+Two columns cost attention, so they have to buy something back. The test is whether the
+panes are used at the same moment.
+
+- **Single focused column** is the default for forms and anything read in sequence:
+  one flow in task order, capped around `max-w-3xl` so lines stay readable on a wide
+  display. Fields that belong together (Category and License, width and height) pair up
+  in a `sm:grid-cols-2` row inside that column. Details, Profiles, and Publish use this.
+- **List plus detail** is allowed only when you pick on one side while working on the
+  other, and only when the list is worth a permanent column. A rail that is usually
+  empty (Profiles, which normally holds one profile) becomes a selector that appears
+  only when there is a choice.
+- **Filmstrip plus canvas** beats list-plus-detail when the items are visual and their
+  order is horizontal. Gallery images use it: bigger thumbnails, order that reads
+  left-to-right with matching arrows, and a full-width editor.
+- **Tables** for tabular data (Files), **single-column rows** for a list of the same
+  kind of thing (Destinations). Neither needs a companion pane.
+- Sticky side rails are reserved for things you refer to *while* acting. A checklist you
+  read once before acting (preflight) belongs in the flow, not pinned beside it.
+
 ## Component vocabulary
 
 Buttons (primary, secondary, ghost, danger, small, disabled), inputs with hint and error
