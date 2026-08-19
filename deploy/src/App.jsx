@@ -7784,7 +7784,6 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
           disabled={disabled}
           title={blocking.length ? blocking.join(' ') : missing.length ? `Connect ${missing.map((target) => target.name).join(', ')}` : ''}
           className="mp-btn text-[13px] py-3 px-5 disabled:opacity-40 lg:min-w-[260px]"
-          style={!disabled ? { background: '#3A86FF', borderColor: '#3A86FF' } : undefined}
         >
           {running
             ? <><Loader size={14} className="mp-spin" /> Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete</>
@@ -7839,34 +7838,36 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
               ? (result?.simulated ? 'rgba(58,134,255,0.08)' : 'rgba(26,127,55,0.08)')
               : 'rgba(38,42,35,0.05)';
           return (
-            <div key={target.id} className="mp-card p-2.5 text-xs" style={{ background: '#fff' }}>
+            <div key={target.id} className="mp-card p-3 text-xs flex flex-col" style={{ background: '#fff' }}>
               <div className="flex items-center gap-2">
                 {state === 'publishing' ? <Loader size={13} className="mp-spin" style={{ color: '#3A86FF' }} />
                   : state === 'done' ? <Check size={13} style={{ color: '#1a7f37' }} />
                     : state === 'error' ? <X size={13} style={{ color: '#b91c1c' }} />
                       : <StatusDot status={target.mode === 'missing' ? 'unknown' : 'connected'} />}
                 <strong>{target.name}</strong>
-                <span className="mp-mono text-[11px] uppercase ml-auto" style={{ color: target.mode === 'simulation' ? 'var(--api-fill)' : 'rgba(38,42,35,0.66)' }}>
-                  {target.mode === 'simulation' ? 'practice' : target.mode === 'missing' ? 'not connected' : 'live'}
+                <span
+                  className="mp-mono text-[11px] mt-0 ml-auto inline-flex px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                  style={{ color: receiptColor, background: receiptBackground }}
+                  aria-label={`${target.name} publish status: ${receiptLabel}`}
+                >
+                  {receiptLabel}
                 </span>
               </div>
-              <div className="mt-1 truncate" title={target.accountLabel} style={{ color: 'rgba(38,42,35,0.58)' }}>{target.accountLabel}</div>
-              <div
-                className="mp-mono text-[11px] uppercase mt-1 inline-flex px-1.5 py-0.5"
-                style={{ color: receiptColor, background: receiptBackground }}
-                aria-label={`${target.name} publish status: ${receiptLabel}`}
-              >
-                {receiptLabel}
-              </div>
+              {target.mode !== 'missing' && (
+                <div className="mt-1.5 truncate" title={target.accountLabel} style={{ color: 'rgba(38,42,35,0.58)' }}>
+                  {target.accountLabel}{target.mode === 'simulation' ? ' · practice' : ''}
+                </div>
+              )}
+              <div className="mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{adaptation[target.id]}</div>
               {target.mode === 'missing' && (
                 <button
                   onClick={onOpenConnections}
-                  className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 min-h-[32px] mt-1.5"
+                  className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 min-h-[32px] mt-2 self-start"
+                  style={{ marginTop: 'auto', paddingTop: 6, paddingBottom: 6 }}
                 >
                   <RefreshCw size={11} /> {target.accountStatus === 'reconnect' ? `Reconnect ${target.name}` : `Connect ${target.name}`}
                 </button>
               )}
-              <div className="mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{adaptation[target.id]}</div>
               {result?.detail && (
                 <div className="mt-1 break-words" title={result.fullDetail || result.detail} style={{ color: state === 'error' ? '#b91c1c' : 'rgba(38,42,35,0.58)' }}>
                   {state === 'error' ? 'Error: ' : ''}{result.detail}
@@ -10790,8 +10791,8 @@ function SettingsModal({ open, onClose, tab, setTab }) {
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(38,42,35,0.45)' }} onClick={onClose}>
-      <div className="mp-card w-full max-w-2xl my-8" style={{ background: '#FFFFFF' }} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(38,42,35,0.55)' }} onClick={onClose}>
+      <div className="mp-card w-full max-w-2xl my-8" style={{ background: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(38,42,35,0.12)', background: '#FFFFFF' }}>
           <div className="flex items-center gap-2"><Settings size={16} /><span className="mp-display text-[18px]">Settings</span></div>
           <button onClick={onClose} aria-label="Close"><X size={18} /></button>
