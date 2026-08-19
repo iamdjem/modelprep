@@ -7855,7 +7855,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
               </div>
               {target.mode !== 'missing' && (
                 <div className="mt-1.5 truncate" title={target.accountLabel} style={{ color: 'rgba(38,42,35,0.58)' }}>
-                  {target.accountLabel}{target.mode === 'simulation' ? ' · practice' : ''}
+                  {target.accountLabel} · <span style={{ color: target.mode === 'simulation' ? 'var(--api-fill)' : undefined }}>{target.mode === 'simulation' ? 'practice' : 'live'}</span>
                 </div>
               )}
               <div className="mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{adaptation[target.id]}</div>
