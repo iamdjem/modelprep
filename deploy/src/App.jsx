@@ -5198,10 +5198,10 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
         onClick={onBrowse}
       >
         <input ref={inputRef} type="file" multiple accept="image/*" onChange={(e) => onDrop(e.target.files)} className="hidden" />
-        <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#262A23' }}>
-          <ImageIcon size={22} strokeWidth={2.5} style={{ color: '#5A7430' }} />
+        <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ background: 'var(--primary-tint)' }}>
+          <ImageIcon size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
         </div>
-        <h2 className="mp-display text-[36px] leading-none mb-2">Load renders &amp; photos</h2>
+        <h2 className="mp-display text-[24px] mb-2">Load renders &amp; photos</h2>
         <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>jpg, png, webp, gif, heic · first image becomes the cover</p>
         <p className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
           ◯ min recommended 2000 × 1500 px
