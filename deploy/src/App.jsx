@@ -2113,17 +2113,33 @@ function Modal({ dialog, onClose }) {
   const { kind, title, message, placeholder, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger } = dialog;
   const [value, setValue] = useState('');
   const inputRef = useRef(null);
+  const cardRef = useRef(null);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') cancel(); };
     document.addEventListener('keydown', onKey);
-    if (kind === 'prompt') setTimeout(() => inputRef.current?.focus(), 30);
+    // Move focus into the dialog for every kind, not just prompts, so Tab
+    // cannot reach (and Return cannot activate) controls behind the backdrop.
+    setTimeout(() => {
+      if (kind === 'prompt') inputRef.current?.focus();
+      else cardRef.current?.querySelector('button')?.focus();
+    }, 30);
     return () => document.removeEventListener('keydown', onKey);
   }, [kind, onClose]);
   const cancel = () => { dialog.onCancel?.(); onClose(); };
   const confirm = () => { dialog.onConfirm?.(kind === 'prompt' ? value : undefined); onClose(); };
+  const trapTab = (e) => {
+    if (e.key !== 'Tab' || !cardRef.current) return;
+    const focusables = [...cardRef.current.querySelectorAll('button, input, [href], select, textarea')].filter((el) => !el.disabled);
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    else if (!cardRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  };
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.55)' }} onMouseDown={cancel}>
-      <div className="mp-card w-full max-w-md p-5" style={{ background: '#FFFFFF' }} onMouseDown={(e) => e.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.55)' }} onMouseDown={cancel} onKeyDown={trapTab}>
+      <div ref={cardRef} className="mp-card w-full max-w-md p-5" style={{ background: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 id="modelprep-dialog-title" className="mp-display text-[22px] leading-none mb-2">{title}</h3>
         {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(38,42,35,0.7)' }}>{message}</p>}
         {kind === 'prompt' && (
