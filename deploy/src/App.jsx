@@ -2284,12 +2284,35 @@ function GlobalStyles() {
       .mp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
       .t-num { font-variant-numeric: tabular-nums; }
 
+      /* Data table: quiet header, hairline rows, hover highlight. Settings
+         sub-rows opt out of the hover treatment. */
+      .mp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      .mp-table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--ink-50); padding: 8px 12px; border-bottom: 1px solid var(--border); }
+      .mp-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+      .mp-table tbody tr { transition: background-color 140ms ease; }
+      .mp-table tbody tr:hover:not(.mp-subrow) { background: var(--surface-sunken); }
+      .mp-table tbody tr:last-child td { border-bottom: none; }
+      .mp-table tr.mp-subrow td { padding-top: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+      .mp-table tr.mp-subrow:last-child td { border-bottom: none; }
+      .mp-table th:nth-child(2), .mp-table td:nth-child(2) { width: 200px; }
+      .mp-table th:nth-child(3), .mp-table td:nth-child(3) { width: 90px; }
+      .mp-table th:nth-child(4), .mp-table td:nth-child(4) { width: 160px; }
+      .mp-table th:last-child, .mp-table td:last-child { width: 90px; }
+      .mp-table tr.mp-subrow td { width: auto; }
+
       /* Disclosure summaries: explicit rotating chevron, since inline-flex
          summaries drop the native marker. */
       summary.mp-disclosure { list-style: none; }
       summary.mp-disclosure::-webkit-details-marker { display: none; }
       summary.mp-disclosure::before { content: ''; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; display: inline-block; transition: transform 140ms ease; flex-shrink: 0; }
       details[open] > summary.mp-disclosure::before { transform: rotate(90deg); }
+
+      /* Toggle switch */
+      .mp-switch { position: relative; width: 36px; height: 21px; border-radius: 999px; border: none; cursor: pointer; background: var(--border-strong); transition: background-color 140ms ease; }
+      .mp-switch[aria-checked="true"] { background: var(--primary); }
+      .mp-switch::after { content: ''; position: absolute; top: 2.5px; left: 2.5px; width: 16px; height: 16px; border-radius: 999px; background: white; box-shadow: var(--shadow-1); transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1); }
+      .mp-switch[aria-checked="true"]::after { transform: translateX(15px); }
+      .mp-switch:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
       /* Segmented control: one bordered unit on a sunken track; the active
          segment lifts to white. Finder-style, not two loose buttons. */
@@ -2967,57 +2990,47 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         number="01"
         title="Drop your files"
         subtitle="Add model files, print profiles, and source files. Platform-specific settings stay attached."
+        actions={project.files.length > 0 ? (
+          <button onClick={() => fileInputRef.current?.click()} className="mp-btn mp-btn-ghost text-xs">
+            <Plus size={14} /> Add files
+          </button>
+        ) : null}
       />
 
-      <div
-        role="button"
-        tabIndex={0}
-        aria-label="Add model files. Drop here or press Enter to browse"
-        className={`mp-blueprint border-2 border-dashed cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#5A7430] ${project.files.length ? 'p-3 text-left' : 'py-16 px-6 text-center'}`}
-        style={{ borderColor: 'rgba(38,42,35,0.25)' }}
-        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5A7430'}
-        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(38,42,35,0.25)'}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={[...new Set([...PRINTABLES_FORMATS, 'bmp', 'fbx', 'glb', 'lac', 'md', 'stpz', 'x3d'])].map((extension) => `.${extension}`).join(',')}
-          onChange={(e) => handleFiles(e.target.files)}
-          className="hidden"
-        />
-        {project.files.length ? (
-          <div className="flex items-center gap-3">
-            <div className="inline-flex items-center justify-center w-10 h-10 flex-shrink-0 rounded-lg" style={{ background: 'var(--primary-tint)' }}>
-              <Plus size={17} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="mp-display text-[20px] leading-none">Add more files</h2>
-              <p className="mp-body text-xs mt-1" style={{ color: 'rgba(38,42,35,0.62)' }}>Drop files here or click to browse · max {MAX_BUILD_FILE_MB}MB each</p>
-            </div>
-            <span className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-auto hidden sm:block" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              {project.files.length} loaded
-            </span>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={[...new Set([...PRINTABLES_FORMATS, 'bmp', 'fbx', 'glb', 'lac', 'md', 'stpz', 'x3d'])].map((extension) => `.${extension}`).join(',')}
+        onChange={(e) => handleFiles(e.target.files)}
+        className="hidden"
+      />
+      {project.files.length === 0 && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Add model files. Drop here or press Enter to browse"
+          className="border-2 border-dashed rounded-lg cursor-pointer transition-colors mt-2 py-16 px-6 text-center focus:outline-none focus-visible:border-[#5A7430]"
+          style={{ borderColor: 'var(--border-strong)' }}
+          onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5A7430'}
+          onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(38,42,35,0.24)'}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ background: 'var(--primary-tint)' }}>
+            <Upload size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
           </div>
-        ) : (
-          <>
-            <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ background: 'var(--primary-tint)' }}>
-              <Upload size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
-            </div>
-            <h2 className="mp-display text-[24px] mb-2">Add your model files</h2>
-            <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
-            <div className="inline-flex items-center gap-1.5 mp-mono text-xs uppercase tracking-[0.2em] flex-wrap justify-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
-                <span key={ext} className="mp-pill" style={{ background: 'rgba(38,42,35,0.06)' }}>.{ext}</span>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+          <h2 className="mp-display text-[24px] mb-2">Add your model files</h2>
+          <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
+          <div className="inline-flex items-center gap-1.5 mp-mono text-xs flex-wrap justify-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
+            {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
+              <span key={ext} className="mp-pill" style={{ background: 'rgba(38,42,35,0.06)' }}>.{ext}</span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {notice && (
         <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
@@ -3175,17 +3188,44 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                   ))}
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="mp-card overflow-x-auto">
+                  <table className="mp-table" style={{ minWidth: 620 }}>
+                    <thead>
+                      <tr>
+                        <th>File</th>
+                        <th>Role</th>
+                        <th>Size</th>
+                        <th>Status</th>
+                        <th aria-label="Row actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
                   {files.map(f => (
                     <FileRow key={f.id} file={f} thumbSize={thumbSize} duplicate={duplicateIds.has(f.id)} onOpen={() => setPreviewIndex(visibleFiles.indexOf(f))} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)}
                       onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)}
                       onUpdatePrintables={(patch) => updatePrintablesFile(f.id, patch)}
                       onUpdateFile={(patch) => updateFile(f.id, patch)} />
                   ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>
           ))}
+          <button
+            type="button"
+            aria-label="Add more files. Drop here or click to browse"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm transition-colors"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-65)', background: 'transparent' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-sunken)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload size={15} />
+            Drop more files here, or browse · max {MAX_BUILD_FILE_MB}MB each
+          </button>
         </div>
       )}
 
@@ -3541,89 +3581,96 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
     setEditing(false);
   };
 
+  const hasSettings = supportsMakerWorld || supportsPrintables;
   return (
-    <div className="mp-card p-3">
-      <div className="flex items-center gap-3">
-      <button onClick={onOpen} aria-label={`Preview ${file.name}`} className="mp-focusable flex-shrink-0">
-        <FileThumb file={file} size={thumbSize} />
-      </button>
-      <div className="flex-1 min-w-0">
-        {editing ? (
-          <div className="flex items-center gap-1">
-            <input
-              autoFocus
-              aria-label="New file name"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
-              className="mp-mono text-sm bg-transparent outline-none border-b flex-1 min-w-0"
-              style={{ borderColor: '#5A7430' }}
-            />
-            <span className="mp-mono text-sm flex-shrink-0" style={{ color: 'rgba(38,42,35,0.66)' }}>.{ext}</span>
+    <>
+      <tr>
+        <td>
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={onOpen} aria-label={`Preview ${file.name}`} className="mp-focusable flex-shrink-0">
+              <FileThumb file={file} size={thumbSize} />
+            </button>
+            <div className="min-w-0">
+              {editing ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    autoFocus
+                    aria-label="New file name"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+                    className="text-sm bg-transparent outline-none border-b flex-1 min-w-0"
+                    style={{ borderColor: 'var(--primary)' }}
+                  />
+                  <span className="text-sm flex-shrink-0" style={{ color: 'var(--ink-65)' }}>.{ext}</span>
+                </div>
+              ) : (
+                <button onClick={startEdit} className="text-sm font-medium truncate flex items-center gap-1.5 group/name max-w-full text-left" title="Click to rename" style={{ color: 'var(--ink)' }}>
+                  <span className="truncate">{file.name}</span>
+                  <Edit3 size={11} className="opacity-0 group-hover/name:opacity-50 transition flex-shrink-0" />
+                </button>
+              )}
+            </div>
           </div>
-        ) : (
-          <button onClick={startEdit} className="mp-display font-bold text-sm truncate flex items-center gap-1.5 group/name max-w-full" title="Click to rename">
-            <span className="truncate">{file.name}</span>
-            <Edit3 size={11} className="opacity-0 group-hover/name:opacity-50 transition flex-shrink-0" />
-          </button>
-        )}
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
-            .{ext} · {formatBytes(file.size)}
-          </span>
-          {isProf && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: '#5A7430', color: '#fff' }}>
-              Print profile
-            </span>
-          )}
-          {duplicate && (
-            <span
-              className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full"
-              style={{ background: 'rgba(255,182,39,0.25)', color: '#8A4B08' }}
-              title="Another file has the same type and byte size"
-            >
+        </td>
+        <td>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isProf ? (
+              <span className="mp-pill" style={{ background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>Print profile</span>
+            ) : isImg ? (
+              <span className="mp-pill" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Reference image</span>
+            ) : (
+              <span className="mp-pill" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Model</span>
+            )}
+            {file.isLaserCut && (
+              <span className="mp-pill" style={{ background: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>Laser &amp; Cut</span>
+            )}
+            {isProf && onUpdateFile && (
+              <select
+                aria-label={`Slicer for ${file.name}`}
+                title="Detected from the file's own metadata; override if the detection is wrong"
+                className="mp-input-sm text-xs"
+                style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto' }}
+                value={file.slicerOverride || ''}
+                onChange={(e) => onUpdateFile({ slicerOverride: e.target.value || null })}
+              >
+                <option value="">
+                  {file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…'}
+                </option>
+                {Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => (
+                  <option key={id} value={id}>{label}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </td>
+        <td className="t-num whitespace-nowrap" style={{ color: 'var(--ink-65)' }}>{formatBytes(file.size)}</td>
+        <td>
+          {duplicate ? (
+            <span className="mp-pill" style={{ background: 'rgba(255,182,39,0.25)', color: '#8A4B08' }} title="Another file has the same type and byte size">
               Possible duplicate
             </span>
-          )}
-          {isProf && onUpdateFile && (
-            <select
-              aria-label={`Slicer for ${file.name}`}
-              title="Detected from the file's own metadata; override if the detection is wrong"
-              className="mp-mono text-[11px] uppercase tracking-[0.15em] bg-transparent border px-1 py-0.5"
-              style={{ borderColor: 'rgba(38,42,35,0.2)', color: 'rgba(38,42,35,0.7)' }}
-              value={file.slicerOverride || ''}
-              onChange={(e) => onUpdateFile({ slicerOverride: e.target.value || null })}
-            >
-              <option value="">
-                {file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…'}
-              </option>
-              {Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => (
-                <option key={id} value={id}>{label}</option>
-              ))}
-            </select>
-          )}
-          {isImg && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(38,42,35,0.4)', color: '#fff' }}>
-              Reference image
+          ) : (
+            <span className="mp-pill inline-flex gap-1" style={{ background: 'var(--success-tint, #EAF5EE)', color: 'var(--success-text)' }}>
+              <Check size={11} strokeWidth={2.6} /> Ready
             </span>
           )}
-          {file.isLaserCut && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>
-              Laser &amp; Cut
-            </span>
-          )}
-        </div>
-      </div>
-      <button onClick={startEdit} className="p-2 rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-50)' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--ink)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-50)'; }} aria-label="Rename file" title="Rename">
-        <Edit3 size={15} />
-      </button>
-      <button onClick={onRemove} className="p-2 rounded-md transition-colors hover:bg-[var(--danger-tint)]" style={{ color: 'var(--ink-50)' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger-text)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-50)'; }} aria-label="Remove file" title="Remove">
-        <Trash2 size={15} />
-      </button>
-      </div>
+        </td>
+        <td className="text-right whitespace-nowrap">
+          <button onClick={startEdit} className="p-2 rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-50)' }} aria-label="Rename file" title="Rename">
+            <Edit3 size={15} />
+          </button>
+          <button onClick={onRemove} className="p-2 rounded-md transition-colors hover:bg-[var(--danger-tint)]" style={{ color: 'var(--ink-50)' }} aria-label="Remove file" title="Remove">
+            <Trash2 size={15} />
+          </button>
+        </td>
+      </tr>
+      {hasSettings && (
+        <tr className="mp-subrow">
+          <td colSpan={5}>
       {supportsMakerWorld && (
-        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+        <details className="mb-1">
           <summary className="mp-disclosure cursor-pointer mp-mono text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>MakerWorld file settings</summary>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
             <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
@@ -3642,7 +3689,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
         </details>
       )}
       {supportsPrintables && (
-        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+        <details className="mb-1">
           <summary className="mp-disclosure cursor-pointer mp-mono text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>Printables file settings</summary>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
             <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
@@ -3694,7 +3741,10 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
           </p>
         </details>
       )}
-    </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -5752,7 +5802,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
           </div>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{directEnabledCount}/{directPlatforms.length} selected</span>
         </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-2">
         {directPlatforms.map((p) => {
           const activeAccount = accounts.getActive(p.id);
           const connectionLabel = accountIsUsable(activeAccount)
@@ -5780,7 +5830,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
           </div>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{exportEnabledCount}/{exportPlatforms.length} selected</span>
         </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-2">
         {exportPlatforms.map(p => (
           <PlatformCard
             key={p.id}
@@ -6081,7 +6131,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
     // so its options get real width, and so one tall card can't leave the rest of
     // its row as ragged whitespace. Collapsed cards stay in the tidy grid.
     <div
-      className={`mp-card ${expanded ? 'xl:col-span-2 2xl:col-span-3' : ''}`}
+      className="mp-card"
       style={{ borderColor: state.enabled ? 'rgba(38,42,35,0.2)' : 'rgba(38,42,35,0.08)', opacity: state.enabled ? 1 : 0.65 }}
     >
       {/* One identity row: toggle, mark, name and status all on the same line at
@@ -6094,17 +6144,8 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           role="switch"
           aria-checked={state.enabled}
           aria-label={`${state.enabled ? 'Disable' : 'Enable'} ${platform.name}`}
-          className="flex-shrink-0 mp-mono text-xs uppercase tracking-[0.15em] px-2.5 h-8 flex items-center justify-center gap-1.5 transition"
-          style={{
-            background: state.enabled ? 'var(--accent-fill)' : 'transparent',
-            color: state.enabled ? '#fff' : 'rgba(38,42,35,0.66)',
-            border: `1px solid ${state.enabled ? 'var(--accent-fill)' : 'rgba(38,42,35,0.25)'}`,
-            minWidth: 58,
-          }}
-        >
-          {state.enabled ? <Check size={13} strokeWidth={3} /> : <X size={13} strokeWidth={3} />}
-          {state.enabled ? 'ON' : 'OFF'}
-        </button>
+          className="mp-switch flex-shrink-0"
+        />
             <div className="flex flex-1 items-center gap-x-2 min-w-0">
               <PlatformMark platform={platform} size={28} />
               <h3 className="mp-display font-bold text-base truncate min-w-0">{platform.name}</h3>
@@ -7238,7 +7279,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
 // Pre-flight: run platformPreflight for every enabled platform and surface issues BEFORE
 // the user publishes. Collapsed when everything's clean; expanded with details otherwise.
 function PreflightPanel({ enabled, project, setCurrentSection }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const reports = enabled.map(p => ({ platform: p, ...platformPreflight(p, project) }));
   const totalErr = reports.reduce((n, r) => n + r.errors.length, 0);
   const totalWarn = reports.reduce((n, r) => n + r.warnings.length, 0);
@@ -7247,7 +7288,7 @@ function PreflightPanel({ enabled, project, setCurrentSection }) {
   const bd = totalErr ? 'rgba(185,28,28,0.35)' : totalWarn ? 'rgba(90,116,48,0.3)' : 'rgba(79,178,134,0.35)';
   if (!enabled.length) return null;
   return (
-    <div className="mp-card p-3 mt-5" style={{ background: bg, borderColor: bd }}>
+    <div className="mp-card p-3" style={{ background: bg, borderColor: bd }}>
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
         {clean ? <Check size={15} style={{ color: '#3a8d68' }} /> : totalErr ? <AlertCircle size={15} style={{ color: '#B91C1C' }} /> : <AlertCircle size={15} style={{ color: '#c83f10' }} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>
@@ -7524,32 +7565,38 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         subtitle="Review the adapted package, then publish to all selected platforms or individually."
       />
 
-      <div className="mp-card p-2.5 mb-4 text-xs" style={{ background: 'rgba(255,182,39,0.1)', border: '1px solid rgba(255,182,39,0.5)', color: 'rgba(38,42,35,0.75)' }}>
-        <span className="mp-mono text-[11px] uppercase tracking-[0.2em] mr-1.5" style={{ color: '#8A4B08' }}>Beta</span>
-        Private and draft publishing are fully tested. Public and paid publishing work but are still being double-checked per platform, so review each platform's visibility before publishing publicly.
-      </div>
-
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
-      <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
+      {/* Prototype structure: preflight rides shotgun in a narrow left pane
+          while the publish queue takes the working width. */}
+      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(250px,300px)_minmax(0,1fr)] items-start">
+        <div className="grid gap-3 content-start lg:sticky lg:top-[70px]">
+          <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
+          <div className="mp-card p-2.5 text-xs" style={{ background: 'rgba(255,182,39,0.1)', border: '1px solid rgba(255,182,39,0.5)', color: 'rgba(38,42,35,0.75)' }}>
+            <span className="mp-mono text-[11px] mr-1.5 font-semibold" style={{ color: '#8A4B08' }}>Beta</span>
+            Private and draft publishing are fully tested. Public and paid publishing work but are still being double-checked per platform, so review each platform's visibility before publishing publicly.
+          </div>
+        </div>
+        <div className="grid gap-4 content-start min-w-0">
+          {releaseQueuePanel}
 
-      {releaseQueuePanel}
-
-      {publishTargets.length > 0 && (
-        <BatchPublishPanel
-          targets={publishTargets}
-          batch={publishBatch}
-          resourceTelemetry={resourceTelemetry}
-          resourceReport={downloadableResourceReport}
-          resourceReportStatus={resourceReport ? resourceReportStatus : retainedResourceReport ? 'previous' : 'idle'}
-          onPublish={startPublishBatch}
-          onRetryFailed={retryFailedBatch}
-          onDownloadResourceReport={downloadResourceReport}
-          onOpenConnections={() => openConnections('accounts')}
-          isTestProject={!!project.__testProject}
-          onDryRun={project.__testProject && !project.__demo ? () => updateProject({ __demo: true }) : null}
-        />
-      )}
+          {publishTargets.length > 0 && (
+            <BatchPublishPanel
+              targets={publishTargets}
+              batch={publishBatch}
+              resourceTelemetry={resourceTelemetry}
+              resourceReport={downloadableResourceReport}
+              resourceReportStatus={resourceReport ? resourceReportStatus : retainedResourceReport ? 'previous' : 'idle'}
+              onPublish={startPublishBatch}
+              onRetryFailed={retryFailedBatch}
+              onDownloadResourceReport={downloadResourceReport}
+              onOpenConnections={() => openConnections('accounts')}
+              isTestProject={!!project.__testProject}
+              onDryRun={project.__testProject && !project.__demo ? () => updateProject({ __demo: true }) : null}
+            />
+          )}
+        </div>
+      </div>
 
       {directEnabled.length > 0 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
@@ -13077,14 +13124,15 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
 // SHARED UI BITS
 // =====================================================================
 
-function SectionHeader({ number, title, subtitle }) {
+function SectionHeader({ number, title, subtitle, actions }) {
   return (
-    <div data-testid="section-header" className="pb-4 sm:pb-5">
+    <div data-testid="section-header" className="pb-4 sm:pb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
       <span className="sr-only">Step {Number(number)}</span>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-1 min-w-0">
         <h2 className="mp-display text-[22px] sm:text-[26px]" style={{ color: '#262A23' }}>{title}</h2>
         <p className="mp-body w-full text-sm leading-5 max-w-xl" style={{ color: 'var(--ink-65)' }}>{subtitle}</p>
       </div>
+      {actions && <div className="flex items-center gap-2 pt-1 flex-shrink-0">{actions}</div>}
     </div>
   );
 }

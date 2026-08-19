@@ -99,7 +99,7 @@ describe('shared section navigation layout', () => {
     for (const step of ['files', 'details', 'images', 'profiles', 'platforms', 'publish']) {
       await user.click(screen.getByRole('button', { name: new RegExp(`step \\d: ${step}`, 'i') }));
       const header = screen.getByTestId('section-header');
-      const layout = header.lastElementChild;
+      const layout = header.children[1]; // [0] is the sr-only step label; actions may follow
       const title = layout.firstElementChild;
       const subtitle = layout.lastElementChild;
 
@@ -141,7 +141,7 @@ describe('shared section navigation layout', () => {
     expect(description).not.toHaveTextContent(/\bhtml\b/i);
   });
 
-  it('stacks platform cards at compact desktop widths before adding wider columns', async () => {
+  it('lists destinations as single-column rows', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /try demo/i }));
@@ -149,8 +149,9 @@ describe('shared section navigation layout', () => {
 
     for (const heading of ['Direct publishing', 'Export & future connections']) {
       const grid = screen.getByRole('heading', { name: heading }).parentElement.parentElement.nextElementSibling;
-      expect(grid).toHaveClass('grid-cols-1', 'xl:grid-cols-2', '2xl:grid-cols-3');
-      expect(grid).not.toHaveClass('md:grid-cols-2', 'xl:grid-cols-3');
+      // Destinations are a single-column row list now, prototype-style.
+      expect(grid).toHaveClass('grid-cols-1');
+      expect(grid).not.toHaveClass('xl:grid-cols-2', '2xl:grid-cols-3');
     }
   });
 
