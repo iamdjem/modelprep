@@ -101,10 +101,10 @@ describe('shared section navigation layout', () => {
       const title = layout.firstElementChild;
       const subtitle = layout.lastElementChild;
 
-      expect(header).toHaveClass('pb-3', 'sm:pb-4');
+      expect(header).toHaveClass('pb-4', 'sm:pb-5');
       expect(layout).toHaveClass('flex', 'flex-col', 'gap-1');
       expect(layout).not.toHaveClass('2xl:flex-row');
-      expect(title).toHaveClass('text-[30px]', 'sm:text-[36px]', 'leading-none');
+      expect(title).toHaveClass('text-[22px]', 'sm:text-[26px]');
       expect(title).not.toHaveClass('mb-3');
       expect(subtitle).toHaveClass('w-full', 'text-sm', 'leading-5');
       expect(subtitle).not.toHaveClass('max-w-2xl');

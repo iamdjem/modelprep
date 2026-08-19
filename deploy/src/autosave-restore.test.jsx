@@ -180,7 +180,7 @@ describe('scheduled release on relaunch', () => {
 
     // No offer bar: it restored rather than asking. (Dismiss is unique to it;
     // role=status is not, since the Publish step has its own live regions.)
-    await waitFor(() => expect(screen.getByTestId('status-bar')).toHaveTextContent(/STEP 6\/6/i));
+    await waitFor(() => expect(screen.getByTestId('status-bar')).toHaveTextContent(/Step 6 of 6/i));
     expect(screen.queryByRole('button', { name: /^dismiss$/i })).not.toBeInTheDocument();
     expect(localStorage.getItem(HANDLED_KEY)).toBeTruthy();
   });

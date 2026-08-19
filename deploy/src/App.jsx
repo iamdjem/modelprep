@@ -639,7 +639,7 @@ function mockParseThreeMF(filename) {
   };
 }
 
-function makeSampleImage(label = 'SAMPLE', tint = ['#FF5722', '#FFB627', '#1A1A1A']) {
+function makeSampleImage(label = 'SAMPLE', tint = ['#5A7430', '#FFB627', '#262A23']) {
   const c = document.createElement('canvas');
   c.width = 2400; c.height = 1800;
   const ctx = c.getContext('2d');
@@ -1038,10 +1038,10 @@ function mergePlatformDefaults(savedPlatforms = {}) {
 // single explicit mutation boundary.
 function buildDemoProject() {
   const tints = [
-    ['#FF5722', '#FFB627', '#1A1A1A'],
-    ['#3A86FF', '#4FB286', '#1A1A1A'],
-    ['#FF6900', '#F79E2E', '#1A1A1A'],
-    ['#9B5DE5', '#F15BB5', '#1A1A1A'],
+    ['#5A7430', '#FFB627', '#262A23'],
+    ['#3A86FF', '#4FB286', '#262A23'],
+    ['#FF6900', '#F79E2E', '#262A23'],
+    ['#9B5DE5', '#F15BB5', '#262A23'],
   ];
   const labels = ['HERO RENDER', 'PRINTED', 'DETAIL', 'IN SCALE'];
   const images = tints.map((tint, i) => ({
@@ -2000,14 +2000,9 @@ export default function App() {
 
   return (
     <ConnectionsCtx.Provider value={openSettings}>
-    <div className="min-h-screen w-full" style={{ background: '#EDE9DE', color: '#15171C', fontFamily: "'Space Grotesk', system-ui, sans-serif" }}>
+    <div className="min-h-screen w-full" style={{ background: '#FFFFFF', color: '#262A23', fontFamily: "'Inter', system-ui, sans-serif" }}>
       <GlobalStyles />
 
-      {/* Background workshop pattern: subtle layer lines */}
-      <div className="fixed inset-0 pointer-events-none" style={{
-        backgroundImage: 'repeating-linear-gradient(0deg, rgba(21,23,28,0.022) 0px, rgba(21,23,28,0.022) 1px, transparent 1px, transparent 7px)',
-        zIndex: 0,
-      }} />
       <div className="relative z-10 min-h-screen flex flex-col">
 
       <TopHeader
@@ -2032,7 +2027,7 @@ export default function App() {
           className="px-4 sm:px-6 py-2 flex items-center gap-3 flex-wrap border-b"
           style={{ background: 'rgba(58,134,255,0.08)', borderColor: 'rgba(58,134,255,0.35)' }}
         >
-          <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'rgba(21,23,28,0.8)' }}>
+          <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'rgba(38,42,35,0.8)' }}>
             <strong>Restore text &amp; settings?</strong>{' '}
             Restore{restoreOffer.saved?.title ? ` “${restoreOffer.saved.title}”` : ' your last session'}: title, description, tags, category, license and platform settings, plus any model files and photos still held on this computer.
           </span>
@@ -2125,10 +2120,10 @@ function Modal({ dialog, onClose }) {
   const cancel = () => { dialog.onCancel?.(); onClose(); };
   const confirm = () => { dialog.onConfirm?.(kind === 'prompt' ? value : undefined); onClose(); };
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.55)' }} onMouseDown={cancel}>
-      <div className="mp-card w-full max-w-md p-5" style={{ background: '#EDE9DE' }} onMouseDown={(e) => e.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.55)' }} onMouseDown={cancel}>
+      <div className="mp-card w-full max-w-md p-5" style={{ background: '#FFFFFF' }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 id="modelprep-dialog-title" className="mp-display text-[22px] leading-none mb-2">{title}</h3>
-        {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(21,23,28,0.7)' }}>{message}</p>}
+        {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(38,42,35,0.7)' }}>{message}</p>}
         {kind === 'prompt' && (
           <input
             ref={inputRef}
@@ -2163,30 +2158,30 @@ function StatusBar({ project, completion, currentSection }) {
   const totalSteps = Object.keys(completion).length - 1; // publish doesn't count
   const allDone = doneCount >= totalSteps;
   const activeIndex = Math.max(0, SECTIONS.findIndex((section) => section.id === currentSection));
-  const status = doneCount === 0 ? { label: 'NEW PROJECT', color: '#FFB627' }
-    : allDone ? { label: 'READY TO PUBLISH', color: '#4FB286' }
-    : { label: 'IN PROGRESS', color: '#FFB627' };
+  const status = doneCount === 0 ? { label: 'New project', color: '#FFB627' }
+    : allDone ? { label: 'Ready to publish', color: '#4FB286' }
+    : { label: 'In progress', color: '#FFB627' };
   return (
     <div data-testid="status-bar" className="fixed bottom-0 left-0 right-0 z-20 border-t" style={{
-      background: '#15171C',
-      color: '#EDE9DE',
-      borderColor: '#15171C',
+      background: 'var(--surface)',
+      color: 'var(--ink-65)',
+      borderColor: 'var(--border)',
       height: 32,
     }}>
       <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto h-full flex items-center justify-between px-4 sm:px-6 overflow-x-auto whitespace-nowrap">
-        <div className="flex items-center gap-3 sm:gap-5 mp-mono text-xs uppercase tracking-[0.15em]">
+        <div className="flex items-center gap-3 sm:gap-5 mp-mono text-xs">
           <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5" style={{ background: status.color }} />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: status.color }} />
             {status.label}
           </span>
-          <span style={{ color: 'rgba(237,233,222,0.5)' }}>│</span>
-          <span>STEP {activeIndex + 1}/{SECTIONS.length}<span className="hidden sm:inline"> · {SECTIONS[activeIndex].label}</span></span>
+          <span style={{ color: 'var(--ink-35)' }}>·</span>
+          <span>Step {activeIndex + 1} of {SECTIONS.length}<span className="hidden sm:inline"> · {SECTIONS[activeIndex].label}</span></span>
         </div>
-        <div className="hidden sm:flex items-center gap-5 mp-mono text-xs uppercase tracking-[0.15em]">
-          <span>FILES <span style={{ color: '#FF5722' }}>{project.files.length}</span></span>
-          <span>MEDIA <span style={{ color: '#FF5722' }}>{project.images.length + (project.media || []).length}</span></span>
-          <span>SIZE <span style={{ color: '#FF5722' }}>{formatBytes(totalSize)}</span></span>
-          <span>PLATFORMS <span style={{ color: '#FF5722' }}>{enabledCount}/{PLATFORMS.length}</span></span>
+        <div className="hidden sm:flex items-center gap-5 mp-mono text-xs">
+          <span>Files <span style={{ color: 'var(--ink)' }}>{project.files.length}</span></span>
+          <span>Media <span style={{ color: 'var(--ink)' }}>{project.images.length + (project.media || []).length}</span></span>
+          <span>Size <span style={{ color: 'var(--ink)' }}>{formatBytes(totalSize)}</span></span>
+          <span>Platforms <span style={{ color: 'var(--ink)' }}>{enabledCount}/{PLATFORMS.length}</span></span>
         </div>
       </div>
     </div>
@@ -2200,98 +2195,119 @@ function StatusBar({ project, completion, currentSection }) {
 function GlobalStyles() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
-      /* Design tokens: single source of truth for color & ink opacity.
-         Use var(--ink-65) etc. instead of ad-hoc rgba() in new code. */
+      /* Design tokens: single source of truth for color, shape and elevation.
+         The old alias names (--paper, --accent, ...) stay defined so existing
+         var() call sites keep working; new code should prefer the new names. */
       :root {
-        --ink: #15171C;
-        --ink-65: rgba(21,23,28,0.65);  /* secondary text / subtitles */
-        --ink-50: rgba(21,23,28,0.5);   /* helper / caption */
-        --ink-35: rgba(21,23,28,0.35);  /* faint / placeholder */
-        --ink-04: rgba(21,23,28,0.04);  /* inset / code surface */
-        --paper: #EDE9DE;
-        --accent: #FF5722;              /* primary accent: fills w/ ink text, large display, focus rings, decoration */
-        --accent-text: #B83A00;         /* accent for small text on paper/white (>=4.5:1) */
-        --accent-fill: #C13B00;         /* accent fill carrying small white text (>=4.5:1) */
-        --api: #3A86FF;                 /* API / demo borders + panels */
-        --api-fill: #2563C4;            /* demo/API fill carrying white text (>=4.5:1) */
+        /* Ground */
+        --bg: #FFFFFF;
+        --surface: #FFFFFF;
+        --surface-sunken: #F6F7F4;
+        --surface-hover: #EEF0EA;
+
+        /* Ink */
+        --ink: #262A23;
+        --ink-65: rgba(38,42,35,0.72);  /* secondary text / subtitles */
+        --ink-50: rgba(38,42,35,0.58);  /* helper / caption */
+        --ink-35: rgba(38,42,35,0.40);  /* faint / placeholder */
+        --ink-04: rgba(38,42,35,0.04);  /* inset / code surface */
+
+        /* Lines */
+        --border: rgba(38,42,35,0.12);
+        --border-strong: rgba(38,42,35,0.24);
+
+        /* Brand: moss green, used for primary actions, selection, progress */
+        --primary: #5A7430;
+        --primary-hover: #4C6326;
+        --primary-active: #40541F;
+        --primary-ink: #3E5420;          /* brand color for small text on white */
+        --primary-tint: #EFF3E6;
+        --primary-tint-border: #CBD8AE;
+
+        /* Old aliases, remapped */
+        --paper: #FFFFFF;
+        --accent: #5A7430;
+        --accent-text: #3E5420;
+        --accent-fill: #47601F;
+
+        /* Meaning */
+        --api: #3A86FF;
+        --api-fill: #2563C4;
         --success: #4FB286;
-        --success-text: #3a8d68;
+        --success-text: #2C7A57;
         --warn: #FFB627;
-        --danger-text: #c83f10;
+        --warn-text: #8A5A08;
+        --danger-text: #B91C1C;
+        --danger-tint: #FBEFEC;
+
+        /* Shape */
+        --radius-sm: 6px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+
+        /* Elevation */
+        --shadow-1: 0 1px 2px rgba(38,42,35,0.06);
+        --shadow-2: 0 2px 6px rgba(38,42,35,0.08), 0 1px 2px rgba(38,42,35,0.05);
+        --shadow-3: 0 12px 32px rgba(38,42,35,0.14), 0 2px 8px rgba(38,42,35,0.08);
       }
 
-      /* Industrial / workshop type system */
-      .mp-display { font-family: 'Big Shoulders Display', 'Impact', sans-serif; font-weight: 800; letter-spacing: -0.005em; line-height: 0.95; text-transform: uppercase; }
-      .mp-body { font-family: 'Space Grotesk', system-ui, sans-serif; }
-      .mp-mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-feature-settings: "ss01", "zero"; }
+      /* One-family type system: Inter carries display, body, labels and data.
+         mp-display / mp-mono keep their class names so call sites don't churn,
+         but they no longer shout: no uppercase, no tracked eyebrows, no
+         condensed display face. The !important neutralizers override the
+         legacy per-element "uppercase tracking-[...]" utility classes in one
+         place instead of hunting hundreds of call sites. */
+      .mp-display { font-family: 'Inter', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; text-transform: none !important; }
+      .mp-body { font-family: 'Inter', system-ui, sans-serif; }
+      .mp-mono { font-family: 'Inter', system-ui, sans-serif; font-weight: 500; font-variant-numeric: tabular-nums; text-transform: none !important; letter-spacing: 0 !important; }
 
-      /* Layer-line background (subtle horizontal stripes like 3D print layers) */
-      .mp-grid {
-        background-image: repeating-linear-gradient(0deg, rgba(21,23,28,0.04) 0px, rgba(21,23,28,0.04) 1px, transparent 1px, transparent 8px);
-      }
-      .mp-blueprint {
-        background-image:
-          linear-gradient(to right, rgba(43,58,85,0.06) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(43,58,85,0.06) 1px, transparent 1px),
-          linear-gradient(to right, rgba(43,58,85,0.12) 1px, transparent 1px),
-          linear-gradient(to bottom, rgba(43,58,85,0.12) 1px, transparent 1px);
-        background-size: 8px 8px, 8px 8px, 80px 80px, 80px 80px;
-      }
+      /* Legacy decoration classes, neutralized: plain surfaces read calmer. */
+      .mp-grid { background-image: none; }
+      .mp-blueprint { background-image: none; background: var(--surface-sunken); }
+      .mp-dimline { position: relative; display: inline-block; padding: 0; }
+      .mp-dimline::before, .mp-dimline::after { content: none; }
+      .mp-tickrule { background-image: none; background: var(--border); height: 1px; opacity: 1; }
 
-      /* Dimension-line decoration for section headers (CAD drawing style) */
-      .mp-dimline { position: relative; display: inline-block; padding: 0 14px; }
-      .mp-dimline::before, .mp-dimline::after {
-        content: ''; position: absolute; top: 50%; width: 10px; height: 1px; background: currentColor;
-      }
-      .mp-dimline::before { left: 0; box-shadow: 0 -4px 0 0 currentColor, 0 4px 0 0 currentColor; }
-      .mp-dimline::after  { right: 0; box-shadow: 0 -4px 0 0 currentColor, 0 4px 0 0 currentColor; }
-
-      /* Tick rule (for project name underline etc.) */
-      .mp-tickrule {
-        background-image: repeating-linear-gradient(to right, currentColor 0px, currentColor 1px, transparent 1px, transparent 6px);
-        height: 1px; opacity: 0.4;
-      }
-
-      .mp-textarea::placeholder, .mp-input::placeholder, .mp-input-sm::placeholder { color: rgba(21,23,28,0.6); }
-      .mp-prose h1,.mp-prose h2,.mp-prose h3 { font-family: 'Big Shoulders Display'; font-weight: 800; margin: 0.7em 0 0.25em; line-height: 1.05; text-transform: uppercase; letter-spacing: -0.005em; }
-      .mp-prose h1 { font-size: 1.6em; } .mp-prose h2 { font-size: 1.35em; } .mp-prose h3 { font-size: 1.15em; }
-      .mp-prose p { margin: 0.55em 0; line-height: 1.6; font-family: 'Space Grotesk'; }
-      .mp-prose ul { margin: 0.4em 0; padding-left: 1.2em; font-family: 'Space Grotesk'; }
+      .mp-textarea::placeholder, .mp-input::placeholder, .mp-input-sm::placeholder { color: var(--ink-50); }
+      .mp-prose h1,.mp-prose h2,.mp-prose h3 { font-family: 'Inter', system-ui, sans-serif; font-weight: 600; margin: 0.7em 0 0.25em; line-height: 1.25; letter-spacing: -0.01em; }
+      .mp-prose h1 { font-size: 1.45em; } .mp-prose h2 { font-size: 1.25em; } .mp-prose h3 { font-size: 1.1em; }
+      .mp-prose p { margin: 0.55em 0; line-height: 1.6; font-family: 'Inter', system-ui, sans-serif; }
+      .mp-prose ul { margin: 0.4em 0; padding-left: 1.2em; font-family: 'Inter', system-ui, sans-serif; }
       .mp-prose li { margin: 0.15em 0; line-height: 1.5; }
-      .mp-prose code { font-family: 'JetBrains Mono'; font-size: 0.88em; background: rgba(21,23,28,0.06); padding: 0.12em 0.35em; }
-      .mp-prose a { color: #FF5722; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+      .mp-prose code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; background: var(--ink-04); padding: 0.12em 0.35em; border-radius: 4px; }
+      .mp-prose a { color: var(--primary-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
       .mp-pre { white-space: pre-wrap; word-break: break-word; }
 
-      .mp-input { background: #FFFFFF; border: 1px solid rgba(21,23,28,0.18); padding: 0.7rem 0.95rem; min-height: 44px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.95rem; width: 100%; color: #15171C; }
-      .mp-input:focus { outline: none; border-color: #FF5722; box-shadow: inset 0 0 0 1px #FF5722; }
+      .mp-input { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; min-height: 40px; font-family: 'Inter', system-ui, sans-serif; font-size: 0.9rem; width: 100%; color: var(--ink); transition: border-color 140ms ease, box-shadow 140ms ease; }
+      .mp-input:hover:not(:focus) { border-color: rgba(38,42,35,0.36); }
+      .mp-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(90,116,48,0.18); }
       /* Compact input variant for inline controls (datetime, price). One height for all. */
-      .mp-input-sm { background: #FFFFFF; border: 1px solid rgba(21,23,28,0.18); padding: 0.4rem 0.6rem; min-height: 38px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 0.9rem; color: #15171C; }
-      .mp-input-sm:focus { outline: none; border-color: #FF5722; box-shadow: inset 0 0 0 1px #FF5722; }
+      .mp-input-sm { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem; min-height: 34px; font-family: 'Inter', system-ui, sans-serif; font-size: 0.85rem; color: var(--ink); transition: border-color 140ms ease, box-shadow 140ms ease; }
+      .mp-input-sm:hover:not(:focus) { border-color: rgba(38,42,35,0.36); }
+      .mp-input-sm:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(90,116,48,0.18); }
 
-      .mp-btn { font-family: 'Big Shoulders Display'; font-weight: 800; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.7rem 1.25rem; min-height: 44px; background: #15171C; color: #EDE9DE; cursor: pointer; transition: background 0.15s; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid #15171C; }
-      .mp-btn:hover:not(:disabled) { background: #C13B00; border-color: #C13B00; }
-      .mp-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-      .mp-btn-ghost { background: transparent; color: #15171C; border: 1px solid rgba(21,23,28,0.25); }
-      .mp-btn-ghost:hover:not(:disabled) { background: #15171C; color: #EDE9DE; border-color: #15171C; }
-      /* Keyboard focus is visible across the whole button system (WCAG 2.4.7).
-         A 2px offset accent ring reads on both the dark and paper surfaces. */
-      .mp-btn:focus-visible, .mp-btn-ghost:focus-visible { outline: 2px solid #FF5722; outline-offset: 2px; }
+      .mp-btn { font-family: 'Inter', system-ui, sans-serif; font-weight: 500; font-size: 0.9rem; text-transform: none !important; letter-spacing: 0 !important; padding: 0.5rem 1rem; min-height: 38px; background: var(--primary); color: #FFFFFF; border-radius: var(--radius-sm); cursor: pointer; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid transparent; }
+      .mp-btn:hover:not(:disabled) { background: var(--primary-hover); }
+      .mp-btn:active:not(:disabled) { background: var(--primary-active); }
+      .mp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .mp-btn-ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong); box-shadow: var(--shadow-1); }
+      .mp-btn-ghost:hover:not(:disabled) { background: var(--surface-hover); color: var(--ink); border-color: var(--border-strong); }
+      /* Keyboard focus is visible across the whole button system (WCAG 2.4.7). */
+      .mp-btn:focus-visible, .mp-btn-ghost:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       /* Interactive pills and any element opting in with .mp-focusable. */
-      .mp-focusable:focus-visible, [role="button"]:focus-visible, .mp-pill[tabindex]:focus-visible { outline: 2px solid #FF5722; outline-offset: 2px; }
-      @media (prefers-reduced-motion: no-preference) { .mp-btn { transition: background 0.15s, outline-color 0.1s; } }
+      .mp-focusable:focus-visible, [role="button"]:focus-visible, .mp-pill[tabindex]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-      .mp-card { background: #FFFFFF; border: 1px solid rgba(21,23,28,0.12); }
+      .mp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
 
-      /* Preview-size slider. Square thumb and a flat track, so it belongs to the
-         drafting-sheet system rather than looking like a stock OS control. */
+      /* Preview-size slider. */
       .mp-range { -webkit-appearance: none; appearance: none; background: transparent; height: 20px; cursor: pointer; }
-      .mp-range::-webkit-slider-runnable-track { height: 2px; background: rgba(21,23,28,0.25); }
-      .mp-range::-moz-range-track { height: 2px; background: rgba(21,23,28,0.25); }
-      .mp-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -5px; background: #15171C; border: 0; }
-      .mp-range::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 0; background: #15171C; }
-      .mp-range:focus-visible { outline: 2px solid #FF5722; outline-offset: 3px; }
+      .mp-range::-webkit-slider-runnable-track { height: 3px; border-radius: 999px; background: var(--border-strong); }
+      .mp-range::-moz-range-track { height: 3px; border-radius: 999px; background: var(--border-strong); }
+      .mp-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; margin-top: -5.5px; border-radius: 999px; background: var(--primary); border: 0; }
+      .mp-range::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 999px; background: var(--primary); }
+      .mp-range:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
 
       /* Expanded platform cards span the full grid row so file lists and format
          chips have room. Form controls must not: a dropdown or text field that
@@ -2312,8 +2328,8 @@ function GlobalStyles() {
       .mp-platform-panel label > span { display: block; }
       .mp-section-content > * { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 
-      /* Workshop-style status pill */
-      .mp-pill { font-family: 'JetBrains Mono'; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; padding: 3px 8px; border-radius: 0; display: inline-flex; align-items: center; }
+      /* Status pill: quiet rounded badge, sentence case. */
+      .mp-pill { font-family: 'Inter', system-ui, sans-serif; font-weight: 500; font-size: 11px; text-transform: none !important; letter-spacing: 0 !important; padding: 3px 9px; border-radius: 999px; display: inline-flex; align-items: center; }
 
       @keyframes mp-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
       .mp-spin { animation: mp-spin 1s linear infinite; }
@@ -2321,9 +2337,15 @@ function GlobalStyles() {
       .mp-pulse { animation: mp-pulse 1.5s ease-in-out infinite; }
       @keyframes mp-scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
       .mp-scan { animation: mp-scan 2s linear infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        .mp-spin, .mp-pulse, .mp-scan { animation-duration: 0.01ms; animation-iteration-count: 1; }
+        .mp-btn, .mp-input, .mp-input-sm, .mp-btn-ghost { transition-duration: 0.01ms; }
+      }
 
       /* Global body font */
-      body, [class*="mp-"] { font-family: 'Space Grotesk', system-ui, sans-serif; }
+      body, [class*="mp-"] { font-family: 'Inter', system-ui, sans-serif; }
+      body { background: var(--bg); }
+      ::selection { background: var(--primary-tint); }
     `}</style>
   );
 }
@@ -2350,14 +2372,14 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
   }, [showTemplates, setShowTemplates]);
 
   return (
-    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'rgba(21,23,28,0.1)', background: 'rgba(237,233,222,0.92)' }}>
+    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'rgba(38,42,35,0.1)', background: 'rgba(255,255,255,0.92)' }}>
       <div data-testid="top-header-layout" className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3 flex flex-col xl:flex-row xl:flex-nowrap xl:items-center xl:justify-between gap-3 xl:gap-4">
         <div data-testid="top-header-brand" className="flex items-center gap-3 min-w-0 w-full xl:w-auto xl:max-w-[360px] 2xl:max-w-[520px]">
           <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-11 h-11 flex-shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2.5 min-w-0">
               <h1 className="mp-display text-[26px] leading-none">ModelPrep</h1>
-              <span className="hidden sm:inline mp-mono text-[11px] uppercase tracking-[0.15em] whitespace-nowrap" style={{ color: 'rgba(21,23,28,0.66)' }}>v0.3</span>
+              <span className="hidden sm:inline mp-mono text-[11px] uppercase tracking-[0.15em] whitespace-nowrap" style={{ color: 'rgba(38,42,35,0.66)' }}>v0.3</span>
             </div>
             <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
               {editingName ? (
@@ -2369,13 +2391,13 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
                   onBlur={() => setEditingName(false)}
                   onKeyDown={(e) => e.key === 'Enter' && setEditingName(false)}
                   className="mp-mono text-[13px] bg-transparent outline-none border-b"
-                  style={{ borderColor: '#FF5722', width: 220 }}
+                  style={{ borderColor: '#5A7430', width: 220 }}
                 />
               ) : (
                 <button
                   onClick={() => setEditingName(true)}
                   className="mp-mono text-[13px] flex items-center gap-1 group min-w-0 max-w-full truncate"
-                  style={{ color: 'rgba(21,23,28,0.66)' }}
+                  style={{ color: 'rgba(38,42,35,0.66)' }}
                 >
                   ▸ {project.name}
                   <Edit3 size={10} className="opacity-0 group-hover:opacity-100 transition" />
@@ -2391,25 +2413,25 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
             <button onClick={() => setShowTemplates(s => !s)} className="mp-btn mp-btn-ghost text-xs py-2 px-3" aria-haspopup="true" aria-expanded={showTemplates}>
               <Bookmark size={13} /> Templates
               {templates.length > 0 && (
-                <span className="ml-1 mp-mono text-xs" style={{ color: '#FF5722' }}>{templates.length}</span>
+                <span className="ml-1 mp-mono text-xs" style={{ color: '#5A7430' }}>{templates.length}</span>
               )}
             </button>
             {showTemplates && (
               <div className="absolute right-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] mp-card z-30">
-                <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
-                  <button onClick={() => { onSaveTemplate(); setShowTemplates(false); }} className="w-full text-left text-xs flex items-center gap-2 py-1" style={{ color: '#FF5722' }}>
+                <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+                  <button onClick={() => { onSaveTemplate(); setShowTemplates(false); }} className="w-full text-left text-xs flex items-center gap-2 py-1" style={{ color: '#5A7430' }}>
                     <Save size={12} /> Save current as template
                   </button>
                 </div>
                 {templates.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-center" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                  <div className="px-3 py-4 text-xs text-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
                     No templates yet. Save your current setup to reuse it on the next model.
                   </div>
                 ) : (
                   templates.map(t => (
                     <button key={t.id} onClick={() => onLoadTemplate(t)} className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 transition flex justify-between items-center">
                       <span>{t.name}</span>
-                      <span className="mp-mono text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>{t.data.tags?.length || 0} tags</span>
+                      <span className="mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>{t.data.tags?.length || 0} tags</span>
                     </button>
                   ))
                 )}
@@ -2419,7 +2441,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
           <button
             onClick={onToggleDemo}
             className="mp-btn text-xs py-2 px-3"
-            style={demoActive ? { background: 'var(--api-fill)', borderColor: 'var(--api-fill)' } : { background: 'transparent', color: '#15171C', border: '1px solid rgba(21,23,28,0.25)' }}
+            style={demoActive ? { background: 'var(--api-fill)', borderColor: 'var(--api-fill)' } : { background: 'transparent', color: '#262A23', border: '1px solid rgba(38,42,35,0.25)' }}
             aria-pressed={demoActive}
             title={demoActive ? 'Exit the demo and restore your project' : 'Load a sample project to explore the flow (nothing is uploaded)'}
           >
@@ -2445,7 +2467,7 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
         </div>
       </div>
       {demoActive && (
-        <div className="text-center py-1.5 px-4 mp-mono text-xs flex items-center justify-center gap-2" style={{ background: 'var(--api-fill)', color: '#fff' }}>
+        <div className="text-center py-1.5 px-4 mp-mono text-xs flex items-center justify-center gap-2 border-b" style={{ background: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}>
           {demoLoading
             ? <><Loader size={12} className="animate-spin" /> Loading the sample project…</>
             : <><Sparkles size={12} /> Sample project loaded. Nothing has been uploaded yet, and every platform is set to private, secret or draft.</>}
@@ -2465,20 +2487,20 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
     <aside
       data-testid="project-sidebar"
       className={`w-full ${collapsed ? 'lg:w-20' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r`}
-      style={{ borderColor: 'rgba(21,23,28,0.15)', minHeight: '100%' }}
+      style={{ borderColor: 'var(--border)', background: 'var(--surface-sunken)', minHeight: '100%' }}
     >
-      <nav aria-label="Project steps" className={`py-3 px-3 lg:py-5 ${collapsed ? 'lg:px-2' : 'lg:px-3'} lg:sticky lg:top-[81px]`}>
+      <nav aria-label="Project steps" className={`py-3 px-3 lg:py-4 ${collapsed ? 'lg:px-2' : 'lg:px-3'} lg:sticky lg:top-[81px]`}>
         <div className="lg:hidden flex items-center gap-3">
           <details className="min-w-0 flex-1 relative">
-            <span className="mp-mono text-[11px] uppercase tracking-[0.15em] block mb-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <span className="text-xs block mb-1" style={{ color: 'var(--ink-65)' }}>
               Step {activeIndex + 1} of {SECTIONS.length}
             </span>
             <summary className="mp-input-sm w-full cursor-pointer list-none flex items-center justify-between gap-2">
-              <span>{String(activeIndex + 1).padStart(2, '0')} · {SECTIONS[activeIndex].label}</span>
+              <span>{SECTIONS[activeIndex].label}</span>
               <ChevronDown size={14} />
             </summary>
-            <div className="absolute top-full left-0 right-0 z-30 mp-card mt-1 p-1 shadow-lg">
-              {SECTIONS.map((section, index) => (
+            <div className="absolute top-full left-0 right-0 z-30 mp-card mt-1 p-1" style={{ boxShadow: 'var(--shadow-2)' }}>
+              {SECTIONS.map((section) => (
                 <button
                   key={section.id}
                   type="button"
@@ -2487,38 +2509,36 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
                     event.currentTarget.closest('details')?.removeAttribute('open');
                   }}
                   aria-current={section.id === currentSection ? 'step' : undefined}
-                  className="w-full text-left px-2.5 py-2 flex items-center gap-2 text-xs"
-                  style={{ background: section.id === currentSection ? '#15171C' : 'transparent', color: section.id === currentSection ? '#EDE9DE' : '#15171C' }}
+                  className="w-full text-left px-2.5 py-2 flex items-center gap-2 text-xs rounded-md"
+                  style={{
+                    background: section.id === currentSection ? 'var(--primary-tint)' : 'transparent',
+                    color: section.id === currentSection ? 'var(--primary-ink)' : 'var(--ink)',
+                    fontWeight: section.id === currentSection ? 600 : 400,
+                  }}
                 >
-                  <span className="mp-mono opacity-55">{String(index + 1).padStart(2, '0')}</span>
                   <span className="flex-1">{section.label}</span>
-                  {completion[section.id] && <Check size={12} style={{ color: '#4FB286' }} />}
+                  {completion[section.id] && <Check size={12} style={{ color: 'var(--success-text)' }} />}
                 </button>
               ))}
             </div>
           </details>
-          <div className="mp-mono text-[11px] uppercase tracking-[0.12em] pt-5" style={{ color: completion[currentSection] ? '#247255' : 'rgba(21,23,28,0.66)' }}>
+          <div className="text-xs pt-5" style={{ color: completion[currentSection] ? 'var(--success-text)' : 'var(--ink-65)' }}>
             {completion[currentSection] ? 'Complete' : 'In progress'}
           </div>
         </div>
-        <div className={`hidden lg:flex mb-3 items-center gap-2 ${collapsed ? 'justify-center' : 'px-3'}`} style={{ color: 'rgba(21,23,28,0.66)' }}>
-          {!collapsed && (
-            <>
-              <span className="mp-mono text-[11px] uppercase tracking-[0.2em]">┌─ JOB SHEET</span>
-              <div className="flex-1 mp-tickrule" />
-            </>
-          )}
+        <div className={`hidden lg:flex mb-2 items-center ${collapsed ? 'justify-center' : 'justify-end px-1'}`}>
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="w-8 h-8 flex items-center justify-center flex-shrink-0 hover:bg-[rgba(21,23,28,0.08)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF5722]"
+            className="w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-md transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5A7430]"
+            style={{ color: 'var(--ink-65)' }}
             aria-label={collapsed ? 'Expand project steps' : 'Collapse project steps'}
             title={collapsed ? 'Expand project steps' : 'Collapse project steps'}
           >
             {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
           </button>
         </div>
-        <div className="hidden lg:block">
+        <div className="hidden lg:grid gap-0.5">
         {SECTIONS.map((s, i) => {
           const Icon = s.icon;
           const done = completion[s.id];
@@ -2529,41 +2549,29 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
               onClick={() => setCurrentSection(s.id)}
               aria-current={active ? 'step' : undefined}
               aria-label={`Step ${i + 1}: ${s.label}${done ? ' (complete)' : ''}`}
-              title={collapsed ? `${String(i + 1).padStart(2, '0')} · ${s.label}: ${s.description}` : undefined}
-              className={`flex-shrink-0 w-[210px] lg:w-full text-left p-3 mb-0.5 flex transition-colors group relative ${collapsed ? 'justify-center' : 'items-start gap-3'}`}
+              title={collapsed ? `${s.label}: ${s.description}` : undefined}
+              className={`w-full text-left rounded-md flex items-center transition-colors group ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-2'}`}
               style={{
-                background: active ? '#15171C' : 'transparent',
-                color: active ? '#EDE9DE' : '#15171C',
+                background: active ? 'var(--primary-tint)' : 'transparent',
+                color: active ? 'var(--primary-ink)' : 'var(--ink-65)',
               }}
+              onMouseEnter={(event) => { if (!active) event.currentTarget.style.background = 'var(--surface-hover)'; }}
+              onMouseLeave={(event) => { if (!active) event.currentTarget.style.background = active ? 'var(--primary-tint)' : 'transparent'; }}
             >
-              {active && (
-                <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: '#FF5722' }} />
-              )}
-              <div className="flex-shrink-0 mt-0.5 relative">
-                <Icon size={16} strokeWidth={2.25} />
-                {done && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 flex items-center justify-center" style={{ background: '#FF5722' }}>
-                    <Check size={8} strokeWidth={3.5} color="#fff" />
-                  </div>
-                )}
-              </div>
-              <div className={collapsed ? 'hidden' : 'min-w-0 flex-1'}>
-                <div className="flex items-baseline gap-2">
-                  <span className="mp-mono text-[11px] tracking-[0.15em] opacity-70">{String(i + 1).padStart(2, '0')}/</span>
-                  <span className="mp-display text-[17px] leading-none">{s.label}</span>
-                </div>
-                <div className="mp-body text-[13px] mt-1 leading-tight" style={{ color: active ? 'rgba(237,233,222,0.6)' : 'rgba(21,23,28,0.66)' }}>
-                  {s.description}
-                </div>
-              </div>
+              <Icon size={16} strokeWidth={2.1} className="flex-shrink-0" style={{ color: active ? 'var(--primary)' : 'var(--ink-50)' }} />
+              <span className={collapsed ? 'hidden' : 'flex-1 min-w-0 truncate text-sm'} style={{ fontWeight: active ? 600 : 500 }}>
+                {s.label}
+              </span>
+              {!collapsed && done && <Check size={14} strokeWidth={2.6} className="flex-shrink-0" style={{ color: 'var(--success-text)' }} aria-hidden />}
             </button>
           );
         })}
         </div>
-        <div className={`${collapsed ? 'hidden' : 'hidden lg:flex'} mp-mono text-[11px] uppercase tracking-[0.2em] px-3 mt-3 items-center gap-2`} style={{ color: 'rgba(21,23,28,0.66)' }}>
-          <span>└─</span>
-          <div className="flex-1 mp-tickrule" />
-        </div>
+        {!collapsed && (
+          <p className="hidden lg:block text-xs mt-3 px-2.5 leading-relaxed" style={{ color: 'var(--ink-50)' }}>
+            {SECTIONS[activeIndex].description}
+          </p>
+        )}
       </nav>
     </aside>
   );
@@ -2922,10 +2930,10 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         role="button"
         tabIndex={0}
         aria-label="Add model files. Drop here or press Enter to browse"
-        className={`mp-blueprint border-2 border-dashed cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#FF5722] ${project.files.length ? 'p-3 text-left' : 'py-16 px-6 text-center'}`}
-        style={{ borderColor: 'rgba(21,23,28,0.25)' }}
-        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#FF5722'}
-        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(21,23,28,0.25)'}
+        className={`mp-blueprint border-2 border-dashed cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#5A7430] ${project.files.length ? 'p-3 text-left' : 'py-16 px-6 text-center'}`}
+        style={{ borderColor: 'rgba(38,42,35,0.25)' }}
+        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5A7430'}
+        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(38,42,35,0.25)'}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
@@ -2941,27 +2949,27 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         />
         {project.files.length ? (
           <div className="flex items-center gap-3">
-            <div className="inline-flex items-center justify-center w-10 h-10 flex-shrink-0" style={{ background: '#15171C' }}>
-              <Plus size={17} strokeWidth={2.5} style={{ color: '#FF5722' }} />
+            <div className="inline-flex items-center justify-center w-10 h-10 flex-shrink-0 rounded-lg" style={{ background: 'var(--primary-tint)' }}>
+              <Plus size={17} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
             </div>
             <div className="min-w-0">
               <h2 className="mp-display text-[20px] leading-none">Add more files</h2>
-              <p className="mp-body text-xs mt-1" style={{ color: 'rgba(21,23,28,0.62)' }}>Drop files here or click to browse · max {MAX_BUILD_FILE_MB}MB each</p>
+              <p className="mp-body text-xs mt-1" style={{ color: 'rgba(38,42,35,0.62)' }}>Drop files here or click to browse · max {MAX_BUILD_FILE_MB}MB each</p>
             </div>
-            <span className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-auto hidden sm:block" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-auto hidden sm:block" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {project.files.length} loaded
             </span>
           </div>
         ) : (
           <>
-            <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#15171C' }}>
-              <Upload size={22} strokeWidth={2.5} style={{ color: '#FF5722' }} />
+            <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ background: 'var(--primary-tint)' }}>
+              <Upload size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
             </div>
-            <h2 className="mp-display text-[36px] leading-none mb-2">Add your model files</h2>
-            <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
-            <div className="inline-flex items-center gap-1.5 mp-mono text-xs uppercase tracking-[0.2em] flex-wrap justify-center" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <h2 className="mp-display text-[24px] mb-2">Add your model files</h2>
+            <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
+            <div className="inline-flex items-center gap-1.5 mp-mono text-xs uppercase tracking-[0.2em] flex-wrap justify-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
-                <span key={ext} className="mp-pill" style={{ background: 'rgba(21,23,28,0.06)' }}>.{ext}</span>
+                <span key={ext} className="mp-pill" style={{ background: 'rgba(38,42,35,0.06)' }}>.{ext}</span>
               ))}
             </div>
           </>
@@ -2969,34 +2977,34 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
       </div>
 
       {notice && (
-        <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(255,87,34,0.08)', border: '1px solid rgba(255,87,34,0.3)' }}>
-          <AlertCircle size={16} style={{ color: '#FF5722' }} className="flex-shrink-0 mt-0.5" />
+        <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
+          <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
           <div className="text-xs flex-1">
             {notice.kind === 'toobig' ? (
               <>
                 <div className="mp-display font-bold mb-1">File too large, not added</div>
-                <div style={{ color: 'rgba(21,23,28,0.7)' }}>
+                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
                   {notice.detail} exceeds the {MAX_BUILD_FILE_MB}MB per-file ceiling that platforms accept. Decimate the mesh or split it before uploading.
                 </div>
               </>
             ) : notice.kind === 'unsupported' ? (
               <>
                 <div className="mp-display font-bold mb-1">Nothing added: unsupported files</div>
-                <div style={{ color: 'rgba(21,23,28,0.7)' }}>
+                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
                   None of those files are supported here. Try a MakerWorld 3D or Laser &amp; Cut format, or a supported documentation file.
                 </div>
               </>
             ) : notice.kind === 'renamed' ? (
               <>
                 <div className="mp-display font-bold mb-1">Renamed to avoid a duplicate</div>
-                <div style={{ color: 'rgba(21,23,28,0.7)' }}>
+                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
                   A file with that name was already added, so we renamed it: {notice.detail}. (Same-named files would otherwise overwrite each other in the upload package.)
                 </div>
               </>
             ) : (
               <>
                 <div className="mp-display font-bold mb-1">Added an image as a model file</div>
-                <div style={{ color: 'rgba(21,23,28,0.7)' }}>
+                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
                   Kept it (handy for print diagrams). But if these are gallery photos, add them in <strong>step 03 · Images</strong> instead: that's where per-platform crops happen.
                 </div>
               </>
@@ -3009,14 +3017,14 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
       {project.files.length > 0 && (
         <div className="mt-6">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-            <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {matchCount === project.files.length
                 ? <>{project.files.length} file{project.files.length === 1 ? '' : 's'} · {formatBytes(totalSize)} total</>
                 : <>{matchCount} of {project.files.length} files</>}
             </span>
             <div className="flex items-center gap-2 flex-wrap">
               <label className="relative flex items-center">
-                <Search size={13} className="absolute left-2 pointer-events-none" style={{ color: 'rgba(21,23,28,0.45)' }} />
+                <Search size={13} className="absolute left-2 pointer-events-none" style={{ color: 'rgba(38,42,35,0.45)' }} />
                 <input
                   value={fileQuery}
                   onChange={(e) => setFileQuery(e.target.value)}
@@ -3038,7 +3046,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                   contact sheet as tiles, and which one helps depends on whether
                   you are reading names or looking at plates. */}
               <label className="flex items-center gap-1.5">
-                <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.6)' }}>Sort</span>
+                <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.6)' }}>Sort</span>
                 <select
                   value={fileSort}
                   onChange={(e) => setFileSort(e.target.value)}
@@ -3062,9 +3070,9 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                     aria-pressed={fileView === id}
                     className={`px-2.5 py-1.5 border transition ${i === 1 ? 'border-l-0' : ''}`}
                     style={{
-                      background: fileView === id ? '#15171C' : 'transparent',
-                      color: fileView === id ? '#EDE9DE' : 'rgba(21,23,28,0.66)',
-                      borderColor: 'rgba(21,23,28,0.2)',
+                      background: fileView === id ? 'var(--primary-tint)' : 'transparent',
+                      color: fileView === id ? 'var(--primary-ink)' : 'rgba(38,42,35,0.66)',
+                      borderColor: 'rgba(38,42,35,0.2)',
                     }}
                   >
                     <Icon size={14} />
@@ -3074,7 +3082,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
               {/* A slider, because preview size is a continuous quantity: two
                   buttons made the user click repeatedly to cross the range. */}
               <label className="flex items-center gap-1.5" title="Preview size">
-                <Minus size={12} style={{ color: 'rgba(21,23,28,0.5)' }} />
+                <Minus size={12} style={{ color: 'rgba(38,42,35,0.5)' }} />
                 <input
                   type="range"
                   min={THUMB_MIN}
@@ -3085,7 +3093,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                   aria-label="Preview size"
                   className="mp-range w-24"
                 />
-                <Plus size={12} style={{ color: 'rgba(21,23,28,0.5)' }} />
+                <Plus size={12} style={{ color: 'rgba(38,42,35,0.5)' }} />
               </label>
             </div>
             <button
@@ -3110,7 +3118,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
             </p>
           )}
           {matchCount === 0 && (
-            <p className="text-xs py-6 text-center" style={{ color: 'rgba(21,23,28,0.6)' }}>
+            <p className="text-xs py-6 text-center" style={{ color: 'rgba(38,42,35,0.6)' }}>
               No file matches “{fileQuery}”.{' '}
               <button onClick={() => setFileQuery('')} className="underline" style={{ color: 'var(--accent-text)' }}>Clear search</button>
             </p>
@@ -3118,9 +3126,9 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
           {groupProjectFiles(visibleFiles).map(({ key, title, hint, files }) => (
             <section key={key} className="mt-4 first:mt-0">
               <div className="flex items-baseline gap-2 mb-1.5">
-                <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{title}</span>
-                <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.5)' }}>{files.length}</span>
-                {hint && <span className="text-[11px] truncate" style={{ color: 'rgba(21,23,28,0.5)' }}>{hint}</span>}
+                <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{title}</span>
+                <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.5)' }}>{files.length}</span>
+                {hint && <span className="text-[11px] truncate" style={{ color: 'rgba(38,42,35,0.5)' }}>{hint}</span>}
               </div>
               {fileView === 'grid' ? (
                 <div className="flex flex-wrap gap-2">
@@ -3328,12 +3336,14 @@ function FileThumb({ file, size = 40 }) {
   const box = {
     width: size,
     height: size,
-    background: isProf ? '#FF5722' : isImg || isVid ? 'rgba(21,23,28,0.10)' : '#15171C',
+    background: isProf ? 'var(--primary-tint)' : isImg || isVid ? 'rgba(38,42,35,0.10)' : 'var(--surface-sunken)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
   };
 
   if (plate) {
     return (
-      <span className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ ...box, background: '#15171C' }} title="Build plate as sliced">
+      <span className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ ...box, background: '#262A23' }} title="Build plate as sliced">
         <img src={plate} alt="" className="w-full h-full object-contain" />
       </span>
     );
@@ -3354,10 +3364,10 @@ function FileThumb({ file, size = 40 }) {
   }
   return (
     <span className="flex items-center justify-center flex-shrink-0" style={box}>
-      {isProf ? <Layers size={16} color="#fff" />
-        : isVid ? <Video size={16} color="#15171C" />
-        : isImg ? <ImageIcon size={16} color="#15171C" />
-        : <FileCheck size={16} color="#EDE9DE" />}
+      {isProf ? <Layers size={16} color="#5A7430" />
+        : isVid ? <Video size={16} color="#262A23" />
+        : isImg ? <ImageIcon size={16} color="#262A23" />
+        : <FileCheck size={16} color="#5A7430" />}
     </span>
   );
 }
@@ -3412,27 +3422,27 @@ function FilePreviewModal({ files, index, onClose, onIndex }) {
     <div
       role="dialog" aria-modal="true" aria-label={`Preview ${file.name}`}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6"
-      style={{ background: 'rgba(21,23,28,0.82)' }}
+      style={{ background: 'rgba(38,42,35,0.82)' }}
       onMouseDown={onClose}
     >
-      <div className="mp-card max-w-4xl w-full flex flex-col" style={{ background: '#EDE9DE' }} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+      <div className="mp-card max-w-4xl w-full flex flex-col" style={{ background: '#FFFFFF' }} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
           <div className="min-w-0 flex-1">
             <div className="mp-display text-[18px] leading-none truncate">{file.name}</div>
-            <div className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1" style={{ color: 'rgba(21,23,28,0.6)' }}>
+            <div className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1" style={{ color: 'rgba(38,42,35,0.6)' }}>
               .{fileExt(file.name)} · {formatBytes(file.size)}{slicer && slicer !== 'unknown' ? ` · ${slicerLabel(slicer)}` : ''}
             </div>
           </div>
-          <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.55)' }}>{index + 1} / {files.length}</span>
-          <button onClick={onClose} aria-label="Close preview" className="p-2 hover:text-[#B83A00] transition"><X size={18} /></button>
+          <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.55)' }}>{index + 1} / {files.length}</span>
+          <button onClick={onClose} aria-label="Close preview" className="p-2 hover:text-[#3E5420] transition"><X size={18} /></button>
         </div>
 
-        <div className="flex items-center justify-center p-4" style={{ background: '#15171C', minHeight: 320 }}>
+        <div className="flex items-center justify-center p-4" style={{ background: '#262A23', minHeight: 320 }}>
           {isVid && objectUrl && <video src={objectUrl} controls className="max-h-[60vh] max-w-full" />}
           {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[60vh] max-w-full object-contain" />}
           {!isImg && !isVid && large && <img src={large} alt="" className="max-h-[60vh] max-w-full object-contain" />}
           {!isImg && !isVid && !large && (
-            <p className="text-xs" style={{ color: 'rgba(237,233,222,0.7)' }}>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
               {isStl ? 'Drawing the model…' : 'No preview available for this file type.'}
             </p>
           )}
@@ -3459,14 +3469,14 @@ function FileTile({ file, size, onRemove, onOpen }) {
       <button onClick={onOpen} aria-label={`Preview ${file.name}`} className="mp-focusable">
         <FileThumb file={file} size={size} />
       </button>
-      <span className="text-[11px] leading-tight break-all line-clamp-2" style={{ color: 'rgba(21,23,28,0.7)' }}>
+      <span className="text-[11px] leading-tight break-all line-clamp-2" style={{ color: 'rgba(38,42,35,0.7)' }}>
         {file.name}
       </span>
       <button
         onClick={onRemove}
         aria-label={`Remove ${file.name}`}
         className="absolute top-0.5 right-0.5 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition"
-        style={{ background: 'rgba(237,233,222,0.9)' }}
+        style={{ background: 'rgba(255,255,255,0.9)' }}
       >
         <Trash2 size={12} />
       </button>
@@ -3511,9 +3521,9 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
               onBlur={commit}
               onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
               className="mp-mono text-sm bg-transparent outline-none border-b flex-1 min-w-0"
-              style={{ borderColor: '#FF5722' }}
+              style={{ borderColor: '#5A7430' }}
             />
-            <span className="mp-mono text-sm flex-shrink-0" style={{ color: 'rgba(21,23,28,0.66)' }}>.{ext}</span>
+            <span className="mp-mono text-sm flex-shrink-0" style={{ color: 'rgba(38,42,35,0.66)' }}>.{ext}</span>
           </div>
         ) : (
           <button onClick={startEdit} className="mp-display font-bold text-sm truncate flex items-center gap-1.5 group/name max-w-full" title="Click to rename">
@@ -3522,11 +3532,11 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
           </button>
         )}
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             .{ext} · {formatBytes(file.size)}
           </span>
           {isProf && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#FF5722', color: '#fff' }}>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#5A7430', color: '#fff' }}>
               Print profile
             </span>
           )}
@@ -3544,7 +3554,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
               aria-label={`Slicer for ${file.name}`}
               title="Detected from the file's own metadata; override if the detection is wrong"
               className="mp-mono text-[11px] uppercase tracking-[0.15em] bg-transparent border px-1 py-0.5"
-              style={{ borderColor: 'rgba(21,23,28,0.2)', color: 'rgba(21,23,28,0.7)' }}
+              style={{ borderColor: 'rgba(38,42,35,0.2)', color: 'rgba(38,42,35,0.7)' }}
               value={file.slicerOverride || ''}
               onChange={(e) => onUpdateFile({ slicerOverride: e.target.value || null })}
             >
@@ -3557,7 +3567,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
             </select>
           )}
           {isImg && (
-            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: 'rgba(21,23,28,0.4)', color: '#fff' }}>
+            <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: 'rgba(38,42,35,0.4)', color: '#fff' }}>
               Reference image
             </span>
           )}
@@ -3568,16 +3578,16 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
           )}
         </div>
       </div>
-      <button onClick={startEdit} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#FF5722] transition" aria-label="Rename file" title="Rename">
+      <button onClick={startEdit} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#5A7430] transition" aria-label="Rename file" title="Rename">
         <Edit3 size={15} />
       </button>
-      <button onClick={onRemove} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#FF5722] transition" aria-label="Remove file" title="Remove">
+      <button onClick={onRemove} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#5A7430] transition" aria-label="Remove file" title="Remove">
         <Trash2 size={15} />
       </button>
       </div>
       {supportsMakerWorld && (
-        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
-          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>MakerWorld file settings</summary>
+        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>MakerWorld file settings</summary>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
             <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
               <input className="mp-input text-xs" value={makerWorld.folderPath}
@@ -3595,8 +3605,8 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
         </details>
       )}
       {supportsPrintables && (
-        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
-          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>Printables file settings</summary>
+        <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Printables file settings</summary>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
             <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
               <input className="mp-input text-xs" value={printables.folder}
@@ -3642,7 +3652,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
               Exclude this G-code from the model totals
             </label>
           )}
-          <p className="text-[11px] mt-1.5 max-w-[68ch] leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px] mt-1.5 max-w-[68ch] leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
             File notes can be up to {PRINTABLES_FILE_NOTE_MAX} characters and folder names up to {PRINTABLES_FOLDER_NAME_MAX}. The overrides above are only used when Printables can't read a value from the file. Files upload in the order shown above.
           </p>
         </details>
@@ -3675,8 +3685,8 @@ function FileSizeWarnings({ files, totalSize }) {
   });
   if (warnings.length === 0) return null;
   return (
-    <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(255,87,34,0.08)', border: '1px solid rgba(255,87,34,0.3)' }}>
-      <AlertCircle size={16} style={{ color: '#FF5722' }} className="flex-shrink-0 mt-0.5" />
+    <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
+      <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
       <div className="text-xs">
         <div className="mp-display font-bold mb-1">Size warnings</div>
         {warnings.map((w, i) => (
@@ -3904,15 +3914,15 @@ async function generateListingAI({ images, hint, limits, categories, onAttempt }
 const AI_TONE = {
   ready:   { fg: '#1a7f37', bg: 'rgba(26,127,55,0.10)', label: 'Ready' },
   setup:   { fg: '#8a5a00', bg: 'rgba(138,90,0,0.10)',  label: 'Needs setup' },
-  key:     { fg: 'rgba(21,23,28,0.55)', bg: 'rgba(21,23,28,0.06)', label: 'Needs key' },
-  missing: { fg: 'rgba(21,23,28,0.45)', bg: 'rgba(21,23,28,0.05)', label: 'Not found' },
-  unsupported: { fg: 'rgba(21,23,28,0.45)', bg: 'rgba(21,23,28,0.05)', label: 'Desktop only' },
-  checking: { fg: 'rgba(21,23,28,0.45)', bg: 'rgba(21,23,28,0.05)', label: 'Checking' },
+  key:     { fg: 'rgba(38,42,35,0.55)', bg: 'rgba(38,42,35,0.06)', label: 'Needs key' },
+  missing: { fg: 'rgba(38,42,35,0.45)', bg: 'rgba(38,42,35,0.05)', label: 'Not found' },
+  unsupported: { fg: 'rgba(38,42,35,0.45)', bg: 'rgba(38,42,35,0.05)', label: 'Desktop only' },
+  checking: { fg: 'rgba(38,42,35,0.45)', bg: 'rgba(38,42,35,0.05)', label: 'Checking' },
   error:   { fg: '#991b1b', bg: 'rgba(185,28,28,0.08)', label: 'Problem' },
 };
 
 const aiLabelClass = 'mp-mono text-[11px] uppercase tracking-[0.12em] block mb-1';
-const aiMuted = 'rgba(21,23,28,0.55)';
+const aiMuted = 'rgba(38,42,35,0.55)';
 
 function AiStatusChip({ state }) {
   const tone = AI_TONE[state] || AI_TONE.missing;
@@ -3974,7 +3984,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
   const problem = detection?.error || null;
 
   return (
-    <div className="mp-card" style={{ borderColor: isPrimary ? 'rgba(255,87,34,0.55)' : 'rgba(21,23,28,0.12)' }}>
+    <div className="mp-card" style={{ borderColor: isPrimary ? 'rgba(90,116,48,0.55)' : 'rgba(38,42,35,0.12)' }}>
       <div className="flex items-start gap-3 p-3">
         <button
           type="button" onClick={onToggle} aria-expanded={expanded}
@@ -3984,8 +3994,8 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
           <span className="min-w-0">
             <span className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-semibold">{meta.name}</span>
-              {isPrimary && <span className="mp-pill" style={{ background: 'rgba(255,87,34,0.12)', color: '#B23C15' }}>Primary</span>}
-              {backupIndex >= 0 && <span className="mp-pill" style={{ background: 'rgba(21,23,28,0.06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
+              {isPrimary && <span className="mp-pill" style={{ background: 'rgba(90,116,48,0.12)', color: '#B23C15' }}>Primary</span>}
+              {backupIndex >= 0 && <span className="mp-pill" style={{ background: 'rgba(38,42,35,0.06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
             </span>
             <span className="block text-xs mt-0.5 break-words" style={{ color: aiMuted }}>
               {detection?.detail || meta.cost}
@@ -4005,7 +4015,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
           {!usable && state !== 'checking' && !expanded && (
             <button
               type="button" onClick={onToggle}
-              className="mp-mono text-[11px] uppercase tracking-[0.12em] shrink-0 hover:text-[#FF5722] transition"
+              className="mp-mono text-[11px] uppercase tracking-[0.12em] shrink-0 hover:text-[#5A7430] transition"
               style={{ color: aiMuted }}
             >
               {meta.kind === 'cloud' ? 'Add key' : state === 'setup' ? 'Finish setup' : 'What’s needed'}
@@ -4015,7 +4025,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.10)' }}>
+        <div className="px-3 pb-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.10)' }}>
           <p className="text-xs leading-relaxed break-words" style={{ color: aiMuted }}>{meta.blurb}</p>
 
           {detection?.warning && <AiProblem title="Heads up" fix={detection.warning} />}
@@ -4175,7 +4185,7 @@ function AiSettings() {
         </div>
         <button
           type="button" onClick={scan} disabled={detected === null}
-          className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 shrink-0 mt-1 hover:text-[#FF5722] transition disabled:opacity-50"
+          className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 shrink-0 mt-1 hover:text-[#5A7430] transition disabled:opacity-50"
           style={{ color: aiMuted }}
         >
           <RefreshCw size={11} className={detected === null ? 'mp-spin' : ''} /> {detected === null ? 'Checking' : 'Check again'}
@@ -4208,7 +4218,7 @@ function AiSettings() {
             type="button"
             onClick={() => setShowAdvanced((open) => !open)}
             aria-expanded={showAdvanced}
-            className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 hover:text-[#B83A00] transition"
+            className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 hover:text-[#3E5420] transition"
             style={{ color: aiMuted }}
           >
             {showAdvanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -4267,17 +4277,17 @@ function CategorySelect({ value, onChange, options }) {
         ref={triggerRef}
         onClick={() => { setOpen(o => !o); setQuery(''); }}
         className="mp-input flex items-center justify-between text-left"
-        style={{ color: value ? '#15171C' : 'rgba(21,23,28,0.66)' }}
+        style={{ color: value ? '#262A23' : 'rgba(38,42,35,0.66)' }}
         aria-haspopup="listbox"
         aria-expanded={open}
       >
         <span className="truncate">{value || 'Choose a category…'}</span>
-        <ChevronDown size={14} style={{ color: 'rgba(21,23,28,0.66)' }} className="flex-shrink-0" />
+        <ChevronDown size={14} style={{ color: 'rgba(38,42,35,0.66)' }} className="flex-shrink-0" />
       </button>
       {open && (
         <div className="absolute z-30 left-0 right-0 mt-1 mp-card shadow-lg" style={{ background: '#FFFFFF' }}>
-          <div className="flex items-center gap-2 px-2.5 py-2 border-b" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
-            <Search size={13} style={{ color: 'rgba(21,23,28,0.66)' }} />
+          <div className="flex items-center gap-2 px-2.5 py-2 border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+            <Search size={13} style={{ color: 'rgba(38,42,35,0.66)' }} />
             <input
               autoFocus
               value={query}
@@ -4289,7 +4299,7 @@ function CategorySelect({ value, onChange, options }) {
           </div>
           <div className="max-h-56 overflow-y-auto py-1" role="listbox" aria-label="Categories">
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-[13px]" style={{ color: 'rgba(21,23,28,0.66)' }}>No match for “{query}”.</div>
+              <div className="px-3 py-2 text-[13px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No match for “{query}”.</div>
             )}
             {filtered.map(o => (
               <button
@@ -4299,11 +4309,11 @@ function CategorySelect({ value, onChange, options }) {
                 role="option"
                 aria-selected={value === o}
                 onClick={() => { onChange(o); setOpen(false); triggerRef.current?.focus(); }}
-                className="w-full text-left px-3 py-2.5 text-xs hover:bg-[rgba(255,87,34,0.08)] transition flex items-center justify-between"
-                style={{ background: value === o ? 'rgba(255,87,34,0.06)' : 'transparent' }}
+                className="w-full text-left px-3 py-2.5 text-xs hover:bg-[rgba(90,116,48,0.08)] transition flex items-center justify-between"
+                style={{ background: value === o ? 'rgba(90,116,48,0.06)' : 'transparent' }}
               >
                 <span>{o}</span>
-                {value === o && <Check size={12} style={{ color: '#FF5722' }} />}
+                {value === o && <Check size={12} style={{ color: '#5A7430' }} />}
               </button>
             ))}
           </div>
@@ -4448,17 +4458,17 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
       {/* ✨ AI generate: reads the photos (+ an optional one-line hint) and fills in
           Title, Description, Tags and Category. The most you ever type is one line. */}
-      <div className="mp-card p-4 mt-6" style={{ background: 'rgba(255,87,34,0.05)', borderColor: 'rgba(255,87,34,0.3)' }}>
+      <div className="mp-card p-4 mt-6" style={{ background: 'rgba(90,116,48,0.05)', borderColor: 'rgba(90,116,48,0.3)' }}>
         <div className="flex items-center gap-2 mb-2">
-          <Sparkles size={15} style={{ color: '#FF5722' }} />
-          <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: '#FF5722' }}>Generate with AI</span>
-          <span className="text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <Sparkles size={15} style={{ color: '#5A7430' }} />
+          <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: '#5A7430' }}>Generate with AI</span>
+          <span className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
             from your {project.images.length} photo{project.images.length === 1 ? '' : 's'}
           </span>
           <button
             onClick={() => openSettings('ai')}
-            className="ml-auto mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1 hover:text-[#FF5722] transition"
-            style={{ color: 'rgba(21,23,28,0.66)' }}
+            className="ml-auto mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1 hover:text-[#5A7430] transition"
+            style={{ color: 'rgba(38,42,35,0.66)' }}
             title="Configure the AI provider in Settings"
           >
             <Settings size={11} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : 'Set up AI'}
@@ -4483,11 +4493,11 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           </button>
         </div>
         {aiMsg && (
-          <p className="text-xs mt-2" style={{ color: aiMsg.kind === 'warn' ? '#c83f10' : 'rgba(21,23,28,0.66)' }}>
+          <p className="text-xs mt-2" style={{ color: aiMsg.kind === 'warn' ? '#c83f10' : 'rgba(38,42,35,0.66)' }}>
             {aiMsg.text}
           </p>
         )}
-        <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <p className="text-[11px] mt-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
           Looks at your print photos to write everything, then you review and tweak below. Respects each platform's length and tag limits.
           {!aiPrimary && ' Right now it writes from your hint alone. Connect an AI assistant in Settings to write from the photos themselves.'}
         </p>
@@ -4499,7 +4509,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             <div className="flex items-center justify-between mb-2">
               <Label className="mb-0">Title</Label>
               {lim.titleMax && (
-                <span className="mp-mono text-xs" style={{ color: titleOver ? '#FF5722' : 'rgba(21,23,28,0.66)' }}>
+                <span className="mp-mono text-xs" style={{ color: titleOver ? '#5A7430' : 'rgba(38,42,35,0.66)' }}>
                   {project.title.length}/{lim.titleMax}
                   {titleOver && ` · over ${lim.titleMaxBy}'s limit`}
                 </span>
@@ -4523,8 +4533,8 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                     onClick={() => setPreviewMode(m)}
                     className="mp-mono text-xs uppercase tracking-[0.15em] px-2 py-1 transition"
                     style={{
-                      background: previewMode === m ? '#15171C' : 'transparent',
-                      color: previewMode === m ? '#EDE9DE' : 'rgba(21,23,28,0.66)',
+                      background: previewMode === m ? 'var(--primary-tint)' : 'transparent',
+                      color: previewMode === m ? 'var(--primary-ink)' : 'rgba(38,42,35,0.66)',
                     }}
                   >
                     {m}
@@ -4534,7 +4544,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   <button
                     onClick={() => updateProject({ description: SAMPLE_DESCRIPTION })}
                     className="mp-mono text-xs uppercase tracking-[0.15em] px-2 py-1 ml-1"
-                    style={{ color: '#FF5722' }}
+                    style={{ color: '#5A7430' }}
                   >
                     <Sparkles size={10} className="inline" /> Sample
                   </button>
@@ -4552,18 +4562,18 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               />
             )}
             {previewMode === 'preview' && (
-              <div className="mp-card p-5 mp-prose text-sm" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(21,23,28,0.6)">Preview shows once you write something</p>' }} />
+              <div className="mp-card p-5 mp-prose text-sm" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(38,42,35,0.6)">Preview shows once you write something</p>' }} />
             )}
             {previewMode === 'formats' && (
               <FormatTabs description={project.description} />
             )}
 
             <div className="flex items-center justify-between mt-1.5">
-              <span className="mp-mono text-xs" style={{ color: descOver ? '#FF5722' : 'rgba(21,23,28,0.66)' }}>
+              <span className="mp-mono text-xs" style={{ color: descOver ? '#5A7430' : 'rgba(38,42,35,0.66)' }}>
                 {project.description.length}{lim.descMax ? `/${lim.descMax}` : ''} chars
                 {descOver && ` · over ${lim.descMaxBy}'s limit`}
               </span>
-              <span className="mp-mono text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+              <span className="mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
                 Reformatted automatically for each platform · see Formats
               </span>
             </div>
@@ -4574,9 +4584,9 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             <div className="mp-card p-3">
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {project.tags.map(t => (
-                  <span key={t} className="inline-flex items-center gap-0.5 pl-2 pr-0.5 py-1 mp-mono text-xs uppercase tracking-[0.15em]" style={{ background: '#15171C', color: '#EDE9DE' }}>
+                  <span key={t} className="inline-flex items-center gap-0.5 pl-2.5 pr-0.5 py-1 mp-mono text-xs rounded-full" style={{ background: 'var(--surface-sunken)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
                     {t}
-                    <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[#FF5722] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
+                    <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[#5A7430] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
                   </span>
                 ))}
                 <input
@@ -4589,18 +4599,18 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   className="bg-transparent outline-none text-xs flex-1 min-w-[100px]"
                 />
               </div>
-              <div className="flex items-center justify-between text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+              <div className="flex items-center justify-between text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
                 <span className="mp-mono uppercase tracking-[0.15em]">
                   {project.tags.length}/{lim.tagMax ?? '∞'} tags
                   {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
                 </span>
-                <button onClick={suggestTags} disabled={tagSuggestBusy} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#FF5722] transition disabled:opacity-40">
+                <button onClick={suggestTags} disabled={tagSuggestBusy} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#5A7430] transition disabled:opacity-40">
                   {tagSuggestBusy ? <Loader size={10} className="animate-spin" /> : <Sparkles size={10} />} {tagSuggestBusy ? 'Checking MakerWorld…' : 'Suggest tags'}
                 </button>
               </div>
               {tagSuggestMsg && <p className="text-[11px] mt-1.5 opacity-70">{tagSuggestMsg}</p>}
               {longTags.length > 0 && (
-                <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#FF5722' }}>
+                <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#5A7430' }}>
                   {longTags.length} tag{longTags.length > 1 ? 's' : ''} over {lim.tagCharMax} chars ({lim.tagCharMaxBy} limit): {longTags.join(', ')}
                 </p>
               )}
@@ -4612,23 +4622,23 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           <div>
             <Label>Category</Label>
             <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />
-            <p className="text-xs mt-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <p className="text-xs mt-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
               Each platform has its own category tree. We pick a close match for each.
             </p>
           </div>
 
           <div>
             <Label>License</Label>
-            <div className="mp-card p-3" style={{ borderColor: '#FF5722', background: 'rgba(255,87,34,0.035)' }}>
+            <div className="mp-card p-3" style={{ borderColor: '#5A7430', background: 'rgba(90,116,48,0.035)' }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold leading-tight">{selectedLicense?.name || project.license}</div>
                   {selectedLicense && (
                     <div className="flex flex-wrap gap-2 mt-1.5">
-                      <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.commercial ? '#247255' : 'rgba(21,23,28,0.66)' }}>
+                      <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.commercial ? '#247255' : 'rgba(38,42,35,0.66)' }}>
                         {selectedLicense.commercial ? 'Commercial use allowed' : 'Non-commercial'}
                       </span>
-                      <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.derivatives ? '#247255' : 'rgba(21,23,28,0.66)' }}>
+                      <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.derivatives ? '#247255' : 'rgba(38,42,35,0.66)' }}>
                         {selectedLicense.derivatives ? 'Remixes allowed' : 'No derivatives'}
                       </span>
                     </div>
@@ -4653,8 +4663,8 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                       onClick={() => setLicenseFilter(f.id)}
                       className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-1 transition"
                       style={{
-                        background: licenseFilter === f.id ? '#15171C' : 'rgba(21,23,28,0.06)',
-                        color: licenseFilter === f.id ? '#EDE9DE' : 'rgba(21,23,28,0.65)',
+                        background: licenseFilter === f.id ? 'var(--primary-tint)' : 'rgba(38,42,35,0.06)',
+                        color: licenseFilter === f.id ? 'var(--primary-ink)' : 'rgba(38,42,35,0.65)',
                       }}
                     >
                       {f.label}
@@ -4663,12 +4673,12 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                 </div>
                 <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
                   {visibleLicenses.length === 0 && (
-                    <p className="text-[13px] py-2" style={{ color: 'rgba(21,23,28,0.66)' }}>No license matches that combination.</p>
+                    <p className="text-[13px] py-2" style={{ color: 'rgba(38,42,35,0.66)' }}>No license matches that combination.</p>
                   )}
                   {visibleLicenses.map(l => (
                     <label key={l.id} className="flex items-start gap-2.5 mp-card p-2.5 cursor-pointer transition" style={{
-                      borderColor: project.license === l.id ? '#FF5722' : 'rgba(21,23,28,0.1)',
-                      background: project.license === l.id ? 'rgba(255,87,34,0.04)' : '#FFFFFF',
+                      borderColor: project.license === l.id ? '#5A7430' : 'rgba(38,42,35,0.1)',
+                      background: project.license === l.id ? 'rgba(90,116,48,0.04)' : '#FFFFFF',
                     }}>
                       <input
                         type="radio"
@@ -4677,15 +4687,15 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                         checked={project.license === l.id}
                         onChange={() => { updateProject({ license: l.id }); setShowLicenseChooser(false); }}
                         className="mt-0.5"
-                        style={{ accentColor: '#FF5722' }}
+                        style={{ accentColor: '#5A7430' }}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-semibold leading-tight">{l.name}</div>
                         <div className="flex gap-2 mt-1">
-                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(21,23,28,0.66)' }}>
+                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(38,42,35,0.66)' }}>
                             {l.commercial ? '$ commercial' : 'non-commercial'}
                           </span>
-                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(21,23,28,0.66)' }}>
+                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(38,42,35,0.66)' }}>
                             {l.derivatives ? '↻ remix ok' : 'no derivatives'}
                           </span>
                         </div>
@@ -4712,7 +4722,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 }
 
 function Label({ children, className = '' }) {
-  return <label className={`mp-mono text-xs uppercase tracking-[0.2em] block mb-2 ${className}`} style={{ color: 'rgba(21,23,28,0.66)' }}>{children}</label>;
+  return <label className={`mp-mono text-xs uppercase tracking-[0.2em] block mb-2 ${className}`} style={{ color: 'rgba(38,42,35,0.66)' }}>{children}</label>;
 }
 
 function FormatTabs({ description }) {
@@ -4734,16 +4744,16 @@ function FormatTabs({ description }) {
   const copyLabel = active === 'rich' ? 'Copy formatted' : `Copy ${active}`;
   return (
     <div className="mp-card">
-      <div className="flex border-b" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+      <div className="flex border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
         {tabs.map(({ k, label, platforms }) => (
           <button
             key={k}
             onClick={() => setActive(k)}
             className="flex-1 px-3 py-2.5 mp-display font-bold text-xs transition border-r last:border-r-0"
             style={{
-              background: active === k ? '#15171C' : 'transparent',
-              color: active === k ? '#EDE9DE' : '#15171C',
-              borderColor: 'rgba(21,23,28,0.1)',
+              background: active === k ? 'var(--primary-tint)' : 'transparent',
+              color: active === k ? 'var(--primary-ink)' : '#262A23',
+              borderColor: 'rgba(38,42,35,0.1)',
             }}
           >
             {label}
@@ -4753,20 +4763,20 @@ function FormatTabs({ description }) {
           </button>
         ))}
       </div>
-      <div className="p-3 flex items-center justify-between border-b gap-2" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
-        <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+      <div className="p-3 flex items-center justify-between border-b gap-2" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+        <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
           {active === 'rich' ? 'Rendered: paste into the visual editor, keeps formatting' : active === 'html' ? 'Raw HTML source' : active === 'md' ? 'Markdown source' : 'Plain text'}
         </span>
-        <button onClick={() => copy(active)} className="mp-mono text-xs uppercase tracking-[0.2em] flex items-center gap-1.5 hover:text-[#FF5722] transition flex-shrink-0 py-1" aria-label={copyLabel}>
+        <button onClick={() => copy(active)} className="mp-mono text-xs uppercase tracking-[0.2em] flex items-center gap-1.5 hover:text-[#5A7430] transition flex-shrink-0 py-1" aria-label={copyLabel}>
           {copied === 'ok' ? <><Check size={13} style={{ color: '#4FB286' }} /> Copied</> : copied === 'fail' ? <><X size={13} style={{ color: '#c83f10' }} /> Select &amp; copy</> : <><Copy size={12} /> {copyLabel}</>}
         </button>
       </div>
       {active === 'rich' ? (
         <div className="mp-prose p-4 text-sm max-h-64 overflow-auto"
-          dangerouslySetInnerHTML={{ __html: html || '<span style="color:rgba(21,23,28,0.3)">Write something in markdown to see the formatted output</span>' }} />
+          dangerouslySetInnerHTML={{ __html: html || '<span style="color:rgba(38,42,35,0.3)">Write something in markdown to see the formatted output</span>' }} />
       ) : (
-        <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 overflow-auto" style={{ color: 'rgba(21,23,28,0.85)' }}>
-          {outputs[active] || <span style={{ color: 'rgba(21,23,28,0.6)' }}>Write something in markdown to see formatted outputs</span>}
+        <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 overflow-auto" style={{ color: 'rgba(38,42,35,0.85)' }}>
+          {outputs[active] || <span style={{ color: 'rgba(38,42,35,0.6)' }}>Write something in markdown to see formatted outputs</span>}
         </pre>
       )}
     </div>
@@ -4958,9 +4968,9 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
       />
 
       {imgNotice && (
-        <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(255,87,34,0.08)', border: '1px solid rgba(255,87,34,0.3)' }}>
-          <AlertCircle size={16} style={{ color: '#FF5722' }} className="flex-shrink-0 mt-0.5" />
-          <div className="text-xs flex-1" style={{ color: 'rgba(21,23,28,0.7)' }}>{imgNotice}</div>
+        <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
+          <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
+          <div className="text-xs flex-1" style={{ color: 'rgba(38,42,35,0.7)' }}>{imgNotice}</div>
           <button onClick={() => setImgNotice(null)} className="p-2 -m-1 opacity-50 hover:opacity-100 transition" aria-label="Dismiss notice"><X size={14} /></button>
         </div>
       )}
@@ -4969,7 +4979,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="mp-display text-[20px] flex items-center gap-2"><Video size={18} /> Model videos</div>
-            <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>
+            <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.58)' }}>
               MakerWorld: one MP4/MOV, maximum 30 seconds. Cults3D: ordered MP4/WebM media. Other platforms skip videos.
             </p>
           </div>
@@ -4981,7 +4991,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         {(project.media || []).filter((item) => item.kind === 'video').length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
             {(project.media || []).filter((item) => item.kind === 'video').map((item) => (
-              <div key={item.id} className="flex items-center gap-3 p-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
+              <div key={item.id} className="flex items-center gap-3 p-2" style={{ background: 'rgba(38,42,35,0.04)' }}>
                 <video src={item.previewUrl} preload="metadata" muted playsInline className="w-28 h-20 object-contain bg-black" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] truncate">{item.name}</div>
@@ -4990,7 +5000,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                     {item.duration > 30 ? 'Too long for MakerWorld' : 'Duration accepted by MakerWorld'}
                   </div>
                 </div>
-                <button type="button" onClick={() => removeVideo(item.id)} aria-label={`Delete video ${item.name}`} className="p-2 opacity-60 hover:text-[#FF5722]"><Trash2 size={15} /></button>
+                <button type="button" onClick={() => removeVideo(item.id)} aria-label={`Delete video ${item.name}`} className="p-2 opacity-60 hover:text-[#5A7430]"><Trash2 size={15} /></button>
               </div>
             ))}
           </div>
@@ -5003,25 +5013,25 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
           onBrowse={chooseImageFiles}
           inputRef={fileInputRef}
           onSamples={project.__testProject ? () => addSamples([
-            { label: 'SAMPLE 1', tint: ['#FF5722', '#FFB627', '#1A1A1A'] },
-            { label: 'SAMPLE 2', tint: ['#3A86FF', '#4FB286', '#1A1A1A'] },
-            { label: 'SAMPLE 3', tint: ['#FF6900', '#F79E2E', '#1A1A1A'] },
+            { label: 'SAMPLE 1', tint: ['#5A7430', '#FFB627', '#262A23'] },
+            { label: 'SAMPLE 2', tint: ['#3A86FF', '#4FB286', '#262A23'] },
+            { label: 'SAMPLE 3', tint: ['#FF6900', '#F79E2E', '#262A23'] },
           ]) : null}
         />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6 mt-6">
           <div className="md:col-span-3 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+              <span className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
                 {project.images.length} images
               </span>
-              <button onClick={chooseImageFiles} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#FF5722] transition flex items-center gap-1">
+              <button onClick={chooseImageFiles} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#5A7430] transition flex items-center gap-1">
                 <Plus size={11} /> Add
               </button>
               <input ref={fileInputRef} type="file" multiple accept={GALLERY_IMAGE_ACCEPT || undefined} onChange={(e) => handleImageFiles(e.target.files)} className="hidden" />
             </div>
 
-            <p className="mp-body text-xs mb-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <p className="mp-body text-xs mb-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
               This order is used on every platform, with the cover first. Use the arrows to reorder.
             </p>
             <div className="space-y-1.5 max-h-[600px] overflow-y-auto pr-1">
@@ -5032,9 +5042,9 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                     key={img.id}
                     className="w-full flex items-center gap-2 p-1.5 transition relative group"
                     style={{
-                      background: active ? '#15171C' : '#FFFFFF',
-                      color: active ? '#EDE9DE' : '#15171C',
-                      border: '1px solid rgba(21,23,28,0.1)',
+                      background: active ? 'var(--primary-tint)' : '#FFFFFF',
+                      color: active ? 'var(--primary-ink)' : '#262A23',
+                      border: '1px solid rgba(38,42,35,0.1)',
                     }}
                   >
                     <button
@@ -5042,15 +5052,15 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       className="flex items-center gap-2 flex-1 min-w-0 text-left"
                       style={{ color: 'inherit' }}
                     >
-                      <div className="w-14 h-14 flex-shrink-0 overflow-hidden" style={{ background: '#15171C' }}>
+                      <div className="w-14 h-14 flex-shrink-0 overflow-hidden" style={{ background: '#262A23' }}>
                         <img src={img.dataUrl} alt={img.alt || `Gallery image ${idx + 1}`} className="w-full h-full object-cover" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-60">{String(idx + 1).padStart(2, '0')}</div>
                         <div className="text-[13px] truncate">{img.alt || 'Image'}</div>
                         {project.coverImageId === img.id && (
-                          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mt-0.5 inline-flex items-center gap-1" style={{ color: '#FF5722' }}>
-                            <Star size={8} fill="#FF5722" /> Cover
+                          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mt-0.5 inline-flex items-center gap-1" style={{ color: '#5A7430' }}>
+                            <Star size={8} fill="#5A7430" /> Cover
                           </div>
                         )}
                       </div>
@@ -5060,7 +5070,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                         onClick={() => moveImage(img.id, -1)}
                         disabled={idx === 0}
                         aria-label={`Move ${img.alt || 'image'} up`}
-                        className="p-2 transition disabled:opacity-20 disabled:cursor-not-allowed hover:text-[#FF5722]"
+                        className="p-2 transition disabled:opacity-20 disabled:cursor-not-allowed hover:text-[#5A7430]"
                         style={{ color: 'inherit' }}
                       >
                         <ChevronUp size={16} />
@@ -5069,7 +5079,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                         onClick={() => moveImage(img.id, 1)}
                         disabled={idx === project.images.length - 1}
                         aria-label={`Move ${img.alt || 'image'} down`}
-                        className="p-2 transition disabled:opacity-20 disabled:cursor-not-allowed hover:text-[#FF5722]"
+                        className="p-2 transition disabled:opacity-20 disabled:cursor-not-allowed hover:text-[#5A7430]"
                         style={{ color: 'inherit' }}
                       >
                         <ChevronDown size={16} />
@@ -5091,7 +5101,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                     aria-selected={imageWorkspace === 'gallery'}
                     onClick={() => setImageWorkspace('gallery')}
                     className="mp-mono text-[11px] uppercase tracking-[0.15em] min-h-[38px] px-3"
-                    style={{ background: imageWorkspace === 'gallery' ? '#15171C' : 'transparent', color: imageWorkspace === 'gallery' ? '#EDE9DE' : '#15171C' }}
+                    style={{ background: imageWorkspace === 'gallery' ? 'var(--primary-tint)' : 'transparent', color: imageWorkspace === 'gallery' ? 'var(--primary-ink)' : '#262A23' }}
                   >
                     Gallery editor
                   </button>
@@ -5100,26 +5110,26 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                     aria-selected={imageWorkspace === 'crops'}
                     onClick={() => setImageWorkspace('crops')}
                     className="mp-mono text-[11px] uppercase tracking-[0.15em] min-h-[38px] px-3"
-                    style={{ background: imageWorkspace === 'crops' ? '#15171C' : 'transparent', color: imageWorkspace === 'crops' ? '#EDE9DE' : '#15171C' }}
+                    style={{ background: imageWorkspace === 'crops' ? 'var(--primary-tint)' : 'transparent', color: imageWorkspace === 'crops' ? 'var(--primary-ink)' : '#262A23' }}
                   >
                     Platform crops
                   </button>
                 </div>
                 <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-                  <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                  <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
                     {imageWorkspace === 'gallery'
                       ? `Image · ${activeImage.naturalW} × ${activeImage.naturalH} · drag the crosshair to the most important part`
                       : `Crop check · ${cropPlatform.name} · uses the same focal point`}
                   </span>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setAsCover(activeImage.id)} aria-pressed={project.coverImageId === activeImage.id} className="mp-mono text-xs uppercase tracking-[0.15em] min-h-[40px] py-2 px-3 flex items-center gap-1.5 transition" style={{
-                      background: project.coverImageId === activeImage.id ? '#FF5722' : '#15171C',
-                      color: '#EDE9DE',
+                      background: project.coverImageId === activeImage.id ? '#5A7430' : '#262A23',
+                      color: '#FFFFFF',
                     }}>
                       <Star size={12} fill={project.coverImageId === activeImage.id ? '#fff' : 'none'} />
                       {project.coverImageId === activeImage.id ? 'Cover' : 'Set as cover'}
                     </button>
-                    <button onClick={() => removeImage(activeImage.id)} aria-label="Delete this image" title="Delete image" className="p-2.5 hover:text-[#FF5722] transition opacity-60 hover:opacity-100">
+                    <button onClick={() => removeImage(activeImage.id)} aria-label="Delete this image" title="Delete image" className="p-2.5 hover:text-[#5A7430] transition opacity-60 hover:opacity-100">
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -5135,7 +5145,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
                       <div>
                         <div className="mp-display text-[20px]">Review platform framing</div>
-                        <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>One platform at a time keeps the crop decision readable. Return to Gallery editor to move the focal point.</p>
+                        <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.58)' }}>One platform at a time keeps the crop decision readable. Return to Gallery editor to move the focal point.</p>
                       </div>
                       <label className="min-w-[220px]">
                         <span className="sr-only">Platform to preview</span>
@@ -5178,22 +5188,22 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
         role="button"
         tabIndex={0}
         aria-label="Upload images: drop here or press Enter to browse"
-        className="mp-blueprint border-2 border-dashed py-16 px-6 text-center cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#FF5722]"
-        style={{ borderColor: 'rgba(21,23,28,0.25)' }}
-        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#FF5722'}
-        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(21,23,28,0.25)'}
+        className="mp-blueprint border-2 border-dashed py-16 px-6 text-center cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#5A7430]"
+        style={{ borderColor: 'rgba(38,42,35,0.25)' }}
+        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5A7430'}
+        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(38,42,35,0.25)'}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBrowse(); } }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
         onClick={onBrowse}
       >
         <input ref={inputRef} type="file" multiple accept="image/*" onChange={(e) => onDrop(e.target.files)} className="hidden" />
-        <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#15171C' }}>
-          <ImageIcon size={22} strokeWidth={2.5} style={{ color: '#FF5722' }} />
+        <div className="inline-flex items-center justify-center w-14 h-14 mb-4" style={{ background: '#262A23' }}>
+          <ImageIcon size={22} strokeWidth={2.5} style={{ color: '#5A7430' }} />
         </div>
         <h2 className="mp-display text-[36px] leading-none mb-2">Load renders &amp; photos</h2>
-        <p className="mp-body text-sm mb-3" style={{ color: 'rgba(21,23,28,0.65)' }}>jpg, png, webp, gif, heic · first image becomes the cover</p>
-        <p className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>jpg, png, webp, gif, heic · first image becomes the cover</p>
+        <p className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
           ◯ min recommended 2000 × 1500 px
         </p>
       </div>
@@ -5201,7 +5211,7 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
           demo so a released build never offers fake photos. */}
       {onSamples && (
         <div className="text-center mt-3">
-          <button onClick={onSamples} className="mp-mono text-xs uppercase tracking-[0.2em] py-2 px-3 hover:text-[#FF5722] transition inline-flex items-center gap-1.5">
+          <button onClick={onSamples} className="mp-mono text-xs uppercase tracking-[0.2em] py-2 px-3 hover:text-[#5A7430] transition inline-flex items-center gap-1.5">
             <Sparkles size={11} /> Load 3 sample images
           </button>
         </div>
@@ -5238,7 +5248,7 @@ function FocalPicker({ image, onUpdate }) {
   };
   const isCentered = Math.abs(image.focal.x - 0.5) < 0.001 && Math.abs(image.focal.y - 0.5) < 0.001;
   return (
-    <div className="relative w-full select-none" style={{ background: '#15171C', textAlign: 'center' }}>
+    <div className="relative w-full select-none" style={{ background: '#262A23', textAlign: 'center' }}>
       <div
         className="relative inline-block"
         style={{ maxWidth: '100%', verticalAlign: 'top', touchAction: 'none' }}
@@ -5263,17 +5273,17 @@ function FocalPicker({ image, onUpdate }) {
         >
           <svg width="44" height="44" viewBox="0 0 44 44" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.5))', display: 'block' }}>
             {/* Outer corner brackets */}
-            <path d="M 4 14 L 4 4 L 14 4" stroke="#FF5722" strokeWidth="1.5" fill="none" />
-            <path d="M 30 4 L 40 4 L 40 14" stroke="#FF5722" strokeWidth="1.5" fill="none" />
-            <path d="M 40 30 L 40 40 L 30 40" stroke="#FF5722" strokeWidth="1.5" fill="none" />
-            <path d="M 14 40 L 4 40 L 4 30" stroke="#FF5722" strokeWidth="1.5" fill="none" />
+            <path d="M 4 14 L 4 4 L 14 4" stroke="#5A7430" strokeWidth="1.5" fill="none" />
+            <path d="M 30 4 L 40 4 L 40 14" stroke="#5A7430" strokeWidth="1.5" fill="none" />
+            <path d="M 40 30 L 40 40 L 30 40" stroke="#5A7430" strokeWidth="1.5" fill="none" />
+            <path d="M 14 40 L 4 40 L 4 30" stroke="#5A7430" strokeWidth="1.5" fill="none" />
             {/* Crosshair ticks */}
-            <line x1="22" y1="10" x2="22" y2="18" stroke="#FF5722" strokeWidth="1.5" />
-            <line x1="22" y1="26" x2="22" y2="34" stroke="#FF5722" strokeWidth="1.5" />
-            <line x1="10" y1="22" x2="18" y2="22" stroke="#FF5722" strokeWidth="1.5" />
-            <line x1="26" y1="22" x2="34" y2="22" stroke="#FF5722" strokeWidth="1.5" />
+            <line x1="22" y1="10" x2="22" y2="18" stroke="#5A7430" strokeWidth="1.5" />
+            <line x1="22" y1="26" x2="22" y2="34" stroke="#5A7430" strokeWidth="1.5" />
+            <line x1="10" y1="22" x2="18" y2="22" stroke="#5A7430" strokeWidth="1.5" />
+            <line x1="26" y1="22" x2="34" y2="22" stroke="#5A7430" strokeWidth="1.5" />
             {/* Center dot */}
-            <circle cx="22" cy="22" r="2" fill="#FF5722" />
+            <circle cx="22" cy="22" r="2" fill="#5A7430" />
           </svg>
         </div>
         {!isCentered && (
@@ -5281,7 +5291,7 @@ function FocalPicker({ image, onUpdate }) {
             type="button"
             onClick={() => onUpdate({ x: 0.5, y: 0.5 })}
             className="absolute bottom-2 left-2 mp-mono text-[11px] uppercase tracking-[0.12em] px-2 py-1 hover:text-white transition"
-            style={{ background: 'rgba(0,0,0,0.75)', color: '#EDE9DE' }}
+            style={{ background: 'rgba(0,0,0,0.75)', color: '#FFFFFF' }}
           >
             Reset to center
           </button>
@@ -5316,7 +5326,7 @@ function PlatformCropPreview({ image, platform, cover }) {
   }, [image, cover, preserveOriginal]);
   return (
     <div className="mp-card">
-      <div className="overflow-hidden" style={{ background: '#15171C' }}>
+      <div className="overflow-hidden" style={{ background: '#262A23' }}>
         {preserveOriginal
           ? <img src={image.dataUrl} alt={`${platform.name} original`} className="w-full max-h-72 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
@@ -5328,7 +5338,7 @@ function PlatformCropPreview({ image, platform, cover }) {
             <div className="mp-display font-bold text-[13px] leading-tight truncate">
               {platform.name}{cover.label !== 'Cover' ? ` · ${cover.label}` : ''}
             </div>
-            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {preserveOriginal ? 'Original aspect · no forced crop' : `${cover.w}×${cover.h} (${cover.aspect})`}
             </div>
           </div>
@@ -5364,7 +5374,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
         <div className="mt-6 p-8 text-center mp-card">
           <Layers size={32} className="mx-auto mb-3 opacity-30" />
           <h3 className="mp-display font-bold text-lg mb-1">No 3MF files yet</h3>
-          <p className="text-sm mb-4" style={{ color: 'rgba(21,23,28,0.66)' }}>Add 3MF files in step 01 to define print profiles. STL-only models skip this step.</p>
+          <p className="text-sm mb-4" style={{ color: 'rgba(38,42,35,0.66)' }}>Add 3MF files in step 01 to define print profiles. STL-only models skip this step.</p>
           <button onClick={() => setCurrentSection('files')} className="mp-btn mp-btn-ghost text-xs">
             <ChevronRight size={12} className="rotate-180" /> Back to Files
           </button>
@@ -5402,9 +5412,9 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               onClick={() => setActiveProfileId(p.id)}
               className="w-full text-left p-2.5 transition-colors"
               style={{
-                background: active?.id === p.id ? '#15171C' : '#FFFFFF',
-                color: active?.id === p.id ? '#EDE9DE' : '#15171C',
-                border: '1px solid rgba(21,23,28,0.1)',
+                background: active?.id === p.id ? 'var(--primary-tint)' : '#FFFFFF',
+                color: active?.id === p.id ? 'var(--primary-ink)' : '#262A23',
+                border: '1px solid rgba(38,42,35,0.1)',
               }}
             >
               <div className="flex items-start gap-2">
@@ -5428,7 +5438,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                     hang under the field, right-aligned, which read as a stray. */}
                 <div className="flex items-center justify-between mb-2">
                   <Label className="mb-0">Profile name</Label>
-                  <span className="mp-mono text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>{active.name.length}/60</span>
+                  <span className="mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>{active.name.length}/60</span>
                 </div>
                 <input
                   className="mp-input"
@@ -5449,7 +5459,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 
               {active.parsed && (
                 <div className="mp-card p-4">
-                  <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-3" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                  <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-3" style={{ color: 'rgba(38,42,35,0.66)' }}>
                     Estimated from file
                   </div>
                   {/* Six stats: 2 or 3 per row divides evenly. A 4- or 5-column
@@ -5484,7 +5494,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       type="radio"
                       checked={active.useMainCover}
                       onChange={() => updateProfile(active.id, { useMainCover: true })}
-                      style={{ accentColor: '#FF5722' }}
+                      style={{ accentColor: '#5A7430' }}
                     />
                     <span className="text-xs">Use the main project cover image</span>
                   </label>
@@ -5493,7 +5503,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       type="radio"
                       checked={!active.useMainCover}
                       onChange={() => { updateProfile(active.id, { useMainCover: false }); setImagePicker('cover'); }}
-                      style={{ accentColor: '#FF5722' }}
+                      style={{ accentColor: '#5A7430' }}
                     />
                     <span className="text-xs">Pick a specific image from the gallery</span>
                   </label>
@@ -5502,11 +5512,11 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       {selectedProfileCover ? (
                         <img src={selectedProfileCover.dataUrl} alt={selectedProfileCover.alt || 'Selected profile cover'} className="w-16 h-16 object-cover flex-shrink-0" />
                       ) : (
-                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(21,23,28,0.06)' }}><ImageIcon size={18} className="opacity-35" /></div>
+                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(38,42,35,0.06)' }}><ImageIcon size={18} className="opacity-35" /></div>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-medium truncate">{selectedProfileCover?.alt || 'No specific cover selected'}</div>
-                        <button type="button" onClick={() => setImagePicker('cover')} className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1 underline" style={{ color: '#FF5722' }}>
+                        <button type="button" onClick={() => setImagePicker('cover')} className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1 underline" style={{ color: '#5A7430' }}>
                           Choose image
                         </button>
                       </div>
@@ -5528,7 +5538,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                         <img key={image.id} src={image.dataUrl} alt={image.alt || `Selected print photo ${index + 1}`} className="w-14 h-14 object-cover flex-shrink-0" />
                       ))}
                       {selectedProfilePhotos.length === 0 && (
-                        <span className="text-xs py-4" style={{ color: 'rgba(21,23,28,0.66)' }}>No print photos selected.</span>
+                        <span className="text-xs py-4" style={{ color: 'rgba(38,42,35,0.66)' }}>No print photos selected.</span>
                       )}
                       {selectedProfilePhotos.length > 6 && (
                         <span className="mp-mono text-[11px] flex-shrink-0">+{selectedProfilePhotos.length - 6}</span>
@@ -5579,12 +5589,12 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
       </div>
 
       {imagePicker && active && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(21,23,28,0.58)' }} onMouseDown={() => setImagePicker(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ background: '#EDE9DE' }} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.58)' }} onMouseDown={() => setImagePicker(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ background: '#FFFFFF' }} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
               <div className="flex-1">
                 <h3 id="profile-image-picker-title" className="mp-display text-[26px] leading-none">{imagePicker === 'cover' ? 'Choose profile cover' : 'Choose print photos'}</h3>
-                <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
                   {imagePicker === 'cover' ? 'Select one image for this profile.' : 'Select every real photo that shows the printed model.'}
                 </p>
               </div>
@@ -5611,17 +5621,17 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       }
                     }}
                     className="relative aspect-square overflow-hidden"
-                    style={{ outline: selected ? '3px solid #FF5722' : '1px solid rgba(21,23,28,0.18)', outlineOffset: -2 }}
+                    style={{ outline: selected ? '3px solid #5A7430' : '1px solid rgba(38,42,35,0.18)', outlineOffset: -2 }}
                   >
                     <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
-                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[11px] truncate px-1.5 py-1" style={{ background: 'rgba(21,23,28,0.78)', color: '#fff' }}>{image.alt || `Image ${index + 1}`}</span>
-                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ background: '#FF5722' }}><Check size={12} color="#fff" /></span>}
+                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[11px] truncate px-1.5 py-1" style={{ background: 'rgba(38,42,35,0.78)', color: '#fff' }}>{image.alt || `Image ${index + 1}`}</span>
+                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ background: '#5A7430' }}><Check size={12} color="#fff" /></span>}
                   </button>
                 );
               })}
             </div>
             {imagePicker === 'photos' && (
-              <div className="p-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+              <div className="p-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
                 <span className="text-xs">{(active.photoIds || []).length} selected</span>
                 <button type="button" onClick={() => setImagePicker(null)} className="mp-btn text-xs py-2 px-4">Done</button>
               </div>
@@ -5643,7 +5653,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 function Stat({ label, value }) {
   return (
     <div>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1" style={{ color: 'rgba(21,23,28,0.66)' }}>{label}</div>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1" style={{ color: 'rgba(38,42,35,0.66)' }}>{label}</div>
       <div className="mp-display font-bold text-sm">{value}</div>
     </div>
   );
@@ -5694,20 +5704,20 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
       <div className="flex flex-wrap items-center gap-2 mt-5">
         <button onClick={() => setAll(true)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><Check size={12} /> Select all</button>
         <button onClick={() => setAll(false)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><X size={12} /> Deselect all</button>
-        <span className="mx-1" style={{ color: 'rgba(21,23,28,0.2)' }}>·</span>
+        <span className="mx-1" style={{ color: 'rgba(38,42,35,0.2)' }}>·</span>
         <button onClick={saveAsDefault} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3" title="Remember this selection for new projects">
           <Star size={12} /> {savedDefault ? 'Saved as default ✓' : 'Save as default'}
         </button>
-        <span className="mp-mono text-xs ml-auto" style={{ color: 'rgba(21,23,28,0.66)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
+        <span className="mp-mono text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
       </div>
 
       <div className="mt-5">
         <div className="flex items-end justify-between gap-3 mb-2">
           <div>
             <h3 className="mp-display text-[22px] leading-none">Direct publishing</h3>
-            <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>These platforms can publish from ModelPrep after an account is connected.</p>
+            <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.58)' }}>These platforms can publish from ModelPrep after an account is connected.</p>
           </div>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{directEnabledCount}/{directPlatforms.length} selected</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{directEnabledCount}/{directPlatforms.length} selected</span>
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
         {directPlatforms.map((p) => {
@@ -5733,9 +5743,9 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
         <div className="flex items-end justify-between gap-3 mb-2">
           <div>
             <h3 className="mp-display text-[22px] leading-none">Export &amp; future connections</h3>
-            <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.58)' }}>ModelPrep prepares adapted packages; direct account publishing is not available yet.</p>
+            <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.58)' }}>ModelPrep prepares adapted packages; direct account publishing is not available yet.</p>
           </div>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{exportEnabledCount}/{exportPlatforms.length} selected</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{exportEnabledCount}/{exportPlatforms.length} selected</span>
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-3 gap-3">
         {exportPlatforms.map(p => (
@@ -5799,8 +5809,8 @@ export function ReleasePlanControls({ platform, project }) {
   };
 
   return (
-    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>
+    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
         Release plan{active ? ` · ${describeDue(active, Date.now())}` : ''}
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -5843,12 +5853,12 @@ export function ReleasePlanControls({ platform, project }) {
                 aria-label={`${platform.name} unattended publish`}
                 checked={!!current.unattended}
                 onChange={(e) => apply({ unattended: e.target.checked })}
-                style={{ accentColor: '#FF5722', marginTop: 2 }}
+                style={{ accentColor: '#5A7430', marginTop: 2 }}
               />
               <span>Publish even if ModelPrep is closed (unattended). ModelPrep reopens at the set time and publishes only if this account's session is still valid; otherwise it becomes an overdue reminder.</span>
             </label>
           )}
-          <p className="text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
             {current.unattended
               ? 'Runs in the background at the set time using this platform’s saved action and visibility, after a session pre-flight.'
               : 'Publishes through the normal pipeline at the set time while ModelPrep is open, using this platform’s saved action and visibility. If the app is closed it becomes an overdue reminder instead.'}
@@ -5884,8 +5894,8 @@ export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
     onUpdate('excludedFileIds', toggleExcludedFileId(opts, fileId));
   };
   return (
-    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5 flex items-center gap-2 flex-wrap" style={{ color: 'rgba(21,23,28,0.66)' }}>
+    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5 flex items-center gap-2 flex-wrap" style={{ color: 'rgba(38,42,35,0.66)' }}>
         <span>Files for {platform.name}{excludedCount ? ` · ${excludedCount} not included` : ''}</span>
         {!auto && nativeSlicers && (
           <button
@@ -5901,7 +5911,7 @@ export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
           </button>
         )}
       </div>
-      {autoNote && <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(21,23,28,0.66)' }}>{autoNote}</p>}
+      {autoNote && <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(38,42,35,0.66)' }}>{autoNote}</p>}
       <div className="space-y-1">
         {candidates.map((file) => {
           const included = !isFileExcluded(file, opts);
@@ -5914,7 +5924,7 @@ export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
                 checked={included}
                 aria-label={`Send ${file.name} to ${platform.name}`}
                 onChange={() => setExcluded(file.id)}
-                style={{ accentColor: '#FF5722' }}
+                style={{ accentColor: '#5A7430' }}
               />
               <span className="truncate" style={{ opacity: included ? 1 : 0.45 }}>{file.name}</span>
               {slicer && slicer !== 'unknown' && (
@@ -5922,7 +5932,7 @@ export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
                   className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1 py-0.5 flex-shrink-0"
                   style={isNative
                     ? { background: 'rgba(79,178,134,0.18)', color: '#247255' }
-                    : { background: 'rgba(21,23,28,0.08)' }}
+                    : { background: 'rgba(38,42,35,0.08)' }}
                   title={isNative ? `${platform.name}'s own slicer` : undefined}
                 >
                   {slicerLabel(slicer)}
@@ -5957,7 +5967,7 @@ function readableOn(hex) {
     const channel = parseInt(part, 16) / 255;
     return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.45 ? '#15171C' : '#FFFFFF';
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.45 ? '#262A23' : '#FFFFFF';
 }
 
 // Each platform's own icon, bundled locally so the packaged app never reaches
@@ -5984,7 +5994,7 @@ function PlatformMark({ platform, size = 26 }) {
     return (
       <span
         className="inline-flex items-center justify-center flex-shrink-0 overflow-hidden"
-        style={{ width: size, height: size, background: '#FFFFFF', border: '1px solid rgba(21,23,28,0.10)' }}
+        style={{ width: size, height: size, background: '#FFFFFF', border: '1px solid rgba(38,42,35,0.10)' }}
       >
         <img
           src={logo} alt="" onError={() => setFailed(true)}
@@ -6018,11 +6028,11 @@ function PlatformMark({ platform, size = 26 }) {
 // heading make the card scannable instead of a single long column.
 function PanelSection({ title, hint, children }) {
   return (
-    <section className="pt-3 mt-3 border-t first:border-t-0 first:mt-0" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>
+    <section className="pt-3 mt-3 border-t first:border-t-0 first:mt-0" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
         {title}
       </div>
-      {hint && <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(21,23,28,0.66)' }}>{hint}</p>}
+      {hint && <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(38,42,35,0.66)' }}>{hint}</p>}
       {children}
     </section>
   );
@@ -6039,7 +6049,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
     // its row as ragged whitespace. Collapsed cards stay in the tidy grid.
     <div
       className={`mp-card ${expanded ? 'xl:col-span-2 2xl:col-span-3' : ''}`}
-      style={{ borderColor: state.enabled ? 'rgba(21,23,28,0.2)' : 'rgba(21,23,28,0.08)', opacity: state.enabled ? 1 : 0.65 }}
+      style={{ borderColor: state.enabled ? 'rgba(38,42,35,0.2)' : 'rgba(38,42,35,0.08)', opacity: state.enabled ? 1 : 0.65 }}
     >
       {/* One identity row: toggle, mark, name and status all on the same line at
           the same height. The description used to sit indented inside the name
@@ -6054,8 +6064,8 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           className="flex-shrink-0 mp-mono text-xs uppercase tracking-[0.15em] px-2.5 h-8 flex items-center justify-center gap-1.5 transition"
           style={{
             background: state.enabled ? 'var(--accent-fill)' : 'transparent',
-            color: state.enabled ? '#fff' : 'rgba(21,23,28,0.66)',
-            border: `1px solid ${state.enabled ? 'var(--accent-fill)' : 'rgba(21,23,28,0.25)'}`,
+            color: state.enabled ? '#fff' : 'rgba(38,42,35,0.66)',
+            border: `1px solid ${state.enabled ? 'var(--accent-fill)' : 'rgba(38,42,35,0.25)'}`,
             minWidth: 58,
           }}
         >
@@ -6066,7 +6076,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
               <PlatformMark platform={platform} size={28} />
               <h3 className="mp-display font-bold text-base truncate min-w-0">{platform.name}</h3>
               {platform.apiSupport === 'manual' && (
-                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(21,23,28,0.1)', color: 'rgba(21,23,28,0.66)' }}>manual</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>manual</span>
               )}
               {platform.apiSupport === 'addon' && (
                 <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
@@ -6077,15 +6087,15 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                 <button
                   onClick={onConnect}
                   aria-label={`${connectionLabel === 'Reconnect needed' ? 'Reconnect' : connectionLabel === 'Checking session' ? 'View status for' : 'Connect'} ${platform.name}`}
-                  className="mp-pill mp-focusable flex-shrink-0 whitespace-nowrap transition hover:bg-[rgba(21,23,28,0.12)]"
-                  style={{ background: 'rgba(21,23,28,0.07)', color: 'var(--accent-text)' }}
+                  className="mp-pill mp-focusable flex-shrink-0 whitespace-nowrap transition hover:bg-[rgba(38,42,35,0.12)]"
+                  style={{ background: 'rgba(38,42,35,0.07)', color: 'var(--accent-text)' }}
                 >
                   {connectionLabel === 'Checking session' ? 'Checking session…' : connectionLabel === 'Reconnect needed' ? 'Reconnect →' : 'Connect →'}
                 </button>
               ) : (
                 <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{
-                  background: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'rgba(21,23,28,0.07)',
-                  color: connectionLabel === 'Connected' ? '#247255' : 'rgba(21,23,28,0.58)',
+                  background: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'rgba(38,42,35,0.07)',
+                  color: connectionLabel === 'Connected' ? '#247255' : 'rgba(38,42,35,0.58)',
                 }}>{connectionLabel}</span>
               ))}
             </div>
@@ -6097,8 +6107,8 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
             "· HTML" was the description format, an internal detail that told a
             creator nothing about where to publish. The vendor still leads, since
             that is what identifies the platform. */}
-        <p className="text-xs mt-2" style={{ color: 'rgba(21,23,28,0.65)' }}>
-          <span style={{ color: 'rgba(21,23,28,0.5)' }}>{platform.org}</span>
+        <p className="text-xs mt-2" style={{ color: 'rgba(38,42,35,0.65)' }}>
+          <span style={{ color: 'rgba(38,42,35,0.5)' }}>{platform.org}</span>
           {platform.note ? ` · ${platform.note}` : ''}
         </p>
       </div>
@@ -6108,7 +6118,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
         // spans the full row so its lists and chips can breathe, but a select
         // stretched across 1800px is unreadable: the eye loses the line between
         // the label and the value.
-        <div className="mp-platform-panel px-3.5 pb-3.5 border-t" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+        <div className="mp-platform-panel px-3.5 pb-3.5 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
           <PanelSection title="Limits">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
               <Stat label="Max images" value={Number.isFinite(platform.maxImages) ? platform.maxImages : 'No limit listed'} />
@@ -6120,7 +6130,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           <PanelSection title="Accepted formats">
             <div className="flex flex-wrap gap-1">
               {acceptedFormats.map(f => (
-                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(21,23,28,0.06)' }}>
+                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: 'rgba(38,42,35,0.06)' }}>
                   .{f}
                 </span>
               ))}
@@ -6136,7 +6146,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                     type="radio"
                     checked={state.free}
                     onChange={() => onUpdate('free', true)}
-                    style={{ accentColor: '#FF5722' }}
+                    style={{ accentColor: '#5A7430' }}
                   /> Free
                 </label>
                 <label className="flex items-center gap-2 text-xs">
@@ -6144,7 +6154,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                     type="radio"
                     checked={!state.free}
                     onChange={() => onUpdate('free', false)}
-                    style={{ accentColor: '#FF5722' }}
+                    style={{ accentColor: '#5A7430' }}
                   /> Paid
                 </label>
                 {!state.free && (
@@ -6181,7 +6191,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
               {state.contestEntry && (
                 <div className="mt-2 p-2.5 flex items-start gap-2 text-[13px]" style={{ background: 'rgba(255,182,39,0.12)', border: '1px solid rgba(255,182,39,0.5)' }}>
                   <AlertCircle size={14} style={{ color: '#FF9500' }} className="flex-shrink-0 mt-0.5" />
-                  <span style={{ color: 'rgba(21,23,28,0.8)' }}>
+                  <span style={{ color: 'rgba(38,42,35,0.8)' }}>
                     <strong>{platform.name} contest entries must be opted in during upload.</strong> This package can't enter you automatically: when you upload, tick the contest checkbox on {platform.name}'s page. You can't add an entry after the model is published.
                   </span>
                 </div>
@@ -6239,8 +6249,8 @@ export function CultsOptions({ opts, onUpdate }) {
       <div>
         <Label>Visibility</Label>
         <div className="flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: '#FF5722' }} /> Secret (unlisted)</label>
-          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: '#FF5722' }} /> Public</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: '#5A7430' }} /> Secret (unlisted)</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: '#5A7430' }} /> Public</label>
         </div>
       </div>
       <div>
@@ -6250,12 +6260,12 @@ export function CultsOptions({ opts, onUpdate }) {
       <div>
         <Label>Platform labels</Label>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-          {CULTS_META_TAGS.map(([value, label]) => <label key={value} className="flex items-center gap-1.5"><input type="checkbox" checked={metaTags.includes(value)} onChange={() => toggleMetaTag(value)} style={{ accentColor: '#FF5722' }} /> {label}</label>)}
+          {CULTS_META_TAGS.map(([value, label]) => <label key={value} className="flex items-center gap-1.5"><input type="checkbox" checked={metaTags.includes(value)} onChange={() => toggleMetaTag(value)} style={{ accentColor: '#5A7430' }} /> {label}</label>)}
         </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.madeWithAi} onChange={(event) => onUpdate('madeWithAi', event.target.checked)} style={{ accentColor: '#FF5722' }} /> Made with AI</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={opts.showComments !== false} onChange={(event) => onUpdate('showComments', event.target.checked)} style={{ accentColor: '#FF5722' }} /> Allow comments</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.madeWithAi} onChange={(event) => onUpdate('madeWithAi', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Made with AI</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={opts.showComments !== false} onChange={(event) => onUpdate('showComments', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Allow comments</label>
       </div>
       <p className="text-[11px] opacity-60">3D printing usage is selected automatically. Current Cults terms still require a separate review before public or paid publishing.</p>
     </div>
@@ -6490,7 +6500,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
   };
 
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
@@ -6542,12 +6552,12 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       </div>
 
       <div className="flex flex-wrap gap-4 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#FF5722' }} /> NSFW</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.aiGenerated} onChange={(event) => onUpdate('aiGenerated', event.target.checked)} style={{ accentColor: '#FF5722' }} /> AI-generated content</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.hasBom} onChange={(event) => onUpdate('hasBom', event.target.checked)} style={{ accentColor: '#FF5722' }} /> Include bill of materials</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#5A7430' }} /> NSFW</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.aiGenerated} onChange={(event) => onUpdate('aiGenerated', event.target.checked)} style={{ accentColor: '#5A7430' }} /> AI-generated content</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.hasBom} onChange={(event) => onUpdate('hasBom', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Include bill of materials</label>
       </div>
       {opts.aiGenerated && (
-        <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
           ModelPrep adds “AI-generated” to the listing tags to satisfy Nexprint’s disclosure rule.
         </p>
       )}
@@ -6580,7 +6590,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
               const id = nexprintOptionId(activity);
               return (
                 <label key={id} className="mp-card px-2 py-1 text-[11px] flex items-center gap-1.5">
-                  <input type="checkbox" checked={(opts.activityIds || []).map(String).includes(id)} onChange={() => toggleId('activityIds', id)} style={{ accentColor: '#FF5722' }} />
+                  <input type="checkbox" checked={(opts.activityIds || []).map(String).includes(id)} onChange={() => toggleId('activityIds', id)} style={{ accentColor: '#5A7430' }} />
                   {nexprintOptionName(activity)}
                 </label>
               );
@@ -6597,7 +6607,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
               const id = nexprintOptionId(collection);
               return (
                 <label key={id} className="mp-card px-2 py-1 text-[11px] flex items-center gap-1.5">
-                  <input type="checkbox" checked={(opts.collectionIds || []).map(String).includes(id)} onChange={() => toggleId('collectionIds', id)} style={{ accentColor: '#FF5722' }} />
+                  <input type="checkbox" checked={(opts.collectionIds || []).map(String).includes(id)} onChange={() => toggleId('collectionIds', id)} style={{ accentColor: '#5A7430' }} />
                   {nexprintOptionName(collection)}
                 </label>
               );
@@ -6608,7 +6618,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
 
       {!!dynamic.activities.length && Number(opts.originalityType || 1) !== 3 && (
         <label className="flex items-center gap-1.5 text-xs">
-          <input type="checkbox" checked={!!opts.worldFirstRelease} onChange={(event) => onUpdate('worldFirstRelease', event.target.checked)} style={{ accentColor: '#FF5722' }} />
+          <input type="checkbox" checked={!!opts.worldFirstRelease} onChange={(event) => onUpdate('worldFirstRelease', event.target.checked)} style={{ accentColor: '#5A7430' }} />
           Mark eligible activity submission as a world-first release
         </label>
       )}
@@ -6622,7 +6632,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
 
 export function CrealityOptions({ opts, project, onUpdate }) {
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
@@ -6667,7 +6677,7 @@ export function CrealityOptions({ opts, project, onUpdate }) {
       </div>
 
       <label className="flex items-start gap-2 text-xs">
-        <input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#FF5722' }} />
+        <input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#5A7430' }} />
         <span>Contains nudity, violence, blasphemy, or other potentially disturbing content (Creality maturity rating).</span>
       </label>
 
@@ -6743,7 +6753,7 @@ export function MakerRoadOptions({ opts, onUpdate }) {
   };
   const license = MAKEROAD_LICENSES[Number(opts.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="grid md:grid-cols-2 gap-3">
         <div><Label>Batch action</Label><select aria-label="MakerRoad batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save private draft (recommended)</option><option value="publish">Submit for public review (LIVE)</option></select></div>
         <div><Label>Upload type</Label><select aria-label="MakerRoad upload type" className="mp-input" value={Number(opts.uploadType || 1)} onChange={(e) => onUpdate('uploadType', Number(e.target.value))}><option value={1}>Original</option><option value={2}>Remix</option></select></div>
@@ -6787,7 +6797,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
       }).catch((error) => { if (alive) { setCategories(THANGS_CATEGORIES); setCategorySource('snapshot'); setCategoryError(`${error.message} Using today’s verified taxonomy snapshot.`); } });
     return () => { alive = false; };
   }, [secret]);
-  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><select aria-label="Thangs visibility" className="mp-input" value={opts.publication || 'private'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="private">Private (recommended)</option><option value="public">Public (LIVE)</option></select></div><div><Label>Structure</Label><select aria-label="Thangs structure" className="mp-input" value={opts.structure || 'single'} onChange={(e) => onUpdate('structure', e.target.value)}><option value="single">Single model</option><option value="bulk">Separate bulk models</option><option value="multipart">Multipart model</option><option value="assembly">Assembly</option></select></div></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Units</Label><select className="mp-input" value={opts.units || 'mm'} onChange={(e) => onUpdate('units', e.target.value)}><option value="mm">Millimeters</option><option value="cm">Centimeters</option><option value="m">Meters</option><option value="in">Inches</option></select></div><div><Label>Primary part</Label><select className="mp-input" value={opts.primaryFileId || modelFiles[0]?.id || ''} onChange={(e) => onUpdate('primaryFileId', e.target.value)}>{modelFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select></div></div>
     <div><Label>Category path</Label><select aria-label="Thangs category" className="mp-input" value={opts.category || ''} onChange={(e) => onUpdate('category', e.target.value)}><option value="">Choose category…</option>{categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
@@ -6805,7 +6815,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
 
 export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) {
   const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
-  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     <div className="p-2.5 text-[11px]" style={{ background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate('license', e.target.value)}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select></div></div>
     <div><Label>Summary (required)</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /></div>
@@ -6887,7 +6897,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
   const printMethod = Number(opts.printMethod || 3);
 
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
@@ -6934,29 +6944,29 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
         <div>
           <Label>Model permissions</Label>
           <div className="flex flex-wrap gap-3 text-xs">
-            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 1} onChange={() => onUpdate('permission', 1)} style={{ accentColor: '#FF5722' }} /> Public</label>
-            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 2} onChange={() => onUpdate('permission', 2)} style={{ accentColor: '#FF5722' }} /> Private</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 1} onChange={() => onUpdate('permission', 1)} style={{ accentColor: '#5A7430' }} /> Public</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 2} onChange={() => onUpdate('permission', 2)} style={{ accentColor: '#5A7430' }} /> Private</label>
           </div>
           <p className="text-[11px] mt-1 opacity-70">Draft controls whether the listing is submitted now; permissions are stored with the model.</p>
         </div>
         <div>
           <Label>Printing method</Label>
           <div className="flex flex-wrap gap-3 text-xs">
-            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 3} onChange={() => onUpdate('printMethod', 3)} style={{ accentColor: '#FF5722' }} /> Both</label>
-            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 1} onChange={() => onUpdate('printMethod', 1)} style={{ accentColor: '#FF5722' }} /> FDM</label>
-            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 2} onChange={() => onUpdate('printMethod', 2)} style={{ accentColor: '#FF5722' }} /> Resin</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 3} onChange={() => onUpdate('printMethod', 3)} style={{ accentColor: '#5A7430' }} /> Both</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 1} onChange={() => onUpdate('printMethod', 1)} style={{ accentColor: '#5A7430' }} /> FDM</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 2} onChange={() => onUpdate('printMethod', 2)} style={{ accentColor: '#5A7430' }} /> Resin</label>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.aiHelp} onChange={(event) => onUpdate('aiHelp', event.target.checked)} style={{ accentColor: '#FF5722' }} /><span>Created with AI assistance</span></label>
-        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate({ nsfw: event.target.checked, ...(event.target.checked ? { syncChina: false } : {}) })} style={{ accentColor: '#FF5722' }} /><span>NSFW: nudity, violence, profanity, or disturbing themes</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.aiHelp} onChange={(event) => onUpdate('aiHelp', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Created with AI assistance</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate({ nsfw: event.target.checked, ...(event.target.checked ? { syncChina: false } : {}) })} style={{ accentColor: '#5A7430' }} /><span>NSFW: nudity, violence, profanity, or disturbing themes</span></label>
       </div>
 
       {printMethod !== 2 && (
         <div className="p-2.5 space-y-2" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.18)' }}>
-          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.includePrintProfile} onChange={(event) => onUpdate('includePrintProfile', event.target.checked)} style={{ accentColor: '#FF5722' }} /><span>Upload available .3mf files as MakerOnline print profiles as well as raw model files</span></label>
+          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.includePrintProfile} onChange={(event) => onUpdate('includePrintProfile', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Upload available .3mf files as MakerOnline print profiles as well as raw model files</span></label>
           {opts.includePrintProfile && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <div><Label>Print profile title</Label><input aria-label="MakerOnline print profile title" className="mp-input" maxLength={100} value={opts.printTitle || ''} onChange={(event) => onUpdate('printTitle', event.target.value)} placeholder={project.title || 'Profile title'} /></div>
@@ -6967,12 +6977,12 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       )}
 
       <div>
-        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: '#FF5722' }} /><span>This model uses MakerOnline Creative Kits</span></label>
+        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: '#5A7430' }} /><span>This model uses MakerOnline Creative Kits</span></label>
         {opts.relatedKits && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
             {meta.kits.map((kit) => {
               const id = kitId(kit);
-              return <label key={id} className="flex items-start gap-2 text-[11px] p-1.5 bg-white"><input type="checkbox" checked={selectedKits.includes(id)} onChange={() => toggleKit(id)} style={{ accentColor: '#FF5722' }} /><span>{kitName(kit)}</span></label>;
+              return <label key={id} className="flex items-start gap-2 text-[11px] p-1.5 bg-white"><input type="checkbox" checked={selectedKits.includes(id)} onChange={() => toggleKit(id)} style={{ accentColor: '#5A7430' }} /><span>{kitName(kit)}</span></label>;
             })}
             {!meta.loading && meta.kits.length === 0 && <span className="text-[11px] opacity-70">Connect the account to load current Creative Kits.</span>}
           </div>
@@ -6980,8 +6990,8 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.chinaSync?.eligible || !!opts.nsfw || Number(opts.permission || 2) !== 1} checked={!!opts.syncChina} onChange={(event) => onUpdate('syncChina', event.target.checked)} style={{ accentColor: '#FF5722' }} /><span>Sync to MakerOnline China{!eligibility.chinaSync?.eligible ? ' (account not linked/eligible)' : ''}</span></label>
-        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.exclusive?.eligible} checked={!!opts.exclusive} onChange={(event) => onUpdate(event.target.checked ? { exclusive: true, source: 1, permission: 1, license: 8, includePrintProfile: true } : { exclusive: false })} style={{ accentColor: '#FF5722' }} /><span>Exclusive model{!eligibility.exclusive?.eligible ? ' (account not eligible)' : ''}</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.chinaSync?.eligible || !!opts.nsfw || Number(opts.permission || 2) !== 1} checked={!!opts.syncChina} onChange={(event) => onUpdate('syncChina', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Sync to MakerOnline China{!eligibility.chinaSync?.eligible ? ' (account not linked/eligible)' : ''}</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.exclusive?.eligible} checked={!!opts.exclusive} onChange={(event) => onUpdate(event.target.checked ? { exclusive: true, source: 1, permission: 1, license: 8, includePrintProfile: true } : { exclusive: false })} style={{ accentColor: '#5A7430' }} /><span>Exclusive model{!eligibility.exclusive?.eligible ? ' (account not eligible)' : ''}</span></label>
       </div>
 
       {meta.error && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{meta.error}</div>}
@@ -7071,7 +7081,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
           onChange={(event) => onUpdate('summary', event.target.value)}
           placeholder="Short listing summary; falls back to the description"
         />
-        <div className="mp-mono text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <div className="mp-mono text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
           {(opts.summary || '').length}/120 · leave blank to derive it from the description
         </div>
       </div>
@@ -7200,14 +7210,14 @@ function PreflightPanel({ enabled, project, setCurrentSection }) {
   const totalErr = reports.reduce((n, r) => n + r.errors.length, 0);
   const totalWarn = reports.reduce((n, r) => n + r.warnings.length, 0);
   const clean = totalErr === 0 && totalWarn === 0;
-  const bg = totalErr ? 'rgba(185,28,28,0.06)' : totalWarn ? 'rgba(255,87,34,0.05)' : 'rgba(79,178,134,0.08)';
-  const bd = totalErr ? 'rgba(185,28,28,0.35)' : totalWarn ? 'rgba(255,87,34,0.3)' : 'rgba(79,178,134,0.35)';
+  const bg = totalErr ? 'rgba(185,28,28,0.06)' : totalWarn ? 'rgba(90,116,48,0.05)' : 'rgba(79,178,134,0.08)';
+  const bd = totalErr ? 'rgba(185,28,28,0.35)' : totalWarn ? 'rgba(90,116,48,0.3)' : 'rgba(79,178,134,0.35)';
   if (!enabled.length) return null;
   return (
     <div className="mp-card p-3 mt-5" style={{ background: bg, borderColor: bd }}>
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
         {clean ? <Check size={15} style={{ color: '#3a8d68' }} /> : totalErr ? <AlertCircle size={15} style={{ color: '#B91C1C' }} /> : <AlertCircle size={15} style={{ color: '#c83f10' }} />}
-        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>
+        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>
           {clean ? 'Pre-flight checks passed: ready to publish'
             : `Pre-flight: ${totalErr ? `${totalErr} blocker${totalErr > 1 ? 's' : ''}` : ''}${totalErr && totalWarn ? ' · ' : ''}${totalWarn ? `${totalWarn} warning${totalWarn > 1 ? 's' : ''}` : ''} across ${enabled.length} platform${enabled.length > 1 ? 's' : ''}`}
         </span>
@@ -7226,7 +7236,7 @@ function PreflightPanel({ enabled, project, setCurrentSection }) {
               </ul>
             </div>
           ))}
-          <div className="text-[11px] pt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <div className="text-[11px] pt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Fix in <button onClick={() => setCurrentSection('files')} className="underline">Files</button> · <button onClick={() => setCurrentSection('details')} className="underline">Details</button> · <button onClick={() => setCurrentSection('images')} className="underline">Images</button>. Blockers (❌) will fail the upload; with warnings (⚠) it still uploads, but some images, tags or details may be dropped.
           </div>
         </div>
@@ -7395,7 +7405,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
     <>
       {queuedPlans.length > 0 && (
         <div className="mt-6 mp-card p-4" data-testid="release-queue">
-          <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Release queue · {queuedPlans.length} planned
           </div>
           <div className="space-y-2">
@@ -7405,7 +7415,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               const blockers = releasePlanBlockers(plan, publishTargets);
               return (
                 <div key={plan.id} className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: due ? '#FF5722' : 'rgba(21,23,28,0.08)', color: due ? '#fff' : 'inherit' }}>
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1.5 py-0.5" style={{ background: due ? '#5A7430' : 'rgba(38,42,35,0.08)', color: due ? '#fff' : 'inherit' }}>
                     {describeDue(plan, Date.now())}
                   </span>
                   <span className="font-bold">{plan.platformName || plan.platformId}</span>
@@ -7439,7 +7449,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               );
             })}
           </div>
-          <p className="text-[11px] mt-2" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px] mt-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Scheduled publishes start automatically from this step while ModelPrep is open; reminders wait for you.
           </p>
         </div>
@@ -7453,13 +7463,13 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         <SectionHeader number="06" title="Prepare upload packages" subtitle="Complete the missing steps to prepare platform-ready packages." />
         <div className="mt-6 space-y-2">
           {SECTIONS.slice(0, -1).map(s => (
-            <button key={s.id} onClick={() => setCurrentSection(s.id)} className="w-full p-3.5 mp-card flex items-center gap-3 text-left transition hover:border-[#FF5722]">
-              <div className="w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ background: completion[s.id] ? '#4FB286' : 'rgba(21,23,28,0.08)' }}>
-                {completion[s.id] ? <Check size={14} color="#fff" /> : <AlertCircle size={14} style={{ color: '#FF5722' }} />}
+            <button key={s.id} onClick={() => setCurrentSection(s.id)} className="w-full p-3.5 mp-card flex items-center gap-3 text-left transition hover:border-[#5A7430]">
+              <div className="w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ background: completion[s.id] ? '#4FB286' : 'rgba(38,42,35,0.08)' }}>
+                {completion[s.id] ? <Check size={14} color="#fff" /> : <AlertCircle size={14} style={{ color: '#5A7430' }} />}
               </div>
               <div className="flex-1">
                 <div className="mp-display text-[18px] leading-none">{s.label}</div>
-                <div className="mp-body text-[13px] mt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                <div className="mp-body text-[13px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
                   {completion[s.id] ? 'Complete' : 'Missing or incomplete'}
                 </div>
               </div>
@@ -7481,7 +7491,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         subtitle="Review the adapted package, then publish to all selected platforms or individually."
       />
 
-      <div className="mp-card p-2.5 mb-4 text-xs" style={{ background: 'rgba(255,182,39,0.1)', border: '1px solid rgba(255,182,39,0.5)', color: 'rgba(21,23,28,0.75)' }}>
+      <div className="mp-card p-2.5 mb-4 text-xs" style={{ background: 'rgba(255,182,39,0.1)', border: '1px solid rgba(255,182,39,0.5)', color: 'rgba(38,42,35,0.75)' }}>
         <span className="mp-mono text-[11px] uppercase tracking-[0.2em] mr-1.5" style={{ color: '#8A4B08' }}>Beta</span>
         Private and draft publishing are fully tested. Public and paid publishing work but are still being double-checked per platform, so review each platform's visibility before publishing publicly.
       </div>
@@ -7512,11 +7522,11 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="mp-display text-[22px] leading-none">Publishing destinations</h3>
-            <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.56)' }}>{directEnabled.length} direct target{directEnabled.length === 1 ? '' : 's'} · expand only when you want the full platform preview or individual controls</p>
+            <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.56)' }}>{directEnabled.length} direct target{directEnabled.length === 1 ? '' : 's'} · expand only when you want the full platform preview or individual controls</p>
           </div>
           <button
             onClick={toggleAll}
-            className="mp-mono text-xs uppercase tracking-[0.15em] py-1.5 px-2 hover:text-[#FF5722] transition flex items-center gap-1.5"
+            className="mp-mono text-xs uppercase tracking-[0.15em] py-1.5 px-2 hover:text-[#5A7430] transition flex items-center gap-1.5"
             aria-label={allExpanded ? 'Collapse every platform package' : 'Expand every platform package'}
           >
             {allExpanded ? <><ChevronRight size={13} /> Collapse all</> : <><ChevronDown size={13} /> Expand all</>}
@@ -7548,11 +7558,11 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       </div>
 
       {exportEnabled.length > 0 && (
-      <div className="mt-6 mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+      <div className="mt-6 mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
         <button onClick={() => setShowExports((open) => !open)} className="w-full flex items-center gap-2 p-3 text-left" aria-expanded={showExports}>
           {showExports ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           <span className="mp-display text-[17px]">Export packages</span>
-          <span className="text-xs ml-auto" style={{ color: 'rgba(21,23,28,0.66)' }}>{exportEnabled.length} selected · manual/future connections</span>
+          <span className="text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{exportEnabled.length} selected · manual/future connections</span>
         </button>
         {showExports && (
           <div className="px-3 pb-3">
@@ -7568,15 +7578,15 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
                 />
               ))}
             </div>
-            <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+            <div className="mt-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
               <button onClick={() => setShowZip((open) => !open)} className="w-full flex items-center gap-2 py-2 text-left" aria-expanded={showZip}>
                 {showZip ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <span className="mp-display text-[15px]">Download every selected .zip</span>
-                <span className="text-xs ml-auto" style={{ color: 'rgba(21,23,28,0.66)' }}>manual fallback</span>
+                <span className="text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>manual fallback</span>
               </button>
               {showZip && (
                 <div className="pt-2 flex flex-col md:flex-row md:items-center gap-3">
-                  <p className="mp-body text-xs leading-relaxed flex-1" style={{ color: 'rgba(21,23,28,0.7)' }}>
+                  <p className="mp-body text-xs leading-relaxed flex-1" style={{ color: 'rgba(38,42,35,0.7)' }}>
                     Creates one adapted package per selected platform with cropped images, formatted copy, metadata, and model files.
                   </p>
                   <BatchZipButton enabled={enabled} project={project} cover={cover} />
@@ -7604,7 +7614,7 @@ function ProjectReviewSummary({ project, cover, setCurrentSection }) {
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <h3 id="project-review-title" className="mp-display text-[22px] leading-none">Project review</h3>
-          <p className="text-xs mt-1" style={{ color: 'rgba(21,23,28,0.56)' }}>The shared source ModelPrep will adapt for each selected platform.</p>
+          <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.56)' }}>The shared source ModelPrep will adapt for each selected platform.</p>
         </div>
         <button onClick={() => setCurrentSection('details')} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2.5 min-h-[36px]"><Edit3 size={12} /> Edit details</button>
       </div>
@@ -7615,22 +7625,22 @@ function ProjectReviewSummary({ project, cover, setCurrentSection }) {
               src={cover.dataUrl}
               alt={cover.alt || 'Selected project cover'}
               className="w-full aspect-[4/3] object-cover"
-              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, background: '#15171C' }}
+              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, background: '#262A23' }}
             />
           ) : (
-            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ background: 'rgba(21,23,28,0.06)' }}><ImageIcon size={24} className="opacity-30" /></div>
+            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ background: 'rgba(38,42,35,0.06)' }}><ImageIcon size={24} className="opacity-30" /></div>
           )}
           <button onClick={() => setCurrentSection('images')} className="mp-mono text-[11px] uppercase tracking-[0.12em] underline mt-1.5" style={{ color: 'var(--accent-text)' }}>Review image crops</button>
         </div>
         <div className="min-w-0">
           <h4 className="mp-display text-[28px] leading-none truncate">{project.title || 'Untitled project'}</h4>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
             <span><strong>{project.files.length}</strong> file{project.files.length === 1 ? '' : 's'}</span>
             <span><strong>{project.images.length}</strong> image{project.images.length === 1 ? '' : 's'}</span>
             <span><strong>{project.tags.length}</strong> tag{project.tags.length === 1 ? '' : 's'}</span>
             <span><strong>{profileNames.length}</strong> print profile{profileNames.length === 1 ? '' : 's'}</span>
           </div>
-          <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(21,23,28,0.62)' }}>
+          <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(38,42,35,0.62)' }}>
             {project.category || 'No category'} · {license?.name || project.license}
             {profileNames.length > 0 && <> · {profileNames.join(', ')}</>}
           </div>
@@ -7713,22 +7723,22 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             <span className="mp-display text-[20px] leading-none">Publish selected platforms</span>
             <span className="mp-pill" style={{ background: 'var(--api-fill)', color: '#fff' }}>one click</span>
           </div>
-          <p className="mp-body text-xs leading-relaxed mt-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <p className="mp-body text-xs leading-relaxed mt-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
             Platforms upload in parallel (up to four at a time in the desktop app). If one fails, the others keep going.
           </p>
           {/* Support/diagnostics detail stays available for beta bug reports but
               is tucked behind a disclosure so regular creators never parse it. */}
           {(latestResources || (resourceReport && (batch?.status === 'done' || resourceReportStatus === 'previous'))) && (
             <details className="mt-1.5">
-              <summary className="mp-mono text-[11px] uppercase tracking-[0.12em] cursor-pointer" style={{ color: 'rgba(21,23,28,0.52)' }}>Diagnostics</summary>
+              <summary className="mp-mono text-[11px] uppercase tracking-[0.12em] cursor-pointer" style={{ color: 'rgba(38,42,35,0.52)' }}>Diagnostics</summary>
               {latestResources && (
-                <p data-testid="batch-resource-telemetry" className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1.5" style={{ color: 'rgba(21,23,28,0.52)' }}>
+                <p data-testid="batch-resource-telemetry" className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1.5" style={{ color: 'rgba(38,42,35,0.52)' }}>
                   Resource telemetry · {batchResources.sampleCount ? `peak ${batchResources.peakActivePublishers}` : latestResources.publishers.active} active · {batchResources.sampleCount ? `peak ${batchResources.peakAppWorkingSetMb}` : latestResources.memory.appWorkingSetMb} MB app working set · {latestResources.processes.total} processes · {batchResources.sampleCount ? `peak ${batchResources.peakAppCpuPercent}` : latestResources.cpu.appPercent}% CPU
                 </p>
               )}
               {resourceReport && (batch?.status === 'done' || resourceReportStatus === 'previous') && (
                 <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                  <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: resourceReportStatus === 'unavailable' ? '#8A4B08' : 'rgba(21,23,28,0.52)' }}>
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: resourceReportStatus === 'unavailable' ? '#8A4B08' : 'rgba(38,42,35,0.52)' }}>
                     {resourceReportStatus === 'saved'
                       ? `Resource report retained locally · ${resourceReport.samples.length} sample${resourceReport.samples.length === 1 ? '' : 's'}`
                       : resourceReportStatus === 'previous'
@@ -7762,7 +7772,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
               </p>
               {onDryRun && (
                 <label className="flex items-start gap-2 mt-1.5 cursor-pointer">
-                  <input type="checkbox" checked={false} onChange={onDryRun} style={{ accentColor: '#FF5722', marginTop: 2 }} />
+                  <input type="checkbox" checked={false} onChange={onDryRun} style={{ accentColor: '#5A7430', marginTop: 2 }} />
                   <span>Dry run instead: walk the whole flow without sending anything.</span>
                 </label>
               )}
@@ -7822,12 +7832,12 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             ? '#b91c1c'
             : state === 'done'
               ? (result?.simulated ? '#3A86FF' : '#1a7f37')
-              : 'rgba(21,23,28,0.55)';
+              : 'rgba(38,42,35,0.55)';
           const receiptBackground = state === 'error'
             ? 'rgba(185,28,28,0.07)'
             : state === 'done'
               ? (result?.simulated ? 'rgba(58,134,255,0.08)' : 'rgba(26,127,55,0.08)')
-              : 'rgba(21,23,28,0.05)';
+              : 'rgba(38,42,35,0.05)';
           return (
             <div key={target.id} className="mp-card p-2.5 text-xs" style={{ background: '#fff' }}>
               <div className="flex items-center gap-2">
@@ -7836,11 +7846,11 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
                     : state === 'error' ? <X size={13} style={{ color: '#b91c1c' }} />
                       : <StatusDot status={target.mode === 'missing' ? 'unknown' : 'connected'} />}
                 <strong>{target.name}</strong>
-                <span className="mp-mono text-[11px] uppercase ml-auto" style={{ color: target.mode === 'simulation' ? 'var(--api-fill)' : 'rgba(21,23,28,0.66)' }}>
+                <span className="mp-mono text-[11px] uppercase ml-auto" style={{ color: target.mode === 'simulation' ? 'var(--api-fill)' : 'rgba(38,42,35,0.66)' }}>
                   {target.mode === 'simulation' ? 'practice' : target.mode === 'missing' ? 'not connected' : 'live'}
                 </span>
               </div>
-              <div className="mt-1 truncate" title={target.accountLabel} style={{ color: 'rgba(21,23,28,0.58)' }}>{target.accountLabel}</div>
+              <div className="mt-1 truncate" title={target.accountLabel} style={{ color: 'rgba(38,42,35,0.58)' }}>{target.accountLabel}</div>
               <div
                 className="mp-mono text-[11px] uppercase mt-1 inline-flex px-1.5 py-0.5"
                 style={{ color: receiptColor, background: receiptBackground }}
@@ -7856,9 +7866,9 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
                   <RefreshCw size={11} /> {target.accountStatus === 'reconnect' ? `Reconnect ${target.name}` : `Connect ${target.name}`}
                 </button>
               )}
-              <div className="mt-1.5 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>{adaptation[target.id]}</div>
+              <div className="mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{adaptation[target.id]}</div>
               {result?.detail && (
-                <div className="mt-1 break-words" title={result.fullDetail || result.detail} style={{ color: state === 'error' ? '#b91c1c' : 'rgba(21,23,28,0.58)' }}>
+                <div className="mt-1 break-words" title={result.fullDetail || result.detail} style={{ color: state === 'error' ? '#b91c1c' : 'rgba(38,42,35,0.58)' }}>
                   {state === 'error' ? 'Error: ' : ''}{result.detail}
                 </div>
               )}
@@ -8035,7 +8045,7 @@ function PlatformPackageCard({
   return (
     <div className="mp-card">
       {/* Header row */}
-      <div className="p-4 flex flex-col gap-3 border-b sm:flex-row sm:items-start" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+      <div className="p-4 flex flex-col gap-3 border-b sm:flex-row sm:items-start" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <PlatformMark platform={platform} size={30} />
           <div className="flex-1 min-w-0">
@@ -8044,16 +8054,16 @@ function PlatformPackageCard({
               {/* No "API" badge: it was on all ten, so it carried no information.
                   Only the exceptions are worth a pill. */}
               {platform.apiSupport === 'oneclick' && !platform.apiLive && (
-                <span className="mp-pill" style={{ background: 'rgba(21,23,28,0.1)', color: 'rgba(21,23,28,0.66)' }}>API soon</span>
+                <span className="mp-pill" style={{ background: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>API soon</span>
               )}
               {platform.apiSupport === 'manual' && (
-                <span className="mp-pill" style={{ background: 'rgba(21,23,28,0.1)', color: 'rgba(21,23,28,0.66)' }}>manual</span>
+                <span className="mp-pill" style={{ background: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>manual</span>
               )}
               {platform.apiSupport === 'addon' && (
                 <span className="mp-pill" style={{ background: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
               )}
             </div>
-            <div className="mp-mono text-xs uppercase tracking-[0.15em] mt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <div className="mp-mono text-xs uppercase tracking-[0.15em] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {platform.org} · {platform.descFormat} description · {platform.id === 'makerworld'
                 ? `${platform.maxImages} model pictures + cover`
                 : Number.isFinite(platform.maxImages) ? `${platform.maxImages} img max` : 'no image limit listed'}
@@ -8076,7 +8086,7 @@ function PlatformPackageCard({
                 title={!cover ? 'Add at least one image first' : 'Download a ZIP containing everything for this platform'}
               >
                 {downloading ? (
-                  <><Loader size={12} className="mp-spin" /> <span className="mp-mono text-[13px] normal-case tracking-normal truncate" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{progressMsg || 'Working'}</span></>
+                  <><Loader size={12} className="mp-spin" /> <span className="mp-mono text-[13px] normal-case tracking-normal truncate">{progressMsg || 'Working'}</span></>
                 ) : (
                   <><Download size={12} /> {progressMsg ? progressMsg : 'Download .zip'}</>
                 )}
@@ -8123,7 +8133,7 @@ function PlatformPackageCard({
             <PackageLabel label="Tags" hint={`${project.tags.length} · ${platform.id === 'thingiverse' ? 'space-separated' : 'comma-separated'}`}>
               <CopyButton text={tagString} />
             </PackageLabel>
-            <div className="mp-card mp-mono text-xs p-2.5" style={{ background: 'rgba(21,23,28,0.03)' }}>{tagString || <span style={{ color: 'rgba(21,23,28,0.66)' }}>(no tags)</span>}</div>
+            <div className="mp-card mp-mono text-xs p-2.5" style={{ background: 'rgba(38,42,35,0.03)' }}>{tagString || <span style={{ color: 'rgba(38,42,35,0.66)' }}>(no tags)</span>}</div>
           </div>
 
           {/* Description */}
@@ -8132,13 +8142,13 @@ function PlatformPackageCard({
               <>
                 <PackageLabel label="Description (rich text)" hint={`${platform.name} uses a visual editor: paste keeps formatting`}>
                   <RichCopyButton html={mdToHtml(project.description)} plain={mdToPlain(project.description)} />
-                  <button onClick={downloadDescriptionFile} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+                  <button onClick={downloadDescriptionFile} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
                     <Download size={10} /> .html
                   </button>
                 </PackageLabel>
                 <div className="mp-card mp-prose p-4 text-sm max-h-56 overflow-auto" style={{ background: '#FFFFFF' }}
-                  dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<span style="color:rgba(21,23,28,0.4)">(no description)</span>' }} />
-                <p className="text-xs mt-1.5 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                  dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<span style="color:rgba(38,42,35,0.4)">(no description)</span>' }} />
+                <p className="text-xs mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
                   Don't paste raw HTML into {platform.name}: it shows the tags. Hit <strong>Copy formatted</strong>, then paste into the description box. (The .html download is a backup: open it in a browser, select all, copy.)
                 </p>
               </>
@@ -8146,12 +8156,12 @@ function PlatformPackageCard({
               <>
                 <PackageLabel label={`Description (${platform.descFormat})`} hint={`${desc.length} chars`}>
                   <CopyButton text={desc} />
-                  <button onClick={downloadDescriptionFile} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+                  <button onClick={downloadDescriptionFile} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
                     <Download size={10} /> .{platform.descFormat === 'markdown' ? 'md' : platform.descFormat === 'html' ? 'html' : 'txt'}
                   </button>
                 </PackageLabel>
-                <pre className="mp-pre mp-mono text-[13px] leading-relaxed mp-card p-3 max-h-48 overflow-auto" style={{ background: 'rgba(21,23,28,0.03)', color: 'rgba(21,23,28,0.85)' }}>
-                  {desc || <span style={{ color: 'rgba(21,23,28,0.66)' }}>(no description)</span>}
+                <pre className="mp-pre mp-mono text-[13px] leading-relaxed mp-card p-3 max-h-48 overflow-auto" style={{ background: 'rgba(38,42,35,0.03)', color: 'rgba(38,42,35,0.85)' }}>
+                  {desc || <span style={{ color: 'rgba(38,42,35,0.66)' }}>(no description)</span>}
                 </pre>
               </>
             )}
@@ -8161,7 +8171,7 @@ function PlatformPackageCard({
           {cover && (
             <div>
               <PackageLabel label={`Cover image${platform.covers.length > 1 ? 's' : ''}`} hint={platform.covers.map(c => `${c.w}×${c.h}`).join(' · ')}>
-                <button onClick={downloadAllCovers} disabled={downloading} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+                <button onClick={downloadAllCovers} disabled={downloading} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
                   <Download size={10} /> {platform.covers.length > 1 ? `Both covers` : 'JPG'}
                 </button>
               </PackageLabel>
@@ -8182,7 +8192,7 @@ function PlatformPackageCard({
                   ? `${Math.min(project.images.length - 1, galleryCapacity(platform))} of ${project.images.length - 1} additional (cap ${galleryCapacity(platform)})`
                   : `${project.images.length - 1} additional · no platform limit listed`}
               >
-                <button onClick={downloadAllGallery} disabled={downloading} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+                <button onClick={downloadAllGallery} disabled={downloading} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
                   <Download size={10} /> All gallery
                 </button>
               </PackageLabel>
@@ -8200,7 +8210,7 @@ function PlatformPackageCard({
                   ))}
               </div>
               {Number.isFinite(platform.maxImages) && project.images.length - 1 > galleryCapacity(platform) && (
-                <div className="mt-2 mp-mono text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                <div className="mt-2 mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
                   {project.images.length - 1 - galleryCapacity(platform)} image{project.images.length - 1 - galleryCapacity(platform) === 1 ? '' : 's'} skipped: {platform.name} allows {galleryCapacity(platform)} gallery images
                 </div>
               )}
@@ -8217,17 +8227,17 @@ function PlatformPackageCard({
                   const accepted = platform.formats.includes(ext);
                   return (
                     <div key={f.id} className="mp-card p-2 flex items-center gap-2 text-xs" style={{ opacity: accepted ? 1 : 0.55 }}>
-                      <div className="w-6 h-6 flex items-center justify-center flex-shrink-0" style={{ background: f.isProfile ? '#FF5722' : '#15171C', color: '#fff' }}>
+                      <div className="w-6 h-6 flex items-center justify-center flex-shrink-0" style={{ background: f.isProfile ? '#5A7430' : '#262A23', color: '#fff' }}>
                         {f.isProfile ? <Layers size={11} /> : <FileCheck size={11} />}
                       </div>
                       <span className="flex-1 truncate">{f.name}</span>
-                      <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                      <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
                         {formatBytes(f.size)}
                       </span>
                       {accepted ? (
                         <span className="mp-pill" style={{ background: 'rgba(79,178,134,0.15)', color: '#3a8d68' }}>accepted</span>
                       ) : (
-                        <span className="mp-pill" style={{ background: 'rgba(255,87,34,0.15)', color: '#c83f10' }}>not supported</span>
+                        <span className="mp-pill" style={{ background: 'rgba(90,116,48,0.15)', color: '#c83f10' }}>not supported</span>
                       )}
                     </div>
                   );
@@ -8257,10 +8267,10 @@ function PlatformPackageCard({
 
           {/* Manual workflow hint: only for platforms without a real upload. */}
           {!hasRealUpload && (
-            <div className="border-t pt-3 flex items-start gap-2 text-[13px]" style={{ borderColor: 'rgba(21,23,28,0.08)', color: 'rgba(21,23,28,0.66)' }}>
-              <Info size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#FF5722' }} />
+            <div className="border-t pt-3 flex items-start gap-2 text-[13px]" style={{ borderColor: 'rgba(38,42,35,0.08)', color: 'rgba(38,42,35,0.66)' }}>
+              <Info size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#5A7430' }} />
               <div>
-                <strong className="mp-display tracking-wide" style={{ color: '#15171C' }}>{platform.hasApi ? 'MANUAL UPLOAD (WORKS TODAY)' : 'WORKFLOW'}</strong>{' '}
+                <strong className="mp-display tracking-wide" style={{ color: '#262A23' }}>{platform.hasApi ? 'MANUAL UPLOAD (WORKS TODAY)' : 'WORKFLOW'}</strong>{' '}
                 <span>1) Click "Open upload page". 2) Drag model files into the form. 3) Copy → paste title and description. 4) Drop the downloaded cover image. 5) Drop gallery images in order. 6) Paste tags. 7) Pick the closest category. Done.</span>
               </div>
             </div>
@@ -8275,8 +8285,8 @@ function PackageLabel({ label, hint, children }) {
   return (
     <div className="flex items-center justify-between mb-2">
       <div>
-        <span className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{label}</span>
-        {hint && <span className="mp-mono text-xs uppercase tracking-[0.15em] ml-2" style={{ color: 'rgba(21,23,28,0.6)' }}>· {hint}</span>}
+        <span className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{label}</span>
+        {hint && <span className="mp-mono text-xs uppercase tracking-[0.15em] ml-2" style={{ color: 'rgba(38,42,35,0.6)' }}>· {hint}</span>}
       </div>
       <div className="flex items-center gap-3">{children}</div>
     </div>
@@ -8293,12 +8303,12 @@ function PackageField({ label, value }) {
   return (
     <div className="mp-card p-2.5">
       <div className="flex items-center justify-between mb-1">
-        <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{label}</span>
+        <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{label}</span>
         <button onClick={copy} className="p-1.5 -m-1 opacity-60 hover:opacity-100 transition" aria-label={`Copy ${label}`} title={state === 'fail' ? 'Copy failed: select manually' : `Copy ${label}`}>
           {state === 'ok' ? <Check size={13} style={{ color: '#4FB286' }} /> : state === 'fail' ? <X size={13} style={{ color: '#c83f10' }} /> : <Copy size={13} />}
         </button>
       </div>
-      <div className="mp-display text-[15px] leading-tight truncate">{value || <span style={{ color: 'rgba(21,23,28,0.66)' }} className="mp-body">—</span>}</div>
+      <div className="mp-display text-[15px] leading-tight truncate">{value || <span style={{ color: 'rgba(38,42,35,0.66)' }} className="mp-body">—</span>}</div>
     </div>
   );
 }
@@ -8311,7 +8321,7 @@ function CopyButton({ text }) {
     setTimeout(() => setState(null), 1600);
   };
   return (
-    <button onClick={copy} disabled={!text} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1 disabled:opacity-30 py-1" aria-label="Copy to clipboard">
+    <button onClick={copy} disabled={!text} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1 disabled:opacity-30 py-1" aria-label="Copy to clipboard">
       {state === 'ok' ? <><Check size={13} style={{ color: '#4FB286' }} /> Copied</> : state === 'fail' ? <><X size={13} style={{ color: '#c83f10' }} /> Select &amp; copy</> : <><Copy size={12} /> Copy</>}
     </button>
   );
@@ -8327,7 +8337,7 @@ function RichCopyButton({ html, plain, label = 'Copy formatted' }) {
     setTimeout(() => setState(null), 1600);
   };
   return (
-    <button onClick={copy} disabled={!plain} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1 disabled:opacity-30 py-1" aria-label={label}>
+    <button onClick={copy} disabled={!plain} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1 disabled:opacity-30 py-1" aria-label={label}>
       {state === 'ok' ? <><Check size={13} style={{ color: '#4FB286' }} /> Copied</> : state === 'fail' ? <><X size={13} style={{ color: '#c83f10' }} /> Select &amp; copy</> : <><Copy size={12} /> {label}</>}
     </button>
   );
@@ -8391,17 +8401,17 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(58,134,255,0.05)', border: '1px solid rgba(58,134,255,0.35)' }}>
         <div className="flex items-center gap-2 mb-2">
-          <span className="mp-display tracking-wide text-sm" style={{ color: '#15171C' }}>ONE-CLICK UPLOAD</span>
+          <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>ONE-CLICK UPLOAD</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: '#3A86FF', color: '#fff' }}>Demo</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{platform.name} has an upload API</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{platform.name} has an upload API</span>
         </div>
 
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.65)' }}>
+            <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.65)' }}>
               {platform.name} supports publishing via API. Connect your account once, then publish straight from here: no manual upload page.
             </p>
             <button onClick={connect} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
@@ -8409,7 +8419,7 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
         )}
 
         {status === 'connecting' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
             <Loader size={14} className="mp-spin" /> Opening {platform.name} authorization…
           </div>
         )}
@@ -8417,10 +8427,10 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
         {status === 'connected' && (
           <>
             <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
-              <Check size={14} /> Connected as <span className="mp-mono">@your-handle</span> <span style={{ color: 'rgba(21,23,28,0.66)' }}>(demo)</span>
+              <Check size={14} /> Connected as <span className="mp-mono">@your-handle</span> <span style={{ color: 'rgba(38,42,35,0.66)' }}>(demo)</span>
             </div>
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <label className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>
+              <label className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
                 <Clock size={12} /> Schedule
               </label>
               <input
@@ -8432,10 +8442,10 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
                 className="mp-input-sm"
               />
               {scheduledAt && (
-                <button onClick={() => setScheduledAt('')} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition" aria-label="Clear schedule">clear</button>
+                <button onClick={() => setScheduledAt('')} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#5A7430] transition" aria-label="Clear schedule">clear</button>
               )}
             </div>
-            <p className="text-[11px] mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>Preview only: won't actually publish at that time yet (timed publishing runs server-side, coming with the backend).</p>
+            <p className="text-[11px] mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>Preview only: won't actually publish at that time yet (timed publishing runs server-side, coming with the backend).</p>
             <button onClick={publish} className="mp-btn text-xs py-2 px-3">
               {scheduledAt ? <><Clock size={13} /> Save schedule for {formatSchedule(scheduledAt)}</> : <><Send size={13} /> Publish to {platform.name}</>}
             </button>
@@ -8443,7 +8453,7 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
         )}
 
         {status === 'uploading' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
             <Loader size={14} className="mp-spin" /> {stepMsg}
           </div>
         )}
@@ -8453,10 +8463,10 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
             <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#3a8d68' }}>
               <Clock size={14} /> Scheduled for {formatSchedule(scheduledAt)}
             </div>
-            <p className="text-xs mb-2 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <p className="text-xs mb-2 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {platform.name} will publish automatically at that time once timed publishing ships (it runs server-side). For now this captures the intent.
             </p>
-            <button onClick={() => setStatus('connected')} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+            <button onClick={() => setStatus('connected')} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
               <ArrowRight size={11} /> Change schedule
             </button>
           </>
@@ -8464,20 +8474,20 @@ function MockUploadFlow({ platform, project, startSignal = 0 }) {
 
         {status === 'done' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#15171C' }}>
+            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#262A23' }}>
               <Check size={14} style={{ color: '#3a8d68' }} /> Demo only: nothing was uploaded
             </div>
-            <p className="text-xs mb-1.5 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <p className="text-xs mb-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
               This is what one-click {platform.id === 'mmf' ? 'submit (then MyMiniFactory test-prints before going live)' : 'publish'} will look like. Example URL it would produce:
             </p>
-            <div className="mp-card mp-mono text-[13px] p-2 mb-2 break-all" style={{ background: 'rgba(21,23,28,0.04)', color: 'rgba(21,23,28,0.66)', textDecoration: 'line-through' }}>{resultUrl}</div>
-            <button onClick={() => { setStatus('connected'); setStepMsg(''); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+            <div className="mp-card mp-mono text-[13px] p-2 mb-2 break-all" style={{ background: 'rgba(38,42,35,0.04)', color: 'rgba(38,42,35,0.66)', textDecoration: 'line-through' }}>{resultUrl}</div>
+            <button onClick={() => { setStatus('connected'); setStepMsg(''); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
               <ArrowRight size={11} /> Run again
             </button>
           </>
         )}
 
-        <p className="text-[11px] mt-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <p className="text-[11px] mt-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
           Simulation only: nothing is uploaded. This platform’s live API flow is not connected yet; use the manual package below.
         </p>
       </div>
@@ -8803,17 +8813,17 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(255,87,34,0.06)', border: '1px solid rgba(255,87,34,0.45)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+      <div className="mp-card p-3" style={{ background: 'rgba(90,116,48,0.06)', border: '1px solid rgba(90,116,48,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="mp-display tracking-wide text-sm" style={{ color: '#15171C' }}>CULTS3D PUBLISH</span>
+          <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>CULTS3D PUBLISH</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
         </div>
 
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5 leading-snug flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            <p className="text-[13px] mb-2.5 leading-snug flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
               <StatusDot status="unknown" /> {platform.name}: not connected. Sign in to publish for real (tags, secret listings, deactivate).
             </p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
@@ -8829,16 +8839,16 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                   {cultsAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
                 </select>
               ) : <span className="mp-mono">{simulate ? 'Demo account (simulation only)' : realActive?.label}</span>}
-              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#FF5722] transition ml-1" style={{ color: 'rgba(21,23,28,0.66)' }}>manage</button>
-              {!simulate && <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.66)' }}>disconnect</button>}
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#5A7430] transition ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
+              {!simulate && <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>}
             </div>
             {/* Visibility is set on the Platforms step (project.platforms.cults.visibility). */}
-            <div className="flex items-center gap-2 mb-2.5 text-xs flex-wrap" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            <div className="flex items-center gap-2 mb-2.5 text-xs flex-wrap" style={{ color: 'rgba(38,42,35,0.7)' }}>
               <span className="mp-mono uppercase tracking-[0.15em] text-[11px]">visibility</span>
               <strong>{visibility === 'secret' ? 'Secret' : 'Public'}</strong>
-              <span className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>· change in the Platforms step</span>
+              <span className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>· change in the Platforms step</span>
             </div>
-            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {simulate
                 ? <>Demo simulation only: nothing will be sent to Cults3D. Connect a real account in Settings to test the live upload.</>
                 : <>⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{realActive?.label}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return; you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}</>}
@@ -8868,48 +8878,48 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                 </div>
 
                 {listingsError && (
-                  <div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(200,63,16,0.06)', border: '1px solid rgba(200,63,16,0.3)', color: 'rgba(21,23,28,0.8)' }}>
+                  <div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
                     {listingsError}
                   </div>
                 )}
 
                 {listingsLoading && listings === null && (
-                  <div className="flex items-center gap-2 text-xs py-2" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                  <div className="flex items-center gap-2 text-xs py-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
                     <Loader size={13} className="mp-spin" /> Loading your listings…
                   </div>
                 )}
 
                 {listings !== null && listings.length === 0 && !listingsLoading && (
-                  <p className="text-xs py-1" style={{ color: 'rgba(21,23,28,0.66)' }}>No listings yet: publish one above and they'll appear here.</p>
+                  <p className="text-xs py-1" style={{ color: 'rgba(38,42,35,0.66)' }}>No listings yet: publish one above and they'll appear here.</p>
                 )}
 
                 {listings !== null && listings.length > 0 && (
                   <div className="flex flex-col gap-1.5">
                     {listings.map(l => {
                       const isPending = pendingRow.slug === l.slug;
-                      const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(21,23,28,0.66)';
+                      const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(38,42,35,0.66)';
                       return (
-                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ background: '#fff', border: '1px solid rgba(21,23,28,0.06)' }}>
+                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ background: '#fff', border: '1px solid rgba(38,42,35,0.06)' }}>
                           {l.thumbnailUrl && (
                             <img src={l.thumbnailUrl} alt="" width={32} height={32} loading="lazy" style={{ objectFit: 'cover', flexShrink: 0 }} />
                           )}
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs truncate" style={{ color: '#15171C' }} title={l.title}>{l.title}</div>
-                            <div className="flex items-center gap-1.5 text-[11px] mp-mono uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                            <div className="text-xs truncate" style={{ color: '#262A23' }} title={l.title}>{l.title}</div>
+                            <div className="flex items-center gap-1.5 text-[11px] mp-mono uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
                               <span style={{ color: badgeColor }}>{l.status}</span>
                               {l.priceLabel && <span>· {l.priceLabel}</span>}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            <a href={l.editUrl} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#FF5722] transition px-1" style={{ color: 'rgba(21,23,28,0.66)' }} title="Open on Cults">
+                            <a href={l.editUrl} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#5A7430] transition px-1" style={{ color: 'rgba(38,42,35,0.66)' }} title="Open on Cults">
                               open
                             </a>
                             {l.status !== 'offline' && (
-                              <button onClick={() => rowAction(l.slug, 'deactivate')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#FF5722] transition px-1 disabled:opacity-40" style={{ color: 'rgba(21,23,28,0.66)' }} title="Hide from search + profile (reversible)">
+                              <button onClick={() => rowAction(l.slug, 'deactivate')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#5A7430] transition px-1 disabled:opacity-40" style={{ color: 'rgba(38,42,35,0.66)' }} title="Hide from search + profile (reversible)">
                                 {isPending && pendingRow.action === 'deactivate' ? '…' : 'deactivate'}
                               </button>
                             )}
-                            <button onClick={() => rowAction(l.slug, 'delete')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#c83f10] transition px-1 disabled:opacity-40" style={{ color: 'rgba(200,63,16,0.7)' }} title="Permanently remove from Cults (irreversible)">
+                            <button onClick={() => rowAction(l.slug, 'delete')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#c83f10] transition px-1 disabled:opacity-40" style={{ color: 'rgba(62,84,32,0.7)' }} title="Permanently remove from Cults (irreversible)">
                               {isPending && pendingRow.action === 'delete' ? '…' : 'delete'}
                             </button>
                           </div>
@@ -8919,7 +8929,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                   </div>
                 )}
 
-                <p className="text-[11px] mt-2 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                <p className="text-[11px] mt-2 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
                   <strong>deactivate</strong> hides but keeps the listing (re-activate from Cults). <strong>delete</strong> permanently removes: no undo.
                 </p>
               </div>
@@ -8928,52 +8938,52 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
         )}
 
         {status === 'publishing' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
             <Loader size={14} className="mp-spin" /> {progressMsg || `Publishing to ${platform.name}…`}
           </div>
         )}
 
         {status === 'deactivating' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
             <Loader size={14} className="mp-spin" /> Deactivating listing…
           </div>
         )}
 
         {status === 'done' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap" style={{ color: result?.deactivated ? 'rgba(21,23,28,0.55)' : '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap" style={{ color: result?.deactivated ? 'rgba(38,42,35,0.55)' : '#3a8d68' }}>
               <Check size={14} />
               {result?.deactivated
-                ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
-                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'rgba(21,23,28,0.66)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
+                ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: '#5A7430', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
+                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'rgba(38,42,35,0.66)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
             </div>
             {result?.demo && <div className="mp-mono text-[11px] mb-1.5" style={{ color: '#3A86FF' }}>Demo mode: nothing was uploaded. Exit demo and connect a real account to publish for real.</div>}
             {result?.designUrl && (
-              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FF5722] transition" style={{ background: 'rgba(21,23,28,0.04)', color: 'rgba(21,23,28,0.85)' }}>
+              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#5A7430] transition" style={{ background: 'rgba(38,42,35,0.04)', color: 'rgba(38,42,35,0.85)' }}>
                 {result.designUrl}
               </a>
             )}
             {result?.substituted?.length > 0 && (
-              <p className="text-[11px] mb-2 leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>
+              <p className="text-[11px] mb-2 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
                 {/* Web flow surfaces per-field substitutions for license / category. Tags + media are handled inline (always work). */}
                 {result.substituted.includes('license') && 'License was swapped: Cults requires CC licenses on free listings and cults_cu on paid listings; the closest valid one was used. '}
                 {result.substituted.includes('category') && 'Category mapped to Various: your category wasn\'t in Cults\'s top-level list. Pick a sub-category inside Cults after publish if needed. '}
               </p>
             )}
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={() => { setStatus('connected'); setResult(null); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#FF5722] transition flex items-center gap-1">
+              <button onClick={() => { setStatus('connected'); setResult(null); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
                 <ArrowRight size={11} /> Publish another
               </button>
               {result?.slug && !result?.deactivated && (
                 <>
-                  <span style={{ color: 'rgba(21,23,28,0.25)' }}>·</span>
-                  <button onClick={deactivate} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.66)' }}>
+                  <span style={{ color: 'rgba(38,42,35,0.25)' }}>·</span>
+                  <button onClick={deactivate} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>
                     Deactivate this listing
                   </button>
                 </>
               )}
-              <span style={{ color: 'rgba(21,23,28,0.25)' }}>·</span>
-              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.66)' }}>disconnect</button>
+              <span style={{ color: 'rgba(38,42,35,0.25)' }}>·</span>
+              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>
             </div>
           </>
         )}
@@ -8983,12 +8993,12 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
             <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#c83f10' }}>
               <X size={14} /> Publish failed
             </div>
-            <div className="mp-card text-xs p-2 mb-2 break-all" style={{ background: 'rgba(200,63,16,0.06)', border: '1px solid rgba(200,63,16,0.3)', color: 'rgba(21,23,28,0.8)' }}>
+            <div className="mp-card text-xs p-2 mb-2 break-all" style={{ background: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
               {errorMsg || 'Unknown error.'}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button onClick={() => publish()} className="mp-btn text-xs py-2 px-3"><ArrowRight size={13} /> Retry</button>
-              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(21,23,28,0.66)' }}>disconnect</button>
+              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>
             </div>
           </>
         )}
@@ -9372,16 +9382,16 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">PRINTABLES UPLOAD</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>desktop session</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>desktop session</span>
         </div>
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(21,23,28,0.65)' }}>Connect Printables through its real Prusa Account window to upload.</p>
+            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(38,42,35,0.65)' }}>Connect Printables through its real Prusa Account window to upload.</p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Printables</button>
           </>
         )}
@@ -9389,9 +9399,9 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
           <>
             <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
               <StatusDot status={active?.status || 'connected'} /> {simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}
-              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(21,23,28,0.66)' }}>manage</button>
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
             </div>
-            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.62)' }}>
+            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.62)' }}>
               {simulate
                 ? <>Demo simulation only: neither action sends anything to Printables.</>
                 : <><strong>Save draft</strong> uploads an unpublished model only you can edit. <strong>Publish public</strong> submits a real public listing (or an approval request when Printables requires review).</>}
@@ -9410,7 +9420,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
                 {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
                 {modelsLoading && models === null && <div className="text-[11px]"><Loader size={11} className="mp-spin inline mr-1" />Loading…</div>}
                 {models && models.drafts.length === 0 && models.published.length === 0 && !modelsLoading && (
-                  <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>No models found.</div>
+                  <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No models found.</div>
                 )}
                 {models && [...models.drafts.map((item) => ({ ...item, state: 'draft' })), ...models.published.map((item) => ({ ...item, state: 'live' }))].map((item) => {
                   const href = item.state === 'live'
@@ -9728,17 +9738,17 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(255,182,39,0.08)', border: '1px solid rgba(255,182,39,0.55)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">NEXPRINT UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#15171C', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>direct desktop upload</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#262A23', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>direct desktop upload</span>
         </div>
 
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(21,23,28,0.65)' }}>
+            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(38,42,35,0.65)' }}>
               Connect through Nexprint’s own sign-in window. Your sign-in stays on this computer.
             </p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Nexprint</button>
@@ -9750,9 +9760,9 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
             <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
               <StatusDot status={active?.status || 'connected'} />
               {simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}
-              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(21,23,28,0.66)' }}>manage</button>
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
             </div>
-            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(21,23,28,0.62)' }}>
+            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.62)' }}>
               {simulate
                 ? 'Demo simulation only: neither action sends files or metadata to Nexprint.'
                 : 'Save draft uploads an unpublished editable model. Publish public sends a real public listing; review the Nexprint-specific options above first.'}
@@ -10037,7 +10047,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(230,57,70,0.05)', border: '1px solid rgba(230,57,70,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">CREALITY CLOUD UPLOAD</span>
@@ -10056,7 +10066,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
               <button onClick={toggleDrafts} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">{draftsOpen ? 'Hide drafts' : 'My Creality drafts'}</button>
             </div>
             {draftsOpen && (
-              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(21,23,28,0.03)' }}>
+              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(38,42,35,0.03)' }}>
                 <div className="flex items-center justify-between mb-2"><span className="mp-mono text-[11px] uppercase tracking-[0.15em]">Recent drafts</span><button onClick={loadDrafts} className="mp-mono text-[11px] uppercase">Refresh</button></div>
                 {draftsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{draftsError}</div>}
                 {drafts && drafts.length === 0 && <div className="text-[11px] opacity-70">No drafts found.</div>}
@@ -10231,7 +10241,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
     finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return; handledBatchRun.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
-  return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+  return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts')}>Connect MakerRoad</button>}
     {status === 'uploading' && <div className="text-xs flex gap-2"><Loader size={14} className="mp-spin" />{progress}</div>}
     {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate private save' : 'Save private draft'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate review submit' : 'Submit for review (LIVE)'}</button></div>}
@@ -10463,7 +10473,7 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
   }, [batchRequest?.runId]);
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">MAKERONLINE UPLOAD</span>
@@ -10679,7 +10689,7 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
   }, [batchRequest?.runId]);
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(21,23,28,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ background: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-1.5 py-0.5" style={{ background: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
@@ -10700,7 +10710,7 @@ const ACCT_STATUS = {
   checking:  { dot: '#3A86FF', label: 'Checking saved session' },
   reconnect: { dot: '#d97706', label: 'Reconnect needed' },
   error:     { dot: '#dc2626', label: 'Error' },
-  unknown:   { dot: 'rgba(21,23,28,0.3)', label: 'Not verified' },
+  unknown:   { dot: 'rgba(38,42,35,0.3)', label: 'Not verified' },
 };
 function accountIsUsable(account) {
   return !!account?.secret && account.status === 'connected';
@@ -10780,21 +10790,21 @@ function SettingsModal({ open, onClose, tab, setTab }) {
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(21,23,28,0.45)' }} onClick={onClose}>
-      <div className="mp-card w-full max-w-2xl my-8" style={{ background: '#EDE9DE' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(21,23,28,0.12)', background: '#EDE9DE' }}>
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(38,42,35,0.45)' }} onClick={onClose}>
+      <div className="mp-card w-full max-w-2xl my-8" style={{ background: '#FFFFFF' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(38,42,35,0.12)', background: '#FFFFFF' }}>
           <div className="flex items-center gap-2"><Settings size={16} /><span className="mp-display text-[18px]">Settings</span></div>
           <button onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         {/* Tab strip */}
         {/* Wraps rather than clipping the last tab on a narrow window. */}
-        <div className="flex flex-wrap gap-1 px-4 pt-3 border-b" style={{ borderColor: 'rgba(21,23,28,0.12)' }}>
+        <div className="flex flex-wrap gap-1 px-4 pt-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
           {TABS.map((t) => {
             const Icon = t.icon; const on = tab === t.id;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
                 className="px-3 py-2 mp-mono text-xs uppercase tracking-[0.12em] flex items-center gap-1.5 -mb-px border-b-2 transition"
-                style={{ borderColor: on ? '#FF5722' : 'transparent', color: on ? '#15171C' : 'rgba(21,23,28,0.66)' }}>
+                style={{ borderColor: on ? '#5A7430' : 'transparent', color: on ? '#262A23' : 'rgba(38,42,35,0.66)' }}>
                 <Icon size={13} /> {t.label}
                 {t.badge != null && <span className="mp-mono text-[11px]" style={{ color: '#1a7f37' }}>{t.badge}</span>}
               </button>
@@ -10804,7 +10814,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
         <div className="p-4 space-y-3 max-h-[68vh] overflow-auto">
           {tab === 'accounts' && (
             <>
-              <p className="text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform’s session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
+              <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform’s session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
               {!!missingDesktopPlatforms.length && (
                 <div role="alert" className="mp-card p-3 text-xs leading-relaxed" style={{ background: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: '#991b1b' }}>
                   <strong>Desktop app update required.</strong> This page is newer than the running ModelPrep desktop shell, so {missingDesktopPlatforms.map((id) => meta(id).name).join(', ')} cannot connect. Quit every ModelPrep window and launch the current app build.
@@ -10814,11 +10824,11 @@ function SettingsModal({ open, onClose, tab, setTab }) {
               {/* Every platform is connectable today, so this renders nothing.
                   Kept for the next platform added ahead of its sign-in bridge. */}
               {PLATFORMS.some((p) => !CONNECTABLE.includes(p.id)) && (
-                <div className="mp-card p-3" style={{ background: 'rgba(21,23,28,0.03)' }}>
-                  <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>Coming soon</div>
+                <div className="mp-card p-3" style={{ background: 'rgba(38,42,35,0.03)' }}>
+                  <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>Coming soon</div>
                   <div className="flex flex-wrap gap-1.5">
                     {PLATFORMS.filter((p) => !CONNECTABLE.includes(p.id)).map((p) => (
-                      <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ background: 'rgba(21,23,28,0.06)', color: 'rgba(21,23,28,0.66)' }}>
+                      <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ background: 'rgba(38,42,35,0.06)', color: 'rgba(38,42,35,0.66)' }}>
                         <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: p.dot }} />{p.name}
                       </span>
                     ))}
@@ -10859,25 +10869,25 @@ const GLOSSARY = [
 
 function SettingsHelp() {
   return (
-    <div className="space-y-4 text-[13px]" style={{ color: 'rgba(21,23,28,0.8)' }}>
+    <div className="space-y-4 text-[13px]" style={{ color: 'rgba(38,42,35,0.8)' }}>
       <div>
-        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>How ModelPrep works</div>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>How ModelPrep works</div>
         <ol className="list-decimal pl-5 space-y-1 text-[13px]">
           <li>Add your model files and photos, write the listing once (or let AI draft it from the photos).</li>
           <li>Pick the platforms to publish to. ModelPrep adapts images, text, tags and categories to each platform's rules.</li>
           <li>Publish to all of them in one go, or one at a time. Everything starts private or as a draft; nothing goes public unless you choose it.</li>
         </ol>
-        <p className="text-xs mt-2" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <p className="text-xs mt-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
           Not sure where to start? Use <strong>Try demo</strong> in the header to walk the whole flow with a sample project.
         </p>
       </div>
       <div>
-        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}>Glossary</div>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>Glossary</div>
         <dl className="space-y-2">
           {GLOSSARY.map(([term, def]) => (
             <div key={term} className="mp-card p-2.5">
               <dt className="mp-mono text-[11px] uppercase tracking-[0.12em]">{term}</dt>
-              <dd className="text-xs mt-0.5" style={{ color: 'rgba(21,23,28,0.7)' }}>{def}</dd>
+              <dd className="text-xs mt-0.5" style={{ color: 'rgba(38,42,35,0.7)' }}>{def}</dd>
             </div>
           ))}
         </dl>
@@ -10897,7 +10907,7 @@ function SettingsDefaults() {
   const setAll = (on) => { const next = on ? PLATFORMS.map(p => p.id) : []; setSel(next); setDefaultPlatforms(next); };
   return (
     <div className="space-y-2">
-      <p className="text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>Pick which platforms a new project starts with enabled, so you don't toggle them every time. Saved in this browser; applies to <strong>new</strong> and imported projects.</p>
+      <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Pick which platforms a new project starts with enabled, so you don't toggle them every time. Saved in this browser; applies to <strong>new</strong> and imported projects.</p>
       <div className="flex gap-2">
         <button onClick={() => setAll(true)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><Check size={12} /> All</button>
         <button onClick={() => setAll(false)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><X size={12} /> None</button>
@@ -10906,8 +10916,8 @@ function SettingsDefaults() {
         {PLATFORMS.map(p => {
           const on = sel.includes(p.id);
           return (
-            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ background: on ? 'rgba(255,87,34,0.06)' : 'rgba(21,23,28,0.02)', borderColor: on ? 'rgba(255,87,34,0.3)' : 'rgba(21,23,28,0.1)' }}>
-              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ background: on ? '#FF5722' : 'transparent', border: `1px solid ${on ? '#FF5722' : 'rgba(21,23,28,0.3)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
+            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ background: on ? 'rgba(90,116,48,0.06)' : 'rgba(38,42,35,0.02)', borderColor: on ? 'rgba(90,116,48,0.3)' : 'rgba(38,42,35,0.1)' }}>
+              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ background: on ? '#5A7430' : 'transparent', border: `1px solid ${on ? '#5A7430' : 'rgba(38,42,35,0.3)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
               <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.dot }} />
               <span className="text-[13px]">{p.name}</span>
             </button>
@@ -10943,12 +10953,12 @@ function SettingsAbout({ onClose }) {
     onClose();
   };
   return (
-    <div className="space-y-3 text-[13px]" style={{ color: 'rgba(21,23,28,0.8)' }}>
+    <div className="space-y-3 text-[13px]" style={{ color: 'rgba(38,42,35,0.8)' }}>
       <div className="mp-card p-3 space-y-1">
-        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>Build</div>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Build</div>
         <div data-testid="visible-build-stamp" className="mp-mono text-xs whitespace-nowrap" title={BUILD_TIME ? new Date(BUILD_TIME).toISOString() : BUILD_DATE_LABEL}>Build {BUILD_LABEL}</div>
       </div>
-      <p className="text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+      <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
         {desktop
           ? `All direct-platform sessions are isolated and encrypted in the desktop app (bridge v${desktop.bridgeVersion || 'legacy'}); AI settings are saved in this renderer profile. Clearing removes them from this device.`
           : 'Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.'}
@@ -10982,10 +10992,10 @@ function UpdatePanel({ desktop }) {
   return (
     <div className="mp-card p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>Updates</div>
-        <button onClick={() => desktop.checkForUpdate?.()} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>check now</button>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Updates</div>
+        <button onClick={() => desktop.checkForUpdate?.()} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>check now</button>
       </div>
-      <div className="text-xs" style={{ color: 'rgba(21,23,28,0.7)' }}>{label || 'Automatic updates are on.'}</div>
+      <div className="text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>{label || 'Automatic updates are on.'}</div>
       {state.status === 'ready' && (
         <button onClick={() => desktop.installUpdate?.()} className="mp-btn text-[11px] py-1.5 px-2">Restart to update</button>
       )}
@@ -11007,14 +11017,14 @@ function DiagnosticsPanel({ desktop }) {
   const recent = diag.entries?.slice(-3).reverse() || [];
   return (
     <div className="mp-card p-3 space-y-2">
-      <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
         Diagnostics · {diag.count} recorded
       </div>
-      <p className="text-xs" style={{ color: 'rgba(21,23,28,0.66)' }}>
+      <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
         Errors are stored locally and sanitized (no cookies, tokens, or signed URLs). Nothing is sent unless you export or report.
       </p>
       {recent.length > 0 && (
-        <ul className="text-[11px] space-y-0.5" style={{ color: 'rgba(21,23,28,0.66)' }}>
+        <ul className="text-[11px] space-y-0.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
           {recent.map((e, i) => (
             <li key={i} className="truncate mp-mono">{e.source}/{e.kind}: {String(e.message || '').split('\n')[0]}</li>
           ))}
@@ -11170,10 +11180,10 @@ function PlatformConnections({ platform }) {
       <div className="flex items-center gap-2">
         <span className="inline-block w-3 h-3 rounded-full flex-shrink-0" style={{ background: platform.dot }} />
         <span className="mp-display text-[15px]">{platform.name}</span>
-        {accounts.length > 0 && <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
+        {accounts.length > 0 && <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
       </div>
       {accounts.map((a) => (
-        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ background: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(21,23,28,0.03)' }}>
+        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ background: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(38,42,35,0.03)' }}>
           <StatusDot status={a.status} />
           <span className="flex-1 min-w-[150px] truncate">{a.label}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: (ACCT_STATUS[a.status] || ACCT_STATUS.unknown).dot }}>
@@ -11181,7 +11191,7 @@ function PlatformConnections({ platform }) {
           </span>
           {a.id === active?.id
             ? <span className="mp-pill text-[11px]" style={{ background: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
-            : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>Use</button>}
+            : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>Use</button>}
           {['reconnect', 'error', 'unknown'].includes(a.status) && (
             <button
               onClick={() => reconnectAccount(a)}
@@ -11192,7 +11202,7 @@ function PlatformConnections({ platform }) {
             </button>
           )}
           {platform.id === 'makerworld' && typeof a.secret === 'string' && a.secret.includes('refreshToken=') && (
-            <button onClick={() => refreshMakerWorld(a)} disabled={refreshingId === a.id} className="mp-mono text-[11px] underline disabled:opacity-40" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <button onClick={() => refreshMakerWorld(a)} disabled={refreshingId === a.id} className="mp-mono text-[11px] underline disabled:opacity-40" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {refreshingId === a.id ? 'refreshing…' : 'refresh session'}
             </button>
           )}
@@ -11236,11 +11246,11 @@ function ConnectShell({
         <button disabled={buttonDisabled} onClick={onConnect} className={CONNECT_BTN_CLS}>{buttonLabel}</button>
       )}
       {hint}
-      {note && <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>{note}</p>}
+      {note && <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{note}</p>}
       {children}
       {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
       {canCancel && (
-        <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.66)' }}>Cancel</button>
+        <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>Cancel</button>
       )}
     </div>
   );
@@ -11369,7 +11379,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         onConnect={connectMyMiniFactory}
         buttonDisabled={busy || !desktop?.connectMyMiniFactory}
         buttonLabel={busy ? 'Waiting for MyMiniFactory sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in to MyMiniFactory'}
-        hint={!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
+        hint={!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
         note="Signs in through MyMiniFactory’s own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -11414,7 +11424,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         onConnect={connectMakerOnline}
         buttonDisabled={busy || !desktop?.connectMakerOnline}
         buttonLabel={busy ? 'Waiting for MakerOnline sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in to MakerOnline'}
-        hint={!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(21,23,28,0.66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
+        hint={!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
         note="Signs in through MakerOnline’s own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -11459,7 +11469,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectCreality}
         buttonLabel={busy ? 'Waiting for Creality Cloud sign-in…' : 'Sign in to Creality Cloud'}
         hint={!desktop?.connectCreality && (
-          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop to connect Creality Cloud.
           </p>
         )}
@@ -11507,7 +11517,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectNexprint}
         buttonLabel={busy ? 'Waiting for Nexprint sign-in…' : 'Sign in to Nexprint'}
         hint={!desktop?.connectNexprint && (
-          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop to connect Nexprint.
           </p>
         )}
@@ -11556,7 +11566,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectPrintables}
         buttonLabel={busy ? 'Waiting for Printables sign-in…' : 'Sign in to Printables'}
         hint={!desktop?.connectPrintables && (
-          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop to sign in through Prusa Account. ModelPrep does not ask for or store your Printables password.
           </p>
         )}
@@ -11590,7 +11600,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectCults}
         buttonLabel={busy ? 'Waiting for Cults3D sign-in…' : 'Sign in to Cults3D'}
         hint={!desktop && (
-          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop. Browser builds intentionally do not collect or forward a Cults3D password.
           </p>
         )}
@@ -11667,7 +11677,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
       err={err} canCancel={canCancel} onDone={onDone}
     >
       <details>
-        <summary className="text-[11px] cursor-pointer font-medium" style={{ color: 'rgba(21,23,28,0.66)' }}>Advanced fallback: email + password</summary>
+        <summary className="text-[11px] cursor-pointer font-medium" style={{ color: 'rgba(38,42,35,0.66)' }}>Advanced fallback: email + password</summary>
         <div className="mt-1.5 space-y-1.5">
           <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={needCode} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
           {!needCode && <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />}
@@ -11683,7 +11693,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
               </div>
             </>
           )}
-          <p className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             {desktop
               ? 'Your password goes straight to MakerWorld and is never stored. The signed-in session is encrypted on this computer.'
               : 'Your password is only used to sign in to MakerWorld and is never stored. The desktop app offers a fully direct sign-in path.'}
@@ -11692,9 +11702,9 @@ function ConnectForm({ platform, onDone, canCancel }) {
         </div>
       </details>
       <details>
-        <summary className="text-[11px] cursor-pointer" style={{ color: 'rgba(21,23,28,0.66)' }}>Trouble signing in? Paste a session cookie instead</summary>
+        <summary className="text-[11px] cursor-pointer" style={{ color: 'rgba(38,42,35,0.66)' }}>Trouble signing in? Paste a session cookie instead</summary>
         <div className="mt-1.5 space-y-1.5">
-          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>From a logged-in MakerWorld tab: DevTools → Application → Cookies → copy <code>token</code> (and <code>refreshToken</code>).</div>
+          <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>From a logged-in MakerWorld tab: DevTools → Application → Cookies → copy <code>token</code> (and <code>refreshToken</code>).</div>
           <textarea className={inputCls} rows={2} placeholder="token=…; refreshToken=…" value={cookie} onChange={(e) => setCookie(e.target.value)} />
           <button disabled={!cookie.trim() || busy} onClick={() => finishMw(cookie.trim())} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{busy ? 'Checking…' : 'Connect with cookie'}</button>
         </div>
@@ -11827,7 +11837,7 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
   return (
     <div className="space-y-1.5">
       {selected ? (
-        <div className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
+        <div className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.04)' }}>
           {selected.cover && <img src={selected.cover} alt="" className="w-7 h-7 object-cover" />}
           <span className="flex-1 truncate">{selected.title} <span className="mp-mono opacity-50">#{selected.id}</span></span>
           <button onClick={() => onSelect(null)} className="mp-mono text-[11px] underline opacity-60">clear</button>
@@ -11862,12 +11872,12 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
 function MwSection({ title, hint, badge, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+    <div className="mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>{title}</span>
+        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
         {badge != null && badge !== 0 && <span className="mp-mono text-[11px] px-1.5 py-0.5" style={{ background: 'rgba(255,105,0,0.15)', color: '#B23A1A' }}>{badge}</span>}
-        {hint && <span className="text-[11px] ml-auto" style={{ color: 'rgba(21,23,28,0.66)' }}>{hint}</span>}
+        {hint && <span className="text-[11px] ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{hint}</span>}
       </button>
       {open && <div className="px-3 pb-3 space-y-2">{children}</div>}
     </div>
@@ -11890,12 +11900,12 @@ function mwModelStatus(m) {
 // the publish actions.
 function MyListingsDisclosure({ title, count, open, onToggle, children }) {
   return (
-    <div className="mp-card mt-3" style={{ background: 'rgba(21,23,28,0.02)' }}>
+    <div className="mp-card mt-3" style={{ background: 'rgba(38,42,35,0.02)' }}>
       <button onClick={onToggle} aria-expanded={open} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>{title}</span>
+        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
         {count != null && (
-          <span className="mp-mono text-[11px] ml-auto" style={{ color: 'rgba(21,23,28,0.66)' }}>{count}</span>
+          <span className="mp-mono text-[11px] ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{count}</span>
         )}
       </button>
       {open && <div className="px-3 pb-3 space-y-1.5">{children}</div>}
@@ -11934,11 +11944,11 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
   };
   useEffect(() => { if (open && models === null) load(); }, [open]); // eslint-disable-line
   return (
-    <div className="mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+    <div className="mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>My MakerWorld {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'}</span>
-        {models && <span className="mp-mono text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>{models.length} live</span>}
+        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>My MakerWorld {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'}</span>
+        {models && <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{models.length} live</span>}
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-1.5">
@@ -11948,7 +11958,7 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
           {models && models.map((m) => {
             const s = mwModelStatus(m);
             return (
-              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.03)' }}>
+              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.03)' }}>
                 {m.coverUrl && <img src={m.coverUrl} alt="" className="w-7 h-7 object-cover flex-shrink-0" />}
                 <span className="flex-1 truncate">{m.title}</span>
                 <span className="flex items-center gap-1 flex-shrink-0"><StatusDot status="connected" /><span style={{ color: s.dot }}>{s.label}</span></span>
@@ -12400,15 +12410,15 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
   return (
     <div className="space-y-3">
       {!cookie ? (
-        <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
-          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(21,23,28,0.66)' }}><StatusDot status="unknown" /> {platform.name}: not connected</div>
-          <p className="text-[13px]" style={{ color: 'rgba(21,23,28,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Settings → Accounts</strong>.</p>
+        <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(38,42,35,0.04)' }}>
+          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}><StatusDot status="unknown" /> {platform.name}: not connected</div>
+          <p className="text-[13px]" style={{ color: 'rgba(38,42,35,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Settings → Accounts</strong>.</p>
           <button onClick={() => openConnections('accounts')} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between gap-2 text-[13px]">
-            <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'rgba(21,23,28,0.7)' }}>
+            <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'rgba(38,42,35,0.7)' }}>
               <StatusDot status={active.status} /> Publishing as
               {mwAccounts.length > 1 ? (
                 <select value={active.id} onChange={(e) => acc.setActive('makerworld', e.target.value)} className="mp-card text-xs p-1 max-w-[160px]">
@@ -12417,33 +12427,33 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
               ) : <strong className="truncate">{active.label}{simulate ? ' (simulation only)' : ''}</strong>}
             </span>
             <span className="flex items-center gap-2 flex-shrink-0">
-              <button onClick={() => openConnections('accounts')} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.66)' }}>manage</button>
-              {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(21,23,28,0.66)' }}>disconnect</button>}
+              <button onClick={() => openConnections('accounts')} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
+              {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>}
             </span>
           </div>
           {!simulate ? (
-            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
+            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
               {isDesktopMakerWorldSession(realCookie) ? 'Signed in via desktop app' : 'Signed in via browser'}
             </div>
           ) : null}
 
-          <div className="mp-card p-2 text-xs" style={{ background: 'rgba(21,23,28,0.03)', color: 'rgba(21,23,28,0.7)' }}>
+          <div className="mp-card p-2 text-xs" style={{ background: 'rgba(38,42,35,0.03)', color: 'rgba(38,42,35,0.7)' }}>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Globe size={13} style={{ color: '#FF5722' }} />
+              <Globe size={13} style={{ color: '#5A7430' }} />
               <span>{isLC ? 'Laser & Cut' : '3D model'} · {isLC ? (modelSource === 'remix' ? 'Remix' : 'Original') : catLabel} · <strong>{visibility}</strong>{bomCount ? ` · BOM ${bomCount}` : ''}{!isLC && modelSource === 'remix' ? ' · Remix' : ''}{!isLC && exclusive ? ' · Exclusive' : ''}{relatedModel ? ' · linked' : ''}{communityPost ? ' · community post' : ''}</span>
             </div>
-            <div className="text-[11px] mt-1" style={{ color: 'rgba(21,23,28,0.66)' }}>Edit these in the <strong>Platforms</strong> step → MakerWorld options.</div>
+            <div className="text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>Edit these in the <strong>Platforms</strong> step → MakerWorld options.</div>
           </div>
 
           {!isLC && has3mf && (
-            <div className="mp-card p-2 text-xs flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.75)' }}>
-              <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#FF5722' }} />
+            <div className="mp-card p-2 text-xs flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.75)' }}>
+              <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#5A7430' }} />
               <span>Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'}. Edit in the <strong>Profiles</strong> step.</span>
             </div>
           )}
 
           {visibility === 'public' && (
-            <div className="text-xs p-2 mp-card" style={{ background: 'rgba(255,87,34,0.08)', color: '#B23A1A' }}>
+            <div className="text-xs p-2 mp-card" style={{ background: 'rgba(90,116,48,0.08)', color: '#B23A1A' }}>
               ⚠️ Publishing <strong>public</strong> submits a real, live listing to MakerWorld (it enters review/"verifying").
             </div>
           )}
@@ -12472,14 +12482,14 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           )}
 
           {result && (
-            <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(21,23,28,0.04)' }}>
-              <div className="text-[13px]" style={{ color: 'rgba(21,23,28,0.85)' }}>
+            <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(38,42,35,0.04)' }}>
+              <div className="text-[13px]" style={{ color: 'rgba(38,42,35,0.85)' }}>
                 <Check size={14} className="inline" /> {result.demo
                   ? (result.draftOnly ? 'Simulated draft save (demo): ' : 'Simulated publish (demo): ')
                   : (result.draftOnly ? 'Saved to MakerWorld: ' : 'Submitted to MakerWorld: ')}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
               {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Nothing was uploaded. Exit Demo mode before using a connected account for a real upload.</div>}
-              {result.url && !result.demo && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-xs underline break-all block" style={{ color: '#FF5722' }}>{result.url}</a>}
+              {result.url && !result.demo && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-xs underline break-all block" style={{ color: '#5A7430' }}>{result.url}</a>}
               {/* Post-submit verification: a 200 submit = "accepted for review", not "live". */}
               {!result.demo && !result.draftOnly && (
                 <div className="space-y-1">
@@ -12496,7 +12506,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
                     : liveCheck.live ? <div className="text-xs" style={{ color: '#1a7f37' }}>✓ Confirmed live on MakerWorld{liveCheck.model?.offlineInstCnt > 0 ? ` (⚠ ${liveCheck.model.offlineInstCnt} print profile(s) offline)` : ''}.</div>
                     : <div className="text-xs" style={{ color: '#B23A1A' }}>
                         Not live yet: it's still in <strong>review</strong>, or it was <strong>rejected</strong>.
-                        {' '}Check {result.kind === 'laser-cut' ? 'your Laser & Cut drafts on MakerWorld' : <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: '#FF5722', textDecoration: 'underline' }}>your MakerWorld notifications</a>} for the reason.
+                        {' '}Check {result.kind === 'laser-cut' ? 'your Laser & Cut drafts on MakerWorld' : <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: '#5A7430', textDecoration: 'underline' }}>your MakerWorld notifications</a>} for the reason.
                       </div>
                   )}
                 </div>
@@ -12594,16 +12604,16 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
   const setLaserProfile = (field, value) => onUpdate('laserProfile', { ...laserProfile, [field]: value });
 
   return (
-    <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(21,23,28,0.66)' }}>MakerWorld options</div>
-      <div className="flex gap-1 mp-card p-1" style={{ background: 'rgba(21,23,28,0.04)' }}>
+    <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>MakerWorld options</div>
+      <div className="flex gap-1 mp-card p-1" style={{ background: 'rgba(38,42,35,0.04)' }}>
         {[['3d', '3D Model'], ['laser-cut', 'Laser & Cut']].map(([m, lbl]) => (
           <button key={m} onClick={() => onUpdate({ productMode: m })} className="flex-1 text-xs py-1.5 rounded-sm transition"
-            style={o.productMode === m ? { background: '#15171C', color: '#fff' } : { color: 'rgba(21,23,28,0.66)' }}>{lbl}</button>
+            style={o.productMode === m ? { background: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'rgba(38,42,35,0.66)' }}>{lbl}</button>
         ))}
       </div>
       {isLC && (
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Laser &amp; Cut upload mode</span>
+        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Laser &amp; Cut upload mode</span>
           <select className={inputCls} value={o.laserMode || 'raw'} onChange={(e) => onUpdate('laserMode', e.target.value)}>
             <option value="raw">Raw .lac, SVG, DXF, image, or AI source files</option>
             <option value="lac">Bambu Suite .lac file + print profile</option>
@@ -12620,7 +12630,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               <span className="text-[11px] opacity-70">Other Laser files, including additional .lac files, are uploaded as raw model files.</span>
             </label>
           )}
-          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>ModelPrep reads <span className="mp-mono">lacInfo</span>, plate data, and <span className="mp-mono">model2DInfo</span> from the .lac package locally. Fill these only when you need to override missing or incorrect package metadata.</div>
+          <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>ModelPrep reads <span className="mp-mono">lacInfo</span>, plate data, and <span className="mp-mono">model2DInfo</span> from the .lac package locally. Fill these only when you need to override missing or incorrect package metadata.</div>
           <label className="text-xs space-y-1 block"><span>Machine name override</span>
             <input className={inputCls} value={laserInfo.machineName} placeholder="e.g. H2D Laser" onChange={(e) => setLaserInfo('machineName', e.target.value)} />
           </label>
@@ -12634,7 +12644,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             <label className="text-xs space-y-1"><span>Other tools</span><input className={inputCls} value={laserInfo.otherTools} onChange={(e) => setLaserInfo('otherTools', e.target.value)} /></label>
             <label className="text-xs space-y-1"><span>Compatible devices</span><input className={inputCls} value={laserInfo.compatibleDevices} placeholder="comma-separated" onChange={(e) => setLaserInfo('compatibleDevices', e.target.value)} /></label>
           </div>
-          <div className="pt-2 border-t space-y-2" style={{ borderColor: 'rgba(21,23,28,0.1)' }}>
+          <div className="pt-2 border-t space-y-2" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
             <div className="mp-mono text-[11px] uppercase tracking-[0.12em] opacity-70">Laser &amp; Cut profile</div>
             <label className="text-xs space-y-1 block"><span>Profile name</span>
               <input className={inputCls} maxLength={60} value={laserProfile.title} placeholder="e.g. 3mm plywood · cut and engrave" onChange={(e) => setLaserProfile('title', e.target.value)} />
@@ -12656,7 +12666,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               <div className="grid grid-cols-5 gap-1.5">
                 {(project?.images || []).map((image) => (
                   <button key={image.id} type="button" onClick={() => setLaserProfile('coverImageId', image.id)} className="relative aspect-square overflow-hidden"
-                    style={{ outline: laserProfile.coverImageId === image.id ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: -1 }}>
+                    style={{ outline: laserProfile.coverImageId === image.id ? '2px solid #5A7430' : '1px solid rgba(38,42,35,0.15)', outlineOffset: -1 }}>
                     <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
                   </button>
                 ))}
@@ -12672,9 +12682,9 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                       ? (laserProfile.photoIds || []).filter((id) => id !== image.id)
                       : [...(laserProfile.photoIds || []), image.id].slice(0, 37))}
                       className="relative aspect-square overflow-hidden"
-                      style={{ outline: selected ? '2px solid #FF5722' : '1px solid rgba(21,23,28,0.15)', outlineOffset: -1 }}>
+                      style={{ outline: selected ? '2px solid #5A7430' : '1px solid rgba(38,42,35,0.15)', outlineOffset: -1 }}>
                       <img src={image.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: selected ? 1 : 0.55 }} />
-                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: '#FF5722' }}><Check size={10} color="#fff" /></span>}
+                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: '#5A7430' }}><Check size={10} color="#fff" /></span>}
                     </button>
                   );
                 })}
@@ -12685,20 +12695,20 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
       )}
       <div className="grid grid-cols-2 gap-2">
         {!isLC ? (
-          <label className="text-xs space-y-1"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Category</span>
+          <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Category</span>
             <input className={`${inputCls} mb-1`} value={categoryQuery} onChange={(e) => setCategoryQuery(e.target.value)} placeholder="Search categories…" />
             <select className={inputCls} value={o.categoryId} onChange={(e) => onUpdate('categoryId', e.target.value)}>
               {visibleCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </label>
         ) : (
-          <label className="text-xs space-y-1"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Source</span>
+          <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Source</span>
             <select className={inputCls} value={o.modelSource} onChange={(e) => changeModelSource(e.target.value)}>
               <option value="original">Original</option><option value="remix">Remix</option>
             </select>
           </label>
         )}
-        <label className="text-xs space-y-1"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Visibility</span>
+        <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Visibility</span>
           <select className={inputCls} value={o.visibility} onChange={(e) => onUpdate('visibility', e.target.value)}>
             <option value="private">Private</option><option value="public">Public</option>
           </select>
@@ -12706,7 +12716,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
       </div>
 
       {!isLC && profileFiles.length > 0 && (
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Initial Bambu Studio print profile</span>
+        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Initial Bambu Studio print profile</span>
           <select className={inputCls} value={o.primaryProfileFileId || profileFiles[0].id} onChange={(e) => onUpdate('primaryProfileFileId', e.target.value)}>
             {profileFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
           </select>
@@ -12714,17 +12724,17 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         </label>
       )}
 
-      <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.66)' }}>License</span>
+      <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>License</span>
         <select className={inputCls} value={o.license || ''} onChange={(e) => onUpdate('license', e.target.value)}>
           <option value="">Same as Details step</option>
           {MW_LICENSE_OPTIONS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
         </select>
-        <span className="text-[11px] block" style={{ color: 'rgba(21,23,28,0.66)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
+        <span className="text-[11px] block" style={{ color: 'rgba(38,42,35,0.66)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
       </label>
 
       <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
         {!isLC && (
-          <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Model source</span>
+          <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Model source</span>
             <select className={inputCls} value={o.modelSource} onChange={(e) => changeModelSource(e.target.value)}>
               <option value="original">Original design</option>
               <option value="remix">Remix of another model</option>
@@ -12733,7 +12743,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         )}
         {o.modelSource === 'remix' && (
             <div className="space-y-1">
-              <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>Paste any source URL, or search your own MakerWorld designs:</div>
+              <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>Paste any source URL, or search your own MakerWorld designs:</div>
               <input className={inputCls} type="url" value={o.remixUrl || ''} placeholder="https://makerworld.com/en/models/… or another source"
                 onChange={(e) => onUpdate({ remixUrl: e.target.value, remixModel: null })} />
               <MwRelatedSearch cookie={cookie} type={isLC ? 1 : 0} selected={o.remixModel}
@@ -12759,11 +12769,11 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         )}
       </MwSection>
       <MwSection title={isLC ? 'Linked 3D model' : 'Linked Laser & Cut model'} hint="optional" badge={o.relatedModel ? '1' : 0}>
-        <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>{isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}</div>
+        <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}</div>
         <MwRelatedSearch cookie={cookie} type={isLC ? 0 : 1} selected={o.relatedModel} onSelect={(v) => onUpdate('relatedModel', v)} label={isLC ? 'Search your 3D models…' : 'Search your Laser & Cut models…'} />
       </MwSection>
       {cyberBrickPath && uploadCapabilities.data?.rcUpload === false && (
-        <div className="text-[11px] p-2 mp-card" style={{ background: 'rgba(255,182,39,0.10)', color: 'rgba(21,23,28,0.7)' }}>
+        <div className="text-[11px] p-2 mp-card" style={{ background: 'rgba(255,182,39,0.10)', color: 'rgba(38,42,35,0.7)' }}>
           CyberBrick upload is not enabled for this MakerWorld account.
         </div>
       )}
@@ -12796,7 +12806,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
       )}
       {!isLC && (
         <MwSection title="Bill of Materials" hint="kits · filaments · materials" badge={bomCount + otherParts.length || 0}>
-          <div className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>Pick Maker's Supply catalog items, enter a Product ID, or list free-text parts.</div>
+          <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>Pick Maker's Supply catalog items, enter a Product ID, or list free-text parts.</div>
           {!catalog ? (
             <button onClick={ensureCatalog} className="mp-btn text-[11px] py-1.5 px-3">Load BOM catalog</button>
           ) : (
@@ -12808,10 +12818,10 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               </div>
               {[['kits', 'Kits & Parts'], ['filaments', 'Filaments'], ['materials', 'Materials']].map(([kind, lbl]) => (
                 <div key={kind} className="space-y-1.5">
-                  <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>{lbl}</div>
+                  <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{lbl}</div>
                   <MwBomPicker roots={catalog[kind]} onAdd={(item) => addBom(kind, item)} />
                   {boms[kind].map((it, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
+                    <div key={i} className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.04)' }}>
                       {it.image && <img src={it.image} alt="" className="w-6 h-6 object-cover" />}
                       <span className="flex-1 truncate">{it.title} <span className="mp-mono opacity-50">×{it.quantity}</span></span>
                       <button onClick={() => removeBom(kind, i)} className="opacity-50 hover:opacity-100"><X size={13} /></button>
@@ -12820,9 +12830,9 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                 </div>
               ))}
               <div className="space-y-1.5">
-                <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(21,23,28,0.66)' }}>Other parts (free text)</div>
+                <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Other parts (free text)</div>
                 {otherParts.map((p, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-xs mp-card p-1.5" style={{ background: 'rgba(21,23,28,0.04)' }}>
+                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.04)' }}>
                     <input className="mp-input text-[11px]" value={p.name} placeholder="Part name" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, name: e.target.value } : item))} />
                     <input className="mp-input text-[11px]" type="number" min={1} value={p.quantity} onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, quantity: Math.max(1, Number(e.target.value) || 1) } : item))} />
                     <input className="mp-input text-[11px]" value={p.note || ''} placeholder="Note (optional)" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, note: e.target.value } : item))} />
@@ -12837,11 +12847,11 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         </MwSection>
       )}
       <MwSection title="Documentation" hint="assembly guide · other files" badge={docGuides.length + docOthers.length || 0}>
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Assembly guide ({docGuides.length}/25 · pdf/png/jpg/webp/gif · img ≤30MB, pdf ≤50MB)</span>
+        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Assembly guide ({docGuides.length}/25 · pdf/png/jpg/webp/gif · img ≤30MB, pdf ≤50MB)</span>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif" className="text-[11px] w-full" onChange={(e) => setGuides(e.target.files || [])} />
         </label>
         {docGuides.length > 0 && <div className="text-[11px] opacity-60">{docGuides.map(f => f.name).join(', ')}</div>}
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(21,23,28,0.66)' }}>Other files ({docOthers.length}/10 · txt ≤2MB, pdf ≤50MB, zip ≤100MB)</span>
+        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Other files ({docOthers.length}/10 · txt ≤2MB, pdf ≤50MB, zip ≤100MB)</span>
           <input type="file" multiple accept=".txt,.pdf,.zip" className="text-[11px] w-full" onChange={(e) => setOthers(e.target.files || [])} />
         </label>
         {docOthers.length > 0 && <div className="text-[11px] opacity-60">{docOthers.map(f => f.name).join(', ')}</div>}
@@ -12850,7 +12860,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
       </MwSection>
       {!isLC && (
         <div className="space-y-1.5">
-          <label className="flex items-start gap-2 text-xs" style={{ color: 'rgba(21,23,28,0.7)' }}>
+          <label className="flex items-start gap-2 text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>
             <input type="checkbox" disabled={o.modelSource === 'remix'} checked={!!o.exclusive}
               onChange={(e) => onUpdate({ exclusive: e.target.checked, exclusiveTermsAccepted: false })} className="mt-0.5" />
             <span>Join the <strong>Exclusive Model Program</strong> for this model.{o.modelSource === 'remix' ? ' Remixes are not eligible.' : ''}</span>
@@ -12864,12 +12874,12 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         </div>
       )}
       {!isLC && (
-        <label className="flex items-center gap-2 text-xs" style={{ color: 'rgba(21,23,28,0.7)' }}>
+        <label className="flex items-center gap-2 text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>
           <input type="checkbox" checked={!!o.communityPost} onChange={(e) => onUpdate('communityPost', e.target.checked)} /> Also create a community post
         </label>
       )}
       {isLC && (
-        <div className="text-xs p-2 mp-card" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(21,23,28,0.7)' }}>
+        <div className="text-xs p-2 mp-card" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.7)' }}>
           Laser &amp; Cut accepts <span className="mp-mono">{MAKERWORLD_LASER_FORMATS.map((format) => `.${format}`).join(' ')}</span>. Bambu Suite .lac mode also creates a Laser &amp; Cut print profile; raw .lac files remain source files.
         </div>
       )}
@@ -12925,7 +12935,7 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
   }, [image, cover, preserveOriginal]);
   return (
     <div className="relative group" role="img" aria-label={preserveOriginal ? `${image?.alt || 'Project image'} kept at original aspect` : `${image?.alt || 'Project image'} cropped for ${cover.label}, ${cover.w} by ${cover.h} pixels`}>
-      <div className="overflow-hidden" style={{ background: '#15171C' }}>
+      <div className="overflow-hidden" style={{ background: '#262A23' }}>
         {preserveOriginal
           ? <img src={image.dataUrl} alt="" className="w-full max-h-96 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
@@ -12937,9 +12947,9 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
         <button
           onClick={onDownload}
           className="absolute bottom-2 right-2 mp-mono text-xs uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition"
-          style={{ background: '#15171C', color: '#fff' }}
-          onMouseEnter={(e) => e.currentTarget.style.background = '#FF5722'}
-          onMouseLeave={(e) => e.currentTarget.style.background = '#15171C'}
+          style={{ background: '#262A23', color: '#fff' }}
+          onMouseEnter={(e) => e.currentTarget.style.background = '#5A7430'}
+          onMouseLeave={(e) => e.currentTarget.style.background = '#262A23'}
         >
           <Download size={11} /> JPG
         </button>
@@ -12950,7 +12960,7 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
 
 function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
   return (
-    <div className="relative group aspect-square overflow-hidden" style={{ background: '#15171C' }}>
+    <div className="relative group aspect-square overflow-hidden" style={{ background: '#262A23' }}>
       <img
         src={image.dataUrl}
         alt={image.alt || 'Project gallery image'}
@@ -12962,8 +12972,8 @@ function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
           onClick={onDownload}
           aria-label="Download this image as JPG"
           title="Download JPG"
-          className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[#FF5722]"
-          style={{ background: 'rgba(21,23,28,0.85)', color: '#fff' }}
+          className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[#5A7430]"
+          style={{ background: 'rgba(38,42,35,0.85)', color: '#fff' }}
         >
           <Download size={14} />
         </button>
@@ -12981,14 +12991,14 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
   const [open, setOpen] = useState(false);
   const galleryImgs = project.images.filter(i => i.id !== project.coverImageId).slice(0, galleryCapacity(platform));
   const descHtml = mdToHtml(project.description || '');
-  const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: '#FF5722' }}>{label}</button>;
-  const lbl = (t) => <span className="text-[11px]" style={{ color: 'rgba(21,23,28,0.66)' }}>{t}</span>;
+  const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>{label}</button>;
+  const lbl = (t) => <span className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{t}</span>;
   return (
-    <div className="mp-card" style={{ background: 'rgba(21,23,28,0.02)' }}>
+    <div className="mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#15171C' }}>Preview listing</span>
-        <span className="text-[11px] ml-auto truncate" style={{ color: 'rgba(21,23,28,0.66)', maxWidth: '55%' }}>{project.title || '(no title)'} · {project.images.length} img · {project.tags.length} tags</span>
+        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>Preview listing</span>
+        <span className="text-[11px] ml-auto truncate" style={{ color: 'rgba(38,42,35,0.66)', maxWidth: '55%' }}>{project.title || '(no title)'} · {project.images.length} img · {project.tags.length} tags</span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-3">
@@ -13012,7 +13022,7 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
                 inside an already-scrolling page. */}
             <div className="mp-prose text-[13px] mp-card p-2.5" style={{ background: '#fff' }} dangerouslySetInnerHTML={{ __html: descHtml || '<span style="opacity:.4">(no description)</span>' }} /></div>
 
-          <div><div className="flex items-center justify-between mb-1">{lbl(`Tags · ${project.tags.length}`)}<Edit to="details" /></div><div className="text-xs" style={{ color: 'rgba(21,23,28,0.8)' }}>{project.tags.join(', ') || <span style={{ opacity: 0.4 }}>(none)</span>}</div></div>
+          <div><div className="flex items-center justify-between mb-1">{lbl(`Tags · ${project.tags.length}`)}<Edit to="details" /></div><div className="text-xs" style={{ color: 'rgba(38,42,35,0.8)' }}>{project.tags.join(', ') || <span style={{ opacity: 0.4 }}>(none)</span>}</div></div>
 
           {galleryImgs.length > 0 && (
             <div><div className="flex items-center justify-between mb-1">{lbl(`Gallery · ${galleryImgs.length} (cover shown above)`)}<Edit to="images" /></div>
@@ -13035,19 +13045,11 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
 
 function SectionHeader({ number, title, subtitle }) {
   return (
-    <div data-testid="section-header" className="border-b pb-3 sm:pb-4" style={{ borderColor: 'rgba(21,23,28,0.15)' }}>
-      <div className="flex items-center gap-3 mb-1.5">
-        <span className="mp-mono text-xs tracking-[0.2em]" style={{ color: '#FF5722' }}>
-          <span className="mp-dimline">STEP {number}</span>
-        </span>
-        <div className="flex-1 mp-tickrule" />
-        <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(21,23,28,0.66)' }}>
-          /// modelprep
-        </span>
-      </div>
+    <div data-testid="section-header" className="pb-4 sm:pb-5">
+      <span className="sr-only">Step {Number(number)}</span>
       <div className="flex flex-col gap-1">
-        <h2 className="mp-display text-[30px] sm:text-[36px] leading-none" style={{ color: '#15171C' }}>{title}</h2>
-        <p className="mp-body w-full text-sm leading-5" style={{ color: 'rgba(21,23,28,0.65)' }}>{subtitle}</p>
+        <h2 className="mp-display text-[22px] sm:text-[26px]" style={{ color: '#262A23' }}>{title}</h2>
+        <p className="mp-body w-full text-sm leading-5 max-w-xl" style={{ color: 'var(--ink-65)' }}>{subtitle}</p>
       </div>
     </div>
   );
@@ -13062,7 +13064,7 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
       <div
         data-testid="section-nav"
         className="sticky bottom-8 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
-        style={{ borderColor: 'rgba(21,23,28,0.14)', background: 'rgba(237,233,222,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+        style={{ borderColor: 'rgba(38,42,35,0.14)', background: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
       >
         <div>
           {backLabel && (
@@ -13073,7 +13075,7 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
         </div>
         <div className="flex items-center gap-3 justify-end text-right">
           {nextLabel && nextDisabled && disabledReason && (
-            <span className="hidden sm:block mp-body text-[13px] leading-snug" style={{ color: 'rgba(21,23,28,0.66)' }}>{disabledReason}</span>
+            <span className="hidden sm:block mp-body text-[13px] leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{disabledReason}</span>
           )}
           {nextLabel && (
             <button onClick={onNext} disabled={nextDisabled} className="mp-btn flex-shrink-0">
