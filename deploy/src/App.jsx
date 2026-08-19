@@ -2301,6 +2301,20 @@ function GlobalStyles() {
 
       .mp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
 
+      /* Disclosure summaries: explicit rotating chevron, since inline-flex
+         summaries drop the native marker. */
+      summary.mp-disclosure { list-style: none; }
+      summary.mp-disclosure::-webkit-details-marker { display: none; }
+      summary.mp-disclosure::before { content: ''; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; display: inline-block; transition: transform 140ms ease; flex-shrink: 0; }
+      details[open] > summary.mp-disclosure::before { transform: rotate(90deg); }
+
+      /* Segmented control: one bordered unit on a sunken track; the active
+         segment lifts to white. Finder-style, not two loose buttons. */
+      .mp-segmented { display: inline-flex; align-items: center; padding: 2px; gap: 2px; background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-md); height: 34px; }
+      .mp-segmented > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; border: none; border-radius: var(--radius-sm); font: 500 12px 'Inter', system-ui, sans-serif; color: var(--ink-65); background: transparent; cursor: pointer; transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease; }
+      .mp-segmented > button:hover { color: var(--ink); }
+      .mp-segmented > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+
       /* Preview-size slider. */
       .mp-range { -webkit-appearance: none; appearance: none; background: transparent; height: 20px; cursor: pointer; }
       .mp-range::-webkit-slider-runnable-track { height: 3px; border-radius: 999px; background: var(--border-strong); }
@@ -3017,14 +3031,14 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
       {project.files.length > 0 && (
         <div className="mt-6">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-            <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+            <span className="text-sm" style={{ color: 'var(--ink-65)' }}>
               {matchCount === project.files.length
-                ? <>{project.files.length} file{project.files.length === 1 ? '' : 's'} · {formatBytes(totalSize)} total</>
-                : <>{matchCount} of {project.files.length} files</>}
+                ? <><span style={{ color: 'var(--ink)', fontWeight: 500 }}>{project.files.length} file{project.files.length === 1 ? '' : 's'}</span> · {formatBytes(totalSize)}</>
+                : <><span style={{ color: 'var(--ink)', fontWeight: 500 }}>{matchCount} of {project.files.length}</span> files match</>}
             </span>
             <div className="flex items-center gap-2 flex-wrap">
               <label className="relative flex items-center">
-                <Search size={13} className="absolute left-2 pointer-events-none" style={{ color: 'rgba(38,42,35,0.45)' }} />
+                <Search size={13} className="absolute left-2.5 pointer-events-none" style={{ color: 'var(--ink-35)' }} />
                 <input
                   value={fileQuery}
                   onChange={(e) => setFileQuery(e.target.value)}
@@ -3042,38 +3056,30 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                   </button>
                 )}
               </label>
-              {/* Density, not decoration: 25 files is a wall as rows and a
-                  contact sheet as tiles, and which one helps depends on whether
-                  you are reading names or looking at plates. */}
               <label className="flex items-center gap-1.5">
-                <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.6)' }}>Sort</span>
+                <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Sort</span>
                 <select
                   value={fileSort}
                   onChange={(e) => setFileSort(e.target.value)}
                   aria-label="Sort files"
                   className="mp-input-sm"
-                  style={{ minHeight: 32, paddingTop: 2, paddingBottom: 2 }}
                 >
                   {Object.entries(FILE_SORTS).map(([key, { label }]) => (
                     <option key={key} value={key}>{label}</option>
                   ))}
                 </select>
               </label>
-              {/* Segmented control, Finder-style: two halves of one unit rather
-                  than two loose buttons. */}
-              <div className="flex" role="group" aria-label="File view">
-                {[{ id: 'list', icon: FileText, label: 'List view' }, { id: 'grid', icon: ImageIcon, label: 'Grid view' }].map(({ id, icon: Icon, label }, i) => (
+              {/* Density, not decoration: 25 files is a wall as rows and a
+                  contact sheet as tiles, and which one helps depends on whether
+                  you are reading names or looking at plates. */}
+              <div className="mp-segmented" role="group" aria-label="File view">
+                {[{ id: 'list', icon: FileText, label: 'List view' }, { id: 'grid', icon: ImageIcon, label: 'Grid view' }].map(({ id, icon: Icon, label }) => (
                   <button
                     key={id}
                     onClick={() => setFileView(id)}
                     aria-label={label}
+                    title={label}
                     aria-pressed={fileView === id}
-                    className={`px-2.5 py-1.5 border transition ${i === 1 ? 'border-l-0' : ''}`}
-                    style={{
-                      background: fileView === id ? 'var(--primary-tint)' : 'transparent',
-                      color: fileView === id ? 'var(--primary-ink)' : 'rgba(38,42,35,0.66)',
-                      borderColor: 'rgba(38,42,35,0.2)',
-                    }}
                   >
                     <Icon size={14} />
                   </button>
@@ -3082,7 +3088,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
               {/* A slider, because preview size is a continuous quantity: two
                   buttons made the user click repeatedly to cross the range. */}
               <label className="flex items-center gap-1.5" title="Preview size">
-                <Minus size={12} style={{ color: 'rgba(38,42,35,0.5)' }} />
+                <Minus size={12} style={{ color: 'var(--ink-35)' }} />
                 <input
                   type="range"
                   min={THUMB_MIN}
@@ -3093,20 +3099,22 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                   aria-label="Preview size"
                   className="mp-range w-24"
                 />
-                <Plus size={12} style={{ color: 'rgba(38,42,35,0.5)' }} />
+                <Plus size={12} style={{ color: 'var(--ink-35)' }} />
               </label>
+              <div aria-hidden style={{ width: 1, height: 20, background: 'var(--border)' }} />
+              <button
+                onClick={() => {
+                  if (!confirmClear) { setConfirmClear(true); return; }
+                  setConfirmClear(false);
+                  updateProject({ files: [] });
+                }}
+                className="mp-btn mp-btn-ghost text-xs"
+                style={{ minHeight: 34, padding: '0 10px', color: 'var(--danger-text)', boxShadow: 'none', borderColor: confirmClear ? 'var(--danger-text)' : 'var(--border)', background: confirmClear ? 'var(--danger-tint)' : 'transparent' }}
+              >
+                <Trash2 size={13} />
+                {confirmClear ? 'Click again to remove all files' : 'Clear all'}
+              </button>
             </div>
-            <button
-              onClick={() => {
-                if (!confirmClear) { setConfirmClear(true); return; }
-                setConfirmClear(false);
-                updateProject({ files: [] });
-              }}
-              className={`mp-mono text-xs uppercase tracking-[0.2em] transition ${confirmClear ? '' : 'opacity-60 hover:opacity-100'}`}
-              style={confirmClear ? { color: 'var(--danger-text)' } : undefined}
-            >
-              {confirmClear ? 'Click again to remove all files' : 'Clear all'}
-            </button>
           </div>
           {/* Grouped by what each file is for. A folder import arrives in an
               arbitrary order, and 25 rows of mixed profiles, meshes and photos
@@ -3578,16 +3586,16 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
           )}
         </div>
       </div>
-      <button onClick={startEdit} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#5A7430] transition" aria-label="Rename file" title="Rename">
+      <button onClick={startEdit} className="p-2 rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-50)' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--ink)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-50)'; }} aria-label="Rename file" title="Rename">
         <Edit3 size={15} />
       </button>
-      <button onClick={onRemove} className="p-2.5 opacity-60 hover:opacity-100 hover:text-[#5A7430] transition" aria-label="Remove file" title="Remove">
+      <button onClick={onRemove} className="p-2 rounded-md transition-colors hover:bg-[var(--danger-tint)]" style={{ color: 'var(--ink-50)' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--danger-text)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ink-50)'; }} aria-label="Remove file" title="Remove">
         <Trash2 size={15} />
       </button>
       </div>
       {supportsMakerWorld && (
         <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>MakerWorld file settings</summary>
+          <summary className="mp-disclosure cursor-pointer mp-mono text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>MakerWorld file settings</summary>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
             <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
               <input className="mp-input text-xs" value={makerWorld.folderPath}
@@ -3606,7 +3614,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
       )}
       {supportsPrintables && (
         <details className="mt-2 pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-          <summary className="cursor-pointer mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Printables file settings</summary>
+          <summary className="mp-disclosure cursor-pointer mp-mono text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>Printables file settings</summary>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
             <label className="text-[11px] space-y-1"><span>Folder path (optional)</span>
               <input className="mp-input text-xs" value={printables.folder}
