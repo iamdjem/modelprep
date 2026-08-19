@@ -29,9 +29,9 @@ describe('shared section navigation layout', () => {
   it('keeps the brand compact and desktop actions on one intentional row', () => {
     render(<App />);
 
-    expect(screen.getByTestId('top-header-layout')).toHaveClass('flex-col', 'xl:flex-row', 'xl:flex-nowrap');
-    expect(screen.getByTestId('top-header-brand')).toHaveClass('xl:max-w-[360px]', '2xl:max-w-[520px]');
-    expect(screen.getByTestId('top-header-actions')).toHaveClass('grid-cols-2', 'sm:flex', 'xl:flex-nowrap', 'xl:justify-end');
+    expect(screen.getByTestId('top-header-layout')).toHaveClass('flex', 'flex-wrap', 'items-center', 'justify-between');
+    expect(screen.getByTestId('top-header-brand')).toHaveClass('flex', 'items-center', 'min-w-0');
+    expect(screen.getByTestId('top-header-actions')).toHaveClass('flex', 'flex-wrap', 'items-center');
     expect(screen.getByTestId('modelprep-logo')).toHaveAttribute('src', '/modelprep-logo.svg');
     expect(screen.getByText(/^v0\.3$/i)).toHaveClass('whitespace-nowrap');
     expect(screen.queryByTestId('visible-build-stamp')).not.toBeInTheDocument();
@@ -55,8 +55,10 @@ describe('shared section navigation layout', () => {
     expect(screen.getByTestId('workspace-main')).toHaveClass('pt-4', 'sm:pt-5', 'lg:pt-5');
     expect(screen.getByTestId('workspace-main')).toHaveStyle({ paddingBottom: '0px' });
     expect(screen.getByTestId('section-content')).toHaveClass('flex-1', 'flex', 'flex-col');
-    expect(screen.getByTestId('section-nav')).toHaveClass('sticky', 'bottom-8', 'mt-auto');
-    expect(screen.getByTestId('status-bar')).toHaveClass('fixed', 'bottom-0');
+    expect(screen.getByTestId('section-nav')).toHaveClass('sticky', 'bottom-0', 'mt-auto');
+    // The old fixed bottom bar moved into the sidebar footer.
+    expect(screen.getByTestId('status-bar')).toHaveClass('border-t');
+    expect(screen.getByTestId('project-sidebar').contains(screen.getByTestId('status-bar'))).toBe(true);
     expect(screen.getByRole('button', { name: /continue to publish/i })).toBeInTheDocument();
   });
 

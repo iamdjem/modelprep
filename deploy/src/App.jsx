@@ -2019,6 +2019,8 @@ export default function App() {
         demoLoading={demoLoading}
         onToggleDemo={toggleDemo}
         onOpenConnections={openSettings}
+        completion={completion}
+        onGoPublish={() => setCurrentSection('publish')}
       />
       <VersionBanner />
       {restoreOffer && (
@@ -2050,6 +2052,7 @@ export default function App() {
           directly above the fixed status bar; long steps retain sticky navigation. */}
       <div className="flex flex-1 flex-col lg:flex-row w-full max-w-[1760px] 2xl:max-w-[2200px] mx-auto">
         <Sidebar
+          project={project}
           currentSection={currentSection}
           setCurrentSection={setCurrentSection}
           completion={completion}
@@ -2095,7 +2098,6 @@ export default function App() {
         </main>
       </div>
 
-      <StatusBar project={project} completion={completion} currentSection={currentSection} />
       </div>
 
       {dialog && <Modal dialog={dialog} onClose={() => setDialog(null)} />}
@@ -2151,42 +2153,6 @@ function Modal({ dialog, onClose }) {
   );
 }
 
-function StatusBar({ project, completion, currentSection }) {
-  const totalSize = project.files.reduce((s, f) => s + f.size, 0);
-  const enabledCount = Object.values(project.platforms).filter(p => p.enabled).length;
-  const doneCount = Object.values(completion).filter(Boolean).length;
-  const totalSteps = Object.keys(completion).length - 1; // publish doesn't count
-  const allDone = doneCount >= totalSteps;
-  const activeIndex = Math.max(0, SECTIONS.findIndex((section) => section.id === currentSection));
-  const status = doneCount === 0 ? { label: 'New project', color: '#FFB627' }
-    : allDone ? { label: 'Ready to publish', color: '#4FB286' }
-    : { label: 'In progress', color: '#FFB627' };
-  return (
-    <div data-testid="status-bar" className="fixed bottom-0 left-0 right-0 z-20 border-t" style={{
-      background: 'var(--surface)',
-      color: 'var(--ink-65)',
-      borderColor: 'var(--border)',
-      height: 32,
-    }}>
-      <div className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto h-full flex items-center justify-between px-4 sm:px-6 overflow-x-auto whitespace-nowrap">
-        <div className="flex items-center gap-3 sm:gap-5 mp-mono text-xs">
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: status.color }} />
-            {status.label}
-          </span>
-          <span style={{ color: 'var(--ink-35)' }}>·</span>
-          <span>Step {activeIndex + 1} of {SECTIONS.length}<span className="hidden sm:inline"> · {SECTIONS[activeIndex].label}</span></span>
-        </div>
-        <div className="hidden sm:flex items-center gap-5 mp-mono text-xs">
-          <span>Files <span style={{ color: 'var(--ink)' }}>{project.files.length}</span></span>
-          <span>Media <span style={{ color: 'var(--ink)' }}>{project.images.length + (project.media || []).length}</span></span>
-          <span>Size <span style={{ color: 'var(--ink)' }}>{formatBytes(totalSize)}</span></span>
-          <span>Platforms <span style={{ color: 'var(--ink)' }}>{enabledCount}/{PLATFORMS.length}</span></span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // =====================================================================
 // GLOBAL STYLES
@@ -2357,6 +2323,12 @@ function GlobalStyles() {
         .mp-btn, .mp-input, .mp-input-sm, .mp-btn-ghost { transition-duration: 0.01ms; }
       }
 
+      /* Sidebar fills the viewport below the 53px top bar so its status
+         footer pins to the bottom edge. */
+      @media (min-width: 1024px) {
+        [data-testid="project-sidebar"] { height: calc(100vh - 53px); }
+      }
+
       /* Global body font */
       body, [class*="mp-"] { font-family: 'Inter', system-ui, sans-serif; }
       body { background: var(--bg); }
@@ -2369,7 +2341,7 @@ function GlobalStyles() {
 // TOP HEADER
 // =====================================================================
 
-function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, onImportFolder, demoActive, demoLoading, onToggleDemo, onOpenConnections }) {
+function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, onImportFolder, demoActive, demoLoading, onToggleDemo, onOpenConnections, completion, onGoPublish }) {
   const [editingName, setEditingName] = useState(false);
   const templatesRef = useRef(null);
   const folderRef = useRef(null);
@@ -2386,82 +2358,73 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [showTemplates, setShowTemplates]);
 
+  const doneCount = Object.entries(completion || {}).filter(([id, done]) => id !== 'publish' && done).length;
+  const stepCount = Math.max(1, Object.keys(completion || {}).length - 1);
+  const ready = doneCount >= stepCount;
+
   return (
-    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'rgba(38,42,35,0.1)', background: 'rgba(255,255,255,0.92)' }}>
-      <div data-testid="top-header-layout" className="max-w-[1760px] 2xl:max-w-[2200px] mx-auto px-4 sm:px-6 py-3 flex flex-col xl:flex-row xl:flex-nowrap xl:items-center xl:justify-between gap-3 xl:gap-4">
-        <div data-testid="top-header-brand" className="flex items-center gap-3 min-w-0 w-full xl:w-auto xl:max-w-[360px] 2xl:max-w-[520px]">
-          <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-11 h-11 flex-shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2.5 min-w-0">
-              <h1 className="mp-display text-[26px] leading-none">ModelPrep</h1>
-              <span className="hidden sm:inline mp-mono text-[11px] uppercase tracking-[0.15em] whitespace-nowrap" style={{ color: 'rgba(38,42,35,0.66)' }}>v0.3</span>
-            </div>
-            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-              {editingName ? (
-                <input
-                  autoFocus
-                  aria-label="Project name"
-                  value={project.name}
-                  onChange={(e) => updateProject({ name: e.target.value })}
-                  onBlur={() => setEditingName(false)}
-                  onKeyDown={(e) => e.key === 'Enter' && setEditingName(false)}
-                  className="mp-mono text-[13px] bg-transparent outline-none border-b"
-                  style={{ borderColor: '#5A7430', width: 220 }}
-                />
-              ) : (
-                <button
-                  onClick={() => setEditingName(true)}
-                  className="mp-mono text-[13px] flex items-center gap-1 group min-w-0 max-w-full truncate"
-                  style={{ color: 'rgba(38,42,35,0.66)' }}
-                >
-                  ▸ {project.name}
-                  <Edit3 size={10} className="opacity-0 group-hover:opacity-100 transition" />
-                </button>
-              )}
-            </div>
-          </div>
+    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.92)' }}>
+      <div data-testid="top-header-layout" className="px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-[52px]">
+        <div data-testid="top-header-brand" className="flex items-center gap-2 min-w-0">
+          {editingName ? (
+            <input
+              autoFocus
+              aria-label="Project name"
+              value={project.name}
+              onChange={(e) => updateProject({ name: e.target.value })}
+              onBlur={() => setEditingName(false)}
+              onKeyDown={(e) => e.key === 'Enter' && setEditingName(false)}
+              className="text-[15px] font-semibold bg-transparent outline-none border-b"
+              style={{ borderColor: 'var(--primary)', width: 260, color: 'var(--ink)' }}
+            />
+          ) : (
+            <button
+              onClick={() => setEditingName(true)}
+              className="flex items-center gap-1.5 group min-w-0 max-w-full rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-[var(--surface-hover)]"
+              title="Rename project"
+            >
+              <span className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{project.name}</span>
+              <Edit3 size={12} className="opacity-0 group-hover:opacity-100 transition flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
+            </button>
+          )}
+          {demoActive && <span className="mp-pill flex-shrink-0" style={{ background: '#EDF3FE', color: '#1D4E9E' }}>Demo</span>}
         </div>
 
-        <div data-testid="top-header-actions" className="grid grid-cols-2 sm:flex sm:flex-wrap xl:flex-nowrap xl:justify-end items-center gap-2 w-full xl:w-auto min-w-0">
+        <div data-testid="top-header-actions" className="flex flex-wrap items-center gap-2 min-w-0">
+          <span className="mp-pill hidden md:inline-flex gap-1.5" style={ready ? { background: 'var(--primary-tint)', color: 'var(--primary-ink)' } : { background: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
+            {ready ? <Check size={11} strokeWidth={2.6} /> : null}
+            {ready ? 'Ready to publish' : `${doneCount} of ${stepCount} steps done`}
+          </span>
           <ConnectionsButton onOpen={onOpenConnections} />
           <div className="relative" ref={templatesRef}>
             <button onClick={() => setShowTemplates(s => !s)} className="mp-btn mp-btn-ghost text-xs py-2 px-3" aria-haspopup="true" aria-expanded={showTemplates}>
               <Bookmark size={13} /> Templates
               {templates.length > 0 && (
-                <span className="ml-1 mp-mono text-xs" style={{ color: '#5A7430' }}>{templates.length}</span>
+                <span className="ml-1 mp-mono text-xs" style={{ color: 'var(--primary-ink)' }}>{templates.length}</span>
               )}
             </button>
             {showTemplates && (
-              <div className="absolute right-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] mp-card z-30">
-                <div className="px-3 py-2 border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
-                  <button onClick={() => { onSaveTemplate(); setShowTemplates(false); }} className="w-full text-left text-xs flex items-center gap-2 py-1" style={{ color: '#5A7430' }}>
+              <div className="absolute right-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] mp-card z-30" style={{ boxShadow: 'var(--shadow-2)' }}>
+                <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
+                  <button onClick={() => { onSaveTemplate(); setShowTemplates(false); }} className="w-full text-left text-xs flex items-center gap-2 py-1" style={{ color: 'var(--primary-ink)' }}>
                     <Save size={12} /> Save current as template
                   </button>
                 </div>
                 {templates.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                  <div className="px-3 py-4 text-xs text-center" style={{ color: 'var(--ink-65)' }}>
                     No templates yet. Save your current setup to reuse it on the next model.
                   </div>
                 ) : (
                   templates.map(t => (
                     <button key={t.id} onClick={() => onLoadTemplate(t)} className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 transition flex justify-between items-center">
                       <span>{t.name}</span>
-                      <span className="mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>{t.data.tags?.length || 0} tags</span>
+                      <span className="mp-mono text-xs" style={{ color: 'var(--ink-65)' }}>{t.data.tags?.length || 0} tags</span>
                     </button>
                   ))
                 )}
               </div>
             )}
           </div>
-          <button
-            onClick={onToggleDemo}
-            className="mp-btn text-xs py-2 px-3"
-            style={demoActive ? { background: 'var(--api-fill)', borderColor: 'var(--api-fill)' } : { background: 'transparent', color: '#262A23', border: '1px solid rgba(38,42,35,0.25)' }}
-            aria-pressed={demoActive}
-            title={demoActive ? 'Exit the demo and restore your project' : 'Load a sample project to explore the flow (nothing is uploaded)'}
-          >
-            <Sparkles size={13} /> {demoActive ? 'Exit demo' : 'Try demo'}
-          </button>
           <button
             onClick={() => folderRef.current?.click()}
             className="mp-btn mp-btn-ghost text-xs py-2 px-3"
@@ -2476,8 +2439,21 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
             className="hidden"
             onChange={(e) => { onImportFolder(e.target.files); e.target.value = ''; }}
           />
+          <button
+            onClick={onToggleDemo}
+            className="mp-btn mp-btn-ghost text-xs py-2 px-3"
+            style={demoActive ? { background: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' } : undefined}
+            aria-pressed={demoActive}
+            title={demoActive ? 'Exit the demo and restore your project' : 'Load a sample project to explore the flow (nothing is uploaded)'}
+          >
+            <Sparkles size={13} /> {demoActive ? 'Exit demo' : 'Try demo'}
+          </button>
           <button onClick={onNewProject} className="mp-btn mp-btn-ghost text-xs py-2 px-3">
             <Plus size={13} /> New
+          </button>
+          <div aria-hidden className="hidden sm:block" style={{ width: 1, height: 20, background: 'var(--border)' }} />
+          <button onClick={onGoPublish} className="mp-btn text-xs py-2 px-3">
+            <Send size={13} /> Review and publish
           </button>
         </div>
       </div>
@@ -2496,15 +2472,37 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
 // SIDEBAR
 // =====================================================================
 
-function Sidebar({ currentSection, setCurrentSection, completion, collapsed, setCollapsed }) {
+function Sidebar({ project, currentSection, setCurrentSection, completion, collapsed, setCollapsed }) {
   const activeIndex = Math.max(0, SECTIONS.findIndex((section) => section.id === currentSection));
+  const enabledCount = Object.values(project?.platforms || {}).filter((p) => p.enabled).length;
+  const doneCount = Object.entries(completion).filter(([id, done]) => id !== 'publish' && done).length;
+  const stepCount = Math.max(1, Object.keys(completion).length - 1);
+  const status = doneCount === 0 ? { label: 'New project', color: '#FFB627' }
+    : doneCount >= stepCount ? { label: 'Ready to publish', color: '#4FB286' }
+    : { label: 'In progress', color: '#FFB627' };
+  const metaFor = (id) => {
+    if (id === 'files') return project?.files?.length ? String(project.files.length) : null;
+    if (id === 'images') return (project?.images?.length || project?.media?.length) ? String((project.images?.length || 0) + (project.media?.length || 0)) : null;
+    if (id === 'profiles') return project?.profiles?.length ? String(project.profiles.length) : null;
+    if (id === 'platforms') return `${enabledCount}/${PLATFORMS.length}`;
+    return null;
+  };
   return (
     <aside
       data-testid="project-sidebar"
-      className={`w-full ${collapsed ? 'lg:w-20' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r`}
-      style={{ borderColor: 'var(--border)', background: 'var(--surface-sunken)', minHeight: '100%' }}
+      className={`w-full ${collapsed ? 'lg:w-20' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r flex flex-col lg:sticky lg:top-[53px] lg:self-start lg:overflow-y-auto`}
+      style={{ borderColor: 'var(--border)', background: 'var(--surface-sunken)' }}
     >
-      <nav aria-label="Project steps" className={`py-3 px-3 lg:py-4 ${collapsed ? 'lg:px-2' : 'lg:px-3'} lg:sticky lg:top-[81px]`}>
+      <div className={`hidden lg:flex items-center gap-2.5 pt-4 pb-1 ${collapsed ? 'justify-center px-2' : 'px-5'}`}>
+        <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-7 h-7 flex-shrink-0" />
+        {!collapsed && (
+          <span className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-[15px] font-semibold" style={{ color: 'var(--ink)' }}>ModelPrep</span>
+            <span className="mp-mono text-[11px] whitespace-nowrap" style={{ color: 'var(--ink-50)' }}>v0.3</span>
+          </span>
+        )}
+      </div>
+      <nav aria-label="Project steps" className={`py-3 px-3 lg:py-3 ${collapsed ? 'lg:px-2' : 'lg:px-3'} flex-1`}>
         <div className="lg:hidden flex items-center gap-3">
           <details className="min-w-0 flex-1 relative">
             <span className="text-xs block mb-1" style={{ color: 'var(--ink-65)' }}>
@@ -2541,7 +2539,7 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
             {completion[currentSection] ? 'Complete' : 'In progress'}
           </div>
         </div>
-        <div className={`hidden lg:flex mb-2 items-center ${collapsed ? 'justify-center' : 'justify-end px-1'}`}>
+        <div className={`hidden lg:flex mb-1 items-center ${collapsed ? 'justify-center' : 'justify-end px-1'}`}>
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
@@ -2558,6 +2556,7 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
           const Icon = s.icon;
           const done = completion[s.id];
           const active = currentSection === s.id;
+          const meta = metaFor(s.id);
           return (
             <button
               key={s.id}
@@ -2577,6 +2576,7 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
               <span className={collapsed ? 'hidden' : 'flex-1 min-w-0 truncate text-sm'} style={{ fontWeight: active ? 600 : 500 }}>
                 {s.label}
               </span>
+              {!collapsed && meta && <span className="text-xs t-num flex-shrink-0" style={{ color: active ? 'var(--primary-ink)' : 'var(--ink-50)' }}>{meta}</span>}
               {!collapsed && done && <Check size={14} strokeWidth={2.6} className="flex-shrink-0" style={{ color: 'var(--success-text)' }} aria-hidden />}
             </button>
           );
@@ -2588,6 +2588,18 @@ function Sidebar({ currentSection, setCurrentSection, completion, collapsed, set
           </p>
         )}
       </nav>
+      <div
+        data-testid="status-bar"
+        className={`hidden lg:flex items-center gap-2 border-t px-4 py-2.5 text-xs ${collapsed ? 'justify-center' : ''}`}
+        style={{ borderColor: 'var(--border)', color: 'var(--ink-65)' }}
+      >
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: status.color }} />
+        {!collapsed && (
+          <span className="min-w-0 truncate">
+            {status.label} · Step {activeIndex + 1} of {SECTIONS.length} · {SECTIONS[activeIndex].label}
+          </span>
+        )}
+      </div>
     </aside>
   );
 }
@@ -13069,7 +13081,7 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
       <div aria-hidden="true" className="h-8 flex-shrink-0" />
       <div
         data-testid="section-nav"
-        className="sticky bottom-8 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
+        className="sticky bottom-0 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
         style={{ borderColor: 'rgba(38,42,35,0.14)', background: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
       >
         <div>
