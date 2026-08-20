@@ -296,3 +296,28 @@ describe('copy', () => {
     expect(text).not.toMatch(/step 0\d/i);
   });
 });
+
+describe('Settings panel', () => {
+  it('keeps one size on every tab and hands the screen back on Escape', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /settings/i }));
+
+    const panel = screen.getByRole('dialog', { name: 'Settings' });
+    // Full viewport height, so switching tabs cannot resize or re-centre it.
+    // The old dialog was sized to its content: About is a build stamp, Accounts
+    // is ten sign-in cards, and the tab strip moved between them.
+    expect(panel).toHaveClass('h-full', 'flex', 'flex-col');
+    const body = panel.lastElementChild;
+    expect(body).toHaveClass('flex-1', 'min-h-0', 'overflow-y-auto');
+
+    for (const tabName of ['About', 'Defaults', 'Help', 'Accounts']) {
+      await user.click(screen.getByRole('button', { name: tabName }));
+      expect(screen.getByRole('dialog', { name: 'Settings' })).toHaveClass('h-full');
+    }
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).toBeNull();
+    expect(document.body.style.overflow).toBe('');
+  });
+});

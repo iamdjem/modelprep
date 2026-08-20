@@ -66,7 +66,13 @@ panes are used at the same moment.
   grid. Keep hint text out of the first field of a column: two lines of it knock every
   row below out of step with the other side.
 - **A control that only ever holds one of a fixed list is a select**, not a card with a
-  chooser behind it. Details' licence field was a card, a Change button, five filter
+  chooser behind it.
+- **A panel on an edge, not a dialog in the middle**, for anything with sections or
+  anything you open mid-task. Settings is one: full viewport height, fixed width, only
+  its body scrolls, so every section is the same size and the tab strip never moves
+  under the pointer. A centred dialog sized to its content resizes and re-centres each
+  time you switch section. It also keeps the screen you came from visible, which is what
+  you want when you connect an account halfway through publishing. Details' licence field was a card, a Change button, five filter
   chips and a scrolling list, all inside half a row: every filter click resized it and
   moved the fields below. Eight options in a grouped `<select>` say the same thing and
   cannot shift the page.

@@ -2376,7 +2376,7 @@ export default function App() {
       </div>
 
       {dialog && <Modal dialog={dialog} onClose={() => setDialog(null)} />}
-      <SettingsModal open={showConnections} onClose={() => setShowConnections(false)} tab={settingsTab} setTab={setSettingsTab} />
+      <SettingsPanel open={showConnections} onClose={() => setShowConnections(false)} tab={settingsTab} setTab={setSettingsTab} />
     </div>
     </ConnectionsCtx.Provider>
   );
@@ -2637,8 +2637,15 @@ function GlobalStyles() {
       .mp-pulse { animation: mp-pulse 1.5s ease-in-out infinite; }
       @keyframes mp-scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
       .mp-scan { animation: mp-scan 2s linear infinite; }
+      /* Panels enter from the edge they are attached to. 180ms, ease-out, no
+         bounce: it should feel like the panel was already there. */
+      @keyframes mp-slide-in-right { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+      .mp-slide-in-right { animation: mp-slide-in-right 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+      @keyframes mp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+      .mp-fade-in { animation: mp-fade-in 140ms ease-out; }
       @media (prefers-reduced-motion: reduce) {
         .mp-spin, .mp-pulse, .mp-scan { animation-duration: 0.01ms; animation-iteration-count: 1; }
+        .mp-slide-in-right, .mp-fade-in { animation-duration: 0.01ms; }
         .mp-btn, .mp-input, .mp-input-sm, .mp-btn-ghost { transition-duration: 0.01ms; }
       }
 
@@ -11370,8 +11377,24 @@ function ConnectionsButton({ onOpen }) {
 // Unified Settings: everything that's configured once and remembered across runs —
 // platform sign-ins (Accounts), AI provider/key (AI), and build/info + reset (About).
 // All of it persists in localStorage (accounts store + ai-config), so it survives reloads.
-function SettingsModal({ open, onClose, tab, setTab }) {
+// Settings is a panel on the right edge, not a dialog in the middle. Two
+// reasons. A dialog sized to its content changed height on every tab, from a
+// short About to a long Accounts list, so the tab strip moved under the
+// pointer. And connecting an account is something you do in the middle of
+// publishing: the panel keeps the screen you were on visible behind it and
+// hands it straight back. DESIGN.md has wanted this since the redesign
+// ("Connections stops being a modal").
+function SettingsPanel({ open, onClose, tab, setTab }) {
   useAccounts();
+  // Escape closes, and the body does not scroll behind the panel.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = previous; };
+  }, [open, onClose]);
   if (!open) return null;
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const missingDesktopPlatforms = desktop
@@ -11395,28 +11418,40 @@ function SettingsModal({ open, onClose, tab, setTab }) {
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ backgroundColor: 'rgba(38,42,35,0.55)' }} onClick={onClose}>
-      <div className="mp-card w-full max-w-2xl my-8" style={{ backgroundColor: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(38,42,35,0.12)', backgroundColor: '#FFFFFF' }}>
-          <div className="flex items-center gap-2"><Settings size={16} /><span className="mp-display text-[18px]">Settings</span></div>
-          <button onClick={onClose} aria-label="Close"><X size={18} /></button>
+    <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'rgba(38,42,35,0.35)' }} onClick={onClose}>
+      {/* Full viewport height, so the panel is the same size on every tab and
+          only its body scrolls. That is the whole fix for the jumping. */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        className="mp-slide-in-right h-full w-full sm:w-[560px] flex flex-col border-l"
+        style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-3)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-2">
+            <Settings size={16} style={{ color: 'var(--ink-65)' }} />
+            <span className="text-[15px] font-semibold" style={{ color: 'var(--ink)' }}>Settings</span>
+          </div>
+          <button onClick={onClose} aria-label="Close settings" className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-50)' }}><X size={18} /></button>
         </div>
-        {/* Tab strip */}
-        {/* Wraps rather than clipping the last tab on a narrow window. */}
-        <div className="flex flex-wrap gap-1 px-4 pt-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
+        {/* Sentence case, not the tracked uppercase mono the redesign retired. */}
+        <div className="flex flex-wrap gap-1 px-4 pt-2 border-b flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
           {TABS.map((t) => {
             const Icon = t.icon; const on = tab === t.id;
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className="px-3 py-2 mp-mono text-xs uppercase tracking-[0.12em] flex items-center gap-1.5 -mb-px border-b-2 transition"
-                style={{ borderColor: on ? '#5A7430' : 'transparent', color: on ? '#262A23' : 'rgba(38,42,35,0.66)' }}>
+                aria-current={on ? 'page' : undefined}
+                className="px-2.5 py-2 text-[13px] flex items-center gap-1.5 -mb-px border-b-2 transition-colors"
+                style={{ borderColor: on ? 'var(--primary)' : 'transparent', color: on ? 'var(--ink)' : 'var(--ink-65)', fontWeight: on ? 600 : 500 }}>
                 <Icon size={13} /> {t.label}
-                {t.badge != null && <span className="mp-mono text-[11px]" style={{ color: '#1a7f37' }}>{t.badge}</span>}
+                {t.badge != null && <span className="text-xs t-num" style={{ color: 'var(--success-text)' }}>{t.badge}</span>}
               </button>
             );
           })}
         </div>
-        <div className="p-4 space-y-3 max-h-[68vh] overflow-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
           {tab === 'accounts' && (
             <>
               <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform's session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
