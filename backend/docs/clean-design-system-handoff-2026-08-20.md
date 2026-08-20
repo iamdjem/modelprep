@@ -8,7 +8,7 @@ document covers the `codex/clean-design-system` branch only.
 
 A full redesign of the ModelPrep renderer onto a new design system, with all feature
 work from the package-workspace branch merged in. Base commit `50f017d` (tip of
-`codex/fix-nexprint-key-warning`), 19 commits on top. Everything is committed; the
+`codex/fix-nexprint-key-warning`), 21 commits on top. Everything is committed; the
 working tree is clean.
 
 - **Design system**: Inter only, pure white ground, moss-green primary (#5A7430 family,
@@ -58,7 +58,7 @@ redesign worktree's versions; reconcile deliberately if certification work resum
 
 - Dev server: launch config `prototype` in /Users/alex/modelprep/.claude/launch.json →
   port 5199 (serves the real app at `/` and the old prototype at `/prototype.html`).
-- Tests: `cd deploy && npx vitest run` (508 tests; `settings.test.jsx` "fallback chain"
+- Tests: `cd deploy && npx vitest run` (513 tests; `settings.test.jsx` "fallback chain"
   is timing-sensitive, has a 20s timeout, rare flake), `cd desktop && npm test` (222),
   `cd backend && npm test` (33) + `npm run typecheck`.
 - Package: `cd desktop && CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist` →
@@ -73,13 +73,15 @@ redesign worktree's versions; reconcile deliberately if certification work resum
 
 `backend/docs/ui-simplification-audit-2026-08-20.md` is the plan: a full
 flow/duplication/noise audit with a platform requirements matrix. Stage 1 (the free
-cleanups) is implemented and committed. Stages 2 to 5 are blocked on Alex's four open
-questions (per-destination file-role overrides keep/drop; Templates keep/fold;
-attestation checkboxes as blockers vs publish-time confirm; auto-enabling destinations
-from file types).
+cleanups) is implemented and committed. Alex answered the four open questions on
+2026-08-20; they are recorded at the end of the audit doc. In short: keep the
+per-destination file-role overrides, fold Templates into duplicating a project, move
+both attestations to publish time, and never auto-enable a destination from a file
+type.
 
-**Next smallest step:** get the four answers, then start stage 2 (the three-tier
-severity policy), which is the change the rest of the audit leans on.
+**Next smallest step:** stage 3, the shared fields. Start with the one provenance
+block (Original or Remix plus source URL and what changed) in Details, since it
+pre-answers hard blockers on seven destinations.
 
 Implementation order:
 1. DONE. Free cleanups: removed the dead Package/AssetInspector family and its
@@ -92,9 +94,14 @@ Implementation order:
    word-matches "profile" in unrelated errors. The .zip fallback on Publish was
    trapped inside the dead export group and is reachable again. ~490 lines net;
    renderer 508/508, desktop 222/222, backend 33/33, tsc clean.
-2. Three-tier severity policy (blockers once at the owning destination; quiet
-   "will adapt" notes that never amber a card; optional gaps invisible outside the
-   platform panel; empty-project short-circuit).
+2. DONE. Three-tier severity policy. `platformPreflight` returns `errors`,
+   `adaptations`, `optional` and `confirmations`; `warnings` remains the union of
+   the middle two for adapters and receipts. Destinations are blocked, awaiting a
+   confirmation, or ready, never "ready with warnings". The two self-attestations
+   (MMF no-AI, MakerRoad real photo) became publish-time checkboxes on the
+   destination row; every upload path gates on `publishBlockers(report)` so
+   nothing uploads unconfirmed. Empty projects show "Add files to get started"
+   once instead of 37 alarms.
 3. Shared fields: provenance block, AI disclosure, NSFW, print settings from parsed
    3MF, Thingiverse summary derivation, category-map data gaps, Thangs primary-part
    persist, MakerRoad printMethod default.
