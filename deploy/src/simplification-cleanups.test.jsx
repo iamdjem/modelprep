@@ -86,7 +86,9 @@ describe('Details step gate', () => {
   it('continues on a title alone', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    // Try demo lives in the project-name menu now.
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
     expect(screen.getByRole('button', { name: /continue to images/i })).toBeEnabled();
   });
@@ -189,7 +191,9 @@ describe('shared disclosures in Details', () => {
   it('asks the origin, AI and NSFW questions once', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    // Try demo lives in the project-name menu now.
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
 
     expect(screen.getByRole('radio', { name: /my own original model/i })).toBeChecked();
@@ -199,5 +203,30 @@ describe('shared disclosures in Details', () => {
     await user.click(screen.getByRole('radio', { name: /a remix of someone else/i }));
     expect(screen.getByLabelText(/original model url/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/what did you change/i)).toBeInTheDocument();
+  });
+});
+
+describe('top bar', () => {
+  it('keeps four controls and puts project identity in one menu', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const actions = screen.getByTestId('top-header-actions');
+    expect(actions.querySelectorAll('button')).toHaveLength(2); // Settings, Review and publish
+    expect(screen.queryByRole('button', { name: /^templates$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^new$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^import$/i })).toBeNull();
+    expect(screen.getByText(/0 of 5 steps done/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /review and publish/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    for (const item of [/rename project/i, /new project/i, /try demo/i]) {
+      expect(screen.getByRole('menuitem', { name: item })).toBeInTheDocument();
+    }
+  });
+
+  it('offers the folder import on the Files screen, next to Add files', () => {
+    render(<App />);
+    expect(screen.getByRole('button', { name: /import a folder/i })).toBeInTheDocument();
   });
 });

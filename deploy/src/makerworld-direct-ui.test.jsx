@@ -45,7 +45,9 @@ describe('MakerWorld desktop real upload test', () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    // Try demo lives in the project-name menu now.
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
 
     expect(screen.getAllByText('@direct-test').length).toBeGreaterThan(0);

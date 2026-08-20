@@ -1744,8 +1744,10 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('modelprep.sidebarCollapsed') === 'true'; } catch (error) { return false; }
   });
-  const [templates, setTemplates] = useState([]);
-  const [showTemplates, setShowTemplates] = useState(false);
+  // Templates folded into duplicating a project. They were never persisted:
+  // a "saved" template lived in memory and vanished on reload, so the feature
+  // promised reuse it could not deliver. A project library replaces it.
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [dialog, setDialog] = useState(null); // styled prompt/confirm modal
   const [restoreOffer, setRestoreOffer] = useState(null); // last session's text, offered without blocking
   const [binariesSaved, setBinariesSaved] = useState(null);   // null = not attempted yet
@@ -2237,41 +2239,6 @@ export default function App() {
 
   const allReady = readiness.package.ready && readiness.listing.ready && readiness.destinations.selectedCount > 0;
 
-  const saveAsTemplate = () => {
-    setShowTemplates(false);
-    setDialog({
-      kind: 'prompt',
-      title: 'Save as template',
-      message: 'Name this template. It stores the description, category, tags and license for reuse.',
-      placeholder: 'e.g. Functional prints: CC BY-NC',
-      confirmLabel: 'Save template',
-      onConfirm: (name) => {
-        if (!name || !name.trim()) return;
-        setTemplates(t => [...t, {
-          id: 't_' + Date.now(), name: name.trim(),
-          data: { description: project.description, category: project.category, tags: project.tags, license: project.license },
-        }]);
-      },
-    });
-  };
-  const loadTemplate = (t) => {
-    setShowTemplates(false);
-    const apply = () => {
-      updateProject({ description: t.data.description, category: t.data.category, tags: t.data.tags, license: t.data.license });
-    };
-    // Warn before overwriting existing edits.
-    if (project.description || project.tags.length || project.category) {
-      setDialog({
-        kind: 'confirm',
-        title: 'Load template?',
-        message: `“${t.name}” will replace your current description, category, tags and license. Your files and images stay.`,
-        confirmLabel: 'Load template',
-        onConfirm: apply,
-      });
-    } else {
-      apply();
-    }
-  };
   const isDirty = () => project.files.length || project.images.length || (project.media || []).length || project.title || project.description || project.tags.length || Object.values(project.platforms).some(p => p.enabled);
   // Folder import: infer a whole project from a chosen folder, then land on Details
   // for review. Replaces the current project (with confirmation if it has content).
@@ -2338,13 +2305,9 @@ export default function App() {
       <TopHeader
         project={project}
         updateProject={updateProject}
-        templates={templates}
-        showTemplates={showTemplates}
-        setShowTemplates={setShowTemplates}
-        onSaveTemplate={saveAsTemplate}
-        onLoadTemplate={loadTemplate}
+        menuOpen={showProjectMenu}
+        setMenuOpen={setShowProjectMenu}
         onNewProject={newProject}
-        onImportFolder={importFolder}
         demoActive={demoActive}
         demoLoading={demoLoading}
         onToggleDemo={toggleDemo}
@@ -2400,7 +2363,7 @@ export default function App() {
         >
           <div data-testid="section-content" className="mp-section-content flex flex-1 flex-col min-h-0">
             {currentSection === 'files' && (
-              <FilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+              <FilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} onImportFolder={importFolder} />
             )}
             {currentSection === 'details' && (
               <DetailsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
@@ -2719,22 +2682,23 @@ function GlobalStyles() {
 // TOP HEADER
 // =====================================================================
 
-function TopHeader({ project, updateProject, templates, showTemplates, setShowTemplates, onSaveTemplate, onLoadTemplate, onNewProject, onImportFolder, demoActive, demoLoading, onToggleDemo, onOpenConnections, completion, onGoPublish }) {
+// The top bar's job is the project you are on and the action you came for.
+// New, Templates and Try demo are all "which project am I working on", so they
+// belong to the project name, not to the action row: seven controls become
+// four (name menu, readiness chip, Settings, Review and publish).
+function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject, demoActive, demoLoading, onToggleDemo, onOpenConnections, completion, onGoPublish }) {
   const [editingName, setEditingName] = useState(false);
-  const templatesRef = useRef(null);
-  const folderRef = useRef(null);
-  // webkitdirectory must be set imperatively: React doesn't render it reliably as a prop.
-  useEffect(() => { if (folderRef.current) { folderRef.current.setAttribute('webkitdirectory', ''); folderRef.current.setAttribute('directory', ''); } }, []);
+  const menuRef = useRef(null);
 
-  // Close the Templates menu on outside tap/click or Escape (works on touch).
+  // Close the project menu on outside tap/click or Escape (works on touch).
   useEffect(() => {
-    if (!showTemplates) return;
-    const onDoc = (e) => { if (templatesRef.current && !templatesRef.current.contains(e.target)) setShowTemplates(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setShowTemplates(false); };
+    if (!menuOpen) return;
+    const onDoc = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
-  }, [showTemplates, setShowTemplates]);
+  }, [menuOpen, setMenuOpen]);
 
   const doneCount = Object.entries(completion || {}).filter(([id, done]) => id !== 'publish' && done).length;
   const stepCount = Math.max(1, Object.keys(completion || {}).length - 1);
@@ -2756,16 +2720,42 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
               style={{ borderColor: 'var(--primary)', width: 260, color: 'var(--ink)' }}
             />
           ) : (
+            <div className="relative min-w-0" ref={menuRef}>
+              <button
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label="Project menu"
+                className="flex items-center gap-1.5 group min-w-0 max-w-full rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-[var(--surface-hover)]"
+              >
+                <span className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{project.name}</span>
+                <ChevronDown size={13} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
+              </button>
+              {menuOpen && (
+                <div role="menu" className="absolute left-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] mp-card z-30 py-1" style={{ boxShadow: 'var(--shadow-2)' }}>
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); setEditingName(true); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
+                    <Edit3 size={12} /> Rename project
+                  </button>
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); onNewProject(); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
+                    <Plus size={12} /> New project
+                  </button>
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); onToggleDemo(); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
+                    <Sparkles size={12} /> {demoActive ? 'Exit demo' : 'Try demo'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {demoActive && (
             <button
-              onClick={() => setEditingName(true)}
-              className="flex items-center gap-1.5 group min-w-0 max-w-full rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-[var(--surface-hover)]"
-              title="Rename project"
+              onClick={onToggleDemo}
+              className="mp-pill flex-shrink-0"
+              style={{ background: '#EDF3FE', color: '#1D4E9E' }}
+              title="Exit the demo and restore your project"
             >
-              <span className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{project.name}</span>
-              <Edit3 size={12} className="opacity-0 group-hover:opacity-100 transition flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
+              Demo
             </button>
           )}
-          {demoActive && <span className="mp-pill flex-shrink-0" style={{ background: '#EDF3FE', color: '#1D4E9E' }}>Demo</span>}
         </div>
 
         <div data-testid="top-header-actions" className="flex flex-wrap items-center gap-2 min-w-0">
@@ -2774,61 +2764,6 @@ function TopHeader({ project, updateProject, templates, showTemplates, setShowTe
             {ready ? 'Ready to publish' : `${doneCount} of ${stepCount} steps done`}
           </span>
           <ConnectionsButton onOpen={onOpenConnections} />
-          <div className="relative" ref={templatesRef}>
-            <button onClick={() => setShowTemplates(s => !s)} className="mp-btn mp-btn-ghost text-xs py-2 px-3" aria-haspopup="true" aria-expanded={showTemplates}>
-              <Bookmark size={13} /> Templates
-              {templates.length > 0 && (
-                <span className="ml-1 mp-mono text-xs" style={{ color: 'var(--primary-ink)' }}>{templates.length}</span>
-              )}
-            </button>
-            {showTemplates && (
-              <div className="absolute right-0 top-full mt-1 w-72 max-w-[calc(100vw-2rem)] mp-card z-30" style={{ boxShadow: 'var(--shadow-2)' }}>
-                <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
-                  <button onClick={() => { onSaveTemplate(); setShowTemplates(false); }} className="w-full text-left text-xs flex items-center gap-2 py-1" style={{ color: 'var(--primary-ink)' }}>
-                    <Save size={12} /> Save current as template
-                  </button>
-                </div>
-                {templates.length === 0 ? (
-                  <div className="px-3 py-4 text-xs text-center" style={{ color: 'var(--ink-65)' }}>
-                    No templates yet. Save your current setup to reuse it on the next model.
-                  </div>
-                ) : (
-                  templates.map(t => (
-                    <button key={t.id} onClick={() => onLoadTemplate(t)} className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 transition flex justify-between items-center">
-                      <span>{t.name}</span>
-                      <span className="mp-mono text-xs" style={{ color: 'var(--ink-65)' }}>{t.data.tags?.length || 0} tags</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => folderRef.current?.click()}
-            className="mp-btn mp-btn-ghost text-xs py-2 px-3"
-            title="Import a folder of photos, files, description.md and tags.txt to fill everything in"
-          >
-            <Folder size={13} /> Import
-          </button>
-          <input
-            ref={folderRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => { onImportFolder(e.target.files); e.target.value = ''; }}
-          />
-          <button
-            onClick={onToggleDemo}
-            className="mp-btn mp-btn-ghost text-xs py-2 px-3"
-            style={demoActive ? { background: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' } : undefined}
-            aria-pressed={demoActive}
-            title={demoActive ? 'Exit the demo and restore your project' : 'Load a sample project to explore the flow (nothing is uploaded)'}
-          >
-            <Sparkles size={13} /> {demoActive ? 'Exit demo' : 'Try demo'}
-          </button>
-          <button onClick={onNewProject} className="mp-btn mp-btn-ghost text-xs py-2 px-3">
-            <Plus size={13} /> New
-          </button>
           <div aria-hidden className="hidden sm:block" style={{ width: 1, height: 20, background: 'var(--border)' }} />
           <button onClick={onGoPublish} className="mp-btn text-xs py-2 px-3">
             <Send size={13} /> Review and publish
@@ -3427,8 +3362,16 @@ export function pruneDestinationFileState(platforms = {}, removedIds = new Set()
   }));
 }
 
-function FilesSection({ project, updateProject, setCurrentSection }) {
+function FilesSection({ project, updateProject, setCurrentSection, onImportFolder }) {
   const fileInputRef = useRef(null);
+  const folderInputRef = useRef(null);
+  // webkitdirectory must be set imperatively: React does not render it reliably
+  // as a prop.
+  useEffect(() => {
+    if (!folderInputRef.current) return;
+    folderInputRef.current.setAttribute('webkitdirectory', '');
+    folderInputRef.current.setAttribute('directory', '');
+  }, []);
   const [notice, setNotice] = useState(null); // { kind: 'image' | 'toobig' | 'renamed', detail }
   // "Clear all" removes files plus their attached per-platform settings, so it
   // asks for a second click before doing anything.
@@ -3595,11 +3538,33 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         number="01"
         title="Drop your files"
         subtitle="Add model files, print profiles, and source files. Platform-specific settings stay attached."
-        actions={project.files.length > 0 ? (
-          <button onClick={() => fileInputRef.current?.click()} className="mp-btn mp-btn-ghost text-xs">
-            <Plus size={14} /> Add files
-          </button>
-        ) : null}
+        actions={(
+          <div className="flex items-center gap-2">
+            {/* Import used to sit in the top bar next to nothing it related to.
+                Both buttons put files in the project; they belong side by side,
+                on the screen that shows files. */}
+            <button
+              onClick={() => folderInputRef.current?.click()}
+              className="mp-btn mp-btn-ghost text-xs"
+              title="Import a folder of photos, files, description.md and tags.txt to fill everything in"
+            >
+              <Folder size={14} /> Import a folder
+            </button>
+            {project.files.length > 0 && (
+              <button onClick={() => fileInputRef.current?.click()} className="mp-btn mp-btn-ghost text-xs">
+                <Plus size={14} /> Add files
+              </button>
+            )}
+          </div>
+        )}
+      />
+
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => { onImportFolder(event.target.files); event.target.value = ''; }}
       />
 
       <input
