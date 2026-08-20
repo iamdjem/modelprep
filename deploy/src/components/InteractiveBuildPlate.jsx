@@ -54,7 +54,7 @@ function makeSurfaceTexture(THREE, renderer) {
     const x = noise % size;
     noise = (noise * 1664525 + 1013904223) >>> 0;
     const y = noise % size;
-    const alpha = 0.012 + ((noise >>> 24) / 255) * 0.026;
+    const alpha = 0.008 + ((noise >>> 24) / 255) * 0.016;
     ctx.fillStyle = `rgba(222,224,230,${alpha})`;
     ctx.fillRect(x, y, 1.2, 1.2);
   }
@@ -96,17 +96,21 @@ function makePlateGrid(THREE, profile, renderer) {
   };
   const minorPx = Math.max(1.5, sx * 0.28);
   const majorPx = Math.max(2.5, sx * 0.5);
+  // The outermost gridlines are the border's job: stroking them centred on the
+  // canvas edge clipped half the line and doubled up with the frame, which read
+  // as a ragged plate rim. Interior lines only, then one inset frame.
+  const borderPx = majorPx * 1.2;
   for (let index = 0, x = 0; x <= width + 1e-6; index += 1, x += 10) {
-    const px = Math.min(size - 1, x * sx);
-    line(px, 0, px, size, index % 5 === 0 ? majorPx : minorPx, index % 5 === 0 ? 'rgba(191,194,202,0.55)' : 'rgba(168,171,180,0.30)');
+    if (x <= 1e-6 || x >= width - 1e-6) continue;
+    line(x * sx, borderPx, x * sx, size - borderPx, index % 5 === 0 ? majorPx : minorPx, index % 5 === 0 ? 'rgba(191,194,202,0.55)' : 'rgba(168,171,180,0.30)');
   }
   for (let index = 0, y = 0; y <= depth + 1e-6; index += 1, y += 10) {
-    const py = Math.min(size - 1, y * sy);
-    line(0, py, size, py, index % 5 === 0 ? majorPx : minorPx, index % 5 === 0 ? 'rgba(191,194,202,0.55)' : 'rgba(168,171,180,0.30)');
+    if (y <= 1e-6 || y >= depth - 1e-6) continue;
+    line(borderPx, y * sy, size - borderPx, y * sy, index % 5 === 0 ? majorPx : minorPx, index % 5 === 0 ? 'rgba(191,194,202,0.55)' : 'rgba(168,171,180,0.30)');
   }
   ctx.strokeStyle = 'rgba(208,210,215,0.7)';
-  ctx.lineWidth = majorPx * 1.2;
-  ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, size - ctx.lineWidth, size - ctx.lineWidth);
+  ctx.lineWidth = borderPx;
+  ctx.strokeRect(borderPx, borderPx, size - borderPx * 2, size - borderPx * 2);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -159,10 +163,11 @@ function makePlateDecals(THREE, profile, renderer) {
   labelMesh.rotation.z = Math.PI / 2;
   group.add(labelMesh);
 
+  // Real plates carry pale silkscreen print on the dark sheet. The old bright
+  // white band hugged the front edge and read as a thick plate rim.
   const rail = canvasTexture(THREE, renderer, 1600, 128, (ctx, canvas) => {
-    ctx.fillStyle = '#D8D9DB';
-    ctx.fillRect(0, 8, canvas.width, canvas.height - 16);
-    ctx.fillStyle = '#33353B';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(214,216,222,0.5)';
     ctx.textBaseline = 'middle';
     ctx.font = '600 38px Inter, ui-sans-serif, -apple-system, sans-serif';
     ctx.textAlign = 'left'; ctx.fillText('PLA / ABS / PETG', 48, canvas.height / 2);
@@ -170,41 +175,17 @@ function makePlateDecals(THREE, profile, renderer) {
     ctx.textAlign = 'center'; ctx.fillText('HOT SURFACE', canvas.width * 0.61, canvas.height / 2);
     ctx.textAlign = 'right'; ctx.fillText('MODELPREP', canvas.width - 48, canvas.height / 2);
   });
-  group.add(decalPlane(THREE, rail, width * 0.72, depth * 0.042, width * 0.07, depth * 0.49));
+  group.add(decalPlane(THREE, rail, width * 0.72, depth * 0.042, width * 0.07, depth * 0.462));
 
   const patch = canvasTexture(THREE, renderer, 256, 320, (ctx, canvas) => {
-    ctx.fillStyle = '#D6D7D9';
+    ctx.fillStyle = 'rgba(210,212,216,0.55)';
     ctx.beginPath(); ctx.roundRect(0, 0, canvas.width, canvas.height, [0, 80, 0, 0]); ctx.fill();
-    ctx.strokeStyle = 'rgba(66,68,74,0.34)'; ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(66,68,74,0.3)'; ctx.lineWidth = 3;
     for (let i = 1; i < 4; i += 1) { const x = (canvas.width / 4) * i; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
     for (let i = 1; i < 5; i += 1) { const y = (canvas.height / 5) * i; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
   });
-  group.add(decalPlane(THREE, patch, width * 0.075, depth * 0.12, -width * 0.462, depth * 0.425));
+  group.add(decalPlane(THREE, patch, width * 0.075, depth * 0.12, -width * 0.44, depth * 0.4));
   return group;
-}
-
-function makePlateControlsTexture(THREE, renderer) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 192;
-  canvas.height = 960;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = 'rgba(207,210,214,0.74)';
-  ctx.fillStyle = 'rgba(207,210,214,0.78)';
-  ctx.lineWidth = 8;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const labels = ['×', 'AUTO', 'LAYOUT', 'LOCK', 'SET'];
-  labels.forEach((label, index) => {
-    const y = 12 + index * 184;
-    ctx.strokeRect(22, y, 148, 148);
-    ctx.font = `700 ${label === '×' ? 66 : label.length > 5 ? 22 : 28}px Inter, ui-sans-serif, -apple-system, sans-serif`;
-    ctx.fillText(label, 96, y + 77);
-  });
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  return texture;
 }
 
 function makePlateNumberTexture(THREE, renderer) {
@@ -255,13 +236,36 @@ export default function InteractiveBuildPlate({
   const profile = useMemo(() => resolveBuildPlateProfile({ printer, fallbackSize: plateSize }), [plateSize, printer]);
   const worldSize = Math.max(profile.physical.width, profile.physical.depth);
 
+  const modelRadiusRef = useRef(0);
+  const [hintSeen, setHintSeen] = useState(false);
   const applyView = useCallback((view) => {
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (!camera || !controls) return;
     const preset = buildPlateCameraPreset(worldSize, modelHeightRef.current, view);
-    camera.position.set(...preset.position);
-    controls.target.set(...preset.target);
+    const radius = modelRadiusRef.current;
+    if (radius > 0) {
+      // Frame the model, not the plate: a 30 mm part on a 256 mm sheet used to
+      // reset to a speck. Distance follows the model's bounding sphere, with
+      // the plate as the floor and ceiling of the zoom.
+      const target = [0, Math.min(modelHeightRef.current * 0.45, radius), 0];
+      const dir = [
+        preset.position[0] - preset.target[0],
+        preset.position[1] - preset.target[1],
+        preset.position[2] - preset.target[2],
+      ];
+      const len = Math.hypot(...dir) || 1;
+      const distance = Math.min(worldSize * 2.4, Math.max(radius * 3.4, worldSize * 0.34));
+      camera.position.set(
+        target[0] + (dir[0] / len) * distance,
+        target[1] + (dir[1] / len) * distance,
+        target[2] + (dir[2] / len) * distance,
+      );
+      controls.target.set(...target);
+    } else {
+      camera.position.set(...preset.position);
+      controls.target.set(...preset.target);
+    }
     controls.update();
     requestRenderRef.current?.();
     setActiveView(view);
@@ -333,7 +337,7 @@ export default function InteractiveBuildPlate({
           // Electron intentionally disables hardware acceleration for stability.
           // A few Macs reject a high-performance context before SwiftShader is
           // selected, so retry explicitly with the least demanding context.
-          renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'low-power', failIfMajorPerformanceCaveat: false });
+          renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'low-power', failIfMajorPerformanceCaveat: false });
         }
         rendererRef.current = renderer;
         // The desktop app deliberately runs without GPU acceleration (see
@@ -354,7 +358,7 @@ export default function InteractiveBuildPlate({
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.12;
         renderer.shadowMap.enabled = !softwareGL;
-        renderer.shadowMap.type = THREE.PCFShadowMap;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         const scene = new THREE.Scene();
         scene.background = new THREE.Color('#55565E');
@@ -384,45 +388,71 @@ export default function InteractiveBuildPlate({
         controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
         controls.listenToKeyEvents(canvas);
         controls.addEventListener('end', () => {
-          if (live) { setActiveView('custom'); setRevision((value) => value + 1); }
+          if (live) { setActiveView('custom'); setRevision((value) => value + 1); setHintSeen(true); }
         });
 
         const plateShape = makePlateShape(THREE, profile);
         const plateTexture = makeSurfaceTexture(THREE, renderer);
         const plateDepth = profile.physical.thickness;
-        const plateGeometry = new THREE.ExtrudeGeometry(plateShape, { depth: plateDepth, bevelEnabled: false, curveSegments: 16 });
+        // A rounded rim instead of a hard 90-degree edge: half the thickness is
+        // the straight wall, the other half the bevel, so the total stays true.
+        const plateGeometry = new THREE.ExtrudeGeometry(plateShape, {
+          depth: plateDepth * 0.5,
+          bevelEnabled: true,
+          bevelThickness: plateDepth * 0.25,
+          bevelSize: plateDepth * 0.5,
+          bevelOffset: -plateDepth * 0.5,
+          bevelSegments: 2,
+          curveSegments: 16,
+        });
         normalizePlateUvs(plateGeometry);
         const plateBase = new THREE.Mesh(
           plateGeometry,
           [
             new THREE.MeshStandardMaterial({ map: plateTexture, roughness: 0.91, metalness: 0.035 }),
-            new THREE.MeshStandardMaterial({ color: '#202126', roughness: 0.74, metalness: 0.24 }),
+            new THREE.MeshStandardMaterial({ color: '#26272C', roughness: 0.6, metalness: 0.05 }),
           ],
         );
         plateBase.rotation.x = -Math.PI / 2;
         plateBase.position.y = -plateDepth;
         plateBase.receiveShadow = true;
         sceneRoot.add(plateBase);
+
+        // A baked radial gradient under the sheet grounds it even where shadow
+        // maps are off (software GL). Cheaper than a ShadowMaterial and stable
+        // from every angle.
+        const contactCanvas = document.createElement('canvas');
+        contactCanvas.width = 256; contactCanvas.height = 256;
+        const contactCtx = contactCanvas.getContext('2d');
+        const contactGradient = contactCtx.createRadialGradient(128, 128, 30, 128, 128, 128);
+        contactGradient.addColorStop(0, 'rgba(10,11,14,0.42)');
+        contactGradient.addColorStop(0.72, 'rgba(10,11,14,0.16)');
+        contactGradient.addColorStop(1, 'rgba(10,11,14,0)');
+        contactCtx.fillStyle = contactGradient;
+        contactCtx.fillRect(0, 0, 256, 256);
+        const contactTexture = new THREE.CanvasTexture(contactCanvas);
+        const contactShadow = new THREE.Mesh(
+          new THREE.PlaneGeometry(profile.physical.width * 1.35, profile.physical.depth * 1.35),
+          new THREE.MeshBasicMaterial({ map: contactTexture, transparent: true, depthWrite: false, toneMapped: false }),
+        );
+        contactShadow.rotation.x = -Math.PI / 2;
+        contactShadow.position.y = -plateDepth - 0.35;
+        contactShadow.renderOrder = -1;
+        sceneRoot.add(contactShadow);
         sceneRoot.add(makePlateGrid(THREE, profile, renderer));
         sceneRoot.add(makePlateDecals(THREE, profile, renderer));
 
-        const controlsTexture = makePlateControlsTexture(THREE, renderer);
-        const plateControls = new THREE.Mesh(
-          new THREE.PlaneGeometry(worldSize * 0.08, worldSize * 0.39),
-          new THREE.MeshBasicMaterial({ map: controlsTexture, transparent: true, depthWrite: false, toneMapped: false }),
-        );
-        plateControls.rotation.x = -Math.PI / 2;
-        plateControls.position.set(profile.physical.width * 0.58, 0.16, -profile.printable.depth * 0.20);
-        plateControls.renderOrder = 2;
-        sceneRoot.add(plateControls);
-
+        // The skeuomorphic AUTO/LAYOUT/LOCK tiles floated in space beside the
+        // sheet and imitated Bambu Studio's *interactive* handles, inviting
+        // dead clicks. Gone. The plate number stays, painted on the sheet
+        // corner like the real plates.
         const numberTexture = makePlateNumberTexture(THREE, renderer);
         const plateNumber = new THREE.Mesh(
-          new THREE.PlaneGeometry(worldSize * 0.15, worldSize * 0.075),
+          new THREE.PlaneGeometry(worldSize * 0.11, worldSize * 0.055),
           new THREE.MeshBasicMaterial({ map: numberTexture, transparent: true, depthWrite: false, toneMapped: false }),
         );
         plateNumber.rotation.x = -Math.PI / 2;
-        plateNumber.position.set(profile.physical.width * 0.56, 0.17, profile.physical.depth * 0.55);
+        plateNumber.position.set(profile.printable.width * 0.4, 0.17, profile.printable.depth * 0.43);
         plateNumber.renderOrder = 2;
         sceneRoot.add(plateNumber);
 
@@ -466,6 +496,14 @@ export default function InteractiveBuildPlate({
         modelRoot.castShadow = true;
         modelRoot.receiveShadow = false;
         modelRootRef.current = modelRoot;
+        {
+          const modelBox = new THREE.Box3().setFromObject(modelRoot);
+          const sphere = modelBox.getBoundingSphere(new THREE.Sphere());
+          modelRadiusRef.current = Number.isFinite(sphere.radius) ? sphere.radius : 0;
+          // Let the user actually get close to a small part: the old floor was
+          // 38% of the plate size regardless of the model.
+          controls.minDistance = Math.max(3, Math.min(worldSize * 0.38, modelRadiusRef.current * 0.6));
+        }
         const discoveredParts = [];
         let partIndex = 0;
         modelRoot.traverse((node) => {
@@ -518,8 +556,8 @@ export default function InteractiveBuildPlate({
         keyLight.shadow.camera.near = worldSize * 0.08;
         keyLight.shadow.camera.far = worldSize * 4;
         keyLight.shadow.camera.updateProjectionMatrix();
-        keyLight.shadow.bias = -0.00025;
-        keyLight.shadow.normalBias = 0.025;
+        keyLight.shadow.bias = -0.00005;
+        keyLight.shadow.normalBias = worldSize * 0.002;
         keyLight.target.position.set(0, 0, 0);
         scene.add(keyLight);
         scene.add(keyLight.target);
@@ -527,11 +565,23 @@ export default function InteractiveBuildPlate({
         fillLight.position.set(-worldSize, worldSize * 0.65, -worldSize * 0.6);
         scene.add(fillLight);
 
-        const preset = buildPlateCameraPreset(worldSize, modelHeight, 'iso');
-        camera.position.set(...preset.position);
-        controls.target.set(...preset.target);
-        controls.saveState();
-        controls.update();
+        {
+          const preset = buildPlateCameraPreset(worldSize, modelHeight, 'iso');
+          const radius = modelRadiusRef.current;
+          if (radius > 0) {
+            const target = [0, Math.min(modelHeight * 0.45, radius), 0];
+            const dir = [preset.position[0] - preset.target[0], preset.position[1] - preset.target[1], preset.position[2] - preset.target[2]];
+            const len = Math.hypot(...dir) || 1;
+            const distance = Math.min(worldSize * 2.4, Math.max(radius * 3.4, worldSize * 0.34));
+            camera.position.set(target[0] + (dir[0] / len) * distance, target[1] + (dir[1] / len) * distance, target[2] + (dir[2] / len) * distance);
+            controls.target.set(...target);
+          } else {
+            camera.position.set(...preset.position);
+            controls.target.set(...preset.target);
+          }
+          controls.saveState();
+          controls.update();
+        }
 
         const resize = () => {
           const rect = canvas.getBoundingClientRect();
@@ -645,7 +695,11 @@ export default function InteractiveBuildPlate({
         </div>
       </details>
 
-      <div className="absolute left-3 bottom-3 px-3 py-1.5 rounded-full text-[11px]" style={{ color: 'rgba(255,255,255,0.85)', background: 'rgba(20,22,18,0.66)' }}>
+      <div
+        className="absolute left-3 bottom-3 px-3 py-1.5 rounded-full text-[11px] transition-opacity duration-500"
+        style={{ color: 'rgba(255,255,255,0.85)', background: 'rgba(20,22,18,0.66)', opacity: hintSeen ? 0 : 1, pointerEvents: 'none' }}
+        aria-hidden={hintSeen}
+      >
         Drag rotate · right-drag pan · scroll zoom
       </div>
     </div>

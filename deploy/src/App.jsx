@@ -4454,6 +4454,7 @@ function SlicerBuildPlate({
   format = '', previewMode = '3d', onPreviewMode = null, hasSlicerImage = false, printer = '',
 }) {
   const metrics = buildPlatePreviewMetrics(bounds);
+  const [displayMode, setDisplayMode] = useState('solid');
   const interactive = previewMode === '3d' && (triangles?.length || (format === '3mf' && sourceFile?.blob));
 
   if (interactive) {
@@ -4470,14 +4471,21 @@ function SlicerBuildPlate({
                 : `Generic preview plate · ${plateProfile.printable.width} × ${plateProfile.printable.depth} mm`}
             </div>
           </div>
-          {hasSlicerImage && onPreviewMode ? (
-            <div className="mp-segmented" role="group" aria-label="Preview mode" style={{ height: 30 }}>
-              <button type="button" aria-pressed="true" style={{ height: 24 }}>3D model</button>
-              <button type="button" aria-pressed="false" style={{ height: 24 }} onClick={() => onPreviewMode('slicer')}>Slicer image</button>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <div className="mp-segmented" role="group" aria-label="Display mode" style={{ height: 30 }}>
+              {[['solid', 'Solid'], ['wireframe', 'Wireframe'], ['xray', 'X-ray']].map(([mode, label]) => (
+                <button key={mode} type="button" aria-pressed={displayMode === mode} style={{ height: 24 }} onClick={() => setDisplayMode(mode)}>{label}</button>
+              ))}
             </div>
-          ) : (
-            <span className="mp-pill" style={{ background: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Interactive 3D</span>
-          )}
+            {hasSlicerImage && onPreviewMode ? (
+              <div className="mp-segmented" role="group" aria-label="Preview mode" style={{ height: 30 }}>
+                <button type="button" aria-pressed="true" style={{ height: 24 }}>3D model</button>
+                <button type="button" aria-pressed="false" style={{ height: 24 }} onClick={() => onPreviewMode('slicer')}>Slicer image</button>
+              </div>
+            ) : (
+              <span className="mp-pill" style={{ background: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Interactive 3D</span>
+            )}
+          </div>
         </div>
 
         <div
@@ -4496,19 +4504,34 @@ function SlicerBuildPlate({
             fallbackSrc={src}
             name={name}
             printer={printer}
+            displayMode={displayMode}
           />
         </div>
 
-        {metrics && (
-          <div className="grid grid-cols-3 gap-px mt-3 rounded-md overflow-hidden border" style={{ background: 'var(--border)', borderColor: 'var(--border)' }}>
-            {['x', 'y', 'z'].map((axis) => (
-              <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: 'var(--surface)' }}>
-                <span className="text-xs uppercase" style={{ color: 'var(--ink-50)' }}>{axis}</span>
-                <span className="text-xs t-num font-medium" style={{ color: 'var(--ink)' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
+        {metrics && (() => {
+          const printableLimit = { x: plateProfile.printable.width, y: plateProfile.printable.depth, z: null };
+          const overAxis = (axis) => printableLimit[axis] != null && metrics.dimensions[axis] > printableLimit[axis] + 1e-6;
+          const anyOver = ['x', 'y'].some(overAxis);
+          const triangleCount = triangles?.length ? Math.round(triangles.length / 9) : null;
+          return (
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-px mt-3 rounded-md overflow-hidden border" style={{ background: 'var(--border)', borderColor: 'var(--border)' }}>
+              {['x', 'y', 'z'].map((axis) => (
+                <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: overAxis(axis) ? 'rgba(255,182,39,0.14)' : 'var(--surface)' }}>
+                  <span className="text-xs uppercase" style={{ color: overAxis(axis) ? 'var(--warn-text)' : 'var(--ink-50)' }}>{axis}</span>
+                  <span className="text-xs t-num font-medium" style={{ color: overAxis(axis) ? 'var(--warn-text)' : 'var(--ink)' }} title={overAxis(axis) ? `Larger than the ${printableLimit[axis]} mm printable area` : undefined}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
+                </div>
+              ))}
+              <div className="hidden sm:flex items-baseline justify-between px-3 py-2" style={{ background: 'var(--surface)' }}>
+                <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Triangles</span>
+                <span className="text-xs t-num font-medium" style={{ color: 'var(--ink)' }}>{triangleCount ? triangleCount.toLocaleString() : '—'}</span>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="hidden sm:flex items-baseline justify-between px-3 py-2 min-w-0" style={{ background: 'var(--surface)' }}>
+                <span className="text-xs flex-shrink-0" style={{ color: 'var(--ink-50)' }}>Fit</span>
+                <span className="text-xs font-medium truncate" style={{ color: anyOver ? 'var(--warn-text)' : 'var(--success-text)' }}>{anyOver ? 'Exceeds plate' : plateProfile.native ? plateProfile.printer : 'Fits plate'}</span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -4613,10 +4636,10 @@ function SlicerBuildPlate({
                   <span className="absolute right-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
                   <span className="absolute left-[2.5%] top-[8%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
                   <div className="absolute left-[4%] bottom-[8%] h-11 w-11" aria-hidden="true">
-                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ background: '#5A7430' }} />
-                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ background: '#00B84A' }} />
-                    <span className="absolute right-0 bottom-0 mp-mono text-[9px]" style={{ color: '#FF8A5B' }}>X</span>
-                    <span className="absolute left-1 top-0 mp-mono text-[9px]" style={{ color: '#3ADB76' }}>Y</span>
+                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ background: '#E5484D' }} />
+                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ background: '#46A758' }} />
+                    <span className="absolute right-0 bottom-0 mp-mono text-[9px]" style={{ color: '#E5484D' }}>X</span>
+                    <span className="absolute left-1 top-0 mp-mono text-[9px]" style={{ color: '#46A758' }}>Y</span>
                   </div>
                   <div className="absolute left-[10%] right-[10%] bottom-0 h-[6.5%] flex items-center justify-between px-[5%] mp-mono uppercase tracking-[0.05em]" style={{ background: '#D9DADD', color: '#30323A', fontSize: '8px' }}>
                     <span>PLA / ABS / PETG</span>
@@ -4631,11 +4654,11 @@ function SlicerBuildPlate({
       </div>
 
       {!nativePlate && metrics && (
-        <div className="grid grid-cols-3 gap-px mt-2" style={{ background: 'rgba(255,255,255,0.12)' }}>
+        <div className="grid grid-cols-3 gap-px mt-3 rounded-md overflow-hidden border" style={{ background: 'var(--border)', borderColor: 'var(--border)' }}>
           {['x', 'y', 'z'].map((axis) => (
-            <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: '#1C1F24' }}>
-              <span className="mp-mono text-[10px] uppercase" style={{ color: 'rgba(255,255,255,0.48)' }}>{axis}</span>
-              <span className="mp-mono text-[11px]" style={{ color: '#FFFFFF' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
+            <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: 'var(--surface)' }}>
+              <span className="text-xs uppercase" style={{ color: 'var(--ink-50)' }}>{axis}</span>
+              <span className="text-xs t-num font-medium" style={{ color: 'var(--ink)' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
             </div>
           ))}
         </div>
@@ -4715,20 +4738,20 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
   return (
     <div
       role="dialog" aria-modal="true" aria-label={`Preview ${file.name}`}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6"
-      style={{ background: 'rgba(38,42,35,0.82)' }}
-      onMouseDown={onClose}
+      className="fixed inset-0 flex flex-col items-center justify-center p-6"
+      style={{ background: 'rgba(38,42,35,0.82)', zIndex: 400 }}
+      onMouseDown={(event) => { if (event.button === 0) onClose(); }}
     >
       <div ref={dialogRef} tabIndex={-1} className="mp-card w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ background: '#FFFFFF', maxWidth: 'min(1400px, calc(100vw - 3rem))' }} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
+        <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'var(--border)' }}>
           <div className="min-w-0 flex-1">
-            <div className="mp-display text-[18px] leading-none truncate">{file.name}</div>
-            <div className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1" style={{ color: 'rgba(38,42,35,0.6)' }}>
+            <div className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{file.name}</div>
+            <div className="text-xs t-num mt-0.5" style={{ color: 'var(--ink-50)' }}>
               .{fileExt(file.name)} · {formatBytes(file.size)}{slicer && slicer !== 'unknown' ? ` · ${slicerLabel(slicer)}` : ''}
             </div>
           </div>
-          <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.55)' }}>{index + 1} / {files.length}</span>
-          <button onClick={onClose} aria-label="Close preview" className="p-2 hover:text-[#3E5420] transition"><X size={18} /></button>
+          <span className="text-xs t-num" style={{ color: 'var(--ink-50)' }}>{index + 1} / {files.length}</span>
+          <button onClick={onClose} aria-label="Close preview" className="p-2 rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}><X size={18} /></button>
         </div>
 
         {/* Photos sit on a paper-toned stage: the old near-black stage read as

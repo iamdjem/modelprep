@@ -30,7 +30,7 @@ export function buildPlateCameraPreset(plateSize, modelHeight = 0, view = 'iso')
   return { position: [size * 1.04, size * 1.12, size * 1.52], target };
 }
 
-const arc = (cx, cy, radius, start, end, steps = 6) => Array.from({ length: steps + 1 }, (_, index) => {
+const arc = (cx, cy, radius, start, end, steps = 12) => Array.from({ length: steps + 1 }, (_, index) => {
   const angle = start + ((end - start) * index) / steps;
   return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius];
 });
@@ -101,7 +101,7 @@ export function resolveBuildPlateProfile({ printer = '', fallbackSize = 256 } = 
   const size = Math.max(20, Number(fallbackSize) || 256);
   return {
     id: 'generic', native: false, printer: '', plate: 'Generic preview plate',
-    printable: { width: size, depth: size }, physical: { width: size, depth: size, thickness: Math.max(0.8, size * 0.005) },
+    printable: { width: size, depth: size }, physical: { width: size, depth: size, thickness: Math.min(1.0, Math.max(0.4, size * 0.002)) },
     outline: roundedGenericOutline(size), rearSlot: null,
   };
 }
