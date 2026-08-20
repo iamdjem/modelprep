@@ -575,40 +575,40 @@ export default function InteractiveBuildPlate({
       <p className="sr-only" aria-live="polite">{status === 'ready' ? `${name} 3D preview ready on ${profile.printer || 'generic'} build plate. Use the view controls or keyboard to inspect it.` : status === 'error' ? `${name} 3D preview failed: ${errorMessage}` : `${name} 3D preview is loading.`}</p>
 
       {status === 'loading' && (
-        <div className="absolute inset-0 flex items-center justify-center mp-mono text-[11px] uppercase tracking-[0.14em]" style={{ color: 'rgba(237,233,222,0.72)', background: '#55565E' }}>
+        <div className="absolute inset-0 flex items-center justify-center text-xs" style={{ color: 'rgba(255,255,255,0.75)', background: '#55565E' }}>
           Building 3D scene…
         </div>
       )}
       {status === 'error' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3" style={{ background: '#55565E' }}>
           {fallbackSrc && <img src={fallbackSrc} alt="" className="w-1/2 h-1/2 object-contain opacity-70" />}
-          <span className="mp-mono text-[10px] uppercase tracking-[0.12em]" style={{ color: '#EDE9DE' }}>3D preview unavailable</span>
-          <span className="max-w-sm px-6 text-center text-[10px]" style={{ color: 'rgba(237,233,222,0.62)' }}>{errorMessage}</span>
+          <span className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.9)' }}>3D preview unavailable</span>
+          <span className="max-w-sm px-6 text-center text-[11px]" style={{ color: 'rgba(255,255,255,0.65)' }}>{errorMessage}</span>
         </div>
       )}
 
-      <details className="absolute top-3 right-3" style={{ color: '#EDE9DE' }}>
-        <summary className="min-h-[44px] px-3 flex items-center cursor-pointer list-none mp-mono text-xs uppercase" style={{ background: 'rgba(21,23,28,0.82)', border: '1px solid rgba(237,233,222,0.18)' }}>View</summary>
-        <div className="absolute right-0 top-full mt-1 w-40 p-1" style={{ background: 'rgba(21,23,28,0.92)', border: '1px solid rgba(237,233,222,0.18)' }}>
-        {['iso', 'top', 'front'].map((view) => (
+      <details className="absolute top-3 right-3">
+        <summary className="min-h-[36px] px-3 flex items-center cursor-pointer list-none rounded-md text-xs font-medium" style={{ background: 'rgba(20,22,18,0.72)', color: 'rgba(255,255,255,0.92)' }}>View</summary>
+        <div className="absolute right-0 top-full mt-1 w-40 p-1 rounded-lg border" style={{ background: '#FFFFFF', borderColor: 'var(--border)', boxShadow: 'var(--shadow-2)' }}>
+        {[['iso', 'Isometric'], ['top', 'Top'], ['front', 'Front']].map(([view, label]) => (
           <button
             key={view}
             type="button"
-            className="w-full min-h-[44px] text-left mp-mono px-3 text-xs uppercase tracking-[0.08em]"
-            style={{ background: activeView === view ? '#EDE9DE' : 'transparent', color: activeView === view ? '#15171C' : '#EDE9DE' }}
+            className="w-full min-h-[36px] text-left px-2.5 text-sm rounded-md transition-colors hover:bg-[var(--surface-hover)]"
+            style={{ background: activeView === view ? 'var(--primary-tint)' : 'transparent', color: activeView === view ? 'var(--primary-ink)' : 'var(--ink)', fontWeight: activeView === view ? 600 : 400 }}
             onClick={() => applyView(view)}
             aria-pressed={activeView === view}
           >
-            {view}
+            {label}
           </button>
         ))}
-        <button type="button" className="w-full min-h-[44px] px-3 flex items-center gap-2 text-sm" style={{ color: '#EDE9DE' }} onClick={() => applyView('iso')} aria-label="Reset and fit 3D view" title="Reset and fit view">
-          <RotateCcw size={16} /> Reset &amp; fit
+        <button type="button" className="w-full min-h-[36px] px-2.5 flex items-center gap-2 text-sm rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink)' }} onClick={() => applyView('iso')} aria-label="Reset and fit 3D view" title="Reset and fit view">
+          <RotateCcw size={15} /> Reset &amp; fit
         </button>
         </div>
       </details>
 
-      <div className="absolute left-3 bottom-3 px-2.5 py-1.5 mp-mono text-[9px] uppercase tracking-[0.08em]" style={{ color: 'rgba(237,233,222,0.78)', background: 'rgba(21,23,28,0.70)' }}>
+      <div className="absolute left-3 bottom-3 px-3 py-1.5 rounded-full text-[11px]" style={{ color: 'rgba(255,255,255,0.85)', background: 'rgba(20,22,18,0.66)' }}>
         Drag rotate · right-drag pan · scroll zoom
       </div>
     </div>

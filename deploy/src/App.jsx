@@ -2748,6 +2748,10 @@ function GlobalStyles() {
         [data-testid="project-sidebar"] { height: calc(100vh - 53px); }
       }
 
+      /* The 3D viewport is keyboard-focusable; give it the system ring instead
+         of the browser default. */
+      [data-testid="interactive-build-plate"] canvas:focus-visible { outline: 2px solid var(--primary); outline-offset: -3px; border-radius: 12px; }
+
       /* Global body font */
       body, [class*="mp-"] { font-family: 'Inter', system-ui, sans-serif; }
       body { background: var(--bg); }
@@ -4457,32 +4461,33 @@ function SlicerBuildPlate({
     const plateProfile = resolveBuildPlateProfile({ printer, fallbackSize: plateSize });
     return (
       <div className="w-full mx-auto" data-testid="slicer-build-plate">
-        <div className="flex items-center justify-between mb-2 gap-3">
+        <div className="flex items-center justify-between mb-2.5 gap-3">
           <div>
-            <div className="mp-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: '#FFFFFF' }}>Build plate</div>
-            <div className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            <div className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Build plate</div>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--ink-50)' }}>
               {plateProfile.native
                 ? `${plateProfile.printer} · ${plateProfile.printable.width} × ${plateProfile.printable.depth} mm printable`
                 : `Generic preview plate · ${plateProfile.printable.width} × ${plateProfile.printable.depth} mm`}
             </div>
           </div>
           {hasSlicerImage && onPreviewMode ? (
-            <div className="flex items-center gap-1 p-1" style={{ border: '1px solid rgba(255,255,255,0.16)' }}>
-              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ background: '#FFFFFF', color: '#262A23' }} aria-pressed="true">3D model</button>
-              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ color: '#FFFFFF' }} onClick={() => onPreviewMode('slicer')} aria-pressed="false">Slicer image</button>
+            <div className="mp-segmented" role="group" aria-label="Preview mode" style={{ height: 30 }}>
+              <button type="button" aria-pressed="true" style={{ height: 24 }}>3D model</button>
+              <button type="button" aria-pressed="false" style={{ height: 24 }} onClick={() => onPreviewMode('slicer')}>Slicer image</button>
             </div>
           ) : (
-            <span className="mp-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: 'rgba(255,255,255,0.48)' }}>Interactive 3D</span>
+            <span className="mp-pill" style={{ background: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Interactive 3D</span>
           )}
         </div>
 
         <div
-          className="relative mx-auto aspect-square select-none"
+          className="relative mx-auto aspect-square select-none rounded-xl overflow-hidden border"
           style={{
             width: 'min(100%, max(260px, calc(100vh - 270px)))',
             maxWidth: 620,
             minHeight: 260,
-            filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.32))',
+            borderColor: 'var(--border)',
+            boxShadow: 'var(--shadow-2)',
           }}
         >
           <InteractiveBuildPlate
@@ -4497,11 +4502,11 @@ function SlicerBuildPlate({
         </div>
 
         {metrics && (
-          <div className="grid grid-cols-3 gap-px mt-2" style={{ background: 'rgba(255,255,255,0.12)' }}>
+          <div className="grid grid-cols-3 gap-px mt-3 rounded-md overflow-hidden border" style={{ background: 'var(--border)', borderColor: 'var(--border)' }}>
             {['x', 'y', 'z'].map((axis) => (
-              <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: '#1C1F24' }}>
-                <span className="mp-mono text-[10px] uppercase" style={{ color: 'rgba(255,255,255,0.48)' }}>{axis}</span>
-                <span className="mp-mono text-[11px]" style={{ color: '#FFFFFF' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
+              <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: 'var(--surface)' }}>
+                <span className="text-xs uppercase" style={{ color: 'var(--ink-50)' }}>{axis}</span>
+                <span className="text-xs t-num font-medium" style={{ color: 'var(--ink)' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
               </div>
             ))}
           </div>
@@ -4522,21 +4527,21 @@ function SlicerBuildPlate({
 
   return (
     <div className="w-full mx-auto" data-testid="slicer-build-plate">
-      <div className="flex items-center justify-between mb-2 gap-3">
+      <div className="flex items-center justify-between mb-2.5 gap-3">
         <div>
-          <div className="mp-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: '#FFFFFF' }}>Build plate</div>
-          <div className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+          <div className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Build plate</div>
+          <div className="text-xs mt-0.5" style={{ color: 'var(--ink-50)' }}>
             {nativePlate ? 'Embedded render from the slicer' : metrics ? `Dark textured plate · ${metrics.plateSize} × ${metrics.plateSize} mm` : 'Generated mesh preview'}
           </div>
         </div>
-        <span className="mp-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: 'rgba(255,255,255,0.48)' }}>
-          {hasSlicerImage && onPreviewMode ? (
-            <span className="flex items-center gap-1 p-1" style={{ border: '1px solid rgba(255,255,255,0.16)' }}>
-              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ color: '#FFFFFF' }} onClick={() => onPreviewMode('3d')} aria-pressed="false">3D model</button>
-              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ background: '#FFFFFF', color: '#262A23' }} aria-pressed="true">Slicer image</button>
-            </span>
-          ) : nativePlate ? 'Slicer image' : 'Angled view'}
-        </span>
+        {hasSlicerImage && onPreviewMode ? (
+          <div className="mp-segmented" role="group" aria-label="Preview mode" style={{ height: 30 }}>
+            <button type="button" aria-pressed="false" style={{ height: 24 }} onClick={() => onPreviewMode('3d')}>3D model</button>
+            <button type="button" aria-pressed="true" style={{ height: 24 }}>Slicer image</button>
+          </div>
+        ) : (
+          <span className="mp-pill" style={{ background: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>{nativePlate ? 'Slicer image' : 'Angled view'}</span>
+        )}
       </div>
 
       <div
@@ -4731,7 +4736,7 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
         {/* Photos sit on a paper-toned stage: the old near-black stage read as
             broken letterboxing around portrait shots. The dark stage remains
             for the 3D/slicer views, where a viewport is expected to be dark. */}
-        <div className="flex items-center justify-center p-4 sm:p-6 overflow-y-auto" style={{ background: isImg || isVid ? 'rgba(38,42,35,0.06)' : '#262A23', minHeight: 320 }}>
+        <div className="flex items-center justify-center p-4 sm:p-6 overflow-y-auto" style={{ background: 'var(--surface-sunken)', minHeight: 320 }}>
           {isVid && objectUrl && <video src={objectUrl} controls className="max-h-[72vh] max-w-full" />}
           {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[72vh] max-w-full object-contain" style={{ boxShadow: '0 1px 14px rgba(38,42,35,0.18)' }} />}
           {!isImg && !isVid && previewReady && (
@@ -4750,7 +4755,7 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
             />
           )}
           {!isImg && !isVid && !previewReady && (
-            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
+            <p className="text-xs" style={{ color: 'var(--ink-65)' }}>
               {isStl ? 'Preparing interactive 3D model…' : 'No preview available for this file type.'}
             </p>
           )}
