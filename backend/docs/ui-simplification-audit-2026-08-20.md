@@ -196,13 +196,20 @@ demo · New · Review and publish.
   FileSizeWarnings panel (preflight enforces the real caps).
 - Fix the readiness phase regex misclassification.
 
-## Open questions for Alex
+## Decisions (Alex, 2026-08-20)
 
-1. Should the per-destination file-role overrides stay in the platform panels, or is
-   the Files-table role + automatic routing enough (removing DestinationFileRoleRow)?
-2. Keep Templates as a feature at all, or fold into duplicating a project once a
-   project library exists?
-3. MMF/MakerRoad attestation checkboxes: keep as blockers (safe) or demote to a
-   publish-time confirmation dialog (fewer standing errors)?
-4. Is auto-enabling destinations from file types wanted (e.g. .lac enables MakerWorld
-   laser), or should destination selection stay fully manual?
+1. **Per-destination file-role overrides stay.** `DestinationFileRoleRow` keeps its
+   place in the platform panels. The Files-table role remains the default; the panel
+   override is the escape hatch when a platform needs a file in a different slot.
+2. **Templates fold into duplicating a project.** Drop the Templates dropdown rather
+   than move it into the project-name menu; a project library plus "duplicate" covers
+   the same need without a third persistence format beside autosave and default
+   platforms.
+3. **The two attestations move to publish time.** MyMiniFactory's no-AI declaration
+   and MakerRoad's real-photo confirmation stop being standing preflight errors. They
+   become a confirmation in the publish step for those destinations, required before
+   their upload runs. Nothing uploads unconfirmed; the app just stops showing two
+   permanent red rows it cannot verify anyway.
+4. **Destination selection stays fully manual.** File types never enable a
+   destination, and the app does not suggest one either. Files change how a selected
+   destination is configured, never whether it is selected.
