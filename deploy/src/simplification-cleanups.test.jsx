@@ -4,7 +4,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import App, { deriveProjectReadiness, pruneDestinationFileState } from './App.jsx';
+import App, { deriveProjectReadiness, platformPreflight, pruneDestinationFileState, publishBlockers } from './App.jsx';
+import { destinationReadinessSummary } from './lib/platform-workflow.js';
 
 beforeEach(() => {
   cleanup();
@@ -46,8 +47,8 @@ describe('readiness phase classification', () => {
       },
     };
     const readiness = deriveProjectReadiness(project);
-    const blocked = readiness.destinations.reports.flatMap((report) => report.errors).join(' ');
-    expect(blocked).toMatch(/MakerRoad review requires a confirmed real photo/i);
+    const pending = readiness.destinations.reports.flatMap((report) => report.confirmations || []);
+    expect(pending.map((item) => item.id)).toContain('makeroad-real-photo');
     expect(readiness.package.profileBlockers).toEqual([]);
   });
 
@@ -88,5 +89,80 @@ describe('Details step gate', () => {
     await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
     expect(screen.getByRole('button', { name: /continue to images/i })).toBeEnabled();
+  });
+});
+
+describe('three-tier severity', () => {
+  const project = (patch = {}) => ({
+    files: [{ id: 'f1', name: 'part.stl', size: 1, isModel: true }],
+    media: [],
+    images: Array.from({ length: 30 }, (_, i) => ({ id: `img${i}` })),
+    coverImageId: 'img0',
+    title: 'Calibration puck',
+    description: '',
+    category: '',
+    tags: [],
+    profiles: [],
+    platforms: { makeronline: { enabled: true } },
+    ...patch,
+  });
+  const makerOnline = { id: 'makeronline', name: 'MakerOnline', formats: ['stl'], limits: {}, maxImages: 20 };
+
+  it('files an automatic change under adaptations, not warnings-as-alarms', () => {
+    const result = platformPreflight(makerOnline, project());
+    expect(result.adaptations.join(' ')).toMatch(/only the first 20 ordered model images/i);
+    expect(result.optional.join(' ')).not.toMatch(/only the first 20/i);
+  });
+
+  it('files an unfilled optional field under optional, out of every count', () => {
+    const result = platformPreflight(makerOnline, project());
+    expect(result.optional).toContain('Description is empty.');
+    expect(result.adaptations).not.toContain('Description is empty.');
+    // warnings stays the union so adapters and receipts keep working.
+    expect(result.warnings).toEqual([...result.adaptations, ...result.optional]);
+  });
+
+  it('never calls a destination amber for something ModelPrep does itself', () => {
+    const summary = destinationReadinessSummary('makeronline', {
+      errors: [],
+      adaptations: ['MakerOnline uploads only the first 20 ordered model images.'],
+      optional: ['Description is empty.'],
+      confirmations: [],
+    }, project());
+    expect(summary.status).toBe('ready');
+    expect(summary.label).toBe('Ready');
+    expect(summary.adaptationCount).toBe(1);
+    expect(summary.firstIssue).toBe('');
+  });
+
+  it('holds the upload until a self-attestation is ticked, without a standing error', () => {
+    const unconfirmed = {
+      files: [{ id: 'f1', name: 'part.stl', size: 1, isModel: true }], media: [],
+      images: [{ id: 'cover' }], coverImageId: 'cover', title: 'Puck', description: 'A puck',
+      category: 'tools', tags: ['puck'], profiles: [],
+      platforms: { mmf: { enabled: true, categoryPath: 'toys', license: 'cc-by', confirmOriginalNoAi: false } },
+    };
+    const mmf = { id: 'mmf', name: 'MyMiniFactory', formats: ['stl'], limits: {} };
+    const before = platformPreflight(mmf, unconfirmed);
+    expect(before.errors.join(' ')).not.toMatch(/generative AI/i);
+    expect(publishBlockers(before).join(' ')).toMatch(/generative AI/i);
+
+    const after = platformPreflight(mmf, {
+      ...unconfirmed,
+      platforms: { mmf: { ...unconfirmed.platforms.mmf, confirmOriginalNoAi: true } },
+    });
+    expect(after.confirmations).toEqual([]);
+    expect(publishBlockers(after).join(' ')).not.toMatch(/generative AI/i);
+  });
+});
+
+describe('empty projects', () => {
+  it('says one thing instead of ten platforms worth of alarms', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    expect(screen.getByText('Add files to get started.')).toBeInTheDocument();
+    expect(screen.queryByText(/blocker/i)).toBeNull();
+    expect(screen.queryByText(/Destination readiness/i)).toBeNull();
   });
 });

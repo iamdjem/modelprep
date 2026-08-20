@@ -2959,7 +2959,17 @@ const MAX_BUILD_FILE_MB = 2048;
 
 // Pre-flight: validate the project against ONE platform's real requirements before publish,
 // so the user is told what won't pass instead of finding out after a failed upload.
-// Returns { errors:[], warnings:[] }: errors will definitely fail; warnings may degrade.
+//
+// Three tiers, because two made every note look like a problem:
+//   errors      the platform would reject this, or we cannot build the package.
+//               Counted in badges, shown once at the destination that owns it.
+//   adaptations ModelPrep will change something by itself (truncate the gallery,
+//               simplify tags, drop a video, upload a 3MF as plain geometry).
+//               Grouped and quiet; never colours a destination amber.
+//   optional    a gap the upload does not need. Only ever shown inside the
+//               platform's own panel, never in preflight and never in a count.
+// `warnings` stays as the union of the last two so adapters and receipts that
+// only care about "anything non-blocking" keep working.
 // Videos live in project.media (the model-file drop handler never accepts
 // them), so any "has video" check reading project.files is dead code (X2).
 export function projectHasVideo(project) {
@@ -2971,13 +2981,16 @@ export function projectHasVideo(project) {
 
 export function platformPreflight(platform, project) {
   if (platform.id === 'makerworld') {
-    return makerWorldPublishIssues(project, { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) }, {
+    const issues = makerWorldPublishIssues(project, { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) }, {
       cyberControlCount: mwRuntimeCyberBrick.controlConfigs.length,
       forbiddenWords: makerWorldForbiddenWords,
       videoIssues: makerWorldVideoIssues(project.media || []),
     });
+    // Every MakerWorld warning describes something ModelPrep does to the
+    // package, so they are all adaptations.
+    return { ...issues, adaptations: issues.warnings || [], optional: [], confirmations: [] };
   }
-  const errors = [], warnings = [];
+  const errors = [], adaptations = [], optional = [], confirmations = [];
   const lim = platform.limits || {};
   const MB = 1024 * 1024;
   const candidateFiles = platformCandidateFiles(platform, project);
@@ -3001,16 +3014,19 @@ export function platformPreflight(platform, project) {
   if (platform.maxTotalMb && totalMb > platform.maxTotalMb) errors.push(`Files total ${Math.round(totalMb)}MB: over the ${platform.maxTotalMb}MB cap.`);
 
   if (project.images.length === 0) errors.push('No photos: at least one is required.');
-  else if (!project.coverImageId) warnings.push('No cover photo selected.');
+  else if (!project.coverImageId) optional.push('No cover photo selected: the first image is used.');
   const galleryCount = Math.max(0, project.images.length - (project.coverImageId ? 1 : 0));
-  if (platform.maxImages && galleryCount > galleryCapacity(platform)) warnings.push(`${galleryCount} gallery photos: only the first ${galleryCapacity(platform)} will upload.`);
+  if (platform.maxImages && galleryCount > galleryCapacity(platform)) adaptations.push(`${galleryCount} gallery photos: only the first ${galleryCapacity(platform)} will upload.`);
 
   if (!project.title.trim()) errors.push('Title is empty.');
   else if (lim.titleMax && project.title.length > lim.titleMax) errors.push(`Title is ${project.title.length}/${lim.titleMax} chars: too long for ${platform.name}.`);
-  if (lim.tagMax && project.tags.length > lim.tagMax) warnings.push(`${project.tags.length} tags: ${platform.name} allows ${lim.tagMax}.`);
-  if (lim.tagCharMax) { const long = project.tags.filter(t => t.length > lim.tagCharMax); if (long.length) warnings.push(`${long.length} tag(s) over ${lim.tagCharMax} chars.`); }
-  if (!project.description.trim()) warnings.push('Description is empty.');
-  if (!project.category) warnings.push('No category selected.');
+  if (lim.tagMax && project.tags.length > lim.tagMax) adaptations.push(`${project.tags.length} tags: ${platform.name} allows ${lim.tagMax}.`);
+  if (lim.tagCharMax) { const long = project.tags.filter(t => t.length > lim.tagCharMax); if (long.length) adaptations.push(`${long.length} tag(s) over ${lim.tagCharMax} chars.`); }
+  // Both upload fine without these here. Where a platform genuinely requires
+  // one, that platform's own branch below blocks on it, so reporting them
+  // generically only double-counted the same fact.
+  if (!project.description.trim()) optional.push('Description is empty.');
+  if (!project.category) optional.push('No category selected.');
 
   const cults = project.platforms?.cults;
   if (platform.id === 'cults' && cults) {
@@ -3026,11 +3042,11 @@ export function platformPreflight(platform, project) {
     } else if (!cultsPaid && chosenCultsLicense[2] === 'paid') {
       errors.push(`${chosenCultsLicense[1]} is not valid for a free Cults3D listing.`);
     }
-    if (!cults.free && !(cults.price > 0)) warnings.push('Marked paid but the price is 0.');
     // Documented caps previously unenforced (X5): failure used to surface only
     // after the bytes had already uploaded, orphaning auto-deactivated listings.
-    if (!cults.free && cults.price > 0 && (cults.price < 0.65 || cults.price > 1200)) {
-      errors.push('Cults3D prices must be between 0.65 and 1200.');
+    // A price of 0 on a paid listing is the same failure, not a softer one.
+    if (!cults.free && !(cults.price >= 0.65 && cults.price <= 1200)) {
+      errors.push('Cults3D paid listings need a price between 0.65 and 1200.');
     }
     const keywordChars = project.tags.join(', ').length;
     if (keywordChars > 300) errors.push(`Cults3D keywords total ${keywordChars}/300 characters.`);
@@ -3043,7 +3059,7 @@ export function platformPreflight(platform, project) {
     // but never renders in Printables' own edit UI (rows group by printer), so
     // the user cannot see, edit, or delete it there.
     if (project.files.some((file) => ['gcode', 'bgcode'].includes(fileExt(file.name)))) {
-      warnings.push('Printables groups print files by printer and ModelPrep does not send one: your G-code will be stored but invisible in Printables’ editor until you set the model’s Main 3D printer on Printables.');
+      adaptations.push('Printables groups print files by printer and ModelPrep does not send one: your G-code will be stored but invisible in Printables’ editor until you set the model’s Main 3D printer on Printables.');
     }
     errors.push(...printablesFileSettingIssues(modelFiles));
     errors.push(...printablesPaidIssues(printables));
@@ -3053,7 +3069,7 @@ export function platformPreflight(platform, project) {
     // stops the next retained draft from looking like a routing failure.
     const skippedProfiles = excludedProfileNames(project.files, printables);
     if (skippedProfiles.length) {
-      warnings.push(`Printables has no print-profile section: a .3mf uploads as an ordinary model file. ${skippedProfiles.length === 1 ? 'This profile is' : `These ${skippedProfiles.length} profiles are`} not ticked for Printables and will not upload: ${skippedProfiles.join(', ')}. Tick ${skippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${skippedProfiles.length === 1 ? 'it' : 'them'}.`);
+      adaptations.push(`Printables has no print-profile section: a .3mf uploads as an ordinary model file. ${skippedProfiles.length === 1 ? 'This profile is' : `These ${skippedProfiles.length} profiles are`} not ticked for Printables and will not upload: ${skippedProfiles.join(', ')}. Tick ${skippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${skippedProfiles.length === 1 ? 'it' : 'them'}.`);
     }
     if (!printables.categoryId) errors.push('Choose a Printables category in Platforms.');
     if (printables.aiGenerated == null) errors.push('Answer whether AI was used in Platforms.');
@@ -3065,7 +3081,7 @@ export function platformPreflight(platform, project) {
     }
     const normalizedTags = normalizePrintablesTags(project.tags);
     if (normalizedTags.length !== project.tags.length || normalizedTags.some((tag, index) => tag !== project.tags[index])) {
-      warnings.push('Printables will simplify your tags to lowercase single words (letters and numbers only).');
+      adaptations.push('Printables will simplify your tags to lowercase single words (letters and numbers only).');
     }
     if (printables.zipMode === 'archive') {
       for (const file of modelFiles.filter((entry) => fileExt(entry.name) === 'zip')) {
@@ -3099,10 +3115,10 @@ export function platformPreflight(platform, project) {
     if (project.tags.some((tag) => [...String(tag)].length > 50)) errors.push('Nexprint tags may not exceed 50 characters.');
     if ([...mdToHtml(project.description)].length > 10000) errors.push('The rendered Nexprint description exceeds 10,000 characters.');
     if (projectHasVideo(project)) {
-      warnings.push('Nexprint’s current upload form has no video field; video files will not upload.');
+      adaptations.push('Nexprint’s current upload form has no video field; video files will not upload.');
     }
     if (nexprint.aiGenerated && !project.tags.some((tag) => /ai[-\s]?generated/i.test(tag))) {
-      warnings.push('ModelPrep will add the required “AI-generated” tag to the Nexprint listing.');
+      adaptations.push('ModelPrep will add the required “AI-generated” tag to the Nexprint listing.');
     }
     // Two different facts, and conflating them is what made a selection
     // default look like a platform defect: a profile that is not ticked never
@@ -3110,10 +3126,10 @@ export function platformPreflight(platform, project) {
     // Nexprint's print-profile block.
     const nexprintSkippedProfiles = excludedProfileNames(project.files, nexprint);
     if (nexprintSkippedProfiles.length) {
-      warnings.push(`${nexprintSkippedProfiles.length === 1 ? 'This print profile is' : `These ${nexprintSkippedProfiles.length} print profiles are`} not ticked for Nexprint and will not upload: ${nexprintSkippedProfiles.join(', ')}. Tick ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'}.`);
+      adaptations.push(`${nexprintSkippedProfiles.length === 1 ? 'This print profile is' : `These ${nexprintSkippedProfiles.length} print profiles are`} not ticked for Nexprint and will not upload: ${nexprintSkippedProfiles.join(', ')}. Tick ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'}.`);
     }
     if (modelFiles.some((file) => file.isProfile)) {
-      warnings.push('Nexprint print-profile blocks (per-3MF name, intro and plate previews) are not transmitted yet; your 3MF uploads as a plain model file and the listing shows “Print Profile (0)”. Add the profile on Nexprint after publishing if you want the profile card.');
+      adaptations.push('Nexprint print-profile blocks (per-3MF name, intro and plate previews) are not transmitted yet; your 3MF uploads as a plain model file and the listing shows “Print Profile (0)”. Add the profile on Nexprint after publishing if you want the profile card.');
     }
   }
   const creality = project.platforms?.creality;
@@ -3129,20 +3145,20 @@ export function platformPreflight(platform, project) {
     const instructions = project.files.filter((file) => CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name)));
     if (project.tags.length > 20) errors.push('Creality Cloud accepts at most 20 tags.');
     if (project.tags.some((tag) => [...String(tag)].length > 30)) errors.push('Creality Cloud tags may not exceed 30 characters.');
-    if (instructions.length) warnings.push(`${instructions.length} compatible instruction file${instructions.length === 1 ? '' : 's'} will upload with the model.`);
+    if (instructions.length) adaptations.push(`${instructions.length} compatible instruction file${instructions.length === 1 ? '' : 's'} will upload with the model.`);
     if (projectHasVideo(project)) {
-      warnings.push('The current Creality model form has no direct video upload; add a YouTube link in the rich description instead.');
+      adaptations.push('The current Creality model form has no direct video upload; add a YouTube link in the rich description instead.');
     }
     // Same split as Nexprint: a profile that is not ticked never uploads at
     // all, which is a different fact from one that uploads without being
     // parsed into a Print Configuration.
     const crealitySkipped = excludedProfileNames(project.files, creality);
     if (crealitySkipped.length) {
-      warnings.push(`${crealitySkipped.length === 1 ? 'This print profile is' : `These ${crealitySkipped.length} print profiles are`} not ticked for Creality Cloud and will not upload: ${crealitySkipped.join(', ')}. Tick ${crealitySkipped.length === 1 ? 'it' : 'them'} in this platform's file list to include ${crealitySkipped.length === 1 ? 'it' : 'them'}.`);
+      adaptations.push(`${crealitySkipped.length === 1 ? 'This print profile is' : `These ${crealitySkipped.length} print profiles are`} not ticked for Creality Cloud and will not upload: ${crealitySkipped.join(', ')}. Tick ${crealitySkipped.length === 1 ? 'it' : 'them'} in this platform's file list to include ${crealitySkipped.length === 1 ? 'it' : 'them'}.`);
     }
     const creality3mfs = withoutExcluded(project.files, creality).filter((file) => file.isProfile);
     if (creality3mfs.length) {
-      warnings.push(`${creality3mfs.length} 3MF file${creality3mfs.length === 1 ? ' uploads' : 's upload'} as plain model files: ModelPrep doesn't build Creality Print Configurations yet, so their print settings won't be parsed into the listing.`);
+      adaptations.push(`${creality3mfs.length} 3MF file${creality3mfs.length === 1 ? ' uploads' : 's upload'} as plain model files: ModelPrep doesn't build Creality Print Configurations yet, so their print settings won't be parsed into the listing.`);
     }
   }
   const makeronline = project.platforms?.makeronline;
@@ -3162,7 +3178,7 @@ export function platformPreflight(platform, project) {
     if (![1, 2].includes(Number(makeronline.permission || 2))) errors.push('Choose Public or Private permission for MakerOnline.');
     if (makeronline.publication === 'public' && Number(makeronline.permission || 2) !== 1) errors.push('Public MakerOnline publishing requires Public model permission.');
     if (![1, 2, 3].includes(Number(makeronline.printMethod || 3))) errors.push('Choose FDM, Resin, or Both for MakerOnline.');
-    if (project.images.length > 20) warnings.push('MakerOnline uploads only the first 20 ordered model images.');
+    if (project.images.length > 20) adaptations.push('MakerOnline uploads only the first 20 ordered model images.');
     if (project.tags.length > 20) errors.push('MakerOnline accepts at most 20 tags.');
     if (project.tags.some((tag) => [...String(tag)].length > 20)) errors.push('MakerOnline tags may not exceed 20 characters.');
     if ([...mdToPlain(project.description)].length > 9000) errors.push('The MakerOnline description exceeds 9,000 text characters.');
@@ -3171,7 +3187,7 @@ export function platformPreflight(platform, project) {
     if (documentation.length > 50) errors.push('MakerOnline accepts at most 50 documentation files.');
     if (makeronline.relatedKits && !(makeronline.storeKitIds || []).length) errors.push('Choose at least one MakerOnline Creative Kit.');
     if (projectHasVideo(project)) {
-      warnings.push('MakerOnline’s current upload form has no video field; video media will not upload.');
+      adaptations.push('MakerOnline’s current upload form has no video field; video media will not upload.');
     }
     if (makeronline.syncChina && (Number(makeronline.permission || 2) !== 1 || makeronline.nsfw)) {
       errors.push('MakerOnline China sync requires a public, non-NSFW model.');
@@ -3183,16 +3199,16 @@ export function platformPreflight(platform, project) {
     // option on -- the demo turns it on -- silently disqualified MakerOnline
     // from the whole batch, while the other nine platforms published fine.
     if (makeronline.includePrintProfile && Number(makeronline.printMethod || 3) !== 2 && !profileFiles.length) {
-      warnings.push('MakerOnline print profiles are enabled but this project has no .3mf; the raw model files still upload.');
+      adaptations.push('MakerOnline print profiles are enabled but this project has no .3mf; the raw model files still upload.');
     }
     if (Number(makeronline.printMethod || 3) === 2 && makeronline.includePrintProfile) {
-      warnings.push('MakerOnline omits print profiles for Resin listings; the raw model files still upload.');
+      adaptations.push('MakerOnline omits print profiles for Resin listings; the raw model files still upload.');
     }
     if (makeronline.exclusive && !makeronline.exclusiveEligible) errors.push('This MakerOnline account is not currently eligible for exclusive submission.');
   }
   if (platform.id === 'makeroad') {
     if (projectHasVideo(project)) {
-      warnings.push('MakerRoad’s current upload form has no native video field; video media will not upload.');
+      adaptations.push('MakerRoad’s current upload form has no native video field; video media will not upload.');
     }
     // Documented caps (X5): previously checked only inside buildSubmitPayload,
     // after every byte had already uploaded.
@@ -3208,7 +3224,13 @@ export function platformPreflight(platform, project) {
     if (!['private', 'public'].includes(mmf.publication || 'private')) errors.push('Choose Private or Public visibility for MyMiniFactory.');
     if (!Array.isArray(mmf.categoryIds) || !mmf.categoryIds.length) errors.push('Choose a MyMiniFactory category in Platforms.');
     if (!MYMINIFACTORY_LICENSES.some((license) => license.id === Number(mmf.licenseId || 5))) errors.push('Choose a MyMiniFactory license in Platforms.');
-    if (!mmf.confirmOriginalNoAi) errors.push('Confirm MyMiniFactory’s original, no-generative-AI, and Terms declaration in Platforms.');
+    // Unverifiable self-attestation: ModelPrep cannot check it, so it is asked
+    // for once at publish time rather than shown as a standing red row.
+    if (!mmf.confirmOriginalNoAi) confirmations.push({
+      id: 'mmf-original-no-ai',
+      message: 'I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory’s Terms and Conditions.',
+      field: { kind: 'platform-option', platformId: 'mmf', key: 'confirmOriginalNoAi' },
+    });
     if (mmf.remix && !(mmf.remixParentIds || []).length) errors.push('MyMiniFactory remixes require at least one parent object ID.');
     if (project.tags.length > 20) errors.push('MyMiniFactory accepts at most 20 tags.');
     if (modelFiles.length > 500) errors.push('MyMiniFactory accepts at most 500 object files.');
@@ -3222,11 +3244,20 @@ export function platformPreflight(platform, project) {
   }
   const makeroad = project.platforms?.makeroad;
   if (platform.id === 'makeroad' && makeroad) {
-    const hasConfirmedPrintPhoto = (project.profiles || []).some((profile) => profile.realPhotoConfirmed);
+    // Either the publish-time tick or the per-profile checkbox counts. A
+    // project with no sliced profile has no per-profile checkbox to tick, and
+    // used to be unpublishable to MakerRoad for that reason alone.
+    const hasConfirmedPrintPhoto = !!project.confirmations?.['makeroad-real-photo']
+      || (project.profiles || []).some((profile) => profile.realPhotoConfirmed);
     if (!hasConfirmedPrintPhoto) {
       const message = 'MakerRoad review requires a confirmed real photo of the printed model; synthetic renders may be rejected even when using Save.';
-      if (project.__testProject) warnings.push(`${message} Demo transport testing is allowed, but a review rejection is not a certified listing.`);
-      else errors.push(`${message} Confirm a real print photo in Profiles before uploading.`);
+      if (project.__testProject) adaptations.push(`${message} Demo transport testing is allowed, but a review rejection is not a certified listing.`);
+      // Also unverifiable: asked once at publish time, never a standing error.
+      else confirmations.push({
+        id: 'makeroad-real-photo',
+        message: 'I confirm at least one selected image shows the real printed model, not only a render.',
+        field: { kind: 'project-confirmation', key: 'makeroad-real-photo' },
+      });
     }
     const makerRoadCategoryCount = (makeroad.categoryIds || []).length || (makeroad.categoryPaths || []).length;
     if (makerRoadCategoryCount < 1 || makerRoadCategoryCount > 3) errors.push('Choose 1 to 3 MakerRoad categories in Platforms.');
@@ -3261,10 +3292,20 @@ export function platformPreflight(platform, project) {
     if (thingiverse.customizable && !modelFiles.some((file) => fileExt(file.name) === 'scad')) errors.push('Thingiverse Customizer requires at least one .SCAD model file.');
     if (thingiverse.publication === 'publish' && !thingiverse.termsAccepted) errors.push('Accept Thingiverse’s current terms before publish.');
     if (projectHasVideo(project)) {
-      warnings.push('Thingiverse has no video upload; video media will not upload.');
+      adaptations.push('Thingiverse has no video upload; video media will not upload.');
     }
   }
-  return { errors, warnings };
+  return { errors, adaptations, optional, confirmations, warnings: [...adaptations, ...optional] };
+}
+
+// What actually stops an upload. Self-attestations are not standing errors, so
+// they stay out of badges and counts, but nothing publishes while one is
+// outstanding. Every upload path gates on this, not on `errors` alone.
+export function publishBlockers(report = {}) {
+  return [
+    ...(report.errors || []),
+    ...(report.confirmations || []).map((item) => item.message),
+  ];
 }
 
 // Which preflight errors belong to the Package phase (files and print
@@ -6964,6 +7005,8 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
     : platform.formats;
   const issues = platformPreflight(platform, project);
   const readiness = destinationReadinessSummary(platform.id, issues, project);
+  // Nothing to be ready for yet: an empty project should not wear ten pills.
+  const hasFiles = projectHasFiles(project);
   return (
     // An expanded card is an editing surface, not a tile: it spans the whole row
     // so its options get real width, and so one tall card can't leave the rest of
@@ -7011,14 +7054,12 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                 }}>{connectionLabel}</span>
               ))}
             </div>
-            {state.enabled && (
+            {state.enabled && hasFiles && (
               <span className="mp-pill flex-shrink-0 ml-auto whitespace-nowrap" title={readiness.missingCount ? `${readiness.missingCount} missing requirement${readiness.missingCount === 1 ? '' : 's'}` : readiness.evidence} style={readiness.status === 'blocked'
                 ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
-                : readiness.status === 'warning'
-                  ? { background: 'rgba(255,182,39,0.18)', color: '#8A5A08' }
-                  : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{readiness.label}</span>
+                : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{readiness.label}</span>
             )}
-            <button onClick={onExpand} className={`p-2 opacity-50 hover:opacity-100 transition flex-shrink-0 ${state.enabled ? '' : 'ml-auto'}`} aria-label={expanded ? 'Collapse platform options' : 'Expand platform options'} aria-expanded={expanded}>
+            <button onClick={onExpand} className={`p-2 opacity-50 hover:opacity-100 transition flex-shrink-0 ${state.enabled && hasFiles ? '' : 'ml-auto'}`} aria-label={expanded ? 'Collapse platform options' : 'Expand platform options'} aria-expanded={expanded}>
               {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </button>
         </div>
@@ -7046,13 +7087,30 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
         // stretched across 1800px is unreadable: the eye loses the line between
         // the label and the value.
         <div className="mp-platform-panel px-3.5 pb-3.5 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-          {(issues.errors.length > 0 || issues.warnings.length > 0) && (
+          {hasFiles && issues.errors.length > 0 && (
             <PanelSection title="Needs attention">
               <div className="space-y-1.5">
                 {issues.errors.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ background: 'var(--danger-tint)', color: 'var(--danger-text)' }}>{message}</div>)}
-                {issues.warnings.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ background: 'rgba(255,182,39,0.14)', color: '#6F3C06' }}>{message}</div>)}
               </div>
             </PanelSection>
+          )}
+          {/* Three tiers, three treatments. What ModelPrep changes by itself is
+              worth reading once, not worth an alarm; what is merely unfilled is
+              plain field state and lives here alone. */}
+          {hasFiles && (issues.adaptations || []).length > 0 && (
+            <details className="mt-3">
+              <summary className="mp-disclosure cursor-pointer text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>
+                What ModelPrep will adapt ({issues.adaptations.length})
+              </summary>
+              <ul className="mt-2 p-3 space-y-1.5 text-xs leading-5 rounded-md" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
+                {issues.adaptations.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+            </details>
+          )}
+          {hasFiles && (issues.optional || []).length > 0 && (
+            <p className="mt-2 text-xs leading-5" style={{ color: 'var(--ink-50)' }}>
+              Optional, not needed to upload: {issues.optional.join(' ')}
+            </p>
           )}
           <PanelSection title="Limits">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
@@ -8185,45 +8243,51 @@ export function PrintablesOptions({ opts, onUpdate }) {
 // SECTION: PREPARE FOR UPLOAD (real exports, no fake publishing)
 // =====================================================================
 
-// Pre-flight: run platformPreflight for every enabled platform and surface issues BEFORE
-// the user publishes. Collapsed when everything's clean; expanded with details otherwise.
+// An empty project has nothing to check. Running ten platforms against it
+// produced the same missing title and missing files once per destination:
+// 37 alarms for a project the creator had not started yet.
+export function projectHasFiles(project) {
+  return (project?.files || []).length > 0;
+}
+
+// Pre-flight: run platformPreflight for every enabled platform and surface
+// blockers BEFORE the user publishes. Only blockers: what ModelPrep adapts by
+// itself reads inside the destination's own panel, and an unfilled optional
+// field is not news.
 function PreflightPanel({ enabled, project, setCurrentSection }) {
-  const [open, setOpen] = useState(() => enabled.some((p) => {
-    const report = platformPreflight(p, project);
-    return report.errors.length > 0 || report.warnings.length > 0;
-  }));
   const reports = enabled.map(p => ({ platform: p, ...platformPreflight(p, project) }));
   const totalErr = reports.reduce((n, r) => n + r.errors.length, 0);
-  const totalWarn = reports.reduce((n, r) => n + r.warnings.length, 0);
-  const clean = totalErr === 0 && totalWarn === 0;
-  const bg = totalErr ? 'rgba(185,28,28,0.06)' : totalWarn ? 'rgba(90,116,48,0.05)' : 'rgba(79,178,134,0.08)';
-  const bd = totalErr ? 'rgba(185,28,28,0.35)' : totalWarn ? 'rgba(90,116,48,0.3)' : 'rgba(79,178,134,0.35)';
-  if (!enabled.length) return null;
+  const [open, setOpen] = useState(() => totalErr > 0);
+  const clean = totalErr === 0;
+  const bg = totalErr ? 'rgba(185,28,28,0.06)' : 'rgba(79,178,134,0.08)';
+  const bd = totalErr ? 'rgba(185,28,28,0.35)' : 'rgba(79,178,134,0.35)';
+  // The step header already says "Add files to get started". Saying it twice
+  // is how a one-line empty state turns back into a wall.
+  if (!enabled.length || !projectHasFiles(project)) return null;
   return (
     <div className="mp-card p-3" style={{ background: bg, borderColor: bd }}>
       <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
-        {clean ? <Check size={15} style={{ color: '#3a8d68' }} /> : totalErr ? <AlertCircle size={15} style={{ color: '#B91C1C' }} /> : <AlertCircle size={15} style={{ color: '#c83f10' }} />}
+        {clean ? <Check size={15} style={{ color: '#3a8d68' }} /> : <AlertCircle size={15} style={{ color: '#B91C1C' }} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>
           {clean ? 'Pre-flight checks passed: ready to publish'
-            : `Pre-flight: ${totalErr ? `${totalErr} blocker${totalErr > 1 ? 's' : ''}` : ''}${totalErr && totalWarn ? ' · ' : ''}${totalWarn ? `${totalWarn} warning${totalWarn > 1 ? 's' : ''}` : ''} across ${enabled.length} platform${enabled.length > 1 ? 's' : ''}`}
+            : `Pre-flight: ${totalErr} blocker${totalErr > 1 ? 's' : ''} across ${enabled.length} platform${enabled.length > 1 ? 's' : ''}`}
         </span>
         <span className="ml-auto">{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
       </button>
       {open && !clean && (
         <div className="mt-3 space-y-3">
-          {reports.filter(r => r.errors.length || r.warnings.length).map(r => (
+          {reports.filter(r => r.errors.length).map(r => (
             <div key={r.platform.id}>
               <div className="flex items-center gap-1.5 text-xs font-medium mb-1">
                 <span className="inline-block w-2 h-2 rounded-full" style={{ background: r.platform.dot }} />{r.platform.name}
               </div>
               <ul className="space-y-0.5 ml-3.5">
-                {r.errors.map((e, i) => <li key={'e' + i} className="text-xs" style={{ color: '#B91C1C' }}>❌ {e}</li>)}
-                {r.warnings.map((w, i) => <li key={'w' + i} className="text-xs" style={{ color: '#c83f10' }}>⚠ {w}</li>)}
+                {r.errors.map((e, i) => <li key={'e' + i} className="text-xs" style={{ color: '#B91C1C' }}>{e}</li>)}
               </ul>
             </div>
           ))}
           <div className="text-[11px] pt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
-            Fix in <button onClick={() => setCurrentSection('files')} className="underline">Files</button> · <button onClick={() => setCurrentSection('details')} className="underline">Details</button> · <button onClick={() => setCurrentSection('images')} className="underline">Images</button>. Blockers (❌) will fail the upload; with warnings (⚠) it still uploads, but some images, tags or details may be dropped.
+            Fix in <button onClick={() => setCurrentSection('files')} className="underline">Files</button> · <button onClick={() => setCurrentSection('details')} className="underline">Details</button> · <button onClick={() => setCurrentSection('images')} className="underline">Images</button>. Every line here would fail the upload.
           </div>
         </div>
       )}
@@ -8280,7 +8344,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   const startPublishBatch = () => {
     if (publishBatch?.status === 'running') return;
     const isDesktop = typeof window !== 'undefined' && !!window.modelprepDesktop;
-    const readyTargets = publishTargets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0);
+    const readyTargets = publishTargets.filter((target) => target.mode !== 'missing' && publishBlockers(target.issues).length === 0);
     setPublishBatch(createPublishBatch(readyTargets, `batch-${Date.now()}`, isDesktop ? DESKTOP_PUBLISH_CONCURRENCY : 1));
   };
   const handleBatchResult = (outcome) => {
@@ -8303,13 +8367,26 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   const retryFailedBatch = () => {
     setPublishBatch((current) => retryFailedPublishBatch(current, `batch-retry-${Date.now()}`));
   };
-  const readyTargetCount = publishTargets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0).length;
+  const readyTargetCount = publishTargets.filter((target) => target.mode !== 'missing' && publishBlockers(target.issues).length === 0).length;
   const reviewReports = enabled.map((platform) => {
     const issues = platformPreflight(platform, project);
     return { platform, issues, summary: destinationReadinessSummary(platform.id, issues, project) };
   });
-  const reviewReadyCount = reviewReports.filter((report) => report.summary.status !== 'blocked').length;
-  const reviewBlockedCount = reviewReports.length - reviewReadyCount;
+  // Ticking a publish-time confirmation writes the same field the platform
+  // panel writes, so the two never disagree.
+  const satisfyConfirmation = (confirmation) => {
+    const field = confirmation?.field;
+    if (!field) return;
+    if (field.kind === 'platform-option') {
+      updateProject({ platforms: { ...project.platforms, [field.platformId]: { ...project.platforms[field.platformId], [field.key]: true } } });
+    } else if (field.kind === 'project-confirmation') {
+      updateProject({ confirmations: { ...(project.confirmations || {}), [field.key]: true } });
+    }
+  };
+  const hasFiles = projectHasFiles(project);
+  const reviewReadyCount = reviewReports.filter((report) => report.summary.status === 'ready').length;
+  const reviewBlockedCount = reviewReports.filter((report) => report.summary.status === 'blocked').length;
+  const reviewConfirmCount = reviewReports.filter((report) => report.summary.status === 'confirm').length;
   const fixSectionFor = (message = '') => /file|model|profile|3mf|slicer|bambu/i.test(message)
     ? 'files'
     : /image|photo|cover|gallery|video/i.test(message)
@@ -8326,7 +8403,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   const startPlanPublish = (plan) => {
     if (publishBatch?.status === 'running') return false;
     const target = publishTargets.find((candidate) => candidate.id === plan.platformId);
-    if (!target || target.mode === 'missing' || target.issues.errors.length) return false;
+    if (!target || target.mode === 'missing' || publishBlockers(target.issues).length) return false;
     const isDesktop = typeof window !== 'undefined' && !!window.modelprepDesktop;
     setPublishBatch(createPublishBatch([target], `plan-${plan.id}-${Date.now()}`, isDesktop ? DESKTOP_PUBLISH_CONCURRENCY : 1));
     releasePlanStore.set(patchReleasePlan(releasePlanStore.get(), plan.id, { status: 'done', firedAt: Date.now() }));
@@ -8459,7 +8536,13 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       <SectionHeader
         number="06"
         title="Publish"
-        subtitle={`${reviewReadyCount} ready · ${reviewBlockedCount} need attention. Upload the ready destinations now or fix the blocked ones first.`}
+        subtitle={hasFiles
+          ? [
+            `${reviewReadyCount} ready`,
+            reviewConfirmCount ? `${reviewConfirmCount} awaiting a confirmation` : '',
+            `${reviewBlockedCount} need attention`,
+          ].filter(Boolean).join(' · ') + '. Upload the ready destinations now or fix the blocked ones first.'
+          : 'Add files to get started.'}
       />
 
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
@@ -8467,27 +8550,39 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       {/* Read in sequence, so laid out in sequence: what is wrong, then what
           will be sent, then the per-platform detail. */}
       <div className="mt-5 grid gap-4">
+        {hasFiles && (
         <div className="mp-card p-4">
           <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
             <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Destination readiness</span>
             <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Evidence is shown per platform; no destination is described as universally certified.</span>
           </div>
           <div className="grid gap-1.5">
-            {reviewReports.map(({ platform, summary }) => (
-              <div key={platform.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5" style={{ borderColor: 'var(--border)' }}>
-                <PlatformMark platform={platform} size={26} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate" style={{ color: 'var(--ink)' }}>{platform.name} <span className="font-normal" style={{ color: 'var(--ink-50)' }}>· {summary.outcome.outcome}</span></div>
-                  <div className="text-xs mt-0.5 truncate" style={{ color: summary.status === 'blocked' ? 'var(--danger-text)' : 'var(--ink-50)' }}>{summary.firstIssue || `${summary.evidence} · package ready`}</div>
+            {reviewReports.map(({ platform, summary, issues }) => (
+              <div key={platform.id} className="rounded-lg border px-3 py-2.5" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-3">
+                  <PlatformMark platform={platform} size={26} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium truncate" style={{ color: 'var(--ink)' }}>{platform.name} <span className="font-normal" style={{ color: 'var(--ink-50)' }}>· {summary.outcome.outcome}</span></div>
+                    <div className="text-xs mt-0.5 truncate" style={{ color: summary.status === 'blocked' ? 'var(--danger-text)' : 'var(--ink-50)' }}>{summary.firstIssue || `${summary.evidence} · package ready`}</div>
+                  </div>
+                  <span className="mp-pill flex-shrink-0" style={summary.status === 'blocked'
+                    ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
+                    : summary.status === 'confirm'
+                      ? { background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }
+                      : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{summary.label}</span>
+                  {summary.firstIssue && (
+                    <button type="button" onClick={() => setCurrentSection(fixSectionFor(summary.firstIssue))} className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Fix</button>
+                  )}
                 </div>
-                <span className="mp-pill flex-shrink-0" style={summary.status === 'blocked'
-                  ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
-                  : summary.status === 'warning'
-                    ? { background: 'rgba(255,182,39,0.18)', color: '#8A5A08' }
-                    : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{summary.label}</span>
-                {summary.firstIssue && (
-                  <button type="button" onClick={() => setCurrentSection(fixSectionFor(summary.firstIssue))} className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Fix</button>
-                )}
+                {/* ModelPrep cannot check a self-attestation, so it asks here,
+                    once, instead of holding a permanent red row on a
+                    destination that is otherwise ready. */}
+                {(issues.confirmations || []).map((confirmation) => (
+                  <label key={confirmation.id} className="flex items-start gap-2 mt-2 pt-2 border-t text-xs leading-5 cursor-pointer" style={{ borderColor: 'var(--border)', color: 'var(--ink-65)' }}>
+                    <input type="checkbox" className="mt-0.5" checked={false} onChange={() => satisfyConfirmation(confirmation)} />
+                    <span>{confirmation.message}</span>
+                  </label>
+                ))}
               </div>
             ))}
           </div>
@@ -8495,11 +8590,12 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
             <p className="text-xs mt-3" style={{ color: 'var(--ink-50)' }}>The upload action below skips blocked destinations automatically.</p>
           )}
         </div>
+        )}
         <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
 
         {releaseQueuePanel}
 
-        {publishTargets.length > 0 && (
+        {hasFiles && publishTargets.length > 0 && (
           <BatchPublishPanel
             targets={publishTargets}
             batch={publishBatch}
@@ -8516,7 +8612,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         )}
       </div>
 
-      {directEnabled.length > 0 && (
+      {hasFiles && directEnabled.length > 0 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="mp-display text-[22px] leading-none">Publishing destinations</h3>
@@ -8533,7 +8629,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       )}
 
       <div className="mt-3 space-y-4">
-        {directEnabled.map(p => (
+        {hasFiles && directEnabled.map(p => (
           <PlatformPackageCard
             key={p.id}
             platform={p}
@@ -8558,7 +8654,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       {/* The ZIP fallback used to live inside an "Export packages" group that
           only rendered for platforms ModelPrep cannot publish to. All ten are
           live, so the group never appeared and took the download with it. */}
-      {enabled.length > 0 && (
+      {hasFiles && enabled.length > 0 && (
       <div className="mt-6 mp-card">
         <button onClick={() => setShowZip((open) => !open)} className="w-full flex items-center gap-2 p-3 text-left" aria-expanded={showZip}>
           {showZip ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -8651,9 +8747,9 @@ function nowLocalMin() {
 
 export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, resourceReport = null, resourceReportStatus = 'idle', onPublish, onRetryFailed, onDownloadResourceReport, onOpenConnections, onDryRun = null, isTestProject = false }) {
   const missing = targets.filter((target) => target.mode === 'missing');
-  const blockedTargets = targets.filter((target) => target.issues.errors.length > 0);
-  const blocking = blockedTargets.flatMap((target) => target.issues.errors.map((issue) => `${target.name}: ${issue}`));
-  const readyTargets = targets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0);
+  const blockedTargets = targets.filter((target) => publishBlockers(target.issues).length > 0);
+  const blocking = blockedTargets.flatMap((target) => publishBlockers(target.issues).map((issue) => `${target.name}: ${issue}`));
+  const readyTargets = targets.filter((target) => target.mode !== 'missing' && publishBlockers(target.issues).length === 0);
   const running = batch?.status === 'running';
   const hasReal = targets.some((target) => target.mode === 'real');
   const publicTargets = targets.filter((target) => target.mode === 'real' && target.visibility === 'public');
@@ -8796,7 +8892,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
       <div className="mt-3 grid gap-2 md:grid-cols-3">
         {targets.map((target) => {
           const result = batch?.results?.[target.id];
-          const targetBlocked = target.issues.errors.length > 0;
+          const targetBlocked = publishBlockers(target.issues).length > 0;
           const state = result?.state || (target.mode === 'missing' || targetBlocked ? 'error' : 'ready');
           const receiptLabel = result
             ? publishReceiptLabel(result)
@@ -9605,7 +9701,8 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       const modelFiles = withoutExcluded(project.files.filter(f =>
         f.isModel && f.blob && platform.formats.includes(fileExt(f.name))), project.platforms?.cults);
       const preflight = platformPreflight(platform, project);
-      if (preflight.errors.length) throw new Error(preflight.errors.join(' '));
+      const blocking = publishBlockers(preflight);
+      if (blocking.length) throw new Error(blocking.join(' '));
       if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
       if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
 
@@ -10549,8 +10646,9 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
   const submit = async (publish, batchRunId = null) => {
     const preflight = platformPreflight(platform, project);
-    if (preflight.errors.length) {
-      const message = preflight.errors.join(' ');
+    const blocking = publishBlockers(preflight);
+    if (blocking.length) {
+      const message = blocking.join(' ');
       setError(message);
       setStatus('error');
       reportBatch(batchRunId, 'error', message);
@@ -10912,8 +11010,9 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
   const submit = async (publication, batchRunId = null) => {
     const preflight = platformPreflight(platform, project);
-    if (preflight.errors.length) {
-      const message = preflight.errors.join(' ');
+    const blocking = publishBlockers(preflight);
+    if (blocking.length) {
+      const message = blocking.join(' ');
       setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
     }
     if (simulate) {
@@ -11139,7 +11238,8 @@ function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult 
   useEffect(() => { setStatus((value) => (usable || simulate) && value === 'idle' ? 'connected' : (!usable && !simulate && value === 'connected' ? 'idle' : value)); }, [usable, simulate]);
   const report = (runId, state, detail, extra = {}) => { if (runId) onBatchResult?.({ runId, platformId: 'thingiverse', state, detail, ...extra }); };
   const submit = async (publish, runId = null) => {
-    const preflight = platformPreflight(platform, project); if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    const preflight = platformPreflight(platform, project);
+    const blocking = publishBlockers(preflight); if (blocking.length) { const message = blocking.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
     if (simulate) { setStatus('uploading'); setProgress('Simulating Thingiverse draft…'); await new Promise((resolve) => setTimeout(resolve, 450)); setResult({ demo: true, state: publish ? 'public' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'Thingiverse simulation complete: nothing uploaded', { publicationState: publish ? 'public' : 'draft', simulated: true }); return; }
     setStatus('uploading'); setError('');
     try {
@@ -11172,7 +11272,8 @@ function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setStatus('error'); } finally { setProgress(''); }
   };
   const submit = async (isPublic, runId = null) => {
-    const preflight = platformPreflight(platform, project); if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    const preflight = platformPreflight(platform, project);
+    const blocking = publishBlockers(preflight); if (blocking.length) { const message = blocking.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
     if (simulate) { setStatus('uploading'); setProgress('Simulating private Thangs model…'); await new Promise((resolve) => setTimeout(resolve, 450)); setResult({ demo: true, state: isPublic ? 'public' : 'private' }); setStatus('done'); setProgress(''); report(runId, 'success', 'Thangs upload simulated: nothing uploaded', { publicationState: isPublic ? 'public' : 'private', simulated: true }); return; }
     if (!isDesktopThangsSession(secret)) { const message = 'Connect Thangs in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
     setStatus('uploading'); setError('');
@@ -11218,7 +11319,8 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
   const sourceFile = (file) => file.blob instanceof File && file.blob.name === file.name ? file.blob : new File([file.blob], file.name, { type: file.type || 'application/octet-stream' });
   const submit = async (publish, runId = null) => {
     const preflight = platformPreflight(platform, project);
-    if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
+    const blocking = publishBlockers(preflight);
+    if (blocking.length) { const message = blocking.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
     if (simulate) { setStatus('uploading'); setProgress('Simulating MakerRoad review submission…'); await new Promise((resolve) => setTimeout(resolve, 500)); setResult({ demo: true, state: 'pending' }); setStatus('done'); setProgress(''); report(runId, 'success', 'MakerRoad review submission simulated: nothing uploaded', { publicationState: 'pending', simulated: true }); return; }
     if (!isDesktopMakerRoadSession(secret)) { const message = 'Connect MakerRoad in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
     setStatus('uploading'); setError(''); setResult(null);
@@ -11382,8 +11484,9 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
       ? { ...project, platforms: { ...project.platforms, makeronline: { ...options, publication: 'public', permission: 1 } } }
       : project;
     const preflight = platformPreflight(platform, effectiveProject);
-    if (preflight.errors.length) {
-      const message = preflight.errors.join(' ');
+    const blocking = publishBlockers(preflight);
+    if (blocking.length) {
+      const message = blocking.join(' ');
       setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
     }
     if (simulate) {
@@ -11676,8 +11779,9 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
   const submit = async (publication, batchRunId = null) => {
     const effectiveProject = { ...project, platforms: { ...project.platforms, mmf: { ...options, publication } } };
     const preflight = platformPreflight(platform, effectiveProject);
-    if (preflight.errors.length) {
-      const message = preflight.errors.join(' '); setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
+    const blocking = publishBlockers(preflight);
+    if (blocking.length) {
+      const message = blocking.join(' '); setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message); return;
     }
     if (simulate) {
       setStatus('uploading'); setError(''); setProgress(`Simulating MyMiniFactory ${publication} upload…`);

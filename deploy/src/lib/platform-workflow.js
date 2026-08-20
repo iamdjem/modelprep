@@ -104,16 +104,21 @@ export const DESTINATION_FIELD_SCHEMA = {
   },
 };
 
+// A destination is blocked or it is ready. It is never "ready with warnings":
+// an adaptation is something ModelPrep does on its own, so colouring the card
+// amber for it downgraded destinations that would have uploaded unchanged.
 export function destinationReadinessSummary(platformId, issues = {}, project = {}) {
   const errors = Array.isArray(issues.errors) ? issues.errors : [];
-  const warnings = Array.isArray(issues.warnings) ? issues.warnings : [];
+  const adaptations = Array.isArray(issues.adaptations) ? issues.adaptations : [];
+  const confirmations = Array.isArray(issues.confirmations) ? issues.confirmations : [];
   const outcome = destinationOutcome(platformId, project);
   return {
-    status: errors.length ? 'blocked' : warnings.length ? 'warning' : 'ready',
-    label: errors.length ? 'Needs attention' : warnings.length ? 'Ready with warnings' : 'Ready',
+    status: errors.length ? 'blocked' : confirmations.length ? 'confirm' : 'ready',
+    label: errors.length ? 'Needs attention' : confirmations.length ? 'Confirm to publish' : 'Ready',
     missingCount: errors.length,
-    warningCount: warnings.length,
-    firstIssue: errors[0] || warnings[0] || '',
+    adaptationCount: adaptations.length,
+    confirmationCount: confirmations.length,
+    firstIssue: errors[0] || '',
     outcome,
     evidence: evidenceLabel(platformId),
     disclosure: DESTINATION_FIELD_SCHEMA,

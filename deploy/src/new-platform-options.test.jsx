@@ -3,7 +3,7 @@ import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MakerRoadOptions, PlatformFilePicker, ThangsOptions, ThingiverseOptions, makerRoadReadbackIssues, platformPreflight } from './App.jsx';
+import { MakerRoadOptions, PlatformFilePicker, ThangsOptions, ThingiverseOptions, makerRoadReadbackIssues, platformPreflight, publishBlockers } from './App.jsx';
 
 afterEach(cleanup);
 const noop = vi.fn();
@@ -21,6 +21,8 @@ describe('new direct-platform option parity', () => {
     });
     expect(result.warnings).toContain('MakerRoad’s current upload form has no native video field; video media will not upload.');
   });
+  // The attestation is unverifiable, so it is asked for at publish time rather
+  // than kept as a standing error. Nothing uploads until it is ticked.
   it('blocks MakerRoad saves that would be rejected for having only synthetic renders', () => {
     const result = platformPreflight({ id: 'makeroad', name: 'MakerRoad', formats: ['stl'], limits: {} }, {
       files: [{ name: 'part.stl', size: 1, isModel: true }], media: [],
@@ -29,7 +31,9 @@ describe('new direct-platform option parity', () => {
       profiles: [{ id: 'profile', realPhotoConfirmed: false }],
       platforms: { makeroad: { categoryIds: ['test-models'], printMethods: ['fdm'], visibility: 'private', payType: 'free' } },
     });
-    expect(result.errors.join(' ')).toMatch(/MakerRoad review requires a confirmed real photo/i);
+    expect(result.errors).toEqual([]);
+    expect(result.confirmations.map((item) => item.id)).toContain('makeroad-real-photo');
+    expect(publishBlockers(result).join(' ')).toMatch(/real printed model/i);
   });
   it('allows the disclosed demo fixture to exercise MakerRoad transport without weakening real projects', () => {
     const result = platformPreflight({ id: 'makeroad', name: 'MakerRoad', formats: ['stl'], limits: {} }, {
