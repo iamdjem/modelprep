@@ -4481,11 +4481,9 @@ function SlicerBuildPlate({
         </div>
 
         <div
-          className="relative mx-auto aspect-square select-none rounded-xl overflow-hidden border"
+          className="relative w-full select-none rounded-xl overflow-hidden border"
           style={{
-            width: 'min(100%, max(260px, calc(100vh - 270px)))',
-            maxWidth: 620,
-            minHeight: 260,
+            height: 'clamp(300px, calc(100vh - 330px), 760px)',
             borderColor: 'var(--border)',
             boxShadow: 'var(--shadow-2)',
           }}
@@ -4547,8 +4545,8 @@ function SlicerBuildPlate({
       <div
         className="relative mx-auto aspect-square select-none"
         style={{
-          width: 'min(100%, max(260px, calc(100vh - 270px)))',
-          maxWidth: 620,
+          width: 'min(100%, max(260px, calc(100vh - 300px)))',
+          maxWidth: 720,
           minHeight: 260,
           filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.32))',
         }}
@@ -4721,7 +4719,7 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
       style={{ background: 'rgba(38,42,35,0.82)' }}
       onMouseDown={onClose}
     >
-      <div ref={dialogRef} tabIndex={-1} className="mp-card max-w-4xl w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ background: '#FFFFFF' }} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} tabIndex={-1} className="mp-card w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ background: '#FFFFFF', maxWidth: 'min(1400px, calc(100vw - 3rem))' }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
           <div className="min-w-0 flex-1">
             <div className="mp-display text-[18px] leading-none truncate">{file.name}</div>
