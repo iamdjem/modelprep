@@ -5463,15 +5463,14 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       <div className="mt-6 max-w-6xl grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-5 min-w-0">
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <Label className="mb-0">Title</Label>
+            <FieldHeader label="Title">
               {lim.titleMax && (titleOver || project.title.length >= lim.titleMax * 0.8) && (
-                <span className="mp-mono text-xs" style={{ color: titleOver ? 'var(--warn-text)' : 'rgba(38,42,35,0.66)' }}>
+                <span className="text-xs t-num flex-shrink-0" style={{ color: titleOver ? 'var(--warn-text)' : 'var(--ink-65)' }}>
                   {project.title.length}/{lim.titleMax}
                   {titleOver && ` · over ${lim.titleMaxBy}'s limit`}
                 </span>
               )}
-            </div>
+            </FieldHeader>
             <input
               className="mp-input"
               placeholder="e.g. Articulating Desk Dragon"
@@ -5481,15 +5480,14 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           </div>
 
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <Label className="mb-0">Description (markdown)</Label>
-              <div className="mp-segmented" role="group" aria-label="Description mode" style={{ height: 30 }}>
+            <FieldHeader label="Description (markdown)">
+              <div className="mp-segmented flex-shrink-0" role="group" aria-label="Description mode" style={{ height: 28 }}>
                 {['write', 'preview', 'formats'].map(m => (
                   <button
                     key={m}
                     onClick={() => setPreviewMode(m)}
                     aria-pressed={previewMode === m}
-                    style={{ height: 24, textTransform: 'capitalize' }}
+                    style={{ height: 22, textTransform: 'capitalize' }}
                   >
                     {m === 'formats' ? 'Adaptations' : m}
                   </button>
@@ -5504,7 +5502,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   </button>
                 )}
               </div>
-            </div>
+            </FieldHeader>
 
             {previewMode === 'write' && (
               <textarea
@@ -5535,15 +5533,17 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
         <div className="space-y-5 min-w-0">
           <div>
-            <Label>Category</Label>
+            {/* No hint under this one. "Each platform has its own category tree,
+                we pick a close match" was the page subtitle said twice, and its
+                two lines pushed the whole rail out of step with the left
+                column. The auto-match note appears per platform where it
+                actually applies. */}
+            <FieldHeader label="Category" />
             <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />
-            <p className="text-xs mt-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              Each platform has its own category tree. We pick a close match for each.
-            </p>
           </div>
 
           <div>
-            <Label>License</Label>
+            <FieldHeader label="License" />
             {/* Eight fixed options, so a select. The card this replaces opened
                 an inline chooser with permission filters, which resized on
                 every click and shoved the rest of the form up and down the
@@ -5572,7 +5572,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             )}
           </div>
           <div>
-            <Label>Tags</Label>
+            <FieldHeader label="Tags" />
             <div className="mp-card p-3">
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {project.tags.map(t => (
@@ -5637,7 +5637,7 @@ export function SharedDisclosures({ project, updateProject }) {
   const patch = (next) => updateProject({ provenance: { ...provenance, ...next } });
   return (
     <div>
-      <Label>Origin and disclosures</Label>
+      <FieldHeader label="Origin and disclosures" />
       <div className="mp-card p-3 space-y-3">
         <div className="flex flex-col gap-2 text-sm">
           <label className="flex items-center gap-2">
@@ -5695,6 +5695,19 @@ export function SharedDisclosures({ project, updateProject }) {
 
 function Label({ children, className = '' }) {
   return <label className={`text-[13px] font-medium block mb-1.5 ${className}`} style={{ color: 'var(--ink)' }}>{children}</label>;
+}
+
+// Every field opens with the same 28px header row, whether or not it carries a
+// counter or a segmented control on the right. A plain label with its own
+// bottom margin put the Category select 8px above the Title input beside it,
+// which is the kind of thing you cannot unsee once you notice it.
+function FieldHeader({ label, children = null }) {
+  return (
+    <div className="flex items-center justify-between gap-3 min-h-[28px] mb-2">
+      <Label className="mb-0">{label}</Label>
+      {children}
+    </div>
+  );
 }
 
 function AutoMatchNote({ active, exact = true, kind = 'category' }) {

@@ -59,6 +59,12 @@ panes are used at the same moment.
   column below `lg`, and the whole grid caps at `max-w-6xl` so the description does not
   stretch to unreadable line lengths on a wide display. The rail does not scroll
   independently and is not sticky: you fill it, you do not consult it.
+- **Every field opens with the same header row.** One 28 px row holding the label, plus
+  whatever sits at its right edge (a character counter, a segmented control), then 8 px
+  to the control. Without it a plain label carrying its own margin puts one column's
+  control a few pixels above its neighbour's, and the two columns stop reading as a
+  grid. Keep hint text out of the first field of a column: two lines of it knock every
+  row below out of step with the other side.
 - **A control that only ever holds one of a fixed list is a select**, not a card with a
   chooser behind it. Details' licence field was a card, a Change button, five filter
   chips and a scrolling list, all inside half a row: every filter click resized it and

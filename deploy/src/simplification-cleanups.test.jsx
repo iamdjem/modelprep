@@ -252,4 +252,21 @@ describe('Details layout', () => {
     expect(license).toHaveValue('cc0');
     expect(screen.getByText(/Commercial use allowed · Remixes allowed/)).toBeInTheDocument();
   });
+
+  // Every field opens with the same header row, which is what puts the left
+  // column's controls on the same lines as the right column's. A label with its
+  // own margin used to sit the Category select 8px above the Title input.
+  it('gives both columns the same field header, so their controls line up', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /step 2: details/i }));
+
+    for (const field of ['Title', 'Description (markdown)', 'Category', 'License', 'Tags', 'Origin and disclosures']) {
+      const header = screen.getByText(field, { selector: 'label' }).parentElement;
+      expect(header).toHaveClass('flex', 'items-center', 'min-h-[28px]', 'mb-2');
+    }
+    // The category hint restated the page subtitle and knocked the rail out of
+    // step with the left column by its own two lines.
+    expect(screen.queryByText(/Each platform has its own category tree/i)).toBeNull();
+  });
 });
