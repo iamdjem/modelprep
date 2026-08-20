@@ -230,3 +230,26 @@ describe('top bar', () => {
     expect(screen.getByRole('button', { name: /import a folder/i })).toBeInTheDocument();
   });
 });
+
+describe('Details layout', () => {
+  it('picks a license without moving anything else on the page', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 2: details/i }));
+
+    // One select, grouped by the question creators decide first. The old card
+    // opened an inline chooser whose height changed with every filter click.
+    const license = screen.getByLabelText('License');
+    expect(license.tagName).toBe('SELECT');
+    expect([...license.querySelectorAll('optgroup')].map((group) => group.label))
+      .toEqual(['Commercial use allowed', 'Non-commercial only']);
+    expect(screen.queryByRole('button', { name: /^change$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /commercial ok/i })).toBeNull();
+
+    await user.selectOptions(license, 'cc0');
+    expect(license).toHaveValue('cc0');
+    expect(screen.getByText(/Commercial use allowed · Remixes allowed/)).toBeInTheDocument();
+  });
+});

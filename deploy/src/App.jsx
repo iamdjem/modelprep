@@ -5287,21 +5287,13 @@ function CategorySelect({ value, onChange, options }) {
   );
 }
 
-const LICENSE_FILTERS = [
-  { id: 'all', label: 'All' },
-  { id: 'commercial', label: '$ Commercial OK' },
-  { id: 'noncommercial', label: 'Non-commercial' },
-  { id: 'remix', label: '↻ Remix OK' },
-  { id: 'noderiv', label: 'No derivatives' },
-];
-
-function matchesLicenseFilter(l, f) {
-  if (f === 'commercial') return l.commercial;
-  if (f === 'noncommercial') return !l.commercial;
-  if (f === 'remix') return l.derivatives;
-  if (f === 'noderiv') return !l.derivatives;
-  return true;
-}
+// Commercial use is the question creators actually decide first, so it is the
+// grouping in the licence select rather than a row of filter chips above a
+// list. Derived from LICENSES so a new licence cannot fall out of the picker.
+const LICENSE_GROUPS = [
+  { label: 'Commercial use allowed', licenses: LICENSES.filter((license) => license.commercial) },
+  { label: 'Non-commercial only', licenses: LICENSES.filter((license) => !license.commercial) },
+].filter((group) => group.licenses.length > 0);
 
 function DetailsSection({ project, updateProject, setCurrentSection }) {
   useAccounts();
@@ -5314,10 +5306,6 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
   const openSettings = useOpenConnections();
   const aiPrimary = readAiConfig().primary;
-  const [licenseFilter, setLicenseFilter] = useState('all');
-  const [showLicenseChooser, setShowLicenseChooser] = useState(false);
-
-  const visibleLicenses = LICENSES.filter(l => matchesLicenseFilter(l, licenseFilter));
   const selectedLicense = LICENSES.find((license) => license.id === project.license);
 
   // Strictest limits across the platforms the user is actually targeting (all of them
@@ -5422,7 +5410,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
       {/* ✨ AI generate: reads the photos (+ an optional one-line hint) and fills in
           Title, Description, Tags and Category. The most you ever type is one line. */}
-      <details className="mp-card mt-6" style={{ backgroundColor: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
+      <details className="mp-card mt-6 max-w-6xl" style={{ backgroundColor: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
         <summary className="mp-disclosure min-h-[48px] px-4 flex items-center gap-2 cursor-pointer">
           <Sparkles size={15} style={{ color: 'var(--primary)' }} />
           <span className="text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>Generate with AI</span>
@@ -5468,7 +5456,12 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         </div>
       </details>
 
-      <div className="mt-6 max-w-3xl space-y-5">
+      {/* The listing copy on the left, everything that classifies it on the
+          right. Both are filled at the same moment: you pick a category and
+          type tags while the description is in front of you. Below lg it
+          stacks back into the single column the rest of the app uses. */}
+      <div className="mt-6 max-w-6xl grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="space-y-5 min-w-0">
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="mb-0">Title</Label>
@@ -5538,8 +5531,9 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               </span>
             </div>
           </div>
+        </div>
 
-          <div className="grid gap-5 sm:grid-cols-2 items-start">
+        <div className="space-y-5 min-w-0">
           <div>
             <Label>Category</Label>
             <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />
@@ -5550,83 +5544,32 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
           <div>
             <Label>License</Label>
-            <div className="mp-card p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold leading-tight">{selectedLicense?.name || project.license}</div>
-                  {selectedLicense && (
-                    <div className="flex flex-wrap gap-2 mt-1.5">
-                      <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.commercial ? '#247255' : 'rgba(38,42,35,0.66)' }}>
-                        {selectedLicense.commercial ? 'Commercial use allowed' : 'Non-commercial'}
-                      </span>
-                      <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: selectedLicense.derivatives ? '#247255' : 'rgba(38,42,35,0.66)' }}>
-                        {selectedLicense.derivatives ? 'Remixes allowed' : 'No derivatives'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowLicenseChooser((open) => !open)}
-                  aria-expanded={showLicenseChooser}
-                  className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2.5 min-h-[36px] flex-shrink-0"
-                >
-                  {showLicenseChooser ? 'Close' : 'Change'}
-                </button>
-              </div>
-            </div>
-            {showLicenseChooser && (
-              <div className="mt-2">
-                <div className="flex flex-wrap gap-1.5 mb-2.5">
-                  {LICENSE_FILTERS.map(f => (
-                    <button
-                      key={f.id}
-                      onClick={() => setLicenseFilter(f.id)}
-                      className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-1 transition"
-                      style={{
-                        backgroundColor: licenseFilter === f.id ? 'var(--primary-tint)' : 'rgba(38,42,35,0.06)',
-                        color: licenseFilter === f.id ? 'var(--primary-ink)' : 'rgba(38,42,35,0.65)',
-                      }}
-                    >
-                      {f.label}
-                    </button>
+            {/* Eight fixed options, so a select. The card this replaces opened
+                an inline chooser with permission filters, which resized on
+                every click and shoved the rest of the form up and down the
+                page. The permissions are the option groups now, and the
+                selected licence explains itself underneath. */}
+            <select
+              className="mp-input"
+              aria-label="License"
+              value={project.license}
+              onChange={(event) => updateProject({ license: event.target.value })}
+            >
+              {LICENSE_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.licenses.map((license) => (
+                    <option key={license.id} value={license.id}>{license.name}</option>
                   ))}
-                </div>
-                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
-                  {visibleLicenses.length === 0 && (
-                    <p className="text-[13px] py-2" style={{ color: 'rgba(38,42,35,0.66)' }}>No license matches that combination.</p>
-                  )}
-                  {visibleLicenses.map(l => (
-                    <label key={l.id} className="flex items-start gap-2.5 mp-card p-2.5 cursor-pointer transition" style={{
-                      borderColor: project.license === l.id ? '#5A7430' : 'rgba(38,42,35,0.1)',
-                      backgroundColor: project.license === l.id ? 'rgba(90,116,48,0.04)' : '#FFFFFF',
-                    }}>
-                      <input
-                        type="radio"
-                        name="license"
-                        value={l.id}
-                        checked={project.license === l.id}
-                        onChange={() => { updateProject({ license: l.id }); setShowLicenseChooser(false); }}
-                        className="mt-0.5"
-                        style={{ accentColor: '#5A7430' }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold leading-tight">{l.name}</div>
-                        <div className="flex gap-2 mt-1">
-                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.commercial ? '#4FB286' : 'rgba(38,42,35,0.66)' }}>
-                            {l.commercial ? '$ commercial' : 'non-commercial'}
-                          </span>
-                          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: l.derivatives ? '#4FB286' : 'rgba(38,42,35,0.66)' }}>
-                            {l.derivatives ? '↻ remix ok' : 'no derivatives'}
-                          </span>
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
+                </optgroup>
+              ))}
+            </select>
+            {selectedLicense && (
+              <p className="text-xs mt-1.5" style={{ color: "var(--ink-65)" }}>
+                {selectedLicense.commercial ? "Commercial use allowed" : "Non-commercial only"}
+                {" · "}
+                {selectedLicense.derivatives ? "Remixes allowed" : "No derivatives"}
+              </p>
             )}
-          </div>
           </div>
           <div>
             <Label>Tags</Label>
@@ -5667,6 +5610,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           </div>
 
           <SharedDisclosures project={project} updateProject={updateProject} />
+        </div>
       </div>
 
       <SectionNav
@@ -5692,10 +5636,10 @@ export function SharedDisclosures({ project, updateProject }) {
   const remix = provenance.origin === 'remix';
   const patch = (next) => updateProject({ provenance: { ...provenance, ...next } });
   return (
-    <div className="sm:col-span-2">
+    <div>
       <Label>Origin and disclosures</Label>
       <div className="mp-card p-3 space-y-3">
-        <div className="flex flex-wrap gap-4 text-sm">
+        <div className="flex flex-col gap-2 text-sm">
           <label className="flex items-center gap-2">
             <input type="radio" name="provenance-origin" checked={!remix} onChange={() => patch({ origin: 'original' })} />
             My own original model
@@ -5706,7 +5650,7 @@ export function SharedDisclosures({ project, updateProject }) {
           </label>
         </div>
         {remix && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-3">
             <div>
               <Label>Original model URL</Label>
               <input
@@ -5729,12 +5673,12 @@ export function SharedDisclosures({ project, updateProject }) {
             </div>
           </div>
         )}
-        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm pt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex flex-col gap-2 text-sm pt-1 border-t" style={{ borderColor: 'var(--border)' }}>
           <label className="flex items-center gap-2 pt-2">
             <input type="checkbox" checked={!!project.aiGenerated} onChange={(event) => updateProject({ aiGenerated: event.target.checked })} />
             Made with generative AI
           </label>
-          <label className="flex items-center gap-2 pt-2">
+          <label className="flex items-center gap-2">
             <input type="checkbox" checked={!!project.nsfw} onChange={(event) => updateProject({ nsfw: event.target.checked })} />
             Mature content (NSFW)
           </label>

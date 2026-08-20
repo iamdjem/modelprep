@@ -50,8 +50,20 @@ panes are used at the same moment.
 
 - **Single focused column** is the default for forms and anything read in sequence:
   one flow in task order, capped around `max-w-3xl` so lines stay readable on a wide
-  display. Fields that belong together (Category and License, width and height) pair up
-  in a `sm:grid-cols-2` row inside that column. Details, Profiles, and Publish use this.
+  display. Fields that belong together (width and height) pair up in a `sm:grid-cols-2`
+  row inside that column. Profiles and Publish use this.
+- **Content plus a metadata rail** is the shape for an editor: one long-form field the
+  screen is about, and short fields that classify it. Details uses it, because you pick
+  the category and type tags with the description in front of you. The main column
+  takes the remaining width, the rail is a fixed 340 px, the pair collapses to one
+  column below `lg`, and the whole grid caps at `max-w-6xl` so the description does not
+  stretch to unreadable line lengths on a wide display. The rail does not scroll
+  independently and is not sticky: you fill it, you do not consult it.
+- **A control that only ever holds one of a fixed list is a select**, not a card with a
+  chooser behind it. Details' licence field was a card, a Change button, five filter
+  chips and a scrolling list, all inside half a row: every filter click resized it and
+  moved the fields below. Eight options in a grouped `<select>` say the same thing and
+  cannot shift the page.
 - **List plus detail** is allowed only when you pick on one side while working on the
   other, and only when the list is worth a permanent column. A rail that is usually
   empty (Profiles, which normally holds one profile) becomes a selector that appears
