@@ -2307,30 +2307,6 @@ export default function App() {
         onGoPublish={() => setCurrentSection('publish')}
       />
       <VersionBanner />
-      {restoreOffer && (
-        <div
-          role="status"
-          className="px-4 sm:px-6 py-2 flex items-center gap-3 flex-wrap border-b"
-          style={{ backgroundColor: 'rgba(58,134,255,0.08)', borderColor: 'rgba(58,134,255,0.35)' }}
-        >
-          <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'rgba(38,42,35,0.8)' }}>
-            <strong>Restore text &amp; settings?</strong>{' '}
-            Restore{restoreOffer.saved?.title ? ` "${restoreOffer.saved.title}"` : ' your last session'}: title, description, tags, category, license and platform settings, plus any model files and photos still held on this computer.
-          </span>
-          <button
-            onClick={() => { restoreOffer.onRestore(); setRestoreOffer(null); }}
-            className="mp-btn text-[13px] py-1.5 px-3"
-          >
-            Restore text &amp; settings
-          </button>
-          <button
-            onClick={() => { restoreOffer.onDismiss(); setRestoreOffer(null); }}
-            className="mp-btn mp-btn-ghost text-[13px] py-1.5 px-3"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {/* Fill the viewport below the header. Short steps keep Back/Next aligned
           directly above the fixed status bar; long steps retain sticky navigation. */}
@@ -2352,6 +2328,45 @@ export default function App() {
           className="flex flex-1 flex-col min-w-0 px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 lg:pt-5 overflow-x-hidden"
           style={{ paddingBottom: 0 }}
         >
+          {/* Notices live in the content column, not across the whole window.
+              A full-width strip under the top bar cut the rail in half and
+              pushed the sidebar down, so the brand, the divider and the steps
+              stopped reading as one edge. */}
+          {demoActive && (
+            <div
+              role="status"
+              className="mp-card mb-4 px-3 py-2 text-xs flex items-center gap-2"
+              style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}
+            >
+              {demoLoading
+                ? <><Loader size={12} className="animate-spin" /> Loading the sample project…</>
+                : <><Sparkles size={12} className="flex-shrink-0" /> Sample project loaded. Nothing has been uploaded yet, and every platform is set to private, secret or draft.</>}
+            </div>
+          )}
+          {restoreOffer && (
+            <div
+              role="status"
+              className="mp-card mb-4 px-3 py-2 flex items-center gap-3 flex-wrap"
+              style={{ backgroundColor: 'rgba(58,134,255,0.08)', borderColor: 'rgba(58,134,255,0.35)' }}
+            >
+              <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'var(--ink-65)' }}>
+                <strong style={{ color: 'var(--ink)' }}>Restore text and settings?</strong>{' '}
+                Restore{restoreOffer.saved?.title ? ` "${restoreOffer.saved.title}"` : ' your last session'}: title, description, tags, category, license and platform settings, plus any model files and photos still held on this computer.
+              </span>
+              <button
+                onClick={() => { restoreOffer.onRestore(); setRestoreOffer(null); }}
+                className="mp-btn text-[13px] py-1.5 px-3"
+              >
+                Restore text &amp; settings
+              </button>
+              <button
+                onClick={() => { restoreOffer.onDismiss(); setRestoreOffer(null); }}
+                className="mp-btn mp-btn-ghost text-[13px] py-1.5 px-3"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <div data-testid="section-content" className="mp-section-content flex flex-1 flex-col min-h-0">
             {currentSection === 'files' && (
               <FilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} onImportFolder={importFolder} />
@@ -2711,13 +2726,20 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
 
   return (
     <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
+      {/* Same max width and centring as the content row below, so the brand
+           rail's divider lands exactly on the sidebar's border instead of
+           drifting 100px away on a display wider than the cap. */}
+      <div className="w-full max-w-[1760px] 2xl:max-w-[2200px] mx-auto">
       <div data-testid="top-header-layout" className="pr-4 sm:pr-6 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-[56px]">
         {/* The brand sits over the sidebar column and is the same width as it,
             so the two read as one rail rather than a logo floating in a nav.
             The collapse control lives here too, at the seam it actually moves. */}
         <div
           data-testid="top-header-rail"
-          className={`hidden lg:flex items-center gap-3 flex-shrink-0 self-stretch pl-5 pr-3 border-r ${sidebarCollapsed ? 'lg:w-[88px] justify-center pl-0 pr-0' : 'lg:w-64'}`}
+          // -my-2 cancels the row's padding so the divider runs the full height
+          // of the bar. Stretched inside the padding it left an 8px gap at each
+          // end, which is the break you see at the top-left corner.
+          className={`hidden lg:flex items-center gap-3 flex-shrink-0 self-stretch -my-2 pl-5 pr-3 border-r ${sidebarCollapsed ? 'lg:w-[88px] justify-center pl-0 pr-0' : 'lg:w-64'}`}
           style={{ borderColor: 'var(--border)' }}
         >
           {!sidebarCollapsed && (
@@ -2808,13 +2830,7 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
           </button>
         </div>
       </div>
-      {demoActive && (
-        <div className="text-center py-1.5 px-4 mp-mono text-xs flex items-center justify-center gap-2 border-b" style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}>
-          {demoLoading
-            ? <><Loader size={12} className="animate-spin" /> Loading the sample project…</>
-            : <><Sparkles size={12} /> Sample project loaded. Nothing has been uploaded yet, and every platform is set to private, secret or draft.</>}
-        </div>
-      )}
+      </div>
     </header>
   );
 }
@@ -2924,7 +2940,7 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
       </nav>
       <div
         data-testid="status-bar"
-        className={`hidden lg:flex items-center gap-2 border-t px-4 py-2.5 text-xs ${collapsed ? 'justify-center' : ''}`}
+        className={`hidden lg:flex items-center gap-2 border-t px-4 h-16 flex-shrink-0 text-xs ${collapsed ? 'justify-center' : ''}`}
         style={{ borderColor: 'var(--border)', color: 'var(--ink-65)' }}
       >
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: status.color }} />
@@ -13840,8 +13856,11 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
       <div aria-hidden="true" className="h-8 flex-shrink-0" />
       <div
         data-testid="section-nav"
-        className="sticky bottom-0 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
-        style={{ borderColor: 'rgba(38,42,35,0.14)', backgroundColor: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+        // Same 64px as the sidebar's status bar, so the two bottom rules land
+        // on the same line and meet the rail's divider at one point instead of
+        // stepping past each other.
+        className="sticky bottom-0 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 h-16 border-t flex items-center justify-between gap-4"
+        style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
       >
         <div>
           {backLabel && (

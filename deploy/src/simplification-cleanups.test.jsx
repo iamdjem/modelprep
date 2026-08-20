@@ -368,3 +368,34 @@ describe('header and rail', () => {
     expect(screen.getAllByRole('menuitem')).toHaveLength(3);
   });
 });
+
+describe('rail continuity', () => {
+  it('keeps notices inside the content column so they do not cut the rail', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+
+    // The demo notice used to be a full-width strip between the top bar and
+    // the sidebar, which pushed the sidebar down and broke the vertical edge.
+    const notice = await screen.findByText(/Sample project loaded/i);
+    expect(screen.getByTestId('workspace-main')).toContainElement(notice);
+    expect(document.querySelector('header')).not.toContainElement(notice);
+  });
+
+  it('spans the brand rail across the whole bar and shares the content max width', () => {
+    render(<App />);
+    // -my-2 cancels the row padding, so the divider is not 8px short at each end.
+    expect(screen.getByTestId('top-header-rail')).toHaveClass('self-stretch', '-my-2');
+    // Header and content row are capped and centred identically, so the rail's
+    // divider lands on the sidebar border on a display wider than the cap.
+    const headerInner = screen.getByTestId('top-header-layout').parentElement;
+    const contentRow = screen.getByTestId('project-sidebar').parentElement;
+    for (const cls of ['max-w-[1760px]', '2xl:max-w-[2200px]', 'mx-auto']) {
+      expect(headerInner).toHaveClass(cls);
+      expect(contentRow).toHaveClass(cls);
+    }
+    // Both bottom bars are 64px, so their rules meet the divider at one point.
+    expect(screen.getByTestId('status-bar')).toHaveClass('h-16');
+  });
+});

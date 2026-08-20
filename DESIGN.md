@@ -45,6 +45,13 @@ The wizard sidebar ("phase 01 of 04") becomes a plain project sidebar:
   The collapse control lives at the bottom of that block, at the seam it actually moves,
   as a 32px circle. Then the project name as a real button (bordered, chevron, wide
   enough not to crop), overall readiness, and one persistent "Review and publish".
+- **One edge, unbroken.** The brand rail's divider, the sidebar's border and the two
+  bottom bars are the same line. That means the header shares the content row's max
+  width and centring, the rail cancels the row's padding so its divider runs the full
+  height of the bar, and the sidebar's status bar and the step's Back/Next bar are both
+  64px so their rules meet the divider at one point. A notice belongs in the content
+  column: a full-width strip under the top bar cuts the rail and pushes the sidebar
+  down.
 - Sidebar rows are click targets first: 20px icon, 15px label, 12px of padding, 8px
   radius, 4px apart, 256px expanded and 88px collapsed. Sized to match the MakerStats
   desktop rail, which is the same shape of navigation.
