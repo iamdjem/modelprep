@@ -312,7 +312,8 @@ describe('Unified Settings page', () => {
     await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
     await user.click(screen.getByRole('button', { name: /reconnect printables/i }));
 
-    expect(screen.getAllByText('Settings').length).toBeGreaterThan(1);
+    // Opens on Printables alone rather than the top of the accounts list.
+    expect(screen.getByRole('dialog', { name: 'Connect Printables' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
   });
 

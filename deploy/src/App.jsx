@@ -1735,8 +1735,15 @@ export default function App() {
   const [binariesSaved, setBinariesSaved] = useState(null);   // null = not attempted yet
   const [demoActive, setDemoActive] = useState(false);
   const [showConnections, setShowConnections] = useState(false); // unified Settings modal
-  const [settingsTab, setSettingsTab] = useState('accounts');     // accounts | ai | about
-  const openSettings = (tab = 'accounts') => { setSettingsTab(tab); setShowConnections(true); };
+  const [settingsTab, setSettingsTab] = useState('accounts');     // accounts | ai | defaults | help | about
+  // A platform id narrows the panel to that one sign-in. "Connect Printables"
+  // should show Printables, not drop you at the top of a list of ten.
+  const [settingsPlatform, setSettingsPlatform] = useState(null);
+  const openSettings = (tab = 'accounts', platformId = null) => {
+    setSettingsTab(tab);
+    setSettingsPlatform(platformId);
+    setShowConnections(true);
+  };
   const stashedProject = useRef(null);
 
   useEffect(() => {
@@ -2376,7 +2383,14 @@ export default function App() {
       </div>
 
       {dialog && <Modal dialog={dialog} onClose={() => setDialog(null)} />}
-      <SettingsPanel open={showConnections} onClose={() => setShowConnections(false)} tab={settingsTab} setTab={setSettingsTab} />
+      <SettingsPanel
+        open={showConnections}
+        onClose={() => setShowConnections(false)}
+        tab={settingsTab}
+        setTab={setSettingsTab}
+        focusPlatform={settingsPlatform}
+        onClearFocus={() => setSettingsPlatform(null)}
+      />
     </div>
     </ConnectionsCtx.Provider>
   );
@@ -6769,7 +6783,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
             state={project.platforms[p.id]}
             project={project}
             connectionLabel={connectionLabel}
-            onConnect={() => openConnections('accounts')}
+            onConnect={() => openConnections('accounts', p.id)}
             onToggle={() => togglePlatform(p.id)}
             expanded={expandedPlatformId === p.id}
             onExpand={() => setExpandedPlatformId((current) => current === p.id ? null : p.id)}
@@ -8584,7 +8598,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               collapseSignal={collapseSignal}
               setCurrentSection={setCurrentSection}
               onFix={(issue) => setCurrentSection(fixSectionFor(issue))}
-              onConnect={() => openConnections('accounts')}
+              onConnect={() => openConnections('accounts', p.id)}
               onSatisfyConfirmation={satisfyConfirmation}
               batchRequest={publishBatch?.status === 'running' && (publishBatch.activeIds || [publishBatch.currentId]).includes(p.id)
                 ? {
@@ -10830,7 +10844,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
   };
   useEffect(() => { if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return; handledBatchRun.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
   return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-    {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts')}>Connect MakerRoad</button>}
+    {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts', 'makeroad')}>Connect MakerRoad</button>}
     {status === 'uploading' && <div className="text-xs flex gap-2"><Loader size={14} className="mp-spin" />{progress}</div>}
     {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate Save to review' : 'Save to MakerRoad review'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate public review submit' : 'Submit for public review (LIVE)'}</button></div>}
     {error && <p className="text-xs text-red-700">{error}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open retained save</a>}</p>}
@@ -11384,7 +11398,7 @@ function ConnectionsButton({ onOpen }) {
 // publishing: the panel keeps the screen you were on visible behind it and
 // hands it straight back. DESIGN.md has wanted this since the redesign
 // ("Connections stops being a modal").
-function SettingsPanel({ open, onClose, tab, setTab }) {
+function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onClearFocus = () => {} }) {
   useAccounts();
   // Escape closes, and the body does not scroll behind the panel.
   useEffect(() => {
@@ -11417,6 +11431,39 @@ function SettingsPanel({ open, onClose, tab, setTab }) {
     { id: 'help', label: 'Help', icon: HelpCircle, badge: null },
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
+  // Asked for one platform, show one platform. Every "Connect X" button in the
+  // app used to open the whole Accounts list at the top, so connecting
+  // Printables from a Publish row meant scrolling past nine other sign-ins.
+  const focused = focusPlatform ? meta(focusPlatform) : null;
+  if (focused) {
+    return (
+      <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'rgba(38,42,35,0.35)' }} onClick={onClose}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Connect ${focused.name}`}
+          className="mp-slide-in-right h-full w-full sm:w-[420px] flex flex-col border-l"
+          style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-3)' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: focused.dot }} />
+              <span className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>Connect {focused.name}</span>
+            </div>
+            <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-md transition-colors hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-50)' }}><X size={18} /></button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-4">
+            <PlatformConnections platform={focused} hideName />
+          </div>
+          <div className="px-4 py-3 border-t flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+            <button onClick={onClearFocus} className="mp-btn mp-btn-ghost text-xs w-full">All accounts and settings</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'rgba(38,42,35,0.35)' }} onClick={onClose}>
       {/* Full viewport height, so the panel is the same size on every tab and
@@ -11735,7 +11782,7 @@ function DiagnosticsPanel({ desktop }) {
   );
 }
 
-function PlatformConnections({ platform }) {
+function PlatformConnections({ platform, hideName = false }) {
   const acc = useAccounts();
   const accounts = acc.getAccounts(platform.id);
   const active = acc.getActive(platform.id);
@@ -11858,12 +11905,16 @@ function PlatformConnections({ platform }) {
     acc.removeAccount(platform.id, account.id);
   };
   return (
-    <section className="mp-card p-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: platform.dot }} />
-        <span className="mp-display text-[15px]">{platform.name}</span>
-        {accounts.length > 0 && <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
-      </div>
+    <section className={hideName ? 'space-y-2' : 'mp-card p-3 space-y-2'}>
+      {/* The focused panel puts the platform name in its own header, so the
+          card does not repeat it. */}
+      {!hideName && (
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: platform.dot }} />
+          <span className="text-[15px] font-semibold" style={{ color: 'var(--ink)' }}>{platform.name}</span>
+          {accounts.length > 0 && <span className="text-xs t-num" style={{ color: 'var(--ink-65)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
+        </div>
+      )}
       {accounts.map((a) => (
         <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ backgroundColor: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(38,42,35,0.03)' }}>
           <StatusDot status={a.status} />
@@ -13102,7 +13153,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
         <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
           <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}><StatusDot status="unknown" /> {platform.name}: not connected</div>
           <p className="text-[13px]" style={{ color: 'rgba(38,42,35,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Settings → Accounts</strong>.</p>
-          <button onClick={() => openConnections('accounts')} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
+          <button onClick={() => openConnections('accounts', 'makerworld')} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
         </div>
       ) : (
         <>
@@ -13116,7 +13167,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
               ) : <strong className="truncate">{active.label}{simulate ? ' (simulation only)' : ''}</strong>}
             </span>
             <span className="flex items-center gap-2 flex-shrink-0">
-              <button onClick={() => openConnections('accounts')} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
+              <button onClick={() => openConnections('accounts', 'makerworld')} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
               {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>}
             </span>
           </div>

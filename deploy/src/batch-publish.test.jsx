@@ -262,7 +262,8 @@ describe('one-click multi-platform publishing', () => {
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
     await user.click(await screen.findByRole('button', { name: /reconnect printables/i }));
 
-    expect(screen.getAllByText('Settings').length).toBeGreaterThan(1);
+    // Straight to Printables, not the top of a list of ten sign-ins.
+    expect(screen.getByRole('dialog', { name: 'Connect Printables' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^reconnect$/i })).toBeInTheDocument();
   });
 });

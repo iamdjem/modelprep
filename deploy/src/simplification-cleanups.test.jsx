@@ -321,3 +321,26 @@ describe('Settings panel', () => {
     expect(document.body.style.overflow).toBe('');
   });
 });
+
+describe('connecting one platform', () => {
+  it('opens that platform alone, not the top of a list of ten', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /project menu/i }));
+    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+
+    await user.click(await screen.findByRole('button', { name: /connect printables/i }));
+    const panel = screen.getByRole('dialog', { name: 'Connect Printables' });
+    // One sign-in, no tab strip, and nothing to scroll past.
+    expect(panel).toHaveTextContent(/Sign in to Printables/i);
+    expect(panel).not.toHaveTextContent(/MakerWorld/);
+    expect(panel).not.toHaveTextContent(/Cults3D/);
+    expect(screen.queryByRole('button', { name: 'Defaults' })).toBeNull();
+
+    // The way out to everything else.
+    await user.click(screen.getByRole('button', { name: /all accounts and settings/i }));
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Defaults' })).toBeInTheDocument();
+  });
+});

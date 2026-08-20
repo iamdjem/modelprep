@@ -67,6 +67,10 @@ panes are used at the same moment.
   row below out of step with the other side.
 - **A control that only ever holds one of a fixed list is a select**, not a card with a
   chooser behind it.
+- **Open the thing that was asked for.** A button that names one platform opens that
+  platform, not the list it belongs to. "Connect Printables" used to open the whole
+  Accounts list at the top, nine sign-ins above the one you wanted. The list is still
+  one click away, at the bottom of the focused panel.
 - **A panel on an edge, not a dialog in the middle**, for anything with sections or
   anything you open mid-task. Settings is one: full viewport height, fixed width, only
   its body scrolls, so every section is the same size and the tab strip never moves
