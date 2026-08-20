@@ -197,8 +197,8 @@ import makerWorldCategoryTree from './data/makerworld-categories.json';
 import makerWorldForbiddenWords from './data/makerworld-forbidden-words.json';
 import {
   Upload, Download, Copy, Image as ImageIcon, FileText, Check, Sparkles,
-  Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
-  AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
+  Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronLeft, ChevronDown,
+  AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search,
   Globe, DollarSign, Info, Edit3, ArrowRight, User, Settings,
   PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus
 } from 'lucide-react';
@@ -247,7 +247,7 @@ function VersionBanner() {
   const stale = latest && BUILD_TIME && latest.time && latest.time > BUILD_TIME;
   if (!stale) return null;
   return (
-    <button onClick={() => window.location.reload()} className="w-full text-center py-1.5 px-4 mp-mono text-xs uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ background: '#1a7f37', color: '#fff' }}>
+    <button onClick={() => window.location.reload()} className="w-full text-center py-1.5 px-4 mp-mono text-xs uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ backgroundColor: '#1a7f37', color: '#fff' }}>
       <Loader size={12} /> New build available ({latest.commit}): click to refresh
     </button>
   );
@@ -368,15 +368,6 @@ const MYMINIFACTORY_LICENSES = [
 function formatTagsFor(platformId, tags) {
   const fmt = TAG_FORMATS[platformId] || { sep: ', ', hashtag: false };
   return tags.map(t => fmt.hashtag ? `#${t}` : t).join(fmt.sep);
-}
-
-function downloadTextFile(text, filename) {
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 // Platforms whose description box is a rich-text/WYSIWYG editor (not a raw-HTML
@@ -686,15 +677,6 @@ function cropToCanvas(img, targetW, targetH, focal) {
   else { sw = img.naturalWidth; sh = sw / tgtA; sx = 0; sy = (img.naturalHeight - sh) * focal.y; }
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
   return c;
-}
-function downloadCanvas(c, filename) {
-  c.toBlob(b => {
-    const u = URL.createObjectURL(b);
-    const a = document.createElement('a');
-    a.href = u; a.download = filename;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(u);
-  }, 'image/jpeg', 0.92);
 }
 function makeSampleImage(label = 'SAMPLE', tint = ['#5A7430', '#FFB627', '#262A23']) {
   const c = document.createElement('canvas');
@@ -2297,7 +2279,7 @@ export default function App() {
 
   return (
     <ConnectionsCtx.Provider value={openSettings}>
-    <div className="min-h-screen w-full" style={{ background: '#FFFFFF', color: '#262A23', fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <div className="min-h-screen w-full" style={{ backgroundColor: '#FFFFFF', color: '#262A23', fontFamily: "'Inter', system-ui, sans-serif" }}>
       <GlobalStyles />
 
       <div className="relative z-10 min-h-screen flex flex-col">
@@ -2320,7 +2302,7 @@ export default function App() {
         <div
           role="status"
           className="px-4 sm:px-6 py-2 flex items-center gap-3 flex-wrap border-b"
-          style={{ background: 'rgba(58,134,255,0.08)', borderColor: 'rgba(58,134,255,0.35)' }}
+          style={{ backgroundColor: 'rgba(58,134,255,0.08)', borderColor: 'rgba(58,134,255,0.35)' }}
         >
           <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'rgba(38,42,35,0.8)' }}>
             <strong>Restore text &amp; settings?</strong>{' '}
@@ -2431,8 +2413,8 @@ function Modal({ dialog, onClose }) {
     else if (!cardRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
   };
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.55)' }} onMouseDown={cancel} onKeyDown={trapTab}>
-      <div ref={cardRef} className="mp-card w-full max-w-md p-5" style={{ background: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onMouseDown={(e) => e.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(38,42,35,0.55)' }} onMouseDown={cancel} onKeyDown={trapTab}>
+      <div ref={cardRef} className="mp-card w-full max-w-md p-5" style={{ backgroundColor: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 id="modelprep-dialog-title" className="mp-display text-[22px] leading-none mb-2">{title}</h3>
         {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(38,42,35,0.7)' }}>{message}</p>}
         {kind === 'prompt' && (
@@ -2452,7 +2434,7 @@ function Modal({ dialog, onClose }) {
             onClick={confirm}
             disabled={kind === 'prompt' && !value.trim()}
             className="mp-btn text-[13px] py-2 px-3 disabled:opacity-40"
-            style={danger ? { background: '#c83f10', borderColor: '#c83f10' } : undefined}
+            style={danger ? { backgroundColor: '#c83f10', borderColor: '#c83f10' } : undefined}
           >
             {confirmLabel}
           </button>
@@ -2705,7 +2687,7 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
   const ready = doneCount >= stepCount;
 
   return (
-    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', background: 'rgba(255,255,255,0.92)' }}>
+    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
       <div data-testid="top-header-layout" className="px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-[52px]">
         <div data-testid="top-header-brand" className="flex items-center gap-2 min-w-0">
           {editingName ? (
@@ -2750,7 +2732,7 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
             <button
               onClick={onToggleDemo}
               className="mp-pill flex-shrink-0"
-              style={{ background: '#EDF3FE', color: '#1D4E9E' }}
+              style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E' }}
               title="Exit the demo and restore your project"
             >
               Demo
@@ -2759,19 +2741,19 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
         </div>
 
         <div data-testid="top-header-actions" className="flex flex-wrap items-center gap-2 min-w-0">
-          <span className="mp-pill hidden md:inline-flex gap-1.5" style={ready ? { background: 'var(--primary-tint)', color: 'var(--primary-ink)' } : { background: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
+          <span className="mp-pill hidden md:inline-flex gap-1.5" style={ready ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' } : { backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
             {ready ? <Check size={11} strokeWidth={2.6} /> : null}
             {ready ? 'Ready to publish' : `${doneCount} of ${stepCount} steps done`}
           </span>
           <ConnectionsButton onOpen={onOpenConnections} />
-          <div aria-hidden className="hidden sm:block" style={{ width: 1, height: 20, background: 'var(--border)' }} />
+          <div aria-hidden className="hidden sm:block" style={{ width: 1, height: 20, backgroundColor: 'var(--border)' }} />
           <button onClick={onGoPublish} className="mp-btn text-xs py-2 px-3">
             <Send size={13} /> Review and publish
           </button>
         </div>
       </div>
       {demoActive && (
-        <div className="text-center py-1.5 px-4 mp-mono text-xs flex items-center justify-center gap-2 border-b" style={{ background: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}>
+        <div className="text-center py-1.5 px-4 mp-mono text-xs flex items-center justify-center gap-2 border-b" style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}>
           {demoLoading
             ? <><Loader size={12} className="animate-spin" /> Loading the sample project…</>
             : <><Sparkles size={12} /> Sample project loaded. Nothing has been uploaded yet, and every platform is set to private, secret or draft.</>}
@@ -2804,7 +2786,7 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
     <aside
       data-testid="project-sidebar"
       className={`w-full ${collapsed ? 'lg:w-20' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r flex flex-col lg:sticky lg:top-[53px] lg:self-start lg:overflow-y-auto`}
-      style={{ borderColor: 'var(--border)', background: 'var(--surface-sunken)' }}
+      style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-sunken)' }}
     >
       <div className={`hidden lg:flex items-center gap-2.5 pt-4 pb-1 ${collapsed ? 'justify-center px-2' : 'px-5'}`}>
         <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-7 h-7 flex-shrink-0" />
@@ -2837,7 +2819,7 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
                   aria-current={section.id === currentSection ? 'step' : undefined}
                   className="w-full text-left px-2.5 py-2 flex items-center gap-2 text-xs rounded-md"
                   style={{
-                    background: section.id === currentSection ? 'var(--primary-tint)' : 'transparent',
+                    backgroundColor: section.id === currentSection ? 'var(--primary-tint)' : 'transparent',
                     color: section.id === currentSection ? 'var(--primary-ink)' : 'var(--ink)',
                     fontWeight: section.id === currentSection ? 600 : 400,
                   }}
@@ -2877,13 +2859,15 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
               aria-current={active ? 'step' : undefined}
               aria-label={`Step ${i + 1}: ${s.label}${done ? ' (complete)' : ''}`}
               title={collapsed ? `${s.label}: ${s.description}` : undefined}
-              className={`w-full text-left rounded-md flex items-center transition-colors group ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-2'}`}
+              // Hover is a CSS class, not a style mutation. Writing
+              // element.style.background expands the shorthand into every
+              // background longhand, and the serialization it leaves behind is
+              // one jsdom cannot re-parse, which crashes any later DOM query.
+              className={`w-full text-left rounded-md flex items-center transition-colors group ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-2'} ${active ? '' : 'hover:bg-[var(--surface-hover)]'}`}
               style={{
-                background: active ? 'var(--primary-tint)' : 'transparent',
+                backgroundColor: active ? 'var(--primary-tint)' : 'transparent',
                 color: active ? 'var(--primary-ink)' : 'var(--ink-65)',
               }}
-              onMouseEnter={(event) => { if (!active) event.currentTarget.style.background = 'var(--surface-hover)'; }}
-              onMouseLeave={(event) => { if (!active) event.currentTarget.style.background = active ? 'var(--primary-tint)' : 'transparent'; }}
             >
               <Icon size={16} strokeWidth={2.1} className="flex-shrink-0" style={{ color: active ? 'var(--primary)' : 'var(--ink-50)' }} />
               <span className={collapsed ? 'hidden' : 'flex-1 min-w-0 truncate text-sm'} style={{ fontWeight: active ? 600 : 500 }}>
@@ -2906,7 +2890,7 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
         className={`hidden lg:flex items-center gap-2 border-t px-4 py-2.5 text-xs ${collapsed ? 'justify-center' : ''}`}
         style={{ borderColor: 'var(--border)', color: 'var(--ink-65)' }}
       >
-        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: status.color }} />
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: status.color }} />
         {!collapsed && (
           <span className="min-w-0 truncate">
             {status.label} · Step {activeIndex + 1} of {SECTIONS.length} · {SECTIONS[activeIndex].label}
@@ -3589,21 +3573,21 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
           onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
           onClick={() => fileInputRef.current?.click()}
         >
-          <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ background: 'var(--primary-tint)' }}>
+          <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ backgroundColor: 'var(--primary-tint)' }}>
             <Upload size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
           </div>
           <h2 className="mp-display text-[24px] mb-2">Add your model files</h2>
           <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
           <div className="inline-flex items-center gap-1.5 mp-mono text-xs flex-wrap justify-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
             {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
-              <span key={ext} className="mp-pill" style={{ background: 'rgba(38,42,35,0.06)' }}>.{ext}</span>
+              <span key={ext} className="mp-pill" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}>.{ext}</span>
             ))}
           </div>
         </div>
       )}
 
       {notice && (
-        <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
+        <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
           <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
           <div className="text-xs flex-1">
             {notice.kind === 'toobig' ? (
@@ -3718,7 +3702,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
                 />
                 <Plus size={12} style={{ color: 'var(--ink-35)' }} />
               </label>
-              <div aria-hidden style={{ width: 1, height: 20, background: 'var(--border)' }} />
+              <div aria-hidden style={{ width: 1, height: 20, backgroundColor: 'var(--border)' }} />
               <button
                 onClick={() => {
                   if (!confirmClear) { setConfirmClear(true); return; }
@@ -3730,7 +3714,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
                   });
                 }}
                 className="mp-btn mp-btn-ghost text-xs"
-                style={{ minHeight: 34, padding: '0 10px', color: 'var(--danger-text)', boxShadow: 'none', borderColor: confirmClear ? 'var(--danger-text)' : 'var(--border)', background: confirmClear ? 'var(--danger-tint)' : 'transparent' }}
+                style={{ minHeight: 34, padding: '0 10px', color: 'var(--danger-text)', boxShadow: 'none', borderColor: confirmClear ? 'var(--danger-text)' : 'var(--border)', backgroundColor: confirmClear ? 'var(--danger-tint)' : 'transparent' }}
               >
                 <Trash2 size={13} />
                 {confirmClear ? 'Click again to remove all files' : 'Clear all'}
@@ -3741,7 +3725,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
               arbitrary order, and 25 rows of mixed profiles, meshes and photos
               read as one undifferentiated wall. */}
           {duplicateGroups.length > 0 && (
-            <p className="text-[11px] mb-2 px-2 py-1.5" style={{ background: 'rgba(255,182,39,0.12)', color: '#8A4B08' }}>
+            <p className="text-[11px] mb-2 px-2 py-1.5" style={{ backgroundColor: 'rgba(255,182,39,0.12)', color: '#8A4B08' }}>
               {duplicateGroups.length === 1 ? '2 or more files look identical' : `${duplicateGroups.length} sets of files look identical`}
               {' '}(same type and byte size). They are all still included: check the marked rows before publishing.
             </p>
@@ -3793,10 +3777,8 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
           <button
             type="button"
             aria-label="Add more files. Drop here or click to browse"
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm transition-colors"
-            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-65)', background: 'transparent' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-sunken)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm transition-colors hover:bg-[var(--surface-sunken)]"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-65)', backgroundColor: 'transparent' }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
             onClick={() => fileInputRef.current?.click()}
@@ -4068,14 +4050,14 @@ export function FileThumb({ file, size = 40, fill = false }) {
 
   const box = {
     ...(fill ? { width: '100%', aspectRatio: '1 / 1' } : { width: size, height: size }),
-    background: isProf ? 'var(--primary-tint)' : isImg || isVid ? 'rgba(38,42,35,0.10)' : 'var(--surface-sunken)',
+    backgroundColor: isProf ? 'var(--primary-tint)' : isImg || isVid ? 'rgba(38,42,35,0.10)' : 'var(--surface-sunken)',
     border: '1px solid var(--border)',
     borderRadius: 6,
   };
 
   if (plate) {
     return (
-      <span className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ ...box, background: '#262A23' }} title="Build plate as sliced">
+      <span className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ ...box, backgroundColor: '#262A23' }} title="Build plate as sliced">
         <img src={plate} alt="" className="w-full h-full object-contain" />
       </span>
     );
@@ -4146,7 +4128,7 @@ function SlicerBuildPlate({
                 <button type="button" aria-pressed="false" style={{ height: 24 }} onClick={() => onPreviewMode('slicer')}>Slicer image</button>
               </div>
             ) : (
-              <span className="mp-pill" style={{ background: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Interactive 3D</span>
+              <span className="mp-pill" style={{ backgroundColor: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Interactive 3D</span>
             )}
           </div>
         </div>
@@ -4177,18 +4159,18 @@ function SlicerBuildPlate({
           const anyOver = ['x', 'y'].some(overAxis);
           const triangleCount = triangles?.length ? Math.round(triangles.length / 9) : null;
           return (
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-px mt-3 rounded-md overflow-hidden border" style={{ background: 'var(--border)', borderColor: 'var(--border)' }}>
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-px mt-3 rounded-md overflow-hidden border" style={{ backgroundColor: 'var(--border)', borderColor: 'var(--border)' }}>
               {['x', 'y', 'z'].map((axis) => (
-                <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: overAxis(axis) ? 'rgba(255,182,39,0.14)' : 'var(--surface)' }}>
+                <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ backgroundColor: overAxis(axis) ? 'rgba(255,182,39,0.14)' : 'var(--surface)' }}>
                   <span className="text-xs uppercase" style={{ color: overAxis(axis) ? 'var(--warn-text)' : 'var(--ink-50)' }}>{axis}</span>
                   <span className="text-xs t-num font-medium" style={{ color: overAxis(axis) ? 'var(--warn-text)' : 'var(--ink)' }} title={overAxis(axis) ? `Larger than the ${printableLimit[axis]} mm printable area` : undefined}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
                 </div>
               ))}
-              <div className="hidden sm:flex items-baseline justify-between px-3 py-2" style={{ background: 'var(--surface)' }}>
+              <div className="hidden sm:flex items-baseline justify-between px-3 py-2" style={{ backgroundColor: 'var(--surface)' }}>
                 <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Triangles</span>
                 <span className="text-xs t-num font-medium" style={{ color: 'var(--ink)' }}>{triangleCount ? triangleCount.toLocaleString() : '—'}</span>
               </div>
-              <div className="hidden sm:flex items-baseline justify-between px-3 py-2 min-w-0" style={{ background: 'var(--surface)' }}>
+              <div className="hidden sm:flex items-baseline justify-between px-3 py-2 min-w-0" style={{ backgroundColor: 'var(--surface)' }}>
                 <span className="text-xs flex-shrink-0" style={{ color: 'var(--ink-50)' }}>Fit</span>
                 <span className="text-xs font-medium truncate" style={{ color: anyOver ? 'var(--warn-text)' : 'var(--success-text)' }}>{anyOver ? 'Exceeds plate' : plateProfile.native ? plateProfile.printer : 'Fits plate'}</span>
               </div>
@@ -4224,7 +4206,7 @@ function SlicerBuildPlate({
             <button type="button" aria-pressed="true" style={{ height: 24 }}>Slicer image</button>
           </div>
         ) : (
-          <span className="mp-pill" style={{ background: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>{nativePlate ? 'Slicer image' : 'Angled view'}</span>
+          <span className="mp-pill" style={{ backgroundColor: 'var(--surface)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>{nativePlate ? 'Slicer image' : 'Angled view'}</span>
         )}
       </div>
 
@@ -4237,7 +4219,7 @@ function SlicerBuildPlate({
           filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.32))',
         }}
       >
-        <div className="absolute inset-0 overflow-hidden rounded-[3px]" style={{ background: nativePlate ? '#24272D' : '#55565E' }}>
+        <div className="absolute inset-0 overflow-hidden rounded-[3px]" style={{ backgroundColor: nativePlate ? '#24272D' : '#55565E' }}>
           <div
             className={nativePlate ? 'absolute inset-0 overflow-hidden' : 'absolute left-[7%] right-[7%] top-[2%] bottom-[4%]'}
             style={nativePlate ? undefined : {
@@ -4251,7 +4233,7 @@ function SlicerBuildPlate({
                 className="absolute inset-0 rounded-[18px]"
                 aria-hidden="true"
                 style={{
-                  background: '#1E2026',
+                  backgroundColor: '#1E2026',
                   boxShadow: '0 13px 0 #17191E, 0 16px 0 rgba(0,0,0,0.3)',
                   clipPath: 'polygon(3% 3%, 40% 3%, 42% 0, 58% 0, 60% 3%, 97% 3%, 100% 6%, 100% 94%, 97% 97%, 65% 97%, 63% 100%, 37% 100%, 35% 97%, 3% 97%, 0 94%, 0 6%)',
                 }}
@@ -4276,7 +4258,7 @@ function SlicerBuildPlate({
                   <div className="absolute top-[5%] right-[6%] mp-mono text-[9px]" style={{ color: 'rgba(176,181,193,0.68)' }}>
                     {metrics?.plateSize || ''} × {metrics?.plateSize || ''}
                   </div>
-                  <div className="absolute left-1/2 top-[1.8%] -translate-x-1/2 w-[21%] h-[3px] rounded-full" style={{ background: 'rgba(176,181,193,0.28)' }} />
+                  <div className="absolute left-1/2 top-[1.8%] -translate-x-1/2 w-[21%] h-[3px] rounded-full" style={{ backgroundColor: 'rgba(176,181,193,0.28)' }} />
                 </>
               )}
 
@@ -4299,12 +4281,12 @@ function SlicerBuildPlate({
                   <span className="absolute right-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
                   <span className="absolute left-[2.5%] top-[8%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
                   <div className="absolute left-[4%] bottom-[8%] h-11 w-11" aria-hidden="true">
-                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ background: '#E5484D' }} />
-                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ background: '#46A758' }} />
+                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ backgroundColor: '#E5484D' }} />
+                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ backgroundColor: '#46A758' }} />
                     <span className="absolute right-0 bottom-0 mp-mono text-[9px]" style={{ color: '#E5484D' }}>X</span>
                     <span className="absolute left-1 top-0 mp-mono text-[9px]" style={{ color: '#46A758' }}>Y</span>
                   </div>
-                  <div className="absolute left-[10%] right-[10%] bottom-0 h-[6.5%] flex items-center justify-between px-[5%] mp-mono uppercase tracking-[0.05em]" style={{ background: '#D9DADD', color: '#30323A', fontSize: '8px' }}>
+                  <div className="absolute left-[10%] right-[10%] bottom-0 h-[6.5%] flex items-center justify-between px-[5%] mp-mono uppercase tracking-[0.05em]" style={{ backgroundColor: '#D9DADD', color: '#30323A', fontSize: '8px' }}>
                     <span>PLA / ABS / PETG</span>
                     <span>Hot surface</span>
                     <span>ModelPrep</span>
@@ -4317,9 +4299,9 @@ function SlicerBuildPlate({
       </div>
 
       {!nativePlate && metrics && (
-        <div className="grid grid-cols-3 gap-px mt-3 rounded-md overflow-hidden border" style={{ background: 'var(--border)', borderColor: 'var(--border)' }}>
+        <div className="grid grid-cols-3 gap-px mt-3 rounded-md overflow-hidden border" style={{ backgroundColor: 'var(--border)', borderColor: 'var(--border)' }}>
           {['x', 'y', 'z'].map((axis) => (
-            <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: 'var(--surface)' }}>
+            <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ backgroundColor: 'var(--surface)' }}>
               <span className="text-xs uppercase" style={{ color: 'var(--ink-50)' }}>{axis}</span>
               <span className="text-xs t-num font-medium" style={{ color: 'var(--ink)' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
             </div>
@@ -4402,10 +4384,10 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
     <div
       role="dialog" aria-modal="true" aria-label={`Preview ${file.name}`}
       className="fixed inset-0 flex flex-col items-center justify-center p-6"
-      style={{ background: 'rgba(38,42,35,0.82)', zIndex: 400 }}
+      style={{ backgroundColor: 'rgba(38,42,35,0.82)', zIndex: 400 }}
       onMouseDown={(event) => { if (event.button === 0) onClose(); }}
     >
-      <div ref={dialogRef} tabIndex={-1} className="mp-card w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ background: '#FFFFFF', maxWidth: 'min(1400px, calc(100vw - 3rem))' }} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} tabIndex={-1} className="mp-card w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ backgroundColor: '#FFFFFF', maxWidth: 'min(1400px, calc(100vw - 3rem))' }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'var(--border)' }}>
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{file.name}</div>
@@ -4420,7 +4402,7 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
         {/* Photos sit on a paper-toned stage: the old near-black stage read as
             broken letterboxing around portrait shots. The dark stage remains
             for the 3D/slicer views, where a viewport is expected to be dark. */}
-        <div className="flex items-center justify-center p-4 sm:p-6 overflow-y-auto" style={{ background: 'var(--surface-sunken)', minHeight: 320 }}>
+        <div className="flex items-center justify-center p-4 sm:p-6 overflow-y-auto" style={{ backgroundColor: 'var(--surface-sunken)', minHeight: 320 }}>
           {isVid && objectUrl && <video src={objectUrl} controls className="max-h-[72vh] max-w-full" />}
           {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[72vh] max-w-full object-contain" style={{ boxShadow: '0 1px 14px rgba(38,42,35,0.18)' }} />}
           {!isImg && !isVid && previewReady && (
@@ -4473,7 +4455,7 @@ function FileTile({ file, size, onRemove, onOpen }) {
         onClick={onRemove}
         aria-label={`Remove ${file.name}`}
         className="absolute top-0.5 right-0.5 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition"
-        style={{ background: 'rgba(255,255,255,0.9)' }}
+        style={{ backgroundColor: 'rgba(255,255,255,0.9)' }}
       >
         <Trash2 size={12} />
       </button>
@@ -4542,7 +4524,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 aria-label={`Role for ${file.name}`}
                 title="What this file is for; destinations route files by role"
                 className="mp-input-sm text-xs"
-                style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto', background: role === 'profile' ? 'var(--primary-tint)' : undefined }}
+                style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto', backgroundColor: role === 'profile' ? 'var(--primary-tint)' : undefined }}
                 value={role}
                 onChange={(e) => onChangeRole(e.target.value)}
               >
@@ -4553,20 +4535,20 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 <option value="document">Document</option>
               </select>
             ) : isProf ? (
-              <span className="mp-pill" style={{ background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>Print profile</span>
+              <span className="mp-pill" style={{ backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>Print profile</span>
             ) : isImg ? (
-              <span className="mp-pill" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Reference image</span>
+              <span className="mp-pill" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Reference image</span>
             ) : (
-              <span className="mp-pill" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Model</span>
+              <span className="mp-pill" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Model</span>
             )}
             {file.isLaserCut && (
-              <span className="mp-pill" style={{ background: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>Laser &amp; Cut</span>
+              <span className="mp-pill" style={{ backgroundColor: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>Laser &amp; Cut</span>
             )}
             {/* Only a real problem earns a pill here. A per-row "Ready" badge on
                 every file said nothing and made the table look like a checklist
                 with nothing left to check. */}
             {duplicate && (
-              <span className="mp-pill" style={{ background: 'rgba(255,182,39,0.25)', color: '#8A4B08' }} title="Another file has the same type and byte size">
+              <span className="mp-pill" style={{ backgroundColor: 'rgba(255,182,39,0.25)', color: '#8A4B08' }} title="Another file has the same type and byte size">
                 Possible duplicate
               </span>
             )}
@@ -4909,7 +4891,7 @@ const aiMuted = 'rgba(38,42,35,0.55)';
 function AiStatusChip({ state }) {
   const tone = AI_TONE[state] || AI_TONE.missing;
   return (
-    <span className="mp-pill shrink-0" style={{ background: tone.bg, color: tone.fg }}>
+    <span className="mp-pill shrink-0" style={{ backgroundColor: tone.bg, color: tone.fg }}>
       {state === 'checking' && <Loader size={9} className="mp-spin mr-1" />}
       {tone.label}
     </span>
@@ -4923,7 +4905,7 @@ function AiProblem({ title, fix, detail, tone = 'warn' }) {
     ? { fg: '#991b1b', bg: 'rgba(185,28,28,0.06)', border: 'rgba(185,28,28,0.30)' }
     : { fg: '#7a4f00', bg: 'rgba(138,90,0,0.07)', border: 'rgba(138,90,0,0.30)' };
   return (
-    <div role="status" className="p-2.5 text-xs leading-relaxed break-words" style={{ background: colors.bg, border: `1px solid ${colors.border}`, color: colors.fg }}>
+    <div role="status" className="p-2.5 text-xs leading-relaxed break-words" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.fg }}>
       <span className="font-semibold">{title}</span>{fix ? `: ${fix}` : ''}
       {detail ? <div className="mp-mono text-[11px] mt-1 opacity-70 break-all">{detail}</div> : null}
     </div>
@@ -4976,8 +4958,8 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
           <span className="min-w-0">
             <span className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-semibold">{meta.name}</span>
-              {isPrimary && <span className="mp-pill" style={{ background: 'rgba(90,116,48,0.12)', color: '#B23C15' }}>Primary</span>}
-              {backupIndex >= 0 && <span className="mp-pill" style={{ background: 'rgba(38,42,35,0.06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
+              {isPrimary && <span className="mp-pill" style={{ backgroundColor: 'rgba(90,116,48,0.12)', color: '#B23C15' }}>Primary</span>}
+              {backupIndex >= 0 && <span className="mp-pill" style={{ backgroundColor: 'rgba(38,42,35,0.06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
             </span>
             <span className="block text-xs mt-0.5 break-words" style={{ color: aiMuted }}>
               {detection?.detail || meta.cost}
@@ -5267,7 +5249,7 @@ function CategorySelect({ value, onChange, options }) {
         <ChevronDown size={14} style={{ color: 'rgba(38,42,35,0.66)' }} className="flex-shrink-0" />
       </button>
       {open && (
-        <div className="absolute z-30 left-0 right-0 mt-1 mp-card shadow-lg" style={{ background: '#FFFFFF' }}>
+        <div className="absolute z-30 left-0 right-0 mt-1 mp-card shadow-lg" style={{ backgroundColor: '#FFFFFF' }}>
           <div className="flex items-center gap-2 px-2.5 py-2 border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
             <Search size={13} style={{ color: 'rgba(38,42,35,0.66)' }} />
             <input
@@ -5292,7 +5274,7 @@ function CategorySelect({ value, onChange, options }) {
                 aria-selected={value === o}
                 onClick={() => { onChange(o); setOpen(false); triggerRef.current?.focus(); }}
                 className="w-full text-left px-3 py-2.5 text-xs hover:bg-[rgba(90,116,48,0.08)] transition flex items-center justify-between"
-                style={{ background: value === o ? 'rgba(90,116,48,0.06)' : 'transparent' }}
+                style={{ backgroundColor: value === o ? 'rgba(90,116,48,0.06)' : 'transparent' }}
               >
                 <span>{o}</span>
                 {value === o && <Check size={12} style={{ color: '#5A7430' }} />}
@@ -5440,7 +5422,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
       {/* ✨ AI generate: reads the photos (+ an optional one-line hint) and fills in
           Title, Description, Tags and Category. The most you ever type is one line. */}
-      <details className="mp-card mt-6" style={{ background: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
+      <details className="mp-card mt-6" style={{ backgroundColor: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
         <summary className="mp-disclosure min-h-[48px] px-4 flex items-center gap-2 cursor-pointer">
           <Sparkles size={15} style={{ color: 'var(--primary)' }} />
           <span className="text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>Generate with AI</span>
@@ -5602,7 +5584,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                       onClick={() => setLicenseFilter(f.id)}
                       className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-1 transition"
                       style={{
-                        background: licenseFilter === f.id ? 'var(--primary-tint)' : 'rgba(38,42,35,0.06)',
+                        backgroundColor: licenseFilter === f.id ? 'var(--primary-tint)' : 'rgba(38,42,35,0.06)',
                         color: licenseFilter === f.id ? 'var(--primary-ink)' : 'rgba(38,42,35,0.65)',
                       }}
                     >
@@ -5617,7 +5599,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   {visibleLicenses.map(l => (
                     <label key={l.id} className="flex items-start gap-2.5 mp-card p-2.5 cursor-pointer transition" style={{
                       borderColor: project.license === l.id ? '#5A7430' : 'rgba(38,42,35,0.1)',
-                      background: project.license === l.id ? 'rgba(90,116,48,0.04)' : '#FFFFFF',
+                      backgroundColor: project.license === l.id ? 'rgba(90,116,48,0.04)' : '#FFFFFF',
                     }}>
                       <input
                         type="radio"
@@ -5651,7 +5633,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             <div className="mp-card p-3">
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {project.tags.map(t => (
-                  <span key={t} className="inline-flex items-center gap-0.5 pl-2.5 pr-0.5 py-1 mp-mono text-xs rounded-full" style={{ background: 'var(--surface-sunken)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
+                  <span key={t} className="inline-flex items-center gap-0.5 pl-2.5 pr-0.5 py-1 mp-mono text-xs rounded-full" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
                     {t}
                     <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[#5A7430] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
                   </span>
@@ -5808,7 +5790,7 @@ function FormatTabs({ description }) {
             onClick={() => setActive(k)}
             className="flex-1 px-3 py-2.5 mp-display font-bold text-xs transition border-r last:border-r-0"
             style={{
-              background: active === k ? 'var(--primary-tint)' : 'transparent',
+              backgroundColor: active === k ? 'var(--primary-tint)' : 'transparent',
               color: active === k ? 'var(--primary-ink)' : '#262A23',
               borderColor: 'rgba(38,42,35,0.1)',
             }}
@@ -6040,7 +6022,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
       />
 
       {imgNotice && (
-        <div className="mt-4 p-3 flex items-start gap-3" style={{ background: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
+        <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
           <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
           <div className="text-xs flex-1" style={{ color: 'rgba(38,42,35,0.7)' }}>{imgNotice}</div>
           <button onClick={() => setImgNotice(null)} className="p-2 -m-1 opacity-50 hover:opacity-100 transition" aria-label="Dismiss notice"><X size={14} /></button>
@@ -6063,7 +6045,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         {(project.media || []).filter((item) => item.kind === 'video').length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
             {(project.media || []).filter((item) => item.kind === 'video').map((item) => (
-              <div key={item.id} className="flex items-center gap-3 p-2" style={{ background: 'rgba(38,42,35,0.04)' }}>
+              <div key={item.id} className="flex items-center gap-3 p-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
                 <video src={item.previewUrl} preload="metadata" muted playsInline className="w-28 h-20 object-contain bg-black" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] truncate">{item.name}</div>
@@ -6134,13 +6116,13 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       opacity: active ? 1 : 0.6,
                     }}
                   >
-                    <span className="block w-full" style={{ aspectRatio: '1 / 1', background: 'var(--surface-sunken)' }}>
+                    <span className="block w-full" style={{ aspectRatio: '1 / 1', backgroundColor: 'var(--surface-sunken)' }}>
                       <img src={img.dataUrl} alt="" className="w-full h-full object-cover" />
                     </span>
                   </button>
                   <span
                     className="absolute top-1 left-1 inline-flex items-center gap-1 rounded-full px-1.5 t-num"
-                    style={{ height: 17, fontSize: 10, fontWeight: 500, background: 'rgba(255,255,255,0.92)', color: isCover ? 'var(--primary-ink)' : 'var(--ink-65)' }}
+                    style={{ height: 17, fontSize: 10, fontWeight: 500, backgroundColor: 'rgba(255,255,255,0.92)', color: isCover ? 'var(--primary-ink)' : 'var(--ink-65)' }}
                   >
                     {isCover ? <><Star size={8} fill="currentColor" /> Cover</> : idx + 1}
                   </span>
@@ -6150,7 +6132,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       disabled={idx === 0}
                       aria-label={`Move ${img.alt || `image ${idx + 1}`} earlier`}
                       className="p-1 rounded-tr-md disabled:opacity-25"
-                      style={{ background: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
+                      style={{ backgroundColor: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
                     >
                       <ChevronLeft size={14} />
                     </button>
@@ -6159,7 +6141,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       disabled={idx === project.images.length - 1}
                       aria-label={`Move ${img.alt || `image ${idx + 1}`} later`}
                       className="p-1 rounded-tl-md disabled:opacity-25"
-                      style={{ background: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
+                      style={{ backgroundColor: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
                     >
                       <ChevronRight size={14} />
                     </button>
@@ -6198,7 +6180,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                   </span>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setAsCover(activeImage.id)} aria-pressed={project.coverImageId === activeImage.id} className="mp-mono text-xs uppercase tracking-[0.15em] min-h-[40px] py-2 px-3 flex items-center gap-1.5 transition" style={{
-                      background: project.coverImageId === activeImage.id ? '#5A7430' : '#262A23',
+                      backgroundColor: project.coverImageId === activeImage.id ? '#5A7430' : '#262A23',
                       color: '#FFFFFF',
                     }}>
                       <Star size={12} fill={project.coverImageId === activeImage.id ? '#fff' : 'none'} />
@@ -6273,7 +6255,7 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
         onClick={onBrowse}
       >
         <input ref={inputRef} type="file" multiple accept="image/*" onChange={(e) => onDrop(e.target.files)} className="hidden" />
-        <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ background: 'var(--primary-tint)' }}>
+        <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ backgroundColor: 'var(--primary-tint)' }}>
           <ImageIcon size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
         </div>
         <h2 className="mp-display text-[24px] mb-2">Load renders &amp; photos</h2>
@@ -6323,7 +6305,7 @@ function FocalPicker({ image, onUpdate }) {
   };
   const isCentered = Math.abs(image.focal.x - 0.5) < 0.001 && Math.abs(image.focal.y - 0.5) < 0.001;
   return (
-    <div className="relative w-full select-none" style={{ background: '#262A23', textAlign: 'center' }}>
+    <div className="relative w-full select-none" style={{ backgroundColor: '#262A23', textAlign: 'center' }}>
       <div
         className="relative inline-block"
         style={{ maxWidth: '100%', verticalAlign: 'top', touchAction: 'none' }}
@@ -6366,7 +6348,7 @@ function FocalPicker({ image, onUpdate }) {
             type="button"
             onClick={() => onUpdate({ x: 0.5, y: 0.5 })}
             className="absolute bottom-2 left-2 mp-mono text-[11px] uppercase tracking-[0.12em] px-2 py-1 hover:text-white transition"
-            style={{ background: 'rgba(0,0,0,0.75)', color: '#FFFFFF' }}
+            style={{ backgroundColor: 'rgba(0,0,0,0.75)', color: '#FFFFFF' }}
           >
             Reset to center
           </button>
@@ -6401,14 +6383,14 @@ function PlatformCropPreview({ image, platform, cover }) {
   }, [image, cover, preserveOriginal]);
   return (
     <div className="mp-card">
-      <div className="overflow-hidden" style={{ background: '#262A23' }}>
+      <div className="overflow-hidden" style={{ backgroundColor: '#262A23' }}>
         {preserveOriginal
           ? <img src={image.dataUrl} alt={`${platform.name} original`} className="w-full max-h-72 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
       </div>
       <div className="p-2.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <div className="w-1.5 h-1.5 flex-shrink-0" style={{ background: platform.dot }} />
+          <div className="w-1.5 h-1.5 flex-shrink-0" style={{ backgroundColor: platform.dot }} />
           <div className="min-w-0">
             <div className="mp-display font-bold text-[13px] leading-tight truncate">
               {platform.name}{cover.label !== 'Cover' ? ` · ${cover.label}` : ''}
@@ -6489,7 +6471,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               aria-pressed={active?.id === p.id}
               className="text-left p-2.5 rounded-lg transition-colors min-w-[170px]"
               style={{
-                background: active?.id === p.id ? 'var(--primary-tint)' : '#FFFFFF',
+                backgroundColor: active?.id === p.id ? 'var(--primary-tint)' : '#FFFFFF',
                 color: active?.id === p.id ? 'var(--primary-ink)' : '#262A23',
                 border: active?.id === p.id ? '1px solid var(--primary-tint-border)' : '1px solid var(--border)',
               }}
@@ -6536,7 +6518,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               </div>
 
               {active.parsed && (
-                <div className="mp-card p-4" style={{ background: 'var(--surface-sunken)' }}>
+                <div className="mp-card p-4" style={{ backgroundColor: 'var(--surface-sunken)' }}>
                   <div className="text-[13px] font-medium mb-3" style={{ color: 'var(--ink)' }}>
                     Estimated from file
                   </div>
@@ -6590,7 +6572,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       {selectedProfileCover ? (
                         <img src={selectedProfileCover.dataUrl} alt={selectedProfileCover.alt || 'Selected profile cover'} className="w-16 h-16 object-cover flex-shrink-0" />
                       ) : (
-                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(38,42,35,0.06)' }}><ImageIcon size={18} className="opacity-35" /></div>
+                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}><ImageIcon size={18} className="opacity-35" /></div>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-medium truncate">{selectedProfileCover?.alt || 'No specific cover selected'}</div>
@@ -6667,8 +6649,8 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
       </div>
 
       {imagePicker && active && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.58)' }} onMouseDown={() => setImagePicker(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ background: '#FFFFFF' }} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(38,42,35,0.58)' }} onMouseDown={() => setImagePicker(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ backgroundColor: '#FFFFFF' }} onMouseDown={(event) => event.stopPropagation()}>
             <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
               <div className="flex-1">
                 <h3 id="profile-image-picker-title" className="mp-display text-[26px] leading-none">{imagePicker === 'cover' ? 'Choose profile cover' : 'Choose print photos'}</h3>
@@ -6702,8 +6684,8 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                     style={{ outline: selected ? '3px solid #5A7430' : '1px solid rgba(38,42,35,0.18)', outlineOffset: -2 }}
                   >
                     <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
-                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[11px] truncate px-1.5 py-1" style={{ background: 'rgba(38,42,35,0.78)', color: '#fff' }}>{image.alt || `Image ${index + 1}`}</span>
-                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ background: '#5A7430' }}><Check size={12} color="#fff" /></span>}
+                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[11px] truncate px-1.5 py-1" style={{ backgroundColor: 'rgba(38,42,35,0.78)', color: '#fff' }}>{image.alt || `Image ${index + 1}`}</span>
+                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ backgroundColor: '#5A7430' }}><Check size={12} color="#fff" /></span>}
                   </button>
                 );
               })}
@@ -6935,7 +6917,7 @@ export function DestinationFileRoleRow({ platform, file, opts, onChange, onReset
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-xs font-medium truncate flex-1" title={file.name}>{file.name}</span>
         {detectedSlicer && <span className="mp-mono text-xs uppercase tracking-[0.08em] opacity-65">{detectedSlicer}</span>}
-        <span className="mp-mono text-[9px] uppercase tracking-[0.1em] px-2 py-0.5 rounded-full" style={{ background: choice.automatic ? 'rgba(58,134,255,0.10)' : 'rgba(90,116,48,0.10)', color: choice.automatic ? '#245DA8' : '#8F2D00' }}>{choice.automatic ? 'Automatic' : 'Manual'}</span>
+        <span className="mp-mono text-[9px] uppercase tracking-[0.1em] px-2 py-0.5 rounded-full" style={{ backgroundColor: choice.automatic ? 'rgba(58,134,255,0.10)' : 'rgba(90,116,48,0.10)', color: choice.automatic ? '#245DA8' : '#8F2D00' }}>{choice.automatic ? 'Automatic' : 'Manual'}</span>
       </div>
       <div className="mt-1.5 flex items-center gap-2">
         <select aria-label={`${file.name} role for ${platform.name}`} className="mp-input text-xs py-1.5" value={choice.role} disabled={unsupported} onChange={(event) => onChange(event.target.value)}>
@@ -7031,7 +7013,7 @@ function PlatformMark({ platform, size = 26 }) {
     return (
       <span
         className="inline-flex items-center justify-center flex-shrink-0 overflow-hidden"
-        style={{ width: size, height: size, background: '#FFFFFF', border: '1px solid rgba(38,42,35,0.10)' }}
+        style={{ width: size, height: size, backgroundColor: '#FFFFFF', border: '1px solid rgba(38,42,35,0.10)' }}
       >
         <img
           src={logo} alt="" onError={() => setFailed(true)}
@@ -7048,7 +7030,7 @@ function PlatformMark({ platform, size = 26 }) {
       style={{
         width: size,
         height: size,
-        background: platform.dot,
+        backgroundColor: platform.dot,
         color: readableOn(platform.dot),
         fontSize: Math.round(size * 0.42),
         letterSpacing: '0.02em',
@@ -7107,10 +7089,10 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
               <PlatformMark platform={platform} size={28} />
               <h3 className="mp-display font-bold text-base truncate min-w-0">{platform.name}</h3>
               {platform.apiSupport === 'manual' && (
-                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>manual</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ backgroundColor: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>manual</span>
               )}
               {platform.apiSupport === 'addon' && (
-                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ background: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ backgroundColor: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
               )}
               {/* One connection affordance: a status pill that is itself the
                   action when there is something to do. */}
@@ -7119,21 +7101,21 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                   onClick={onConnect}
                   aria-label={`${connectionLabel === 'Reconnect needed' ? 'Reconnect' : connectionLabel === 'Checking session' ? 'View status for' : 'Connect'} ${platform.name}`}
                   className="mp-pill mp-focusable flex-shrink-0 whitespace-nowrap transition hover:bg-[rgba(38,42,35,0.12)]"
-                  style={{ background: 'rgba(38,42,35,0.07)', color: 'var(--accent-text)' }}
+                  style={{ backgroundColor: 'rgba(38,42,35,0.07)', color: 'var(--accent-text)' }}
                 >
                   {connectionLabel === 'Checking session' ? 'Checking session…' : connectionLabel === 'Reconnect needed' ? 'Reconnect →' : 'Connect →'}
                 </button>
               ) : (
                 <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{
-                  background: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'rgba(38,42,35,0.07)',
+                  backgroundColor: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'rgba(38,42,35,0.07)',
                   color: connectionLabel === 'Connected' ? '#247255' : 'rgba(38,42,35,0.58)',
                 }}>{connectionLabel}</span>
               ))}
             </div>
             {state.enabled && hasFiles && (
               <span className="mp-pill flex-shrink-0 ml-auto whitespace-nowrap" title={readiness.missingCount ? `${readiness.missingCount} missing requirement${readiness.missingCount === 1 ? '' : 's'}` : readiness.evidence} style={readiness.status === 'blocked'
-                ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
-                : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{readiness.label}</span>
+                ? { backgroundColor: 'var(--danger-tint)', color: 'var(--danger-text)' }
+                : { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{readiness.label}</span>
             )}
             <button onClick={onExpand} className={`p-2 opacity-50 hover:opacity-100 transition flex-shrink-0 ${state.enabled && hasFiles ? '' : 'ml-auto'}`} aria-label={expanded ? 'Collapse platform options' : 'Expand platform options'} aria-expanded={expanded}>
               {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -7150,7 +7132,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
         </p>
         <details className="mt-1.5">
           <summary className="mp-disclosure cursor-pointer text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>Requirements &amp; evidence</summary>
-          <div className="mt-2 p-3 text-xs leading-5 rounded-md" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
+          <div className="mt-2 p-3 text-xs leading-5 rounded-md" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
             <div>{platformWorkflow(platform.id).evidence}</div>
             <div className="mt-1">{acceptedFormats.length} accepted package format{acceptedFormats.length === 1 ? '' : 's'} · {destinationMediaTreatment(platform.id).join(' · ')}</div>
           </div>
@@ -7166,7 +7148,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           {hasFiles && issues.errors.length > 0 && (
             <PanelSection title="Needs attention">
               <div className="space-y-1.5">
-                {issues.errors.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ background: 'var(--danger-tint)', color: 'var(--danger-text)' }}>{message}</div>)}
+                {issues.errors.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ backgroundColor: 'var(--danger-tint)', color: 'var(--danger-text)' }}>{message}</div>)}
               </div>
             </PanelSection>
           )}
@@ -7178,7 +7160,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
               <summary className="mp-disclosure cursor-pointer text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>
                 What ModelPrep will adapt ({issues.adaptations.length})
               </summary>
-              <ul className="mt-2 p-3 space-y-1.5 text-xs leading-5 rounded-md" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
+              <ul className="mt-2 p-3 space-y-1.5 text-xs leading-5 rounded-md" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
                 {issues.adaptations.map((message) => <li key={message}>{message}</li>)}
               </ul>
             </details>
@@ -7199,7 +7181,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           <PanelSection title="Accepted formats">
             <div className="flex flex-wrap gap-1">
               {acceptedFormats.map(f => (
-                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(38,42,35,0.06)' }}>
+                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}>
                   .{f}
                 </span>
               ))}
@@ -7258,7 +7240,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                 <option value="best-functional">Best Functional Print 2026</option>
               </select>
               {state.contestEntry && (
-                <div className="mt-2 p-2.5 flex items-start gap-2 text-[13px]" style={{ background: 'rgba(255,182,39,0.12)', border: '1px solid rgba(255,182,39,0.5)' }}>
+                <div className="mt-2 p-2.5 flex items-start gap-2 text-[13px]" style={{ backgroundColor: 'rgba(255,182,39,0.12)', border: '1px solid rgba(255,182,39,0.5)' }}>
                   <AlertCircle size={14} style={{ color: '#FF9500' }} className="flex-shrink-0 mt-0.5" />
                   <span style={{ color: 'rgba(38,42,35,0.8)' }}>
                     <strong>{platform.name} contest entries must be opted in during upload.</strong> This package can't enter you automatically: when you upload, tick the contest checkbox on {platform.name}'s page. You can't add an entry after the model is published.
@@ -7468,7 +7450,7 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
         <input aria-label="Existing MyMiniFactory object ID to verify" className="mp-input" value={opts.verifyObjectId || ''} onChange={(event) => onUpdate('verifyObjectId', event.target.value.replace(/[^0-9]/g, ''))} placeholder="Existing object ID, e.g. 829284" />
         <p className="text-[11px] mt-1 opacity-70">Re-reads an object this account already owns and compares the persisted state above. It only reads; it never creates or edits an object.</p>
       </div>
-      <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', background: 'rgba(79,178,134,0.08)' }}>
+      <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', backgroundColor: 'rgba(79,178,134,0.08)' }}>
         <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: '#4FB286' }} />
         <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory’s Terms and Conditions.</span>
       </label>
@@ -7712,7 +7694,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
         </label>
       )}
 
-      <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(255,182,39,0.10)', border: '1px solid rgba(255,182,39,0.45)' }}>
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(255,182,39,0.10)', border: '1px solid rgba(255,182,39,0.45)' }}>
         Creator-fund eligibility is not a static checkbox. Nexprint supplies account-eligible activities dynamically; creator-fund submissions currently require at least two images, including one real printed photo.
       </div>
     </div>
@@ -7769,7 +7751,7 @@ export function CrealityOptions({ opts, project, onUpdate }) {
         </div>
       </div>
 
-      <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(230,57,70,0.06)', border: '1px solid rgba(230,57,70,0.32)' }}>
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(230,57,70,0.06)', border: '1px solid rgba(230,57,70,0.32)' }}>
         ModelPrep sends the web and app cover crops, up to 9 gallery images, every compatible model file, compatible instruction files, tags, rich description, category, license, source type, maturity rating, and draft/private/public state. Creality’s optional paid-model controls are account-gated and are not exposed to this new account.
       </div>
     </div>
@@ -7921,7 +7903,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
 export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) {
   const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-    <div className="p-2.5 text-[11px]" style={{ background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
+    <div className="p-2.5 text-[11px]" style={{ backgroundColor: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div></div>
     <div><Label>Summary</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /><p className="text-[11px] mt-1" style={{ color: 'var(--ink-50)' }}>Leave blank to derive it from the description, the way Printables does.</p></div>
     <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate({ categoryId: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
@@ -8067,7 +8049,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       </div>
 
       {printMethod !== 2 && (
-        <div className="p-2.5 space-y-2" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.18)' }}>
+        <div className="p-2.5 space-y-2" style={{ backgroundColor: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.18)' }}>
           <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.includePrintProfile} onChange={(event) => onUpdate('includePrintProfile', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Upload available .3mf files as MakerOnline print profiles as well as raw model files</span></label>
           {opts.includePrintProfile && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -8097,7 +8079,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       </div>
 
       {meta.error && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{meta.error}</div>}
-      <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.22)' }}>
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.22)' }}>
         ModelPrep maps all current upload branches: ordered gallery (20 max), title, live two-level category, tags, license, source/original URL, public/private permission, FDM/Resin/Both, rich description, documentation, AI/NSFW disclosure, Creative Kits, account-gated China sync/exclusive controls, raw files, and optional parsed .3mf print profiles. Paid pricing is dormant in the current form and is not exposed.
       </div>
     </div>
@@ -8241,7 +8223,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
           </div>
         </div>
       )}
-      <div className="p-2.5 space-y-2" style={{ background: 'rgba(250,104,49,0.05)', border: '1px solid rgba(250,104,49,0.24)' }}>
+      <div className="p-2.5 space-y-2" style={{ backgroundColor: 'rgba(250,104,49,0.05)', border: '1px solid rgba(250,104,49,0.24)' }}>
         <Label>Free, Store, or Club</Label>
         {!active && <p className="text-[11px]">Connect Printables to check account-specific paid and Club eligibility.</p>}
         {active && !capabilityState && !capabilityError && <p className="text-[11px]">Checking account eligibility…</p>}
@@ -8300,51 +8282,6 @@ export function PrintablesOptions({ opts, onUpdate }) {
 // 37 alarms for a project the creator had not started yet.
 export function projectHasFiles(project) {
   return (project?.files || []).length > 0;
-}
-
-// Pre-flight: run platformPreflight for every enabled platform and surface
-// blockers BEFORE the user publishes. Only blockers: what ModelPrep adapts by
-// itself reads inside the destination's own panel, and an unfilled optional
-// field is not news.
-function PreflightPanel({ enabled, project, setCurrentSection }) {
-  const reports = enabled.map(p => ({ platform: p, ...platformPreflight(p, project) }));
-  const totalErr = reports.reduce((n, r) => n + r.errors.length, 0);
-  const [open, setOpen] = useState(() => totalErr > 0);
-  const clean = totalErr === 0;
-  const bg = totalErr ? 'rgba(185,28,28,0.06)' : 'rgba(79,178,134,0.08)';
-  const bd = totalErr ? 'rgba(185,28,28,0.35)' : 'rgba(79,178,134,0.35)';
-  // The step header already says "Add files to get started". Saying it twice
-  // is how a one-line empty state turns back into a wall.
-  if (!enabled.length || !projectHasFiles(project)) return null;
-  return (
-    <div className="mp-card p-3" style={{ background: bg, borderColor: bd }}>
-      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 text-left">
-        {clean ? <Check size={15} style={{ color: '#3a8d68' }} /> : <AlertCircle size={15} style={{ color: '#B91C1C' }} />}
-        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>
-          {clean ? 'Pre-flight checks passed: ready to publish'
-            : `Pre-flight: ${totalErr} blocker${totalErr > 1 ? 's' : ''} across ${enabled.length} platform${enabled.length > 1 ? 's' : ''}`}
-        </span>
-        <span className="ml-auto">{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
-      </button>
-      {open && !clean && (
-        <div className="mt-3 space-y-3">
-          {reports.filter(r => r.errors.length).map(r => (
-            <div key={r.platform.id}>
-              <div className="flex items-center gap-1.5 text-xs font-medium mb-1">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ background: r.platform.dot }} />{r.platform.name}
-              </div>
-              <ul className="space-y-0.5 ml-3.5">
-                {r.errors.map((e, i) => <li key={'e' + i} className="text-xs" style={{ color: '#B91C1C' }}>{e}</li>)}
-              </ul>
-            </div>
-          ))}
-          <div className="text-[11px] pt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
-            Fix in <button onClick={() => setCurrentSection('files')} className="underline">Files</button> · <button onClick={() => setCurrentSection('details')} className="underline">Details</button> · <button onClick={() => setCurrentSection('images')} className="underline">Images</button>. Every line here would fail the upload.
-          </div>
-        </div>
-      )}
-    </div>
-  );
 }
 
 function PublishSection({ project, updateProject, allReady, completion, setCurrentSection }) {
@@ -8541,7 +8478,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               const blockers = releasePlanBlockers(plan, publishTargets);
               return (
                 <div key={plan.id} className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ background: due ? '#5A7430' : 'rgba(38,42,35,0.08)', color: due ? '#fff' : 'inherit' }}>
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ backgroundColor: due ? '#5A7430' : 'rgba(38,42,35,0.08)', color: due ? '#fff' : 'inherit' }}>
                     {describeDue(plan, Date.now())}
                   </span>
                   <span className="font-bold">{plan.platformName || plan.platformId}</span>
@@ -8599,51 +8536,9 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
 
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
-      {/* Read in sequence, so laid out in sequence: what is wrong, then what
-          will be sent, then the per-platform detail. */}
+      {/* Read in sequence, so laid out in sequence: the shared source, the one
+          action, then one row per destination carrying its own status. */}
       <div className="mt-5 grid gap-4">
-        {hasFiles && (
-        <div className="mp-card p-4">
-          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
-            <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Destination readiness</span>
-            <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Evidence is shown per platform; no destination is described as universally certified.</span>
-          </div>
-          <div className="grid gap-1.5">
-            {reviewReports.map(({ platform, summary, issues }) => (
-              <div key={platform.id} className="rounded-lg border px-3 py-2.5" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center gap-3">
-                  <PlatformMark platform={platform} size={26} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate" style={{ color: 'var(--ink)' }}>{platform.name} <span className="font-normal" style={{ color: 'var(--ink-50)' }}>· {summary.outcome.outcome}</span></div>
-                    <div className="text-xs mt-0.5 truncate" style={{ color: summary.status === 'blocked' ? 'var(--danger-text)' : 'var(--ink-50)' }}>{summary.firstIssue || `${summary.evidence} · package ready`}</div>
-                  </div>
-                  <span className="mp-pill flex-shrink-0" style={summary.status === 'blocked'
-                    ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
-                    : summary.status === 'confirm'
-                      ? { background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }
-                      : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{summary.label}</span>
-                  {summary.firstIssue && (
-                    <button type="button" onClick={() => setCurrentSection(fixSectionFor(summary.firstIssue))} className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Fix</button>
-                  )}
-                </div>
-                {/* ModelPrep cannot check a self-attestation, so it asks here,
-                    once, instead of holding a permanent red row on a
-                    destination that is otherwise ready. */}
-                {(issues.confirmations || []).map((confirmation) => (
-                  <label key={confirmation.id} className="flex items-start gap-2 mt-2 pt-2 border-t text-xs leading-5 cursor-pointer" style={{ borderColor: 'var(--border)', color: 'var(--ink-65)' }}>
-                    <input type="checkbox" className="mt-0.5" checked={false} onChange={() => satisfyConfirmation(confirmation)} />
-                    <span>{confirmation.message}</span>
-                  </label>
-                ))}
-              </div>
-            ))}
-          </div>
-          {reviewBlockedCount > 0 && (
-            <p className="text-xs mt-3" style={{ color: 'var(--ink-50)' }}>The upload action below skips blocked destinations automatically.</p>
-          )}
-        </div>
-        )}
-        <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
 
         {releaseQueuePanel}
 
@@ -8657,7 +8552,6 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
             onPublish={startPublishBatch}
             onRetryFailed={retryFailedBatch}
             onDownloadResourceReport={downloadResourceReport}
-            onOpenConnections={() => openConnections('accounts')}
             isTestProject={!!project.__testProject}
             onDryRun={project.__testProject && !project.__demo ? () => updateProject({ __demo: true }) : null}
           />
@@ -8667,12 +8561,12 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       {hasFiles && directEnabled.length > 0 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h3 className="mp-display text-[22px] leading-none">Publishing destinations</h3>
-            <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.56)' }}>{directEnabled.length} direct target{directEnabled.length === 1 ? '' : 's'} · expand only when you want the full platform preview or individual controls</p>
+            <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Destinations</span>
+            <p className="text-xs mt-1" style={{ color: 'var(--ink-50)' }}>Each row is that destination's whole status. Expand one for its listing preview and its own upload controls.</p>
           </div>
           <button
             onClick={toggleAll}
-            className="mp-mono text-xs uppercase tracking-[0.15em] py-1.5 px-2 hover:text-[#5A7430] transition flex items-center gap-1.5"
+            className="mp-btn mp-btn-ghost text-xs"
             aria-label={allExpanded ? 'Collapse every platform package' : 'Expand every platform package'}
           >
             {allExpanded ? <><ChevronRight size={13} /> Collapse all</> : <><ChevronDown size={13} /> Expand all</>}
@@ -8680,27 +8574,36 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         </div>
       )}
 
-      <div className="mt-3 space-y-4">
-        {hasFiles && directEnabled.map(p => (
-          <PlatformPackageCard
-            key={p.id}
-            platform={p}
-            project={project}
-            cover={cover}
-            platformState={project.platforms[p.id]}
-            expandSignal={expandSignal}
-            collapseSignal={collapseSignal}
-            setCurrentSection={setCurrentSection}
-            batchRequest={publishBatch?.status === 'running' && (publishBatch.activeIds || [publishBatch.currentId]).includes(p.id)
-              ? {
-                runId: publishBatch.runId,
-                action: publishBatch.results[p.id]?.action,
-                visibility: publishBatch.results[p.id]?.visibility,
-              }
-              : null}
-            onBatchResult={handleBatchResult}
-          />
-        ))}
+      <div className="mt-3 space-y-2">
+        {hasFiles && directEnabled.map(p => {
+          const report = reviewReports.find((entry) => entry.platform.id === p.id);
+          return (
+            <PlatformPackageCard
+              key={p.id}
+              platform={p}
+              project={project}
+              cover={cover}
+              issues={report?.issues || { errors: [], adaptations: [], optional: [], confirmations: [] }}
+              summary={report?.summary}
+              target={publishTargets.find((entry) => entry.id === p.id) || null}
+              batchResult={publishBatch?.results?.[p.id] || null}
+              expandSignal={expandSignal}
+              collapseSignal={collapseSignal}
+              setCurrentSection={setCurrentSection}
+              onFix={(issue) => setCurrentSection(fixSectionFor(issue))}
+              onConnect={() => openConnections('accounts')}
+              onSatisfyConfirmation={satisfyConfirmation}
+              batchRequest={publishBatch?.status === 'running' && (publishBatch.activeIds || [publishBatch.currentId]).includes(p.id)
+                ? {
+                  runId: publishBatch.runId,
+                  action: publishBatch.results[p.id]?.action,
+                  visibility: publishBatch.results[p.id]?.visibility,
+                }
+                : null}
+              onBatchResult={handleBatchResult}
+            />
+          );
+        })}
       </div>
 
       {/* The ZIP fallback used to live inside an "Export packages" group that
@@ -8751,10 +8654,10 @@ function ProjectReviewSummary({ project, cover, setCurrentSection }) {
               src={cover.dataUrl}
               alt={cover.alt || 'Selected project cover'}
               className="w-full aspect-[4/3] object-cover"
-              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, background: '#262A23' }}
+              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, backgroundColor: '#262A23' }}
             />
           ) : (
-            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ background: 'rgba(38,42,35,0.06)' }}><ImageIcon size={24} className="opacity-30" /></div>
+            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}><ImageIcon size={24} className="opacity-30" /></div>
           )}
           <button onClick={() => setCurrentSection('images')} className="mp-mono text-[11px] uppercase tracking-[0.12em] underline mt-1.5" style={{ color: 'var(--accent-text)' }}>Review image crops</button>
         </div>
@@ -8783,24 +8686,12 @@ function ProjectReviewSummary({ project, cover, setCurrentSection }) {
   );
 }
 
-// Format a datetime-local value ("2026-05-25T14:00") for display.
-function formatSchedule(v) {
-  if (!v) return '';
-  const d = new Date(v);
-  if (isNaN(d)) return v;
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-// A datetime-local min value (now) so users can't schedule in the past.
-function nowLocalMin() {
-  const pad = (n) => String(n).padStart(2, '0');
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, resourceReport = null, resourceReportStatus = 'idle', onPublish, onRetryFailed, onDownloadResourceReport, onOpenConnections, onDryRun = null, isTestProject = false }) {
+// The one action, and only the one action. Which destination is ready, blocked
+// or disconnected is the destination list's job; this panel used to restate all
+// of it in a card grid and two "skipped until…" lines.
+export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, resourceReport = null, resourceReportStatus = 'idle', onPublish, onRetryFailed, onDownloadResourceReport, onDryRun = null, isTestProject = false }) {
   const missing = targets.filter((target) => target.mode === 'missing');
-  const blockedTargets = targets.filter((target) => publishBlockers(target.issues).length > 0);
-  const blocking = blockedTargets.flatMap((target) => publishBlockers(target.issues).map((issue) => `${target.name}: ${issue}`));
+  const blocking = targets.flatMap((target) => publishBlockers(target.issues).map((issue) => `${target.name}: ${issue}`));
   const readyTargets = targets.filter((target) => target.mode !== 'missing' && publishBlockers(target.issues).length === 0);
   const running = batch?.status === 'running';
   const hasReal = targets.some((target) => target.mode === 'real');
@@ -8828,26 +8719,14 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
     }).catch(() => { /* a notification must never break a publish */ });
   }, [batch?.status, batch?.runId, summary.succeeded, summary.failed]);
   const latestResources = batchResources.latest || resourceTelemetry;
-  const adaptation = {
-    makerworld: 'Landscape + portrait covers · up to 16 model pictures · adapted listing and Bambu profile',
-    printables: 'Ordered photos · adapted listing, tags and category · per-file details',
-    cults: 'Ordered photos · adapted listing, category and license · price and visibility',
-    nexprint: '4:3 cover + ordered gallery · adapted listing and BOM · raw files and attachments',
-    creality: 'Web + app covers · ordered gallery · raw files, instructions and visibility',
-    makeronline: 'Ordered images · adapted listing and categories · model files, docs and optional 3MF print profiles',
-    mmf: 'Ordered photos · full category path · private/public choice · model files and print details',
-    makeroad: '3–10 ordered images · categories matched automatically · models, profiles and review submission',
-    thangs: 'Ordered images · model files · references, category, license and private state',
-    thingiverse: 'Uploads as a draft first · ordered files and media · category, license and full listing details',
-  };
 
   return (
-    <div className="mt-5 mp-card p-4" style={{ background: 'rgba(58,134,255,0.055)', border: '1px solid rgba(58,134,255,0.42)' }}>
+    <div className="mt-5 mp-card p-4" style={{ backgroundColor: 'rgba(58,134,255,0.055)', border: '1px solid rgba(58,134,255,0.42)' }}>
       <div className="flex flex-col lg:flex-row lg:items-start gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="mp-display text-[20px] leading-none">Publish selected platforms</span>
-            <span className="mp-pill" style={{ background: 'var(--api-fill)', color: '#fff' }}>one click</span>
+            <span className="mp-pill" style={{ backgroundColor: 'var(--api-fill)', color: '#fff' }}>one click</span>
           </div>
           <p className="mp-body text-xs leading-relaxed mt-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
             Platforms upload in parallel (up to four at a time in the desktop app). If one fails, the others keep going.
@@ -8924,14 +8803,14 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
           role="status"
           className="mt-3 p-2.5 text-xs mp-card flex items-center justify-between gap-3 flex-wrap"
           style={{
-            background: summary.failed ? 'rgba(255,182,39,0.1)' : 'rgba(79,178,134,0.1)',
+            backgroundColor: summary.failed ? 'rgba(255,182,39,0.1)' : 'rgba(79,178,134,0.1)',
             color: summary.failed ? '#8A4B08' : '#24634f',
           }}
         >
           <span>
             Batch finished: <strong>{summary.succeeded} succeeded</strong>
             {summary.failed ? <> · <strong>{summary.failed} failed</strong></> : ' · no failures'}.
-            Review each platform receipt below before opening or sharing a listing.
+            Every destination row below carries its own receipt.
           </span>
           {summary.failed > 0 && (
             <button onClick={onRetryFailed} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-3">
@@ -8941,88 +8820,9 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
         </div>
       )}
 
-      <div className="mt-3 grid gap-2 md:grid-cols-3">
-        {targets.map((target) => {
-          const result = batch?.results?.[target.id];
-          const targetBlocked = publishBlockers(target.issues).length > 0;
-          const state = result?.state || (target.mode === 'missing' || targetBlocked ? 'error' : 'ready');
-          const receiptLabel = result
-            ? publishReceiptLabel(result)
-            : target.mode === 'missing'
-              ? 'Not connected · will skip'
-              : targetBlocked
-                ? 'Blocked · fix requirements'
-                : 'Ready';
-          const receiptColor = state === 'error'
-            ? '#b91c1c'
-            : state === 'done'
-              ? (result?.simulated ? '#3A86FF' : '#1a7f37')
-              : 'rgba(38,42,35,0.55)';
-          const receiptBackground = state === 'error'
-            ? 'rgba(185,28,28,0.07)'
-            : state === 'done'
-              ? (result?.simulated ? 'rgba(58,134,255,0.08)' : 'rgba(26,127,55,0.08)')
-              : 'rgba(38,42,35,0.05)';
-          return (
-            <div key={target.id} className="mp-card p-3 text-xs flex flex-col" style={{ background: '#fff' }}>
-              <div className="flex items-center gap-2">
-                {state === 'publishing' ? <Loader size={13} className="mp-spin" style={{ color: '#3A86FF' }} />
-                  : state === 'done' ? <Check size={13} style={{ color: '#1a7f37' }} />
-                    : state === 'error' ? <X size={13} style={{ color: '#b91c1c' }} />
-                      : <StatusDot status={target.mode === 'missing' ? 'unknown' : 'connected'} />}
-                <strong>{target.name}</strong>
-                <span
-                  className="mp-mono text-[11px] mt-0 ml-auto inline-flex px-2 py-0.5 rounded-full whitespace-nowrap"
-                  style={{ color: receiptColor, background: receiptBackground }}
-                  aria-label={`${target.name} publish status: ${receiptLabel}`}
-                >
-                  {receiptLabel}
-                </span>
-              </div>
-              {target.mode !== 'missing' && (
-                <div className="mt-1.5 truncate" title={target.accountLabel} style={{ color: 'rgba(38,42,35,0.58)' }}>
-                  {target.accountLabel} · <span style={{ color: target.mode === 'simulation' ? 'var(--api-fill)' : undefined }}>{target.mode === 'simulation' ? 'practice' : 'live'}</span>
-                </div>
-              )}
-              <div className="mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{adaptation[target.id]}</div>
-              {target.mode === 'missing' && (
-                <button
-                  onClick={onOpenConnections}
-                  className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 min-h-[32px] mt-2 self-start"
-                  style={{ marginTop: 'auto', paddingTop: 6, paddingBottom: 6 }}
-                >
-                  <RefreshCw size={11} /> {target.accountStatus === 'reconnect' ? `Reconnect ${target.name}` : `Connect ${target.name}`}
-                </button>
-              )}
-              {result?.detail && (
-                <div className="mt-1 break-words" title={result.fullDetail || result.detail} style={{ color: state === 'error' ? '#b91c1c' : 'rgba(38,42,35,0.58)' }}>
-                  {state === 'error' ? 'Error: ' : ''}{result.detail}
-                </div>
-              )}
-              {state === 'done' && result?.url && !result.simulated && (
-                <a href={result.url} target="_blank" rel="noopener noreferrer" className="inline-block mt-1 underline" style={{ color: '#3A86FF' }}>
-                  Open result ↗
-                </a>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
       {publicTargets.length > 0 && (
-        <div className="mt-3 p-2 text-xs mp-card" style={{ background: 'rgba(255,182,39,0.1)', color: '#8A4B08' }}>
-          ⚠️ This single action creates real public listings on {publicTargets.map((target) => target.name).join(', ')}. Other targets use the visibility shown above.
-        </div>
-      )}
-      {missing.length > 0 && (
-        <div className="mt-3 text-xs" style={{ color: '#b91c1c' }}>
-          Skipped until connected: {missing.map((target) => target.name).join(', ')}.{' '}
-          <button onClick={onOpenConnections} className="underline">Reconnect accounts</button>
-        </div>
-      )}
-      {blocking.length > 0 && (
-        <div className="mt-3 text-xs" style={{ color: '#b91c1c' }}>
-          Skipped until its requirements are fixed: {blockedTargets.map((target) => target.name).join(', ')}. The preflight panel above lists {blocking.length} blocking requirement{blocking.length === 1 ? '' : 's'}.
+        <div className="mt-3 p-2 text-xs mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.1)', color: '#8A4B08' }}>
+          This single action creates real public listings on {publicTargets.map((target) => target.name).join(', ')}. Every other destination uses the outcome shown on its row.
         </div>
       )}
     </div>
@@ -9081,303 +8881,103 @@ function PlatformPackageCard({
   platform,
   project,
   cover,
-  platformState,
+  issues,
+  summary,
+  target = null,
+  batchResult = null,
   expandSignal = 0,
   collapseSignal = 0,
   setCurrentSection,
   batchRequest,
   onBatchResult,
+  onFix,
+  onConnect,
+  onSatisfyConfirmation,
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [progressMsg, setProgressMsg] = useState(null);
-  const [uploadSignal, setUploadSignal] = useState(0);
-  // Platforms with a real one-click upload: hide all the manual .zip/copy-paste prep
-  // (it's redundant) and show only the live upload flow. Others keep the manual package.
-  const hasRealUpload = platform.id === 'cults' || platform.id === 'makerworld' || platform.id === 'printables' || platform.id === 'nexprint' || platform.id === 'creality' || platform.id === 'makeronline' || platform.id === 'mmf' || platform.id === 'makeroad' || platform.id === 'thangs' || platform.id === 'thingiverse';
-
   // React to the parent's expand-all / collapse-all broadcasts.
   useEffect(() => { if (expandSignal > 0) setExpanded(true); }, [expandSignal]);
   useEffect(() => { if (collapseSignal > 0) setExpanded(false); }, [collapseSignal]);
 
-  const desc = useMemo(() => {
-    if (platform.descFormat === 'markdown') return project.description;
-    if (platform.descFormat === 'html')     return mdToHtml(project.description);
-    return mdToPlain(project.description);
-  }, [platform.descFormat, project.description]);
-
-  const tagString = formatTagsFor(platform.id, project.tags);
-  const uploadUrl = UPLOAD_URLS[platform.id];
-  const fileNamePrefix = (project.title || 'model').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'model';
-
-  const downloadImage = async (image, w, h, suffix) => {
-    if (!w || !h) {
-      const blob = await fetch(image.dataUrl).then((response) => response.blob());
-      const ext = fileExt(image.name || '') || (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-      triggerDownload(blob, `${fileNamePrefix}_${platform.id}_${suffix}_original.${ext}`);
-      return;
-    }
-    const img = await loadImageFromDataUrl(image.dataUrl);
-    const canvas = cropToCanvas(img, w, h, image.focal);
-    downloadCanvas(canvas, `${fileNamePrefix}_${platform.id}_${suffix}_${w}x${h}.jpg`);
-  };
-
-  const downloadAllCovers = async () => {
-    if (!cover) return;
-    setDownloading(true);
-    for (let i = 0; i < platform.covers.length; i++) {
-      const c = platform.covers[i];
-      await downloadImage(cover, c.w, c.h, c.id);
-      await new Promise(r => setTimeout(r, 350));
-    }
-    setDownloading(false);
-  };
-
-  const downloadAllGallery = async () => {
-    setDownloading(true);
-    const others = project.images.filter(i => i.id !== project.coverImageId);
-    const limit = Math.min(others.length, galleryCapacity(platform));
-    const main = platform.covers[0];
-    for (let i = 0; i < limit; i++) {
-      await downloadImage(others[i], main.w, main.h, `gallery${String(i + 2).padStart(2, '0')}`);
-      await new Promise(r => setTimeout(r, 300));
-    }
-    setDownloading(false);
-  };
-
-  const downloadDescriptionFile = () => {
-    const ext = platform.descFormat === 'markdown' ? 'md' : platform.descFormat === 'html' ? 'html' : 'txt';
-    downloadTextFile(desc, `${fileNamePrefix}_${platform.id}_description.${ext}`);
-  };
-
-  const downloadEverything = async () => {
-    if (downloading) return;
-    setDownloading(true);
-    setProgressMsg('Loading ZIP library');
-    try {
-      const JSZip = await loadJSZip();
-      const zipBlob = await buildPlatformZip(JSZip, platform, project, cover, setProgressMsg);
-      triggerDownload(zipBlob, `${fileNamePrefix}_${platform.id}.zip`);
-      setProgressMsg(`Done: ${formatBytes(zipBlob.size)}`);
-      setTimeout(() => setProgressMsg(null), 2500);
-    } catch (e) {
-      console.error('ZIP generation failed', e);
-      setProgressMsg(`Error: ${e.message}`);
-      setTimeout(() => setProgressMsg(null), 4000);
-    } finally {
-      setDownloading(false);
-    }
-  };
+  // One row per destination is the whole status surface: outcome, what is
+  // blocking it, what ModelPrep will adapt, the account, and the receipt once
+  // it has published. The readiness list, preflight panel and target-card grid
+  // all said versions of this, so they are gone.
+  const blockers = publishBlockers(issues);
+  const adaptationCount = (issues.adaptations || []).length;
+  const state = batchResult?.state
+    || (blockers.length ? 'error' : target?.mode === 'missing' ? 'missing' : 'ready');
+  const statusText = batchResult?.detail
+    || blockers[0]
+    || (target?.mode === 'missing'
+      ? (target.accountStatus === 'reconnect' ? 'Session expired' : 'No account connected')
+      : null);
+  const statusLine = statusText !== null ? statusText : (
+    target
+      ? <>{target.accountLabel} · <span style={{ color: target.mode === 'simulation' ? 'var(--api-fill)' : undefined }}>{target.mode === 'simulation' ? 'practice' : 'live'}</span></>
+      : summary?.evidence || ''
+  );
+  const pill = batchResult ? publishReceiptLabel(batchResult)
+    : blockers.length ? summary?.label || 'Needs attention'
+      : target?.mode === 'missing' ? 'Not connected · will skip'
+        : 'Ready';
+  // backgroundColor, not the `background` shorthand: jsdom cannot expand a
+  // shorthand holding a custom property, and every DOM query in a test clones
+  // these nodes.
+  // A missing account is not a project problem, so it reads neutral. Red is
+  // reserved for something the creator has to fix in the project.
+  const neutralPill = { backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--border)' };
+  const pillStyle = state === 'error'
+    ? { backgroundColor: 'var(--danger-tint)', color: 'var(--danger-text)' }
+    : state === 'missing' || (summary?.status === 'confirm' && state !== 'done')
+      ? neutralPill
+      : { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' };
 
   return (
     <div className="mp-card">
-      {/* Header row */}
-      <div className="p-4 flex flex-col gap-3 border-b sm:flex-row sm:items-start" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-        <div className="flex items-start gap-3 flex-1 min-w-0">
-          <PlatformMark platform={platform} size={30} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="mp-display text-[22px] leading-none">{platform.name}</h3>
-              {/* No "API" badge: it was on all ten, so it carried no information.
-                  Only the exceptions are worth a pill. */}
-              {platform.apiSupport === 'oneclick' && !platform.apiLive && (
-                <span className="mp-pill" style={{ background: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>API soon</span>
-              )}
-              {platform.apiSupport === 'manual' && (
-                <span className="mp-pill" style={{ background: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>manual</span>
-              )}
-              {platform.apiSupport === 'addon' && (
-                <span className="mp-pill" style={{ background: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
-              )}
-            </div>
-            <div className="mp-mono text-xs uppercase tracking-[0.15em] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              {platform.org} · {platform.descFormat} description · {platform.id === 'makerworld'
-                ? `${platform.maxImages} model pictures + cover`
-                : Number.isFinite(platform.maxImages) ? `${platform.maxImages} img max` : 'no image limit listed'}
-            </div>
+      <div className="p-3 flex items-center gap-3">
+        <PlatformMark platform={platform} size={26} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium truncate" style={{ color: 'var(--ink)' }}>
+            {platform.name}
+            <span className="font-normal" style={{ color: 'var(--ink-50)' }}> · {summary?.outcome?.outcome || platformWorkflow(platform.id).safeOutcome}</span>
           </div>
-          <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-60 hover:opacity-100 transition flex-shrink-0 sm:hidden" aria-label={expanded ? 'Collapse package' : 'Expand package'} aria-expanded={expanded}>
-            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap sm:justify-end">
-          {/* Manual prep (download package, open upload page): only for platforms without
-              a real one-click upload. */}
-          {!hasRealUpload && (
-            <>
-              <button
-                onClick={downloadEverything}
-                disabled={downloading || !cover}
-                className="mp-btn text-[13px] py-2 px-3 disabled:opacity-40 flex-1 sm:flex-none sm:min-w-[140px]"
-                title={!cover ? 'Add at least one image first' : 'Download a ZIP containing everything for this platform'}
-              >
-                {downloading ? (
-                  <><Loader size={12} className="mp-spin" /> <span className="mp-mono text-[13px] normal-case tracking-normal truncate">{progressMsg || 'Working'}</span></>
-                ) : (
-                  <><Download size={12} /> {progressMsg ? progressMsg : 'Download .zip'}</>
-                )}
-              </button>
-              <a href={uploadUrl} target="_blank" rel="noopener noreferrer" className="mp-btn mp-btn-ghost text-[13px] py-2 px-3 flex-1 sm:flex-none">
-                <Send size={12} /> Open upload page
-              </a>
-            </>
-          )}
-          <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-60 hover:opacity-100 transition hidden sm:block" aria-label={expanded ? 'Collapse package' : 'Expand package'} aria-expanded={expanded}>
-            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
-        </div>
-      </div>
-
-      {(expanded || hasRealUpload) && (
-        <div className={expanded ? 'p-4 space-y-4' : 'hidden'} aria-hidden={!expanded}>
-          {!hasRealUpload && (
-          <>
-          {/* Title + category + license row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <PackageField label="Title" value={project.title} />
-            <PackageField label="Category" value={project.category} />
-            <PackageField label="License" value={LICENSES.find(l => l.id === project.license)?.name.split(': ')[0] || project.license} />
-          </div>
-
-          {/* Platform-specific fields */}
-          {(platformState.price !== undefined || platformState.contestEntry || platformState.remix) && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {platformState.price !== undefined && (
-                <PackageField label="Price" value={platformState.free ? 'Free' : `$${platformState.price.toFixed(2)}`} />
-              )}
-              {platformState.contestEntry && (
-                <PackageField label="Contest entry" value={platformState.contestEntry} />
-              )}
-              {platformState.remix && (
-                <PackageField label="Remix" value="Yes: link the original in description" />
-              )}
-            </div>
-          )}
-
-          {/* Tags */}
-          <div>
-            <PackageLabel label="Tags" hint={`${project.tags.length} · ${platform.id === 'thingiverse' ? 'space-separated' : 'comma-separated'}`}>
-              <CopyButton text={tagString} />
-            </PackageLabel>
-            <div className="mp-card mp-mono text-xs p-2.5" style={{ background: 'rgba(38,42,35,0.03)' }}>{tagString || <span style={{ color: 'rgba(38,42,35,0.66)' }}>(no tags)</span>}</div>
-          </div>
-
-          {/* Description */}
-          <div>
-            {isRichTextPlatform(platform.id) ? (
-              <>
-                <PackageLabel label="Description (rich text)" hint={`${platform.name} uses a visual editor: paste keeps formatting`}>
-                  <RichCopyButton html={mdToHtml(project.description)} plain={mdToPlain(project.description)} />
-                  <button onClick={downloadDescriptionFile} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
-                    <Download size={10} /> .html
-                  </button>
-                </PackageLabel>
-                <div className="mp-card mp-prose p-4 text-sm max-h-56 overflow-auto" style={{ background: '#FFFFFF' }}
-                  dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<span style="color:rgba(38,42,35,0.4)">(no description)</span>' }} />
-                <p className="text-xs mt-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                  Don't paste raw HTML into {platform.name}: it shows the tags. Hit <strong>Copy formatted</strong>, then paste into the description box. (The .html download is a backup: open it in a browser, select all, copy.)
-                </p>
-              </>
-            ) : (
-              <>
-                <PackageLabel label={`Description (${platform.descFormat})`} hint={`${desc.length} chars`}>
-                  <CopyButton text={desc} />
-                  <button onClick={downloadDescriptionFile} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
-                    <Download size={10} /> .{platform.descFormat === 'markdown' ? 'md' : platform.descFormat === 'html' ? 'html' : 'txt'}
-                  </button>
-                </PackageLabel>
-                <pre className="mp-pre mp-mono text-[13px] leading-relaxed mp-card p-3 max-h-48 overflow-auto" style={{ background: 'rgba(38,42,35,0.03)', color: 'rgba(38,42,35,0.85)' }}>
-                  {desc || <span style={{ color: 'rgba(38,42,35,0.66)' }}>(no description)</span>}
-                </pre>
-              </>
+          <div className="text-xs mt-0.5 truncate" style={{ color: state === 'error' ? 'var(--danger-text)' : 'var(--ink-50)' }}>
+            {statusLine}
+            {!blockers.length && adaptationCount > 0 && (
+              <span style={{ color: 'var(--ink-50)' }}> · {adaptationCount} adaptation{adaptationCount === 1 ? '' : 's'}</span>
             )}
           </div>
+        </div>
+        {state === 'publishing' && <Loader size={14} className="mp-spin flex-shrink-0" style={{ color: 'var(--primary)' }} />}
+        <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={pillStyle}>{pill}</span>
+        {batchResult?.state === 'done' && batchResult.url && !batchResult.simulated && (
+          <a href={batchResult.url} target="_blank" rel="noopener noreferrer" className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Open ↗</a>
+        )}
+        {target?.mode === 'missing' && onConnect && (
+          <button onClick={onConnect} className="mp-btn mp-btn-ghost text-xs flex-shrink-0 whitespace-nowrap" style={{ minHeight: 30, padding: '0 10px' }}>
+            {target.accountStatus === 'reconnect' ? `Reconnect ${platform.name}` : `Connect ${platform.name}`}
+          </button>
+        )}
+        {blockers.length > 0 && onFix && (
+          <button onClick={() => onFix(blockers[0])} className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Fix</button>
+        )}
+        <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-60 hover:opacity-100 transition flex-shrink-0" aria-label={expanded ? 'Collapse package' : 'Expand package'} aria-expanded={expanded}>
+          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </button>
+      </div>
+      {(issues.confirmations || []).map((confirmation) => (
+        <label key={confirmation.id} className="flex items-start gap-2 px-3 pb-3 text-xs leading-5 cursor-pointer" style={{ color: 'var(--ink-65)' }}>
+          <input type="checkbox" className="mt-0.5" checked={false} onChange={() => onSatisfyConfirmation?.(confirmation)} />
+          <span>{confirmation.message}</span>
+        </label>
+      ))}
 
-          {/* Cover image(s) */}
-          {cover && (
-            <div>
-              <PackageLabel label={`Cover image${platform.covers.length > 1 ? 's' : ''}`} hint={platform.covers.map(c => `${c.w}×${c.h}`).join(' · ')}>
-                <button onClick={downloadAllCovers} disabled={downloading} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
-                  <Download size={10} /> {platform.covers.length > 1 ? `Both covers` : 'JPG'}
-                </button>
-              </PackageLabel>
-              <div className={`grid gap-3`} style={{ gridTemplateColumns: `repeat(${platform.covers.length}, minmax(0, 1fr))` }}>
-                {platform.covers.map((c) => (
-                  <CoverPreview key={c.id} image={cover} cover={c} onDownload={() => downloadImage(cover, c.w, c.h, c.id)} />
-                ))}
-              </div>
-            </div>
-          )}
+      {/* Always mounted, hidden when collapsed: the batch drives these upload
+          flows through batchRequest, so unmounting them would stop a publish. */}
+      <div className={expanded ? 'p-4 space-y-4' : 'hidden'} aria-hidden={!expanded}>
 
-          {/* Gallery images */}
-          {project.images.length > 1 && (
-            <div>
-              <PackageLabel
-                label="Gallery images"
-                hint={Number.isFinite(platform.maxImages)
-                  ? `${Math.min(project.images.length - 1, galleryCapacity(platform))} of ${project.images.length - 1} additional (cap ${galleryCapacity(platform)})`
-                  : `${project.images.length - 1} additional · no platform limit listed`}
-              >
-                <button onClick={downloadAllGallery} disabled={downloading} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
-                  <Download size={10} /> All gallery
-                </button>
-              </PackageLabel>
-              <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
-                {project.images
-                  .filter(i => i.id !== project.coverImageId)
-                  .slice(0, galleryCapacity(platform))
-                  .map((img, i) => (
-                    <GalleryThumb
-                      key={img.id}
-                      image={img}
-                      mainCover={platform.covers[0]}
-                      onDownload={() => downloadImage(img, platform.covers[0].w, platform.covers[0].h, `gallery${String(i + 2).padStart(2, '0')}`)}
-                    />
-                  ))}
-              </div>
-              {Number.isFinite(platform.maxImages) && project.images.length - 1 > galleryCapacity(platform) && (
-                <div className="mt-2 mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                  {project.images.length - 1 - galleryCapacity(platform)} image{project.images.length - 1 - galleryCapacity(platform) === 1 ? '' : 's'} skipped: {platform.name} allows {galleryCapacity(platform)} gallery images
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Files to upload */}
-          {project.files.length > 0 && (
-            <div>
-              <PackageLabel label="Model files" hint={`${project.files.length} file${project.files.length === 1 ? '' : 's'}, uploaded directly to ${platform.name}`} />
-              <div className="space-y-1.5">
-                {project.files.map(f => {
-                  const ext = fileExt(f.name);
-                  const accepted = platform.formats.includes(ext);
-                  return (
-                    <div key={f.id} className="mp-card p-2 flex items-center gap-2 text-xs" style={{ opacity: accepted ? 1 : 0.55 }}>
-                      <div className="w-6 h-6 flex items-center justify-center flex-shrink-0" style={{ background: f.isProfile ? '#5A7430' : '#262A23', color: '#fff' }}>
-                        {f.isProfile ? <Layers size={11} /> : <FileCheck size={11} />}
-                      </div>
-                      <span className="flex-1 truncate">{f.name}</span>
-                      <span className="mp-mono text-xs uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                        {formatBytes(f.size)}
-                      </span>
-                      {accepted ? (
-                        <span className="mp-pill" style={{ background: 'rgba(79,178,134,0.15)', color: '#3a8d68' }}>accepted</span>
-                      ) : (
-                        <span className="mp-pill" style={{ background: 'rgba(90,116,48,0.15)', color: '#c83f10' }}>not supported</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          </>
-          )}
-
-          {/* Read-only listing preview (collapsed): verify per-platform before publishing. */}
-          {hasRealUpload && <PlatformPreview platform={platform} project={project} cover={cover} setCurrentSection={setCurrentSection} />}
+          <PlatformPreview platform={platform} project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
           {/* Real upload (live). Other API platforms still simulated until their flows land. */}
           {platform.id === 'cults' && <CultsUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
@@ -9390,233 +8990,6 @@ function PlatformPackageCard({
           {platform.id === 'makeroad' && <MakerRoadUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
           {platform.id === 'thangs' && <ThangsUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
           {platform.id === 'thingiverse' && <ThingiverseUploadFlow platform={platform} project={project} batchRequest={batchRequest} onBatchResult={onBatchResult} />}
-          {platform.hasApi && platform.id !== 'cults' && platform.id !== 'makerworld' && platform.id !== 'printables' && platform.id !== 'nexprint' && platform.id !== 'creality' && platform.id !== 'makeronline' && platform.id !== 'mmf' && platform.id !== 'makeroad' && platform.id !== 'thangs' && platform.id !== 'thingiverse' && <MockUploadFlow platform={platform} project={project} startSignal={uploadSignal} />}
-
-          {/* Manual workflow hint: only for platforms without a real upload. */}
-          {!hasRealUpload && (
-            <div className="border-t pt-3 flex items-start gap-2 text-[13px]" style={{ borderColor: 'rgba(38,42,35,0.08)', color: 'rgba(38,42,35,0.66)' }}>
-              <Info size={12} className="flex-shrink-0 mt-0.5" style={{ color: '#5A7430' }} />
-              <div>
-                <strong className="mp-display tracking-wide" style={{ color: '#262A23' }}>{platform.hasApi ? 'MANUAL UPLOAD (WORKS TODAY)' : 'WORKFLOW'}</strong>{' '}
-                <span>1) Click "Open upload page". 2) Drag model files into the form. 3) Copy → paste title and description. 4) Drop the downloaded cover image. 5) Drop gallery images in order. 6) Paste tags. 7) Pick the closest category. Done.</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PackageLabel({ label, hint, children }) {
-  return (
-    <div className="flex items-center justify-between mb-2">
-      <div>
-        <span className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{label}</span>
-        {hint && <span className="mp-mono text-xs uppercase tracking-[0.15em] ml-2" style={{ color: 'rgba(38,42,35,0.6)' }}>· {hint}</span>}
-      </div>
-      <div className="flex items-center gap-3">{children}</div>
-    </div>
-  );
-}
-
-function PackageField({ label, value }) {
-  const [state, setState] = useState(null); // null | 'ok' | 'fail'
-  const copy = async () => {
-    const ok = await copyPlainText(value || '');
-    setState(ok ? 'ok' : 'fail');
-    setTimeout(() => setState(null), 1600);
-  };
-  return (
-    <div className="mp-card p-2.5">
-      <div className="flex items-center justify-between mb-1">
-        <span className="mp-mono text-[11px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{label}</span>
-        <button onClick={copy} className="p-1.5 -m-1 opacity-60 hover:opacity-100 transition" aria-label={`Copy ${label}`} title={state === 'fail' ? 'Copy failed: select manually' : `Copy ${label}`}>
-          {state === 'ok' ? <Check size={13} style={{ color: '#4FB286' }} /> : state === 'fail' ? <X size={13} style={{ color: '#c83f10' }} /> : <Copy size={13} />}
-        </button>
-      </div>
-      <div className="mp-display text-[15px] leading-tight truncate">{value || <span style={{ color: 'rgba(38,42,35,0.66)' }} className="mp-body">—</span>}</div>
-    </div>
-  );
-}
-
-function CopyButton({ text }) {
-  const [state, setState] = useState(null); // null | 'ok' | 'fail'
-  const copy = async () => {
-    const ok = await copyPlainText(text || '');
-    setState(ok ? 'ok' : 'fail');
-    setTimeout(() => setState(null), 1600);
-  };
-  return (
-    <button onClick={copy} disabled={!text} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1 disabled:opacity-30 py-1" aria-label="Copy to clipboard">
-      {state === 'ok' ? <><Check size={13} style={{ color: '#4FB286' }} /> Copied</> : state === 'fail' ? <><X size={13} style={{ color: '#c83f10' }} /> Select &amp; copy</> : <><Copy size={12} /> Copy</>}
-    </button>
-  );
-}
-
-// Copy button for rich-text editors: puts formatted content on the clipboard so
-// pasting into a WYSIWYG box (e.g. MakerWorld) keeps headings/bold/lists.
-function RichCopyButton({ html, plain, label = 'Copy formatted' }) {
-  const [state, setState] = useState(null); // null | 'ok' | 'fail'
-  const copy = async () => {
-    const ok = await copyRichText(html, plain);
-    setState(ok ? 'ok' : 'fail');
-    setTimeout(() => setState(null), 1600);
-  };
-  return (
-    <button onClick={copy} disabled={!plain} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1 disabled:opacity-30 py-1" aria-label={label}>
-      {state === 'ok' ? <><Check size={13} style={{ color: '#4FB286' }} /> Copied</> : state === 'fail' ? <><X size={13} style={{ color: '#c83f10' }} /> Select &amp; copy</> : <><Copy size={12} /> {label}</>}
-    </button>
-  );
-}
-
-// Simulated one-click upload for platforms with a real upload API (Cults3D,
-// MyMiniFactory, Thingiverse). This is a DEMO: no network calls, no real upload.
-// It previews the UX that a backend-backed v0.3 would deliver.
-function MockUploadFlow({ platform, project, startSignal = 0 }) {
-  const [status, setStatus] = useState('idle'); // idle | connecting | connected | uploading | done | scheduled
-  const [stepMsg, setStepMsg] = useState('');
-  const [resultUrl, setResultUrl] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
-  const cancelled = useRef(false);
-  const statusRef = useRef('idle');
-  useEffect(() => { statusRef.current = status; }, [status]);
-  useEffect(() => { cancelled.current = false; return () => { cancelled.current = true; }; }, []);
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
-  const fileCount = project.files.length;
-  const imgCount = project.images.length;
-
-  const connect = async () => {
-    setStatus('connecting');
-    await sleep(1100);
-    if (cancelled.current) return;
-    setStatus('connected');
-  };
-
-  // Triggered by the "One-click upload" button on the collapsed row.
-  useEffect(() => {
-    if (startSignal > 0 && statusRef.current === 'idle') connect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startSignal]);
-
-  const publish = async () => {
-    // If a publish time is set, capture the schedule instead of uploading now.
-    if (scheduledAt) { setStatus('scheduled'); return; }
-    setStatus('uploading');
-    const steps = [
-      `Authenticating with ${platform.name}…`,
-      `Uploading ${fileCount} model file${fileCount === 1 ? '' : 's'}…`,
-      `Uploading ${imgCount} image${imgCount === 1 ? '' : 's'}…`,
-      `Submitting title, description, tags, license…`,
-      platform.id === 'mmf' ? `Queuing for curation (test print)…` : `Publishing…`,
-    ];
-    for (const s of steps) {
-      if (cancelled.current) return;
-      setStepMsg(s);
-      await sleep(850);
-    }
-    if (cancelled.current) return;
-    const slug = (project.title || 'untitled-model').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'model';
-    const urls = {
-      cults: `https://cults3d.com/en/3d-model/${slug}`,
-      mmf: `https://www.myminifactory.com/object/${slug}`,
-      thingiverse: `https://www.thingiverse.com/thing:${slug}`,
-    };
-    setResultUrl(urls[platform.id] || '#');
-    setStatus('done');
-  };
-
-  return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(58,134,255,0.05)', border: '1px solid rgba(58,134,255,0.35)' }}>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>ONE-CLICK UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: '#3A86FF', color: '#fff' }}>Demo</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{platform.name} has an upload API</span>
-        </div>
-
-        {status === 'idle' && (
-          <>
-            <p className="text-[13px] mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.65)' }}>
-              {platform.name} supports publishing via API. Connect your account once, then publish straight from here: no manual upload page.
-            </p>
-            <button onClick={connect} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
-          </>
-        )}
-
-        {status === 'connecting' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
-            <Loader size={14} className="mp-spin" /> Opening {platform.name} authorization…
-          </div>
-        )}
-
-        {status === 'connected' && (
-          <>
-            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
-              <Check size={14} /> Connected as <span className="mp-mono">@your-handle</span> <span style={{ color: 'rgba(38,42,35,0.66)' }}>(demo)</span>
-            </div>
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <label className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                <Clock size={12} /> Schedule
-              </label>
-              <input
-                type="datetime-local"
-                value={scheduledAt}
-                min={nowLocalMin()}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                aria-label={`Schedule publish to ${platform.name}`}
-                className="mp-input-sm"
-              />
-              {scheduledAt && (
-                <button onClick={() => setScheduledAt('')} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#5A7430] transition" aria-label="Clear schedule">clear</button>
-              )}
-            </div>
-            <p className="text-[11px] mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>Preview only: won't actually publish at that time yet (timed publishing runs server-side, coming with the backend).</p>
-            <button onClick={publish} className="mp-btn text-xs py-2 px-3">
-              {scheduledAt ? <><Clock size={13} /> Save schedule for {formatSchedule(scheduledAt)}</> : <><Send size={13} /> Publish to {platform.name}</>}
-            </button>
-          </>
-        )}
-
-        {status === 'uploading' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
-            <Loader size={14} className="mp-spin" /> {stepMsg}
-          </div>
-        )}
-
-        {status === 'scheduled' && (
-          <>
-            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#3a8d68' }}>
-              <Clock size={14} /> Scheduled for {formatSchedule(scheduledAt)}
-            </div>
-            <p className="text-xs mb-2 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              {platform.name} will publish automatically at that time once timed publishing ships (it runs server-side). For now this captures the intent.
-            </p>
-            <button onClick={() => setStatus('connected')} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
-              <ArrowRight size={11} /> Change schedule
-            </button>
-          </>
-        )}
-
-        {status === 'done' && (
-          <>
-            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#262A23' }}>
-              <Check size={14} style={{ color: '#3a8d68' }} /> Demo only: nothing was uploaded
-            </div>
-            <p className="text-xs mb-1.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              This is what one-click {platform.id === 'mmf' ? 'submit (then MyMiniFactory test-prints before going live)' : 'publish'} will look like. Example URL it would produce:
-            </p>
-            <div className="mp-card mp-mono text-[13px] p-2 mb-2 break-all" style={{ background: 'rgba(38,42,35,0.04)', color: 'rgba(38,42,35,0.66)', textDecoration: 'line-through' }}>{resultUrl}</div>
-            <button onClick={() => { setStatus('connected'); setStepMsg(''); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
-              <ArrowRight size={11} /> Run again
-            </button>
-          </>
-        )}
-
-        <p className="text-[11px] mt-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
-          Simulation only: nothing is uploaded. This platform’s live API flow is not connected yet; use the manual package below.
-        </p>
       </div>
     </div>
   );
@@ -9942,10 +9315,10 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
 
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(90,116,48,0.06)', border: '1px solid rgba(90,116,48,0.45)' }}>
+      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(90,116,48,0.06)', border: '1px solid rgba(90,116,48,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>CULTS3D PUBLISH</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
         </div>
 
@@ -10006,7 +9379,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                 </div>
 
                 {listingsError && (
-                  <div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
+                  <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
                     {listingsError}
                   </div>
                 )}
@@ -10027,7 +9400,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                       const isPending = pendingRow.slug === l.slug;
                       const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(38,42,35,0.66)';
                       return (
-                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ background: '#fff', border: '1px solid rgba(38,42,35,0.06)' }}>
+                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ backgroundColor: '#fff', border: '1px solid rgba(38,42,35,0.06)' }}>
                           {l.thumbnailUrl && (
                             <img src={l.thumbnailUrl} alt="" width={32} height={32} loading="lazy" style={{ objectFit: 'cover', flexShrink: 0 }} />
                           )}
@@ -10087,7 +9460,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
             </div>
             {result?.demo && <div className="mp-mono text-[11px] mb-1.5" style={{ color: '#3A86FF' }}>Demo mode: nothing was uploaded. Exit demo and connect a real account to publish for real.</div>}
             {result?.designUrl && (
-              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#5A7430] transition" style={{ background: 'rgba(38,42,35,0.04)', color: 'rgba(38,42,35,0.85)' }}>
+              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#5A7430] transition" style={{ backgroundColor: 'rgba(38,42,35,0.04)', color: 'rgba(38,42,35,0.85)' }}>
                 {result.designUrl}
               </a>
             )}
@@ -10121,7 +9494,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
             <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#c83f10' }}>
               <X size={14} /> Publish failed
             </div>
-            <div className="mp-card text-xs p-2 mb-2 break-all" style={{ background: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
+            <div className="mp-card text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
               {errorMsg || 'Unknown error.'}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -10530,10 +9903,10 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
 
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
+      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">PRINTABLES UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>desktop session</span>
         </div>
         {status === 'idle' && (
@@ -10577,7 +9950,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
                     ? (item.image.filePath.startsWith('http') ? item.image.filePath : `https://media.printables.com/${item.image.filePath.replace(/^\/+/, '')}`)
                     : '';
                   return (
-                    <div key={`${item.state}-${item.id}`} className="flex items-center gap-2 p-1.5 mb-1" style={{ background: '#fff' }}>
+                    <div key={`${item.state}-${item.id}`} className="flex items-center gap-2 p-1.5 mb-1" style={{ backgroundColor: '#fff' }}>
                       {imageSrc && <img src={imageSrc} alt="" width={34} height={34} style={{ objectFit: 'cover' }} />}
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate">{item.name || `Model ${item.id}`}</div>
@@ -10618,7 +9991,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
         )}
         {status === 'error' && (
           <>
-            <div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
+            <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
             <button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button>
           </>
         )}
@@ -10902,10 +10275,10 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(255,182,39,0.08)', border: '1px solid rgba(255,182,39,0.55)' }}>
+      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(255,182,39,0.08)', border: '1px solid rgba(255,182,39,0.55)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">NEXPRINT UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#262A23', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#262A23', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>direct desktop upload</span>
         </div>
 
@@ -10953,7 +10326,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
                     ? `https://www.nexprint.com/en/editUpload/${id}`
                     : `https://www.nexprint.com/en/models/${code}`;
                   return (
-                    <div key={id || code} className="flex items-center gap-2 p-1.5 mb-1" style={{ background: '#fff' }}>
+                    <div key={id || code} className="flex items-center gap-2 p-1.5 mb-1" style={{ backgroundColor: '#fff' }}>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate">{item.modelName || item.name || `Model ${id}`}</div>
                         <div className="mp-mono text-[11px] uppercase" style={{ color: draft ? '#d97706' : '#3a8d68' }}>{draft ? 'draft' : 'published'}</div>
@@ -10992,7 +10365,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
         {status === 'error' && (
           <>
-            <div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
+            <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
             <button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button>
           </>
         )}
@@ -11243,10 +10616,10 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(230,57,70,0.05)', border: '1px solid rgba(230,57,70,0.42)' }}>
+      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(230,57,70,0.05)', border: '1px solid rgba(230,57,70,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">CREALITY CLOUD UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#E63946', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#E63946', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
 
@@ -11261,7 +10634,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
               <button onClick={toggleDrafts} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">{draftsOpen ? 'Hide drafts' : 'My Creality drafts'}</button>
             </div>
             {draftsOpen && (
-              <div className="mt-3 mp-card p-2" style={{ background: 'rgba(38,42,35,0.03)' }}>
+              <div className="mt-3 mp-card p-2" style={{ backgroundColor: 'rgba(38,42,35,0.03)' }}>
                 <div className="flex items-center justify-between mb-2"><span className="mp-mono text-[11px] uppercase tracking-[0.15em]">Recent drafts</span><button onClick={loadDrafts} className="mp-mono text-[11px] uppercase">Refresh</button></div>
                 {draftsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{draftsError}</div>}
                 {drafts && drafts.length === 0 && <div className="text-[11px] opacity-70">No drafts found.</div>}
@@ -11276,7 +10649,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
         )}
         {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} Creality model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
-        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
   );
@@ -11716,10 +11089,10 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
 
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.42)' }}>
+      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">MAKERONLINE UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MakerOnline’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MakerOnline</button></>}
@@ -11736,7 +11109,7 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
         )}
         {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} MakerOnline model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
-        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
   );
@@ -11936,13 +11309,13 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
 
   return (
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ background: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
-        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ background: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
+      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
+        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
         {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : 'Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory’s review flow.'}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
         {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : result?.readOnly ? `Existing ${result.state} MyMiniFactory object ${result.id} re-read and verified.` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{result?.readOnly && result?.detail && <p className="mp-mono text-xs mb-2 break-all opacity-70">{result.detail}</p>}{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : result?.readOnly ? 'Done' : 'Upload another'}</button></>}
-        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ background: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
   );
@@ -11993,7 +11366,7 @@ function isDesktopManagedAccount(platform, secret) {
 }
 function StatusDot({ status }) {
   const s = ACCT_STATUS[status] || ACCT_STATUS.unknown;
-  return <span title={s.label} className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, background: s.dot }} />;
+  return <span title={s.label} className="inline-block rounded-full flex-shrink-0" style={{ width: 8, height: 8, backgroundColor: s.dot }} />;
 }
 
 // The header "Accounts" button: shows how many platforms have an active connection.
@@ -12036,9 +11409,9 @@ function SettingsModal({ open, onClose, tab, setTab }) {
     { id: 'about', label: 'About', icon: Info, badge: null },
   ];
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ background: 'rgba(38,42,35,0.55)' }} onClick={onClose}>
-      <div className="mp-card w-full max-w-2xl my-8" style={{ background: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(38,42,35,0.12)', background: '#FFFFFF' }}>
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 overflow-auto" style={{ backgroundColor: 'rgba(38,42,35,0.55)' }} onClick={onClose}>
+      <div className="mp-card w-full max-w-2xl my-8" style={{ backgroundColor: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 z-10" style={{ borderColor: 'rgba(38,42,35,0.12)', backgroundColor: '#FFFFFF' }}>
           <div className="flex items-center gap-2"><Settings size={16} /><span className="mp-display text-[18px]">Settings</span></div>
           <button onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
@@ -12062,7 +11435,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
             <>
               <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform’s session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
               {!!missingDesktopPlatforms.length && (
-                <div role="alert" className="mp-card p-3 text-xs leading-relaxed" style={{ background: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: '#991b1b' }}>
+                <div role="alert" className="mp-card p-3 text-xs leading-relaxed" style={{ backgroundColor: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: '#991b1b' }}>
                   <strong>Desktop app update required.</strong> This page is newer than the running ModelPrep desktop shell, so {missingDesktopPlatforms.map((id) => meta(id).name).join(', ')} cannot connect. Quit every ModelPrep window and launch the current app build.
                 </div>
               )}
@@ -12070,12 +11443,12 @@ function SettingsModal({ open, onClose, tab, setTab }) {
               {/* Every platform is connectable today, so this renders nothing.
                   Kept for the next platform added ahead of its sign-in bridge. */}
               {PLATFORMS.some((p) => !CONNECTABLE.includes(p.id)) && (
-                <div className="mp-card p-3" style={{ background: 'rgba(38,42,35,0.03)' }}>
+                <div className="mp-card p-3" style={{ backgroundColor: 'rgba(38,42,35,0.03)' }}>
                   <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>Coming soon</div>
                   <div className="flex flex-wrap gap-1.5">
                     {PLATFORMS.filter((p) => !CONNECTABLE.includes(p.id)).map((p) => (
-                      <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ background: 'rgba(38,42,35,0.06)', color: 'rgba(38,42,35,0.66)' }}>
-                        <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: p.dot }} />{p.name}
+                      <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ backgroundColor: 'rgba(38,42,35,0.06)', color: 'rgba(38,42,35,0.66)' }}>
+                        <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: p.dot }} />{p.name}
                       </span>
                     ))}
                   </div>
@@ -12162,9 +11535,9 @@ function SettingsDefaults() {
         {PLATFORMS.map(p => {
           const on = sel.includes(p.id);
           return (
-            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ background: on ? 'rgba(90,116,48,0.06)' : 'rgba(38,42,35,0.02)', borderColor: on ? 'rgba(90,116,48,0.3)' : 'rgba(38,42,35,0.1)' }}>
-              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ background: on ? '#5A7430' : 'transparent', border: `1px solid ${on ? '#5A7430' : 'rgba(38,42,35,0.3)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
-              <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.dot }} />
+            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ backgroundColor: on ? 'rgba(90,116,48,0.06)' : 'rgba(38,42,35,0.02)', borderColor: on ? 'rgba(90,116,48,0.3)' : 'rgba(38,42,35,0.1)' }}>
+              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: on ? '#5A7430' : 'transparent', border: `1px solid ${on ? '#5A7430' : 'rgba(38,42,35,0.3)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
+              <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.dot }} />
               <span className="text-[13px]">{p.name}</span>
             </button>
           );
@@ -12292,7 +11665,7 @@ function DiagnosticsPanel({ desktop }) {
             <ul className="text-[11px] space-y-0.5 mp-mono">
               {keepAliveRows.map((row) => (
                 <li key={row.platform} className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: row.ok ? '#247255' : '#B86B00' }} />
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: row.ok ? '#247255' : '#B86B00' }} />
                   {row.platform} · {row.ok ? 'refreshed' : 'silent refresh failed'} · {agoLabel(row.at)}
                 </li>
               ))}
@@ -12448,19 +11821,19 @@ function PlatformConnections({ platform }) {
   return (
     <section className="mp-card p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 rounded-full flex-shrink-0" style={{ background: platform.dot }} />
+        <span className="inline-block w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: platform.dot }} />
         <span className="mp-display text-[15px]">{platform.name}</span>
         {accounts.length > 0 && <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{accounts.length} account{accounts.length > 1 ? 's' : ''}</span>}
       </div>
       {accounts.map((a) => (
-        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ background: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(38,42,35,0.03)' }}>
+        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ backgroundColor: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(38,42,35,0.03)' }}>
           <StatusDot status={a.status} />
           <span className="flex-1 min-w-[150px] truncate">{a.label}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: (ACCT_STATUS[a.status] || ACCT_STATUS.unknown).dot }}>
             {(ACCT_STATUS[a.status] || ACCT_STATUS.unknown).label}
           </span>
           {a.id === active?.id
-            ? <span className="mp-pill text-[11px]" style={{ background: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
+            ? <span className="mp-pill text-[11px]" style={{ backgroundColor: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
             : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>Use</button>}
           {['reconnect', 'error', 'unknown'].includes(a.status) && (
             <button
@@ -13107,7 +12480,7 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
   return (
     <div className="space-y-1.5">
       {selected ? (
-        <div className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.04)' }}>
+        <div className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
           {selected.cover && <img src={selected.cover} alt="" className="w-7 h-7 object-cover" />}
           <span className="flex-1 truncate">{selected.title} <span className="mp-mono opacity-50">#{selected.id}</span></span>
           <button onClick={() => onSelect(null)} className="mp-mono text-[11px] underline opacity-60">clear</button>
@@ -13142,11 +12515,11 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
 function MwSection({ title, hint, badge, children, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
-        {badge != null && badge !== 0 && <span className="mp-mono text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,105,0,0.15)', color: '#B23A1A' }}>{badge}</span>}
+        {badge != null && badge !== 0 && <span className="mp-mono text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(255,105,0,0.15)', color: '#B23A1A' }}>{badge}</span>}
         {hint && <span className="text-[11px] ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{hint}</span>}
       </button>
       {open && <div className="px-3 pb-3 space-y-2">{children}</div>}
@@ -13170,7 +12543,7 @@ function mwModelStatus(m) {
 // the publish actions.
 function MyListingsDisclosure({ title, count, open, onToggle, children }) {
   return (
-    <div className="mp-card mt-3" style={{ background: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card mt-3" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
       <button onClick={onToggle} aria-expanded={open} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
@@ -13214,7 +12587,7 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
   };
   useEffect(() => { if (open && models === null) load(); }, [open]); // eslint-disable-line
   return (
-    <div className="mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>My MakerWorld {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'}</span>
@@ -13228,7 +12601,7 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
           {models && models.map((m) => {
             const s = mwModelStatus(m);
             return (
-              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.03)' }}>
+              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.03)' }}>
                 {m.coverUrl && <img src={m.coverUrl} alt="" className="w-7 h-7 object-cover flex-shrink-0" />}
                 <span className="flex-1 truncate">{m.title}</span>
                 <span className="flex items-center gap-1 flex-shrink-0"><StatusDot status="connected" /><span style={{ color: s.dot }}>{s.label}</span></span>
@@ -13687,7 +13060,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
   return (
     <div className="space-y-3">
       {!cookie ? (
-        <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(38,42,35,0.04)' }}>
+        <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
           <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}><StatusDot status="unknown" /> {platform.name}: not connected</div>
           <p className="text-[13px]" style={{ color: 'rgba(38,42,35,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Settings → Accounts</strong>.</p>
           <button onClick={() => openConnections('accounts')} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
@@ -13714,7 +13087,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
             </div>
           ) : null}
 
-          <div className="mp-card p-2 text-xs" style={{ background: 'rgba(38,42,35,0.03)', color: 'rgba(38,42,35,0.7)' }}>
+          <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'rgba(38,42,35,0.03)', color: 'rgba(38,42,35,0.7)' }}>
             <div className="flex items-center gap-1.5 flex-wrap">
               <Globe size={13} style={{ color: '#5A7430' }} />
               <span>{isLC ? 'Laser & Cut' : '3D model'} · {isLC ? (modelSource === 'remix' ? 'Remix' : 'Original') : catLabel} · <strong>{visibility}</strong>{bomCount ? ` · BOM ${bomCount}` : ''}{!isLC && modelSource === 'remix' ? ' · Remix' : ''}{!isLC && exclusive ? ' · Exclusive' : ''}{relatedModel ? ' · linked' : ''}{communityPost ? ' · community post' : ''}</span>
@@ -13723,26 +13096,26 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           </div>
 
           {!isLC && has3mf && (
-            <div className="mp-card p-2 text-xs flex items-start gap-2" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.75)' }}>
+            <div className="mp-card p-2 text-xs flex items-start gap-2" style={{ backgroundColor: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.75)' }}>
               <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#5A7430' }} />
               <span>Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'}. Edit in the <strong>Profiles</strong> step.</span>
             </div>
           )}
 
           {visibility === 'public' && (
-            <div className="text-xs p-2 mp-card" style={{ background: 'rgba(90,116,48,0.08)', color: '#B23A1A' }}>
+            <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(90,116,48,0.08)', color: '#B23A1A' }}>
               ⚠️ Publishing <strong>public</strong> submits a real, live listing to MakerWorld (it enters review/"verifying").
             </div>
           )}
 
           {publishIssues.errors.length > 0 && (
-            <div className="mp-card p-2.5 text-xs space-y-1" style={{ background: 'rgba(185,28,28,0.07)', borderColor: 'rgba(185,28,28,0.3)', color: '#B91C1C' }}>
+            <div className="mp-card p-2.5 text-xs space-y-1" style={{ backgroundColor: 'rgba(185,28,28,0.07)', borderColor: 'rgba(185,28,28,0.3)', color: '#B91C1C' }}>
               <strong>Complete these MakerWorld fields before publishing:</strong>
               <ul className="list-disc pl-5">{publishIssues.errors.map((issue) => <li key={issue}>{issue}</li>)}</ul>
             </div>
           )}
           {publishIssues.warnings.length > 0 && (
-            <div className="mp-card p-2.5 text-xs space-y-1" style={{ background: 'rgba(255,182,39,0.09)', color: '#8A4B08' }}>
+            <div className="mp-card p-2.5 text-xs space-y-1" style={{ backgroundColor: 'rgba(255,182,39,0.09)', color: '#8A4B08' }}>
               <ul className="list-disc pl-5">{publishIssues.warnings.map((issue) => <li key={issue}>{issue}</li>)}</ul>
             </div>
           )}
@@ -13759,7 +13132,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           )}
 
           {result && (
-            <div className="mp-card p-3 space-y-2" style={{ background: 'rgba(38,42,35,0.04)' }}>
+            <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
               <div className="text-[13px]" style={{ color: 'rgba(38,42,35,0.85)' }}>
                 <Check size={14} className="inline" /> {result.demo
                   ? (result.draftOnly ? 'Simulated draft save (demo): ' : 'Simulated publish (demo): ')
@@ -13773,7 +13146,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
                   <button onClick={checkLive} disabled={liveCheck?.loading} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{liveCheck?.loading ? 'Checking…' : 'Check if it went live'}</button>
                   {liveCheck && !liveCheck.loading && (
                     liveCheck.failed ? (
-                      <div className="mp-card p-2 text-xs" style={{ background: 'rgba(185,28,28,0.08)', borderColor: 'rgba(185,28,28,0.35)', color: '#B91C1C' }}>
+                      <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'rgba(185,28,28,0.08)', borderColor: 'rgba(185,28,28,0.35)', color: '#B91C1C' }}>
                         <strong>❌ Rejected by MakerWorld:</strong> {liveCheck.reason}
                         {liveCheck.profileTitle ? <span style={{ opacity: 0.8 }}> (print profile “{liveCheck.profileTitle}”)</span> : null}
                         <div className="mt-1" style={{ opacity: 0.85 }}>Fix the issue and re-publish, or <button onClick={del} className="underline" style={{ color: '#B91C1C' }}>delete this draft</button>.{result.kind === 'laser-cut' ? ' Re-save the source in the current Bambu Suite if package metadata was rejected.' : ' The 3mf must be sliced/exported by Bambu Studio.'}</div>
@@ -13795,7 +13168,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           <MwMyModels cookie={cookie} isDemo={simulate} kind={isLC ? 'laser-cut' : '3d'} />
         </>
       )}
-      {errorMsg && <div className="text-xs p-2 mp-card" style={{ background: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}
+      {errorMsg && <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}
     </div>
   );
 }
@@ -13883,10 +13256,10 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
   return (
     <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
       <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>MakerWorld options</div>
-      <div className="flex gap-1 mp-card p-1" style={{ background: 'rgba(38,42,35,0.04)' }}>
+      <div className="flex gap-1 mp-card p-1" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
         {[['3d', '3D Model'], ['laser-cut', 'Laser & Cut']].map(([m, lbl]) => (
           <button key={m} onClick={() => onUpdate({ productMode: m })} className="flex-1 text-xs py-1.5 rounded-sm transition"
-            style={o.productMode === m ? { background: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'rgba(38,42,35,0.66)' }}>{lbl}</button>
+            style={o.productMode === m ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'rgba(38,42,35,0.66)' }}>{lbl}</button>
         ))}
       </div>
       {isLC && (
@@ -13961,7 +13334,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                       className="relative aspect-square overflow-hidden"
                       style={{ outline: selected ? '2px solid #5A7430' : '1px solid rgba(38,42,35,0.15)', outlineOffset: -1 }}>
                       <img src={image.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: selected ? 1 : 0.55 }} />
-                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, background: '#5A7430' }}><Check size={10} color="#fff" /></span>}
+                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, backgroundColor: '#5A7430' }}><Check size={10} color="#fff" /></span>}
                     </button>
                   );
                 })}
@@ -14052,7 +13425,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         <MwRelatedSearch cookie={cookie} type={isLC ? 0 : 1} selected={o.relatedModel} onSelect={(v) => onUpdate('relatedModel', v)} label={isLC ? 'Search your 3D models…' : 'Search your Laser & Cut models…'} />
       </MwSection>
       {cyberBrickPath && uploadCapabilities.data?.rcUpload === false && (
-        <div className="text-[11px] p-2 mp-card" style={{ background: 'rgba(255,182,39,0.10)', color: 'rgba(38,42,35,0.7)' }}>
+        <div className="text-[11px] p-2 mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.10)', color: 'rgba(38,42,35,0.7)' }}>
           CyberBrick upload is not enabled for this MakerWorld account.
         </div>
       )}
@@ -14100,7 +13473,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                   <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{lbl}</div>
                   <MwBomPicker roots={catalog[kind]} onAdd={(item) => addBom(kind, item)} />
                   {boms[kind].map((it, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.04)' }}>
+                    <div key={i} className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
                       {it.image && <img src={it.image} alt="" className="w-6 h-6 object-cover" />}
                       <span className="flex-1 truncate">{it.title} <span className="mp-mono opacity-50">×{it.quantity}</span></span>
                       <button onClick={() => removeBom(kind, i)} className="opacity-50 hover:opacity-100"><X size={13} /></button>
@@ -14111,7 +13484,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               <div className="space-y-1.5">
                 <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Other parts (free text)</div>
                 {otherParts.map((p, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-xs mp-card p-1.5" style={{ background: 'rgba(38,42,35,0.04)' }}>
+                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
                     <input className="mp-input text-[11px]" value={p.name} placeholder="Part name" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, name: e.target.value } : item))} />
                     <input className="mp-input text-[11px]" type="number" min={1} value={p.quantity} onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, quantity: Math.max(1, Number(e.target.value) || 1) } : item))} />
                     <input className="mp-input text-[11px]" value={p.note || ''} placeholder="Note (optional)" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, note: e.target.value } : item))} />
@@ -14145,7 +13518,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             <span>Join the <strong>Exclusive Model Program</strong> for this model.{o.modelSource === 'remix' ? ' Remixes are not eligible.' : ''}</span>
           </label>
           {o.exclusive && (
-            <label className="flex items-start gap-2 text-xs ml-5 mp-card p-2" style={{ background: 'rgba(255,105,0,0.06)' }}>
+            <label className="flex items-start gap-2 text-xs ml-5 mp-card p-2" style={{ backgroundColor: 'rgba(255,105,0,0.06)' }}>
               <input type="checkbox" className="mt-0.5" checked={!!o.exclusiveTermsAccepted} onChange={(e) => onUpdate('exclusiveTermsAccepted', e.target.checked)} />
               <span>I have read and agree to MakerWorld's <a className="underline" href="https://makerworld.com/en/exclusive-model-program" target="_blank" rel="noopener noreferrer">Exclusive Model Program terms</a>, including the exclusivity obligation.</span>
             </label>
@@ -14158,7 +13531,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         </label>
       )}
       {isLC && (
-        <div className="text-xs p-2 mp-card" style={{ background: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.7)' }}>
+        <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.7)' }}>
           Laser &amp; Cut accepts <span className="mp-mono">{MAKERWORLD_LASER_FORMATS.map((format) => `.${format}`).join(' ')}</span>. Bambu Suite .lac mode also creates a Laser &amp; Cut print profile; raw .lac files remain source files.
         </div>
       )}
@@ -14234,21 +13607,19 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
   }, [image, cover, preserveOriginal]);
   return (
     <div className="relative group" role="img" aria-label={preserveOriginal ? `${image?.alt || 'Project image'} kept at original aspect` : `${image?.alt || 'Project image'} cropped for ${cover.label}, ${cover.w} by ${cover.h} pixels`}>
-      <div className="overflow-hidden" style={{ background: '#262A23' }}>
+      <div className="overflow-hidden" style={{ backgroundColor: '#262A23' }}>
         {preserveOriginal
           ? <img src={image.dataUrl} alt="" className="w-full max-h-96 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
       </div>
-      <div className="absolute top-2 left-2 mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,0,0,0.7)', color: '#fff' }}>
+      <div className="absolute top-2 left-2 mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(0,0,0,0.7)', color: '#fff' }}>
         {preserveOriginal ? `${cover.label} · original aspect` : `${cover.label} · ${cover.w}×${cover.h}`}
       </div>
       {!hideDownload && (
         <button
           onClick={onDownload}
-          className="absolute bottom-2 right-2 mp-mono text-xs uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition"
-          style={{ background: '#262A23', color: '#fff' }}
-          onMouseEnter={(e) => e.currentTarget.style.background = '#5A7430'}
-          onMouseLeave={(e) => e.currentTarget.style.background = '#262A23'}
+          className="absolute bottom-2 right-2 mp-mono text-xs uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition hover:bg-[#5A7430]"
+          style={{ backgroundColor: '#262A23', color: '#fff' }}
         >
           <Download size={11} /> JPG
         </button>
@@ -14259,7 +13630,7 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
 
 function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
   return (
-    <div className="relative group aspect-square overflow-hidden" style={{ background: '#262A23' }}>
+    <div className="relative group aspect-square overflow-hidden" style={{ backgroundColor: '#262A23' }}>
       <img
         src={image.dataUrl}
         alt={image.alt || 'Project gallery image'}
@@ -14272,7 +13643,7 @@ function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
           aria-label="Download this image as JPG"
           title="Download JPG"
           className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[#5A7430]"
-          style={{ background: 'rgba(38,42,35,0.85)', color: '#fff' }}
+          style={{ backgroundColor: 'rgba(38,42,35,0.85)', color: '#fff' }}
         >
           <Download size={14} />
         </button>
@@ -14293,7 +13664,7 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
   const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>{label}</button>;
   const lbl = (t) => <span className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{t}</span>;
   return (
-    <div className="mp-card" style={{ background: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>Preview listing</span>
@@ -14319,7 +13690,7 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
             {/* No inner scrollbar: this is the copy that will be published, so it
                 is shown in full rather than asking the user to scroll a box
                 inside an already-scrolling page. */}
-            <div className="mp-prose text-[13px] mp-card p-2.5" style={{ background: '#fff' }} dangerouslySetInnerHTML={{ __html: descHtml || '<span style="opacity:.4">(no description)</span>' }} /></div>
+            <div className="mp-prose text-[13px] mp-card p-2.5" style={{ backgroundColor: '#fff' }} dangerouslySetInnerHTML={{ __html: descHtml || '<span style="opacity:.4">(no description)</span>' }} /></div>
 
           <div><div className="flex items-center justify-between mb-1">{lbl(`Tags · ${project.tags.length}`)}<Edit to="details" /></div><div className="text-xs" style={{ color: 'rgba(38,42,35,0.8)' }}>{project.tags.join(', ') || <span style={{ opacity: 0.4 }}>(none)</span>}</div></div>
 
@@ -14364,7 +13735,7 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
       <div
         data-testid="section-nav"
         className="sticky bottom-0 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 border-t flex items-center justify-between gap-4"
-        style={{ borderColor: 'rgba(38,42,35,0.14)', background: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+        style={{ borderColor: 'rgba(38,42,35,0.14)', backgroundColor: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
       >
         <div>
           {backLabel && (

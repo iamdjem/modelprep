@@ -223,7 +223,9 @@ describe('one-click multi-platform publishing', () => {
     expect(screen.queryByText(/Skipped until its requirements are fixed:/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /expand every platform package/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /project review/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /publishing destinations/i })).toBeInTheDocument();
+    // The destination list is the single status surface; it no longer needs a
+    // heading of its own competing with the step title.
+    expect(screen.getByText(/Each row is that destination's whole status/i)).toBeInTheDocument();
   }, 15000);
 
   it('does not upload on load and skips disconnected destinations without blocking ready ones', async () => {
@@ -238,7 +240,10 @@ describe('one-click multi-platform publishing', () => {
     await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
     expect(await screen.findByRole('button', { name: /upload sample to 1 ready destination/i })).toBeEnabled();
-    expect(screen.getByText(/Skipped until connected:/i)).toHaveTextContent('Printables');
+    // The destination row is the single status surface now: Printables carries
+    // its own "will skip" pill and its own Connect action.
+    expect(screen.getAllByText('Not connected · will skip').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /connect printables/i })).toBeInTheDocument();
     expect(fetch.mock.calls.some(([, init]) => String(init?.method || 'GET').toUpperCase() !== 'GET')).toBe(false);
   });
 
