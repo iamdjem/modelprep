@@ -8,7 +8,7 @@ document covers the `codex/clean-design-system` branch only.
 
 A full redesign of the ModelPrep renderer onto a new design system, with all feature
 work from the package-workspace branch merged in. Base commit `50f017d` (tip of
-`codex/fix-nexprint-key-warning`), 21 commits on top. Everything is committed; the
+`codex/fix-nexprint-key-warning`), 23 commits on top. Everything is committed; the
 working tree is clean.
 
 - **Design system**: Inter only, pure white ground, moss-green primary (#5A7430 family,
@@ -58,7 +58,7 @@ redesign worktree's versions; reconcile deliberately if certification work resum
 
 - Dev server: launch config `prototype` in /Users/alex/modelprep/.claude/launch.json →
   port 5199 (serves the real app at `/` and the old prototype at `/prototype.html`).
-- Tests: `cd deploy && npx vitest run` (513 tests; `settings.test.jsx` "fallback chain"
+- Tests: `cd deploy && npx vitest run` (527 tests; `settings.test.jsx` "fallback chain"
   is timing-sensitive, has a 20s timeout, rare flake), `cd desktop && npm test` (222),
   `cd backend && npm test` (33) + `npm run typecheck`.
 - Package: `cd desktop && CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist` →
@@ -79,9 +79,9 @@ per-destination file-role overrides, fold Templates into duplicating a project, 
 both attestations to publish time, and never auto-enable a destination from a file
 type.
 
-**Next smallest step:** stage 3, the shared fields. Start with the one provenance
-block (Original or Remix plus source URL and what changed) in Details, since it
-pre-answers hard blockers on seven destinations.
+**Next smallest step:** stage 4, the top bar. Fold New, Templates and Try demo into a
+menu on the project name (Templates is dropped, per decision 2), move Import into the
+Files screen, and keep the readiness chip, Settings and the publish CTA.
 
 Implementation order:
 1. DONE. Free cleanups: removed the dead Package/AssetInspector family and its
@@ -102,9 +102,20 @@ Implementation order:
    destination row; every upload path gates on `publishBlockers(report)` so
    nothing uploads unconfirmed. Empty projects show "Add files to get started"
    once instead of 37 alarms.
-3. Shared fields: provenance block, AI disclosure, NSFW, print settings from parsed
-   3MF, Thingiverse summary derivation, category-map data gaps, Thangs primary-part
-   persist, MakerRoad printMethod default.
+3. DONE. Shared fields. Details owns provenance (origin, source URL, what changed),
+   AI disclosure and NSFW; `shared-defaults.js` writes each into every platform's
+   native field and the duplicated panel controls are gone. Print settings come from
+   the sliced 3MF (Thingiverse printSettings, MMF technology and material quantity,
+   Thangs unit). The Thingiverse summary derives from the description through a
+   shared `buildListingSummary`. Thangs stores its primary part. Category maps gained
+   MMF Hobby & DIY and Holiday & Seasonal plus MakerRoad Educational; the rest of the
+   gaps are deliberate and documented in shared-defaults.js.
+
+   Not done in stage 3, and worth doing later: MMF dimensions and print-time range,
+   Cults manufacturing details, MakerOnline print description, MakerWorld BOM and
+   MakerRoad printers/materials seeded from parsed filament. MakerRoad's printMethod
+   already defaults to FDM in `initialProject`, and every slicer ModelPrep detects is
+   an FDM slicer, so there is nothing to derive there.
 4. Top bar: name-menu (New/Templates/demo), Import into Files, keep chip + Settings +
    publish CTA.
 5. Publish consolidation to one destination list.
