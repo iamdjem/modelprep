@@ -236,3 +236,145 @@ describe('matchPrintablesCategory', () => {
     expect(patches.printables).toEqual({ categoryId: '44', categoryAuto: true });
   });
 });
+
+describe('shared disclosures', () => {
+  const platformsWithDisclosures = () => ({
+    makerworld: { aiGenerated: false, nsfw: false, modelSource: 'original', remixUrl: '', remixDescription: '' },
+    printables: { aiGenerated: null, nsfw: false, authorship: 'author', remixDescription: '' },
+    cults: { madeWithAi: false },
+    mmf: { remix: false },
+    thingiverse: { aiGenerated: false, nsfw: false, remix: false },
+    thangs: { aiGenerated: false },
+    nexprint: { aiGenerated: false, nsfw: false, originalityType: 1, sourceUrl: '' },
+    creality: { nsfw: false, modelSource: 1, sourceUrl: '' },
+    makeronline: { aiHelp: false, nsfw: false, source: 1, originalUrl: '' },
+    makeroad: { aiGenerated: false, nsfw: false, uploadType: 1, referUrl: '' },
+  });
+
+  it('answers the AI question for every platform that has one', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '', aiGenerated: true, platforms: platformsWithDisclosures(),
+    });
+    expect(patches.makerworld.aiGenerated).toBe(true);
+    expect(patches.printables.aiGenerated).toBe(true);
+    expect(patches.cults.madeWithAi).toBe(true);
+    expect(patches.thingiverse.aiGenerated).toBe(true);
+    expect(patches.thangs.aiGenerated).toBe(true);
+    expect(patches.nexprint.aiGenerated).toBe(true);
+    expect(patches.makeronline.aiHelp).toBe(true);
+    expect(patches.makeroad.aiGenerated).toBe(true);
+  });
+
+  it('resolves the Printables null that used to block every project', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '', aiGenerated: false, platforms: platformsWithDisclosures(),
+    });
+    expect(patches.printables.aiGenerated).toBe(false);
+  });
+
+  it('sets NSFW only where the platform has the field', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '', nsfw: true, platforms: platformsWithDisclosures(),
+    });
+    expect(patches.makerworld.nsfw).toBe(true);
+    expect(patches.creality.nsfw).toBe(true);
+    expect(patches.cults?.nsfw).toBeUndefined();
+    expect(patches.thangs?.nsfw).toBeUndefined();
+  });
+
+  it('writes one remix answer into every platform-native origin field', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '',
+      license: '',
+      provenance: { origin: 'remix', sourceUrl: 'https://example.com/original', changes: 'Scaled to 120%' },
+      platforms: platformsWithDisclosures(),
+    });
+    expect(patches.makerworld).toMatchObject({ modelSource: 'remix', remixUrl: 'https://example.com/original', remixDescription: 'Scaled to 120%' });
+    expect(patches.printables).toMatchObject({ authorship: 'remix', remixDescription: 'Scaled to 120%' });
+    expect(patches.nexprint).toMatchObject({ originalityType: 2, sourceUrl: 'https://example.com/original' });
+    expect(patches.creality).toMatchObject({ modelSource: 3, sourceUrl: 'https://example.com/original' });
+    expect(patches.makeronline).toMatchObject({ source: 2, originalUrl: 'https://example.com/original' });
+    expect(patches.makeroad).toMatchObject({ uploadType: 2, referUrl: 'https://example.com/original' });
+    expect(patches.thingiverse).toMatchObject({ remix: true });
+    expect(patches.mmf).toMatchObject({ remix: true });
+  });
+
+  it('leaves a Printables reupload alone', () => {
+    const platforms = platformsWithDisclosures();
+    platforms.printables.authorship = 'reupload';
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '', provenance: { origin: 'original' }, platforms,
+    });
+    expect(patches?.printables?.authorship).toBeUndefined();
+  });
+});
+
+describe('package-derived defaults', () => {
+  const sliced = {
+    sliced: true, printer: 'Bambu P1S', material: 'PLA', layerHeight: '0.2mm',
+    infill: '15%', filamentGrams: 42, units: 'inch',
+  };
+
+  it('fills the Thingiverse print settings from the sliced profile', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '',
+      files: [{ id: 'f1', name: 'part.3mf', threemf: sliced }],
+      platforms: { thingiverse: { printSettings: {} } },
+    });
+    expect(patches.thingiverse.printSettings).toEqual({
+      printer: 'Bambu P1S', material: 'PLA', resolution: '0.2mm', infill: '15%',
+    });
+  });
+
+  it('never overwrites a print setting the creator typed', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '',
+      files: [{ id: 'f1', name: 'part.3mf', threemf: sliced }],
+      platforms: { thingiverse: { printSettings: { printer: 'Prusa MK4', material: 'PETG', resolution: '0.15mm', infill: '25%' } } },
+    });
+    expect(patches?.thingiverse).toBeUndefined();
+  });
+
+  it('reads the MyMiniFactory material quantity off the slicer', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '',
+      files: [{ id: 'f1', name: 'part.3mf', threemf: sliced }],
+      platforms: { mmf: { technology: '', materialQuantity: '' } },
+    });
+    expect(patches.mmf).toMatchObject({ technology: 'FDM', materialQuantity: '42 g' });
+  });
+
+  it('takes the Thangs unit from the 3MF model unit', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '',
+      files: [{ id: 'f1', name: 'part.3mf', threemf: sliced }],
+      platforms: { thangs: { units: 'mm' } },
+    });
+    expect(patches.thangs.units).toBe('in');
+  });
+
+  it('ignores an unsliced 3MF', () => {
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '',
+      files: [{ id: 'f1', name: 'part.3mf', threemf: { sliced: false, printer: 'Bambu P1S' } }],
+      platforms: { thingiverse: { printSettings: {} } },
+    });
+    expect(patches).toBeNull();
+  });
+
+  it('stores the primary Thangs part the panel already displayed', () => {
+    const patches = deriveSharedDefaultPatches(
+      { category: '', license: '', platforms: { thangs: { primaryFileId: '' } } },
+      { thangsModelFiles: [{ id: 'f1' }, { id: 'f2' }] },
+    );
+    expect(patches.thangs.primaryFileId).toBe('f1');
+  });
+
+  it('repairs a primary part that points at a removed file', () => {
+    const patches = deriveSharedDefaultPatches(
+      { category: '', license: '', platforms: { thangs: { primaryFileId: 'gone' } } },
+      { thangsModelFiles: [{ id: 'f1' }] },
+    );
+    expect(patches.thangs.primaryFileId).toBe('f1');
+  });
+});

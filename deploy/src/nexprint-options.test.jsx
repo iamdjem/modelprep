@@ -50,15 +50,19 @@ describe('Nexprint-specific upload options', () => {
 
     expect(await screen.findByRole('option', { name: 'Home & Decoration › Storage' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Home & Decoration' })).not.toBeInTheDocument();
-    expect(screen.getByText('Original URL')).toBeInTheDocument();
-    expect(screen.getByText('Nexprint model ID (alternative)')).toBeInTheDocument();
+    // The source URL moved to the shared provenance block in Details; only
+    // the Nexprint-only model ID is still asked for here.
+    expect(screen.queryByText('Original URL')).not.toBeInTheDocument();
+    expect(screen.getByText('Nexprint model ID (instead of the source URL)')).toBeInTheDocument();
     for (const license of [
       'CC BY', 'CC BY-SA', 'CC BY-NC', 'CC BY-NC-SA',
       'CC BY-ND', 'CC BY-NC-ND', 'CC0', 'Standard Digital File License',
     ]) {
       expect(screen.getByRole('option', { name: license })).toBeInTheDocument();
     }
-    expect(screen.getByRole('checkbox', { name: /AI-generated content/i })).toBeChecked();
+    // AI disclosure and NSFW are answered once in Details now.
+    expect(screen.queryByRole('checkbox', { name: /AI-generated content/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /^NSFW$/i })).not.toBeInTheDocument();
     expect(screen.getByDisplayValue('PLA')).toBeInTheDocument();
     expect(screen.getByText(/at least two images, including one real printed photo/i)).toBeInTheDocument();
     expect(consoleError).not.toHaveBeenCalled();

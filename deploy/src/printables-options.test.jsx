@@ -28,7 +28,10 @@ describe('Printables-specific options', () => {
     expect(onUpdate).toHaveBeenCalledWith('summary', expect.any(String));
     expect(screen.getByLabelText(/Unpack into model files/i)).toBeChecked();
     expect(screen.getByLabelText(/Keep ZIP as Other file/i)).not.toBeChecked();
-    expect(screen.getByLabelText('NSFW')).not.toBeChecked();
+    // NSFW and the AI answer are shared fields in Details now; Printables'
+    // political-content flag has no shared equivalent and stays here.
+    expect(screen.queryByLabelText('NSFW')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/AI used/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Political content/i)).not.toBeChecked();
     expect(screen.getByText(/Connect Printables to check account-specific paid and Club eligibility/i)).toBeInTheDocument();
 
@@ -36,8 +39,10 @@ describe('Printables-specific options', () => {
       opts={{ summary: 'Poseable dragon', categoryId: '36', licenseId: '3', authorship: 'remix', remixParents: [], remixDescription: '', aiGenerated: true, zipMode: 'archive' }}
       onUpdate={onUpdate}
     />);
+    // The Printables parent must be a Printables model, so it stays local.
+    // "What did you change" is written once in Details.
     expect(screen.getByText(/Original model URL or Printables ID/i)).toBeInTheDocument();
-    expect(screen.getByText(/What did you change/i)).toBeInTheDocument();
+    expect(screen.queryByText(/What did you change/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Keep ZIP as Other file/i)).toBeChecked();
   });
 

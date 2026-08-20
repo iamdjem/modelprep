@@ -21,7 +21,8 @@ describe('Creality-specific upload options', () => {
     expect(screen.getByLabelText(/license/i)).toHaveValue('CC BY-NC');
     expect(screen.getByText(/Medical & Health Equipment/i)).toBeInTheDocument();
     expect(screen.getByText(/SignForge/i)).toBeInTheDocument();
-    expect(screen.getByRole('checkbox')).not.toBeChecked();
+    // The maturity rating is the shared NSFW toggle in Details now.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.getByText(/up to 9 gallery images/i)).toBeInTheDocument();
   });
 });

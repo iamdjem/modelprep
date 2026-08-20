@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, createContext, useContext, useSyncExternalStore } from 'react';
 import {
+  buildListingSummary,
   mdToHtml, mdToPlain, mdToMakerWorldHtml, formatBytes,
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
 } from './lib/format';
@@ -1019,6 +1020,13 @@ const initialProject = {
   category: '',
   tags: [],
   license: 'ccbync',
+  // Written once in Details, adapted per platform by shared-defaults.js.
+  // Ten platforms ask these three questions in ten shapes; the creator answers
+  // them once. `provenance.changes` is the remix description every remix-aware
+  // platform demands in its own words.
+  provenance: { origin: 'original', sourceUrl: '', changes: '' },
+  aiGenerated: false,
+  nsfw: false,
   profiles: [],
   assetGroups: {},
   assetCollections: [],
@@ -1026,7 +1034,7 @@ const initialProject = {
   watchedFolders: [],
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-    printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
+    printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
     cults: { enabled: true, price: 0, free: true, visibility: 'secret', categoryId: '', licenseType: '', details: '', metaTags: [], madeWithAi: false, showComments: true },
     mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: '', printingTips: '', timeFrom: '', timeTo: '', dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
     thingiverse: { enabled: true, publication: 'draft', summary: '', categoryId: '', license: '', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
@@ -1420,6 +1428,10 @@ function serializeProjectMeta(p) {
   return {
     name: p.name, title: p.title, description: p.description,
     tags: p.tags, category: p.category, license: p.license,
+    provenance: p.provenance || { origin: 'original', sourceUrl: '', changes: '' },
+    aiGenerated: !!p.aiGenerated,
+    nsfw: !!p.nsfw,
+    confirmations: p.confirmations || {},
     profiles: p.profiles,
     platforms: p.platforms,
     assetGroups: p.assetGroups || {},
@@ -1480,6 +1492,11 @@ function autosaveFingerprint(saved) {
     tags: saved.tags || [],
     category: saved.category || '',
     license: saved.license || '',
+    // Normalized the same way serializeProjectMeta writes them, so a snapshot
+    // saved before these fields existed fingerprints identically once restored.
+    provenance: { origin: 'original', sourceUrl: '', changes: '', ...(saved.provenance || {}) },
+    aiGenerated: !!saved.aiGenerated,
+    nsfw: !!saved.nsfw,
     profiles: saved.profiles || [],
     assetGroups: saved.assetGroups || {},
     assetCollections: saved.assetCollections || [],
@@ -1917,7 +1934,19 @@ export default function App() {
     return () => { alive = false; };
   }, [project.category, project.platforms?.printables, printablesLiveCategories]);
   useEffect(() => {
-    const patches = deriveSharedDefaultPatches(project, { printablesCategories: printablesLiveCategories });
+    const thangsPlatform = PLATFORMS.find((platform) => platform.id === 'thangs');
+    const patches = deriveSharedDefaultPatches(project, {
+      printablesCategories: printablesLiveCategories,
+      // The same eligible list the Thangs uploader builds, so the stored
+      // primary part is the one that will actually be sent.
+      thangsModelFiles: selectThangsSourceFiles(
+        withoutExcluded(
+          project.files.filter((file) => file.blob && thangsPlatform?.formats.includes(fileExt(file.name))),
+          project.platforms?.thangs,
+        ),
+        project.platforms?.thangs || {},
+      ).models,
+    });
     if (!patches) return;
     updateProject((current) => {
       const platforms = { ...current.platforms };
@@ -2132,6 +2161,10 @@ export default function App() {
       tags: saved.tags || [],
       category: saved.category || '',
       license: saved.license || 'ccbync',
+      provenance: { origin: 'original', sourceUrl: '', changes: '', ...(saved.provenance || {}) },
+      aiGenerated: !!saved.aiGenerated,
+      nsfw: !!saved.nsfw,
+      confirmations: saved.confirmations || {},
       profiles: Array.isArray(saved.profiles) ? saved.profiles : [],
       platforms: mergePlatformDefaults(saved.platforms),
     };
@@ -3072,12 +3105,15 @@ export function platformPreflight(platform, project) {
       adaptations.push(`Printables has no print-profile section: a .3mf uploads as an ordinary model file. ${skippedProfiles.length === 1 ? 'This profile is' : `These ${skippedProfiles.length} profiles are`} not ticked for Printables and will not upload: ${skippedProfiles.join(', ')}. Tick ${skippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${skippedProfiles.length === 1 ? 'it' : 'them'}.`);
     }
     if (!printables.categoryId) errors.push('Choose a Printables category in Platforms.');
-    if (printables.aiGenerated == null) errors.push('Answer whether AI was used in Platforms.');
+    // The shared AI disclosure in Details always writes a yes or no here, so
+    // the null that used to be a permanent blocker is only reachable from a
+    // project saved before that field existed.
+    if (printables.aiGenerated == null) errors.push('Answer whether AI was used in Details.');
     if ((printables.authorship === 'remix' || printables.authorship === 'reupload') && !printables.remixParents?.[0]) {
-      errors.push('Add the original model/source for this remix or reupload.');
+      errors.push('Add the original Printables model for this remix or reupload in Platforms.');
     }
     if (printables.authorship === 'remix' && !printables.remixDescription?.trim()) {
-      errors.push('Describe what changed in the remix.');
+      errors.push('Describe what changed in the remix, in Details.');
     }
     const normalizedTags = normalizePrintablesTags(project.tags);
     if (normalizedTags.length !== project.tags.length || normalizedTags.some((tag, index) => tag !== project.tags[index])) {
@@ -3101,7 +3137,7 @@ export function platformPreflight(platform, project) {
     if (Number(nexprint.originalityType || 1) !== 1
       && !String(nexprint.sourceUrl || '').trim()
       && !String(nexprint.sourceModelId || '').trim()) {
-      errors.push('Adapted and reprinted Nexprint models require the original URL or Nexprint model ID.');
+      errors.push('Adapted and reprinted Nexprint models need the original URL (Details) or a Nexprint model ID (Platforms).');
     }
     const bom = nexprint.hasBom ? (nexprint.bom || []) : [];
     if (bom.length > 100) errors.push('Nexprint accepts at most 100 BOM rows.');
@@ -3268,7 +3304,7 @@ export function platformPreflight(platform, project) {
     const docs = project.files.filter((file) => MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(file.name)));
     if (docs.length > 5) errors.push('MakerRoad accepts at most 5 instruction documents.');
     if (!(makeroad.printMethods || []).length) errors.push('Choose at least one MakerRoad print method.');
-    if (Number(makeroad.uploadType || 1) === 2 && !String(makeroad.referUrl || '').trim()) errors.push('MakerRoad remixes require the original model URL.');
+    if (Number(makeroad.uploadType || 1) === 2 && !String(makeroad.referUrl || '').trim()) errors.push('MakerRoad remixes require the original model URL; add it in Details.');
     if (makeroad.scheduled && !makeroad.planTime) errors.push('Choose a MakerRoad scheduled publication time.');
     if (makeroad.payType !== 'free' && !(Number(makeroad.payValue) > 0)) errors.push('MakerRoad paid downloads require a positive value.');
     if (makeroad.publication === 'publish' && !makeroad.termsAccepted) errors.push('Accept MakerRoad’s current terms before public submission.');
@@ -3285,7 +3321,12 @@ export function platformPreflight(platform, project) {
   }
   const thingiverse = project.platforms?.thingiverse;
   if (platform.id === 'thingiverse' && thingiverse) {
-    if (!thingiverse.summary?.trim()) errors.push('Add the required Thingiverse summary.');
+    // Thingiverse's summary is required, but it is a one-line description and
+    // the project already has one. Derived like the Printables summary; only
+    // an empty description can still block.
+    if (!buildListingSummary(thingiverse.summary, mdToPlain(project.description))) {
+      errors.push('Add a description in Details, or a Thingiverse summary in Platforms.');
+    }
     if (!thingiverse.categoryId) errors.push('Choose a Thingiverse category ID.');
     if (!THINGIVERSE_LICENSES.includes(thingiverse.license)) errors.push('Choose a Thingiverse license.');
     if (thingiverse.remix && !String(thingiverse.sourceThingId || '').trim()) errors.push('Thingiverse remixes require a source Thing ID.');
@@ -5677,6 +5718,8 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               )}
             </div>
           </div>
+
+          <SharedDisclosures project={project} updateProject={updateProject} />
       </div>
 
       <SectionNav
@@ -5687,6 +5730,74 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         onBack={() => setCurrentSection('files')}
         onNext={() => setCurrentSection('images')}
       />
+    </div>
+  );
+}
+
+// Three questions ten platforms ask in ten shapes. Answering them here fills
+// every native field: MakerWorld modelSource/remixUrl, Printables authorship,
+// Nexprint originality, Creality modelSource, MakerOnline source, MakerRoad
+// uploadType, the Thingiverse and MyMiniFactory remix flags, and every
+// aiGenerated/madeWithAi/aiHelp and nsfw field there is. See
+// lib/shared-defaults.js for the mapping.
+export function SharedDisclosures({ project, updateProject }) {
+  const provenance = project.provenance || { origin: 'original', sourceUrl: '', changes: '' };
+  const remix = provenance.origin === 'remix';
+  const patch = (next) => updateProject({ provenance: { ...provenance, ...next } });
+  return (
+    <div className="sm:col-span-2">
+      <Label>Origin and disclosures</Label>
+      <div className="mp-card p-3 space-y-3">
+        <div className="flex flex-wrap gap-4 text-sm">
+          <label className="flex items-center gap-2">
+            <input type="radio" name="provenance-origin" checked={!remix} onChange={() => patch({ origin: 'original' })} />
+            My own original model
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="provenance-origin" checked={remix} onChange={() => patch({ origin: 'remix' })} />
+            A remix of someone else's model
+          </label>
+        </div>
+        {remix && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label>Original model URL</Label>
+              <input
+                className="mp-input"
+                aria-label="Original model URL"
+                value={provenance.sourceUrl || ''}
+                onChange={(event) => patch({ sourceUrl: event.target.value })}
+                placeholder="https://…"
+              />
+            </div>
+            <div>
+              <Label>What did you change?</Label>
+              <textarea
+                className="mp-input"
+                aria-label="What did you change"
+                rows={2}
+                value={provenance.changes || ''}
+                onChange={(event) => patch({ changes: event.target.value })}
+              />
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm pt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+          <label className="flex items-center gap-2 pt-2">
+            <input type="checkbox" checked={!!project.aiGenerated} onChange={(event) => updateProject({ aiGenerated: event.target.checked })} />
+            Made with generative AI
+          </label>
+          <label className="flex items-center gap-2 pt-2">
+            <input type="checkbox" checked={!!project.nsfw} onChange={(event) => updateProject({ nsfw: event.target.checked })} />
+            Mature content (NSFW)
+          </label>
+        </div>
+        <p className="text-xs" style={{ color: 'var(--ink-65)' }}>
+          Written once here and sent in each platform's own shape. Platform-only
+          extras, a Thingiverse Thing ID or a Printables parent model, stay in
+          that platform's panel.
+        </p>
+      </div>
     </div>
   );
 }
@@ -7276,7 +7387,6 @@ export function CultsOptions({ opts, onUpdate }) {
         </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.madeWithAi} onChange={(event) => onUpdate('madeWithAi', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Made with AI</label>
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={opts.showComments !== false} onChange={(event) => onUpdate('showComments', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Allow comments</label>
       </div>
       <p className="text-[11px] opacity-60">3D printing usage is selected automatically. Current Cults terms still require a separate review before public or paid publishing.</p>
@@ -7525,24 +7635,22 @@ export function NexprintOptions({ opts, project, onUpdate }) {
         </div>
         <div>
           <Label>Originality</Label>
+          {/* Original vs Adapted comes from the shared provenance block in
+              Details. Nexprint's third state, Reprint, has no shared
+              equivalent, so it stays here as the only manual choice. */}
           <select className="mp-input" value={Number(opts.originalityType || 1)} onChange={(event) => onUpdate('originalityType', Number(event.target.value))}>
-            <option value={1}>Original</option>
-            <option value={2}>Adapted</option>
+            <option value={1}>Original (from Details)</option>
+            <option value={2}>Adapted (from Details)</option>
             <option value={3}>Reprint</option>
           </select>
         </div>
       </div>
 
       {Number(opts.originalityType || 1) !== 1 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <Label>Original URL</Label>
-            <input className="mp-input" value={opts.sourceUrl || ''} onChange={(event) => onUpdate('sourceUrl', event.target.value)} placeholder="https://…" />
-          </div>
-          <div>
-            <Label>Nexprint model ID (alternative)</Label>
-            <input className="mp-input" value={opts.sourceModelId || ''} onChange={(event) => onUpdate('sourceModelId', event.target.value)} placeholder="G…" />
-          </div>
+        <div>
+          <Label>Nexprint model ID (instead of the source URL)</Label>
+          <input className="mp-input" value={opts.sourceModelId || ''} onChange={(event) => onUpdate('sourceModelId', event.target.value)} placeholder="G…" />
+          <p className="text-[11px] mt-1" style={{ color: 'var(--ink-50)' }}>Source URL: {opts.sourceUrl || 'set it in Details'}</p>
         </div>
       )}
 
@@ -7570,8 +7678,6 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       </div>
 
       <div className="flex flex-wrap gap-4 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#5A7430' }} /> NSFW</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.aiGenerated} onChange={(event) => onUpdate('aiGenerated', event.target.checked)} style={{ accentColor: '#5A7430' }} /> AI-generated content</label>
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.hasBom} onChange={(event) => onUpdate('hasBom', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Include bill of materials</label>
       </div>
       {opts.aiGenerated && (
@@ -7662,9 +7768,11 @@ export function CrealityOptions({ opts, project, onUpdate }) {
         </div>
         <div>
           <Label>Model source</Label>
+          {/* Follows the shared provenance block; Creality's third state,
+              Non-original, has no shared equivalent. */}
           <select aria-label="Creality model source" className="mp-input" value={Number(opts.modelSource || 1)} onChange={(event) => onUpdate('modelSource', Number(event.target.value))}>
-            <option value={1}>Original</option>
-            <option value={3}>Remix Models</option>
+            <option value={1}>Original (from Details)</option>
+            <option value={3}>Remix Models (from Details)</option>
             <option value={2}>Non-original</option>
           </select>
           {Number(opts.modelSource || 1) !== 1 && (
@@ -7695,11 +7803,6 @@ export function CrealityOptions({ opts, project, onUpdate }) {
           <AutoMatchNote active={!opts.license} kind="license" />
         </div>
       </div>
-
-      <label className="flex items-start gap-2 text-xs">
-        <input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} style={{ accentColor: '#5A7430' }} />
-        <span>Contains nudity, violence, blasphemy, or other potentially disturbing content (Creality maturity rating).</span>
-      </label>
 
       <div className="p-2.5 text-[11px] leading-relaxed" style={{ background: 'rgba(230,57,70,0.06)', border: '1px solid rgba(230,57,70,0.32)' }}>
         ModelPrep sends the web and app cover crops, up to 9 gallery images, every compatible model file, compatible instruction files, tags, rich description, category, license, source type, maturity rating, and draft/private/public state. Creality’s optional paid-model controls are account-gated and are not exposed to this new account.
@@ -7804,7 +7907,7 @@ export function MakerRoadOptions({ opts, onUpdate }) {
         <div><Label>Materials (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('materialIds', e.target.value); e.target.value = ''; }}><option value="">Add material…</option>{meta.materials.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.materialIds || []).length} selected</p></div>
         <div><Label>Colors (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('colorIds', e.target.value); e.target.value = ''; }}><option value="">Add color…</option>{meta.colors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.colorIds || []).length} selected</p></div>
       </div>
-      <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
+
       <div className="grid md:grid-cols-2 gap-3"><div><Label>Download price</Label><select className="mp-input" value={opts.payType || 'free'} onChange={(e) => onUpdate('payType', e.target.value)}><option value="free">Free</option><option value="points">Points</option><option value="cash">Cash</option></select></div>{opts.payType !== 'free' && <div><Label>Value</Label><input className="mp-input" type="number" min="0" value={opts.payValue || 0} onChange={(e) => onUpdate('payValue', Number(e.target.value))} /></div>}</div>
       <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.scheduled} onChange={(e) => onUpdate('scheduled', e.target.checked)} /> Schedule public availability</label>
       {opts.scheduled && <input aria-label="MakerRoad schedule" className="mp-input" type="datetime-local" value={opts.planTime || ''} onChange={(e) => onUpdate('planTime', e.target.value)} />}
@@ -7843,7 +7946,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Access type ID (optional)</Label><input className="mp-input" value={opts.accessTypeId || ''} onChange={(e) => onUpdate('accessTypeId', e.target.value)} /></div><div><Label>Plan IDs (comma-separated)</Label><input className="mp-input" value={(opts.planIds || []).join(', ')} onChange={(e) => onUpdate('planIds', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div></div>
     <div><Label>Dependency model IDs (comma-separated)</Label><input className="mp-input" value={(opts.dependencies || []).join(', ')} onChange={(e) => onUpdate('dependencies', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div>
     <div><Label>Version notes</Label><textarea className="mp-input" value={opts.versionNotes || ''} onChange={(e) => onUpdate('versionNotes', e.target.value)} /></div>
-    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={opts.allowRemix !== false} onChange={(e) => onUpdate('allowRemix', e.target.checked)} /> Allow remix</label><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={opts.feedbackEnabled !== false} onChange={(e) => onUpdate('feedbackEnabled', e.target.checked)} /> Enable feedback</label></div>
+    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={opts.allowRemix !== false} onChange={(e) => onUpdate('allowRemix', e.target.checked)} /> Allow remix</label><label><input type="checkbox" checked={opts.feedbackEnabled !== false} onChange={(e) => onUpdate('feedbackEnabled', e.target.checked)} /> Enable feedback</label></div>
     <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.marketplace} onChange={(e) => onUpdate('marketplace', e.target.checked)} /> Paid marketplace listing (account eligibility required)</label>{opts.marketplace && <input aria-label="Thangs price" className="mp-input" type="number" min="0" value={opts.price || 0} onChange={(e) => onUpdate('price', Number(e.target.value))} />}
     <div><Label>License</Label><input className="mp-input" value={opts.license || ''} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })} /><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div>
     <p className="text-[11px] opacity-60">Model files over 250 MB must be reference files. ModelPrep verifies details, attachments, and license after creation. Plans and paid access remain account-gated.</p>
@@ -7855,9 +7958,9 @@ export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) 
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     <div className="p-2.5 text-[11px]" style={{ background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div></div>
-    <div><Label>Summary (required)</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /></div>
+    <div><Label>Summary</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /><p className="text-[11px] mt-1" style={{ color: 'var(--ink-50)' }}>Leave blank to derive it from the description, the way Printables does.</p></div>
     <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate({ categoryId: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
-    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
+    <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label></div>
     {!hasScad && <p className="text-[11px] opacity-60">Thingiverse enables Customizer only when the upload includes a .SCAD model file.</p>}
     <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
     {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /> Accept Thingiverse’s current publishing terms at action time</label>}
@@ -7996,11 +8099,6 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
             <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 2} onChange={() => onUpdate('printMethod', 2)} style={{ accentColor: '#5A7430' }} /> Resin</label>
           </div>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.aiHelp} onChange={(event) => onUpdate('aiHelp', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Created with AI assistance</span></label>
-        <label className="flex items-start gap-2"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate({ nsfw: event.target.checked, ...(event.target.checked ? { syncChina: false } : {}) })} style={{ accentColor: '#5A7430' }} /><span>NSFW: nudity, violence, profanity, or disturbing themes</span></label>
       </div>
 
       {printMethod !== 2 && (
@@ -8151,21 +8249,17 @@ export function PrintablesOptions({ opts, onUpdate }) {
           Live Printables options could not load: {metaState.error}. Deploy/start the Worker before publishing.
         </p>
       )}
+      {/* Original vs remix and the "what did you change" text come from the
+          shared provenance block in Details. Reupload is Printables-only, and
+          the parent must be a Printables model, which a generic source URL is
+          not, so both stay here. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <Label>Authorship</Label>
           <select className="mp-input" value={opts.authorship || 'author'} onChange={(event) => onUpdate('authorship', event.target.value)}>
-            <option value="author">I am the original author</option>
-            <option value="remix">This is a remix</option>
+            <option value="author">I am the original author (from Details)</option>
+            <option value="remix">This is a remix (from Details)</option>
             <option value="reupload">This is a reupload</option>
-          </select>
-        </div>
-        <div>
-          <Label>AI used? (required)</Label>
-          <select className="mp-input" value={opts.aiGenerated == null ? '' : String(opts.aiGenerated)} onChange={(event) => onUpdate('aiGenerated', event.target.value === '' ? null : event.target.value === 'true')}>
-            <option value="">Choose yes or no…</option>
-            <option value="false">No</option>
-            <option value="true">Yes</option>
           </select>
         </div>
       </div>
@@ -8180,12 +8274,6 @@ export function PrintablesOptions({ opts, onUpdate }) {
               placeholder="https://www.printables.com/model/…"
             />
           </div>
-          {opts.authorship === 'remix' && (
-            <div>
-              <Label>What did you change?</Label>
-              <textarea className="mp-input" rows={3} value={opts.remixDescription || ''} onChange={(event) => onUpdate('remixDescription', event.target.value)} />
-            </div>
-          )}
         </div>
       )}
       <div className="p-2.5 space-y-2" style={{ background: 'rgba(250,104,49,0.05)', border: '1px solid rgba(250,104,49,0.24)' }}>
@@ -8232,7 +8320,6 @@ export function PrintablesOptions({ opts, onUpdate }) {
         </div>
       </div>
       <div className="flex flex-wrap gap-3 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.nsfw} onChange={(event) => onUpdate('nsfw', event.target.checked)} /> NSFW</label>
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.politicalContent} onChange={(event) => onUpdate('politicalContent', event.target.checked)} /> Political content</label>
       </div>
     </div>
@@ -11246,7 +11333,7 @@ function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult 
       const pending = []; const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage), project.platforms?.thingiverse);
       for (let i = 0; i < modelFiles.length; i += 1) { setProgress(`Uploading Thingiverse file ${i + 1} of ${modelFiles.length}…`); const source = modelFiles[i]; const file = source.blob instanceof File ? source.blob : new File([source.blob], source.name, { type: source.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'model', file })); }
       const images = orderedPlatformImages(platform, project); for (let i = 0; i < images.length; i += 1) { setProgress(`Uploading Thingiverse image ${i + 1} of ${images.length}…`); const blob = await fetch(images[i].dataUrl).then((response) => response.blob()); const file = new File([blob], `${String(i + 1).padStart(2, '0')}-${slugify(images[i].alt || 'image')}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'image', file })); }
-      setProgress(publish ? 'Publishing Thingiverse Thing…' : 'Saving Thingiverse draft…'); const saved = await request('submit', { name: project.title, summary: options.summary, description: project.description, categoryId: options.categoryId, license: options.license, tags: project.tags, files: pending, publish, termsAccepted: !!options.termsAccepted, aiGenerated: !!options.aiGenerated, wip: !!options.wip, customizable: !!options.customizable, remix: !!options.remix, sourceThingId: options.sourceThingId, nsfw: !!options.nsfw, printSettings: options.printSettings || {}, sections: options.sections || [], education: options.education || null });
+      setProgress(publish ? 'Publishing Thingiverse Thing…' : 'Saving Thingiverse draft…'); const saved = await request('submit', { name: project.title, summary: buildListingSummary(options.summary, mdToPlain(project.description)), description: project.description, categoryId: options.categoryId, license: options.license, tags: project.tags, files: pending, publish, termsAccepted: !!options.termsAccepted, aiGenerated: !!options.aiGenerated, wip: !!options.wip, customizable: !!options.customizable, remix: !!options.remix, sourceThingId: options.sourceThingId, nsfw: !!options.nsfw, printSettings: options.printSettings || {}, sections: options.sections || [], education: options.education || null });
       setProgress('Reading completed Thingiverse data back…'); const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null); if (!readback.thing) throw new Error('Thingiverse complete read-back was empty.'); setResult({ ...saved, verified: true }); setStatus('done'); report(runId, 'success', `${publish ? 'Published' : 'Draft'} Thingiverse Thing saved and read back`, { publicationState: publish ? 'public' : 'draft', url: saved.url });
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
   };
@@ -13940,11 +14027,6 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             <option value="private">Private</option><option value="public">Public</option>
           </select>
         </label>
-      </div>
-
-      <div className="flex flex-wrap gap-4 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!o.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated content</label>
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!o.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> Mature content (NSFW)</label>
       </div>
 
       {!isLC && profileFiles.length > 0 && (

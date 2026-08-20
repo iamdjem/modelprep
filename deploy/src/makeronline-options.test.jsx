@@ -37,7 +37,8 @@ describe('MakerOnline-specific upload options', () => {
     expect(screen.getByLabelText(/license/i)).toHaveValue('4');
     expect(screen.getByLabelText(/print profile title/i)).toHaveValue('A1 profile');
     expect(screen.getByLabelText(/print profile description/i)).toHaveValue('0.2 mm PLA');
-    expect(screen.getByText(/Created with AI assistance/i).closest('label').querySelector('input')).toBeChecked();
+    // AI assistance and NSFW are answered once in Details now.
+    expect(screen.queryByText(/Created with AI assistance/i)).not.toBeInTheDocument();
     expect(screen.getByText(/This model uses MakerOnline Creative Kits/i)).toBeInTheDocument();
     expect(screen.getByText(/Sync to MakerOnline China/i)).toBeInTheDocument();
     expect(screen.getByText(/Exclusive model/i)).toBeInTheDocument();

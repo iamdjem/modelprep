@@ -166,3 +166,38 @@ describe('empty projects', () => {
     expect(screen.queryByText(/Destination readiness/i)).toBeNull();
   });
 });
+
+describe('shared listing summary', () => {
+  it('derives the Thingiverse summary from the description, like Printables', () => {
+    const project = {
+      files: [{ id: 'f1', name: 'part.stl', size: 1, isModel: true }], media: [],
+      images: [{ id: 'cover' }], coverImageId: 'cover',
+      title: 'Calibration puck',
+      description: '# Calibration puck\n\nA support-free puck for testing upload mappings.',
+      category: 'tools', tags: ['puck'], profiles: [],
+      platforms: { thingiverse: { enabled: true, summary: '', categoryId: '71', license: 'cc', termsAccepted: true } },
+    };
+    const thingiverse = { id: 'thingiverse', name: 'Thingiverse', formats: ['stl'], limits: {} };
+    expect(platformPreflight(thingiverse, project).errors.join(' ')).not.toMatch(/summary/i);
+
+    const empty = { ...project, description: '' };
+    expect(platformPreflight(thingiverse, empty).errors.join(' ')).toMatch(/Add a description in Details/i);
+  });
+});
+
+describe('shared disclosures in Details', () => {
+  it('asks the origin, AI and NSFW questions once', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 2: details/i }));
+
+    expect(screen.getByRole('radio', { name: /my own original model/i })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /made with generative ai/i })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /mature content/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('radio', { name: /a remix of someone else/i }));
+    expect(screen.getByLabelText(/original model url/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/what did you change/i)).toBeInTheDocument();
+  });
+});

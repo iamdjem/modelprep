@@ -27,6 +27,11 @@
 // Shared category label -> platform-native category value + display label.
 // A missing platform entry means "no close match": the field stays empty and
 // the existing preflight blocker keeps asking for a manual choice.
+//
+// MyMiniFactory is the sparse one on purpose. Its taxonomy is five trees
+// (Tabletop, PDF Only, Toys, Home & Decor, RC Cars), with nothing for fashion,
+// electronics, education, cosplay, or a generic Other, so those five shared
+// categories stay unmapped rather than land a listing somewhere wrong.
 export const SHARED_CATEGORY_DEFAULTS = {
   'Home & Living': {
     makerworld: { field: 'categoryId', value: 406, label: 'Household › Other House Models' },
@@ -69,6 +74,7 @@ export const SHARED_CATEGORY_DEFAULTS = {
     cults: { field: 'categoryId', value: '29', label: 'Hobby & DIY' },
     thingiverse: { field: 'categoryId', value: '66', label: 'Hobby' },
     thangs: { field: 'category', value: 'Hobby & DIY', label: 'Hobby & DIY' },
+    mmf: { field: 'categoryIds', value: [57, 252], label: 'Home & Decor › Workshop & Tools' },
     creality: { field: 'categoryId', value: '1519', label: 'Hobbies & DIY' },
     nexprint: { field: 'categoryId', value: '1422473859014660', label: 'Electronics & Digital › Others' },
     makeronline: { field: 'categoryId', value: '54', label: 'Hobby&DIY › Other Hobby&DIY' },
@@ -129,6 +135,7 @@ export const SHARED_CATEGORY_DEFAULTS = {
     creality: { field: 'categoryId', value: '1501', label: 'Education' },
     nexprint: { field: 'categoryId', value: '1422473859014665', label: 'Home & Decoration › Education & Stationery' },
     makeronline: { field: 'categoryId', value: '83', label: 'Education › Other Education' },
+    makeroad: { field: 'categoryPaths', value: ['Tools › Stationery & Aids'], label: 'Tools › Stationery & Aids' },
     printables: ['Learning > Other 3D Objects for Learning'],
   },
   'Miniatures & Tabletop': {
@@ -159,12 +166,16 @@ export const SHARED_CATEGORY_DEFAULTS = {
     cults: { field: 'categoryId', value: '30', label: 'Home & living' },
     thingiverse: { field: 'categoryId', value: '97', label: 'Household › Decor' },
     thangs: { field: 'category', value: 'Seasonal', label: 'Seasonal' },
+    mmf: { field: 'categoryIds', value: [57, 335, 372], label: 'Home & Decor › Home Decor › Ornaments' },
     creality: { field: 'categoryId', value: '1150', label: 'Household › Home Decorations & Ornaments' },
     nexprint: { field: 'categoryId', value: '1422473859014662', label: 'Home & Decoration › Ornamentation' },
     makeronline: { field: 'categoryId', value: '42', label: 'Household › Festivities' },
     makeroad: { field: 'categoryPaths', value: ['Home & Living › Decor'], label: 'Home & Living › Decor' },
     printables: ['Seasonal designs > '],
   },
+  // "Other" means "none of the above", which no platform's taxonomy can
+  // represent honestly. Only Thingiverse has a real Other leaf. Everywhere
+  // else the field stays empty and the platform's own blocker asks.
   'Other': {
     thingiverse: { field: 'categoryId', value: '0', label: 'Other' },
   },
@@ -251,6 +262,113 @@ export function matchPrintablesCategory(categories, sharedCategory) {
 // every platform. Returns { [platformId]: patch } or null when nothing needs
 // to change. Never overwrites a non-empty value unless this module set it
 // (categoryAuto/licenseAuto true) and the shared source changed.
+// Shared AI disclosure -> the field each platform actually sends. Nine panels
+// asked this question; the creator answers it once in Details.
+const AI_TARGETS = {
+  makerworld: 'aiGenerated',
+  printables: 'aiGenerated',
+  cults: 'madeWithAi',
+  thingiverse: 'aiGenerated',
+  thangs: 'aiGenerated',
+  nexprint: 'aiGenerated',
+  makeronline: 'aiHelp',
+  makeroad: 'aiGenerated',
+};
+
+// Shared NSFW toggle -> the same. Platforms without an NSFW field are absent;
+// Thingiverse sends it as a tag, which its adapter already handles.
+const NSFW_TARGETS = {
+  makerworld: 'nsfw',
+  printables: 'nsfw',
+  thingiverse: 'nsfw',
+  nexprint: 'nsfw',
+  creality: 'nsfw',
+  makeronline: 'nsfw',
+  makeroad: 'nsfw',
+};
+
+// Shared provenance -> each platform's origin enum, source-URL field, and
+// "what did you change" field. Platform-only identifiers a URL cannot express
+// (a Thingiverse Thing ID, MyMiniFactory parent object ids) stay in their own
+// panels and are asked for only when the shared origin is Remix.
+export function provenancePatch(platformId, provenance = {}) {
+  const remix = provenance.origin === 'remix';
+  const url = String(provenance.sourceUrl || '').trim();
+  const changes = String(provenance.changes || '').trim();
+  switch (platformId) {
+    case 'makerworld':
+      return { modelSource: remix ? 'remix' : 'original', remixUrl: remix ? url : '', remixDescription: remix ? changes : '' };
+    case 'printables':
+      // 'reupload' is a third Printables-only state; never overwrite it.
+      return { authorship: remix ? 'remix' : 'author', remixDescription: remix ? changes : '' };
+    case 'nexprint':
+      // 1 original, 2 adapted, 3 reprint. A remix is an adaptation.
+      return { originalityType: remix ? 2 : 1, sourceUrl: remix ? url : '' };
+    case 'creality':
+      // 1 original, 2 non-original, 3 remix.
+      return { modelSource: remix ? 3 : 1, sourceUrl: remix ? url : '' };
+    case 'makeronline':
+      return { source: remix ? 2 : 1, originalUrl: remix ? url : '' };
+    case 'makeroad':
+      // 1 original, 2 remix.
+      return { uploadType: remix ? 2 : 1, referUrl: remix ? url : '' };
+    case 'thingiverse':
+      return { remix };
+    case 'mmf':
+      return { remix };
+    default:
+      return null;
+  }
+}
+
+// The sliced 3MF already knows the printer, material, layer height, infill,
+// print time and filament weight. Four platforms ask the creator to type them
+// again. This reads the first sliced profile in the package and fills the
+// native fields that are still empty, never overwriting a typed value.
+// 3MF spec unit names -> the codes Thangs accepts. Micron and foot have no
+// Thangs equivalent, so they are absent and the default stays.
+const THREEMF_UNITS = { millimeter: 'mm', centimeter: 'cm', meter: 'm', inch: 'in' };
+
+export function packageDerivedPatch(platformId, opts = {}, threemf = null) {
+  if (!threemf || !threemf.sliced) return null;
+  const printer = String(threemf.printer || '').trim();
+  const material = String(threemf.material || '').trim();
+  const layerHeight = String(threemf.layerHeight || '').trim();
+  const infill = String(threemf.infill || '').trim();
+  const grams = Number(threemf.filamentGrams) || 0;
+  const patch = {};
+  if (platformId === 'thingiverse') {
+    const settings = opts.printSettings || {};
+    const next = { ...settings };
+    if (!String(settings.printer || '').trim() && printer) next.printer = printer;
+    if (!String(settings.material || '').trim() && material) next.material = material;
+    if (!String(settings.resolution || '').trim() && layerHeight) next.resolution = layerHeight;
+    if (!String(settings.infill || '').trim() && infill) next.infill = infill;
+    if (Object.keys(next).length !== Object.keys(settings).length) patch.printSettings = next;
+  }
+  if (platformId === 'mmf') {
+    if (isEmptyValue(opts.technology) && printer) patch.technology = 'FDM';
+    if (isEmptyValue(opts.materialQuantity) && grams > 0) patch.materialQuantity = `${Math.round(grams)} g`;
+  }
+  if (platformId === 'thangs' && threemf.units) {
+    // Thangs asks for the unit the mesh is authored in; the 3MF <model unit="…">
+    // attribute already says. Only a non-default unit is worth writing.
+    const unit = THREEMF_UNITS[String(threemf.units).toLowerCase()];
+    if (unit && unit !== 'mm' && (opts.units || 'mm') === 'mm') patch.units = unit;
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
+// Thangs needs one part flagged primary. Its panel displayed the first model
+// file as the choice but never stored it, so preflight kept asking for a pick
+// the creator could see already made.
+export function thangsPrimaryFilePatch(opts = {}, modelFiles = []) {
+  if (!modelFiles.length) return null;
+  const current = String(opts.primaryFileId || '');
+  if (current && modelFiles.some((file) => String(file.id) === current)) return null;
+  return { primaryFileId: String(modelFiles[0].id) };
+}
+
 export function deriveSharedDefaultPatches(project, extras = {}) {
   const platforms = project?.platforms;
   if (!platforms) return null;
@@ -308,6 +426,46 @@ export function deriveSharedDefaultPatches(project, extras = {}) {
       }
       // Cults has no legacy fallback: the explicit-choice blocker stays.
     }
+  }
+
+  // The three shared answers. These are not "defaults" with a manual twin:
+  // the per-platform controls are gone, so the shared value is simply written
+  // through every time it changes.
+  const provenance = project.provenance || {};
+  const aiGenerated = !!project.aiGenerated;
+  const nsfw = !!project.nsfw;
+  // A field the platform's options object does not declare is a field that
+  // platform does not have. Writing one would invent a field for an adapter
+  // that never reads it.
+  const declares = (opts, key) => Object.prototype.hasOwnProperty.call(opts, key);
+  for (const [platformId, opts] of Object.entries(platforms)) {
+    if (!opts) continue;
+    const aiField = AI_TARGETS[platformId];
+    if (aiField && declares(opts, aiField) && opts[aiField] !== aiGenerated) queue(platformId, { [aiField]: aiGenerated });
+    const nsfwField = NSFW_TARGETS[platformId];
+    if (nsfwField && declares(opts, nsfwField) && opts[nsfwField] !== nsfw) queue(platformId, { [nsfwField]: nsfw });
+    const originPatch = provenancePatch(platformId, provenance);
+    if (originPatch) {
+      const changed = Object.entries(originPatch)
+        .filter(([key]) => declares(opts, key))
+        .filter(([key]) => !(key === 'authorship' && opts.authorship === 'reupload'))
+        .filter(([key, value]) => !sameValue(opts[key] ?? '', value));
+      if (changed.length) queue(platformId, Object.fromEntries(changed));
+    }
+  }
+
+  // Values the package already carries. `extras.thangsModelFiles` is the same
+  // eligible list the Thangs uploader builds, passed in so this module does not
+  // need the platform format tables.
+  const slicedProfile = (project.files || []).find((file) => file?.threemf?.sliced)?.threemf || null;
+  for (const [platformId, opts] of Object.entries(platforms)) {
+    if (!opts) continue;
+    const derived = packageDerivedPatch(platformId, opts, slicedProfile);
+    if (derived) queue(platformId, derived);
+  }
+  if (platforms.thangs) {
+    const primary = thangsPrimaryFilePatch(platforms.thangs, extras.thangsModelFiles || []);
+    if (primary) queue('thangs', primary);
   }
 
   return Object.keys(patches).length ? patches : null;

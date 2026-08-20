@@ -140,6 +140,21 @@ export function isImageFile(name) {
   return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'heif'].includes(fileExt(name));
 }
 
+// A platform's required one-line summary, derived from the project description
+// when the creator has not typed a platform-specific one. A typed summary ships
+// verbatim; only the derived fallback needs Markdown stripped out of it.
+// Printables and Thingiverse both require one and both take this.
+export function buildListingSummary(explicitSummary, description, maxChars = 120) {
+  const typed = String(explicitSummary || '').replace(/\s+/g, ' ').trim();
+  if (typed) return typed.slice(0, maxChars);
+  const derived = String(description || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[#_*`~>[\]()!-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return derived.slice(0, maxChars);
+}
+
 export function slugify(s) {
   return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
 }

@@ -1,3 +1,5 @@
+import { buildListingSummary } from './format.js';
+
 const PRINTABLES_MODEL_URL = /^https:\/\/(?:www\.)?printables\.com\/(?:model|education)\/(\d+)(?:[/?#-]|$)/i;
 const EXTERNAL_URL = /^https?:\/\/\S+$/i;
 export const PRINTABLES_FILE_NOTE_MAX = 95;
@@ -20,19 +22,11 @@ export function normalizePrintablesTags(tags = []) {
     .filter(Boolean))];
 }
 
+// Printables' summary is plain text with no documented restrictions: a
+// hand-typed summary must ship verbatim ("Print-in-place" was reaching
+// Printables as "Print in place"). The shared helper does exactly that.
 export function buildPrintablesSummary(explicitSummary, description) {
-  // The summary is plain text with no documented restrictions: a hand-typed
-  // summary must ship verbatim ("Print-in-place" was reaching Printables as
-  // "Print in place"). Only the description-derived fallback needs Markdown
-  // stripped out of it.
-  const typed = String(explicitSummary || '').replace(/\s+/g, ' ').trim();
-  if (typed) return typed.slice(0, 120);
-  const source = String(description || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/[#_*`~>[\]()!-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return source.slice(0, 120);
+  return buildListingSummary(explicitSummary, description, 120);
 }
 
 export function parsePrintablesRemixSource(value) {
