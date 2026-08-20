@@ -173,7 +173,10 @@ describe('shared section navigation layout', () => {
 
     expect(sidebar).toHaveClass('lg:w-64');
     await user.click(screen.getByRole('button', { name: /collapse project steps/i }));
-    expect(sidebar).toHaveClass('lg:w-20');
+    // 88px collapsed, matching the icon-only rail width MakerStats uses.
+    expect(sidebar).toHaveClass('lg:w-[88px]');
+    // The brand rail over the sidebar collapses with it, so the two stay one column.
+    expect(screen.getByTestId('top-header-rail')).toHaveClass('lg:w-[88px]');
     expect(screen.getByRole('button', { name: /expand project steps/i })).toBeInTheDocument();
     expect(localStorage.getItem('modelprep.sidebarCollapsed')).toBe('true');
 

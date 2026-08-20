@@ -2294,6 +2294,8 @@ export default function App() {
       <TopHeader
         project={project}
         updateProject={updateProject}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={setSidebarCollapsed}
         menuOpen={showProjectMenu}
         setMenuOpen={setShowProjectMenu}
         onNewProject={newProject}
@@ -2663,10 +2665,10 @@ function GlobalStyles() {
         .mp-btn, .mp-input, .mp-input-sm, .mp-btn-ghost { transition-duration: 0.01ms; }
       }
 
-      /* Sidebar fills the viewport below the 53px top bar so its status
+      /* Sidebar fills the viewport below the 57px top bar so its status
          footer pins to the bottom edge. */
       @media (min-width: 1024px) {
-        [data-testid="project-sidebar"] { height: calc(100vh - 53px); }
+        [data-testid="project-sidebar"] { height: calc(100vh - 57px); }
       }
 
       /* The 3D viewport is keyboard-focusable; give it the system ring instead
@@ -2689,7 +2691,7 @@ function GlobalStyles() {
 // New, Templates and Try demo are all "which project am I working on", so they
 // belong to the project name, not to the action row: seven controls become
 // four (name menu, readiness chip, Settings, Review and publish).
-function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject, demoActive, demoLoading, onToggleDemo, onOpenConnections, completion, onGoPublish }) {
+function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject, demoActive, demoLoading, onToggleDemo, onOpenConnections, completion, onGoPublish, sidebarCollapsed, onToggleSidebar }) {
   const [editingName, setEditingName] = useState(false);
   const menuRef = useRef(null);
 
@@ -2709,8 +2711,36 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
 
   return (
     <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
-      <div data-testid="top-header-layout" className="px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-[52px]">
-        <div data-testid="top-header-brand" className="flex items-center gap-2 min-w-0">
+      <div data-testid="top-header-layout" className="pr-4 sm:pr-6 py-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-[56px]">
+        {/* The brand sits over the sidebar column and is the same width as it,
+            so the two read as one rail rather than a logo floating in a nav.
+            The collapse control lives here too, at the seam it actually moves. */}
+        <div
+          data-testid="top-header-rail"
+          className={`hidden lg:flex items-center gap-3 flex-shrink-0 self-stretch pl-5 pr-3 border-r ${sidebarCollapsed ? 'lg:w-[88px] justify-center pl-0 pr-0' : 'lg:w-64'}`}
+          style={{ borderColor: 'var(--border)' }}
+        >
+          {!sidebarCollapsed && (
+            <>
+              <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-8 h-8 flex-shrink-0" />
+              <span className="flex items-baseline gap-1.5 min-w-0 flex-1">
+                <span className="text-[17px] font-semibold truncate" style={{ color: 'var(--ink)' }}>ModelPrep</span>
+                <span className="text-[11px] whitespace-nowrap" style={{ color: 'var(--ink-50)' }}>v0.3</span>
+              </span>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => onToggleSidebar(!sidebarCollapsed)}
+            className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)' }}
+            aria-label={sidebarCollapsed ? 'Expand project steps' : 'Collapse project steps'}
+            title={sidebarCollapsed ? 'Expand project steps' : 'Collapse project steps'}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
+          </button>
+        </div>
+        <div data-testid="top-header-brand" className="flex items-center gap-2 min-w-0 flex-1 lg:pl-0 pl-4">
           {editingName ? (
             <input
               autoFocus
@@ -2724,15 +2754,20 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
             />
           ) : (
             <div className="relative min-w-0" ref={menuRef}>
+              {/* A bordered control, not a bare title with a small chevron: it
+                  was not obvious the name was a menu at all. Wide enough that
+                  "Untitled Project" fits instead of cropping to "Untitled
+                  Pro...", and the tooltip names what is inside. */}
               <button
                 onClick={() => setMenuOpen((open) => !open)}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 aria-label="Project menu"
-                className="flex items-center gap-1.5 group min-w-0 max-w-full rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-[var(--surface-hover)]"
+                title="Rename, start a new project, or load the demo"
+                className="mp-btn mp-btn-ghost flex items-center gap-2 min-w-0 max-w-[38ch] text-[15px] font-semibold py-1.5 px-3"
               >
-                <span className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{project.name}</span>
-                <ChevronDown size={13} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
+                <span className="truncate" style={{ color: 'var(--ink)' }}>{project.name}</span>
+                <ChevronDown size={14} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
               </button>
               {menuOpen && (
                 <div role="menu" className="absolute left-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] mp-card z-30 py-1" style={{ boxShadow: 'var(--shadow-2)' }}>
@@ -2806,19 +2841,12 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
   return (
     <aside
       data-testid="project-sidebar"
-      className={`w-full ${collapsed ? 'lg:w-20' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r flex flex-col lg:sticky lg:top-[53px] lg:self-start lg:overflow-y-auto`}
+      className={`w-full ${collapsed ? 'lg:w-[88px]' : 'lg:w-64'} flex-shrink-0 border-b lg:border-b-0 lg:border-r flex flex-col lg:sticky lg:top-[57px] lg:self-start lg:overflow-y-auto`}
       style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-sunken)' }}
     >
-      <div className={`hidden lg:flex items-center gap-2.5 pt-4 pb-1 ${collapsed ? 'justify-center px-2' : 'px-5'}`}>
-        <img data-testid="modelprep-logo" src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-7 h-7 flex-shrink-0" />
-        {!collapsed && (
-          <span className="flex items-baseline gap-1.5 min-w-0">
-            <span className="text-[15px] font-semibold" style={{ color: 'var(--ink)' }}>ModelPrep</span>
-            <span className="mp-mono text-[11px] whitespace-nowrap" style={{ color: 'var(--ink-50)' }}>v0.3</span>
-          </span>
-        )}
-      </div>
-      <nav aria-label="Project steps" className={`py-3 px-3 lg:py-3 ${collapsed ? 'lg:px-2' : 'lg:px-3'} flex-1`}>
+      {/* The brand and the collapse control moved into the top bar, over this
+          column. The steps start at the top of the rail now. */}
+      <nav aria-label="Project steps" className={`py-3 px-3 lg:pt-4 lg:pb-3 ${collapsed ? 'lg:px-2' : 'lg:px-3'} flex-1`}>
         <div className="lg:hidden flex items-center gap-3">
           <details className="min-w-0 flex-1 relative">
             <span className="text-xs block mb-1" style={{ color: 'var(--ink-65)' }}>
@@ -2855,19 +2883,7 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
             {completion[currentSection] ? 'Complete' : 'In progress'}
           </div>
         </div>
-        <div className={`hidden lg:flex mb-1 items-center ${collapsed ? 'justify-center' : 'justify-end px-1'}`}>
-          <button
-            type="button"
-            onClick={() => setCollapsed(!collapsed)}
-            className="w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-md transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5A7430]"
-            style={{ color: 'var(--ink-65)' }}
-            aria-label={collapsed ? 'Expand project steps' : 'Collapse project steps'}
-            title={collapsed ? 'Expand project steps' : 'Collapse project steps'}
-          >
-            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
-        </div>
-        <div className="hidden lg:grid gap-0.5">
+        <div className="hidden lg:grid gap-1">
         {SECTIONS.map((s, i) => {
           const Icon = s.icon;
           const done = completion[s.id];
@@ -2884,14 +2900,14 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
               // element.style.background expands the shorthand into every
               // background longhand, and the serialization it leaves behind is
               // one jsdom cannot re-parse, which crashes any later DOM query.
-              className={`w-full text-left rounded-md flex items-center transition-colors group ${collapsed ? 'justify-center px-0 py-2.5' : 'gap-2.5 px-2.5 py-2'} ${active ? '' : 'hover:bg-[var(--surface-hover)]'}`}
+              className={`w-full text-left rounded-lg flex items-center transition-colors group ${collapsed ? 'justify-center px-0 py-3' : 'gap-3 px-3 py-2.5'} ${active ? '' : 'hover:bg-[var(--surface-hover)]'}`}
               style={{
                 backgroundColor: active ? 'var(--primary-tint)' : 'transparent',
                 color: active ? 'var(--primary-ink)' : 'var(--ink-65)',
               }}
             >
-              <Icon size={16} strokeWidth={2.1} className="flex-shrink-0" style={{ color: active ? 'var(--primary)' : 'var(--ink-50)' }} />
-              <span className={collapsed ? 'hidden' : 'flex-1 min-w-0 truncate text-sm'} style={{ fontWeight: active ? 600 : 500 }}>
+              <Icon size={collapsed ? 22 : 20} strokeWidth={2} className="flex-shrink-0" style={{ color: active ? 'var(--primary)' : 'var(--ink-50)' }} />
+              <span className={collapsed ? 'hidden' : 'flex-1 min-w-0 truncate text-[15px]'} style={{ fontWeight: active ? 600 : 500 }}>
                 {s.label}
               </span>
               {!collapsed && meta && <span className="text-xs t-num flex-shrink-0" style={{ color: active ? 'var(--primary-ink)' : 'var(--ink-50)' }}>{meta}</span>}

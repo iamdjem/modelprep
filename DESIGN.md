@@ -40,7 +40,14 @@ The wizard sidebar ("phase 01 of 04") becomes a plain project sidebar:
   the right edge (file count, checkmark, 6/10, "1 blocked") instead of step numbers, so it
   reads as a checklist you can enter in any order, not a locked wizard.
 - Workspace group: Library, Connections, Settings. Connections stops being a modal.
-- Top bar: breadcrumb, overall readiness, and one persistent "Review and publish" action.
+- Top bar: the brand sits over the sidebar column, the same width as it and divided by
+  the same border, so the two read as one rail rather than a logo floating inside a nav.
+  The collapse control lives at the bottom of that block, at the seam it actually moves,
+  as a 32px circle. Then the project name as a real button (bordered, chevron, wide
+  enough not to crop), overall readiness, and one persistent "Review and publish".
+- Sidebar rows are click targets first: 20px icon, 15px label, 12px of padding, 8px
+  radius, 4px apart, 256px expanded and 88px collapsed. Sized to match the MakerStats
+  desktop rail, which is the same shape of navigation.
 - The old bottom status bar is gone; its content lives in the nav statuses and top bar.
 
 ## Screen layout: when two columns are allowed

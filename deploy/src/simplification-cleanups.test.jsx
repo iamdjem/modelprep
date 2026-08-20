@@ -344,3 +344,27 @@ describe('connecting one platform', () => {
     expect(screen.getByRole('button', { name: 'Defaults' })).toBeInTheDocument();
   });
 });
+
+describe('header and rail', () => {
+  it('puts the brand over the sidebar column and the project in a real menu control', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    // Brand and the collapse control share the sidebar's width, so the two
+    // read as one rail. The logo used to sit inside the sidebar, below the bar.
+    const rail = screen.getByTestId('top-header-rail');
+    expect(rail).toHaveClass('lg:w-64', 'border-r');
+    expect(rail).toContainElement(screen.getByTestId('modelprep-logo'));
+    expect(rail).toContainElement(screen.getByRole('button', { name: /collapse project steps/i }));
+
+    // The project name is a control, not a title with a small chevron, and it
+    // is wide enough that "Untitled Project" is not cropped to "Untitled Pro".
+    const projectMenu = screen.getByRole('button', { name: /project menu/i });
+    expect(projectMenu).toHaveClass('mp-btn', 'mp-btn-ghost', 'max-w-[38ch]');
+    expect(projectMenu).toHaveTextContent('Untitled Project');
+    expect(projectMenu).toHaveAttribute('title', expect.stringMatching(/rename/i));
+
+    await user.click(projectMenu);
+    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
+  });
+});
