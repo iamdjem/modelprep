@@ -89,11 +89,15 @@ describe('serialising binaries', () => {
   const project = {
     files: [
       { id: 'a', name: 'a.stl', size: 10, blob: blob(10), isModel: true },
-      { id: 'b', name: 'b.3mf', size: 20, blob: blob(20), isProfile: true, threemf: { slicer: 'bambu' } },
+      {
+        id: 'b', name: 'b.3mf', size: 20, blob: blob(20), isProfile: true,
+        threemf: { slicer: 'bambu' }, roleOverride: 'profile',
+        sourcePath: 'profiles/b.3mf', packagePath: 'profiles',
+      },
       { id: 'c', name: 'c.stl', size: 5 },                       // no blob: nothing to store
     ],
     images: [
-      { id: 'i1', blob: blob(7), alt: 'one', focal: { x: 0.2, y: 0.3 } },
+      { id: 'i1', name: 'one.jpg', blob: blob(7), alt: 'one', sourceFileId: 'photo-1', focal: { x: 0.2, y: 0.3 } },
       { id: 'i2', dataUrl: 'data:image/png;base64,AAAAAAAA' },
     ],
   };
@@ -106,12 +110,20 @@ describe('serialising binaries', () => {
 
   it('preserves the metadata the app needs to rebuild a file', () => {
     const { files } = serializeProjectBinaries(project);
-    expect(files[1]).toMatchObject({ name: 'b.3mf', isProfile: true, threemf: { slicer: 'bambu' } });
+    expect(files[1]).toMatchObject({
+      name: 'b.3mf', isProfile: true, threemf: { slicer: 'bambu' },
+      roleOverride: 'profile', sourcePath: 'profiles/b.3mf', packagePath: 'profiles',
+    });
   });
 
   it('sizes a data-URL image so it counts against quota', () => {
     const { images } = serializeProjectBinaries(project);
     expect(images[1].size).toBeGreaterThan(0);
+  });
+
+  it('preserves the Package source link needed to avoid duplicate restored media', () => {
+    const { images } = serializeProjectBinaries(project);
+    expect(images[0]).toMatchObject({ name: 'one.jpg', alt: 'one', sourceFileId: 'photo-1' });
   });
 
   it('handles an empty project without throwing', () => {
@@ -122,7 +134,10 @@ describe('serialising binaries', () => {
 
 describe('rehydrating', () => {
   const stored = {
-    files: [{ id: 'a', name: 'a.stl', size: 10, blob: blob(10) }],
+    files: [{
+      id: 'a', name: 'a.stl', size: 10, blob: blob(10), roleOverride: 'model',
+      sourcePath: 'parts/a.stl', packagePath: 'parts',
+    }],
     images: [{ id: 'i1', blob: blob(7), focal: { x: 0.5, y: 0.5 } }],
   };
 
@@ -130,6 +145,21 @@ describe('rehydrating', () => {
     const out = rehydrateProject({ files: [], images: [], profiles: [] }, stored);
     expect(out.files).toHaveLength(1);
     expect(out.images).toHaveLength(1);
+    expect(out.files[0]).toMatchObject({
+      roleOverride: 'model', sourcePath: 'parts/a.stl', packagePath: 'parts',
+    });
+  });
+
+  it('gives legacy binary records safe Package metadata defaults', () => {
+    const out = rehydrateProject({ profiles: [] }, {
+      files: [{ id: 'legacy', name: 'legacy.stl', size: 4, blob: blob(4) }],
+      images: [],
+    });
+
+    expect(out.files[0]).toMatchObject({
+      roleOverride: null, sourcePath: 'legacy.stl', packagePath: '',
+    });
+    expect(out).not.toHaveProperty('platforms');
   });
 
   // A profile pointing at a file that is no longer stored would pass pre-flight
@@ -150,6 +180,25 @@ describe('rehydrating', () => {
   it('keeps a cover that is still there', () => {
     const out = rehydrateProject({ coverImageId: 'i1', profiles: [] }, stored);
     expect(out.coverImageId).toBe('i1');
+  });
+
+  it('prunes platform role and exclusion references to files that did not survive', () => {
+    const printables = { enabled: true, fileRoles: { a: 'model' }, excludedFileIds: [] };
+    const out = rehydrateProject({
+      profiles: [],
+      platforms: {
+        makerworld: {
+          enabled: true,
+          fileRoles: { a: 'model', gone: 'not-sent' },
+          excludedFileIds: ['gone', 'a'],
+        },
+        printables,
+      },
+    }, stored);
+
+    expect(out.platforms.makerworld.fileRoles).toEqual({ a: 'model' });
+    expect(out.platforms.makerworld.excludedFileIds).toEqual(['a']);
+    expect(out.platforms.printables).toBe(printables);
   });
 
   it('returns the project untouched when there is nothing stored', () => {

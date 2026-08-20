@@ -470,7 +470,7 @@ read independently from the authenticated Printables GraphQL endpoint.
 | Latest packaged safe-core receipt | `1797292` | Unpublished draft created and read back during the ten-platform packaged batch documented in the current handoff |
 | 2026-08-02 editor evidence | `1796986` | Existing draft editor inspected read-only for complete live controls, ten ordered images, three file buckets, category and license choices; no state was saved |
 | 2026-08-02 specialist draft | `1797772` | Exact packaged app created an unpublished draft; readback passed for eleven ordered images including converted HEIC, G-code, SLA/SL1, retained ZIP, title, summary, description, tags, category and license |
-| 2026-08-02 public lifecycle | `1797774` | Exact packaged app created and verified a draft, published it, then read back live state; it remains public pending explicit permanent-delete confirmation |
+| 2026-08-02 public lifecycle | `1797774` | Exact packaged app created and verified a draft, published it, then read back live state; the 2026-08-07 authenticated audit found it gone (404), so it is historical evidence rather than a retained deletion target |
 
 The first enhanced attempt also provided a useful negative contract test:
 Printables' current file input objects reject an `order` field. ModelPrep now
@@ -479,9 +479,9 @@ fields. A first publication attempt confirmed that new models must be saved as
 drafts before publishing; the flow was corrected to the branch documented
 above.
 
-The corrected direct-public branch is now live-certified. Permanent deletion is
-not: public model `1797774` remains live and must not be deleted without exact
-action-time confirmation. Drafts `1793728`, `1793734`, `1796986`, `1797292`,
+The corrected direct-public branch is historical live evidence. Public model
+`1797774` no longer exists as of the 2026-08-07 authenticated audit; do not
+describe it as retained or await a deletion confirmation for it. Drafts `1793728`, `1793734`, `1796986`, `1797292`,
 specialist draft `1797772`, and diagnostic drafts `1797764` and `1797758` are
 retained and must not be deleted without explicit confirmation.
 
@@ -504,15 +504,243 @@ lowercase/alphanumeric/25-character normalization to each resulting token.
 
 1. Run Worker adapter tests, TypeScript checks, desktop bridge tests, frontend
    tests, a production build, and exact packaged-app QA after contract changes.
-2. Delete public model `1797774` only after the user confirms that exact
-   irreversible action, then verify absence from status/list readback.
-3. Exercise unpacked ZIP, remix/reupload and an authenticated rich-description
+2. Exercise unpacked ZIP, remix/reupload and an authenticated rich-description
    image round trip as separate draft-safe branches if product scope requires them.
-4. Audit an eligible creator account before implementing Store/Club, price,
+3. Audit an eligible creator account before implementing Store/Club, price,
    fee, tier, or commercial-use controls.
-5. With explicit confirmation, permanently delete only the exact disposable
+4. With explicit confirmation, permanently delete only the exact disposable
    drafts/models selected by the user.
-6. Re-audit the live form when `Graphql-Client-Version` changes.
+5. Re-audit the live form when `Graphql-Client-Version` changes.
+
+## 2026-08-08 signed-in upload-flow re-audit
+
+This pass inspected the signed-in blank create form, its live category and
+license pickers, all three authorship branches, and retained specialist draft
+`1797772` in Chrome. It changed only temporary unsaved form state and opened the
+retained draft editor; it did not select or upload a file, save, publish, or
+delete anything.
+
+### Confirmed parity
+
+- The create form still exposes Draft/Published, required name and 120-character
+  summary, live main category, tags, Original/Remix/Reupload, required AI yes/no,
+  NSFW, political content, rich description, and required license. ModelPrep
+  exposes and serializes each safe-core field.
+- The live accepted-extension list exactly matches `PRINTABLES_FORMATS` in
+  `deploy/src/App.jsx`. Categories and licenses remain server-driven; no stale
+  hardcoded selection was found in ModelPrep.
+- Remix adds an original-model/source search plus a required rich-text
+  differences field. Reupload adds its source search and no differences field.
+  ModelPrep validates/resolves the source and requires remix differences.
+- The retained editor confirms ordered photos, three file buckets, folders,
+  per-file notes, and a Print Files section. ModelPrep has matching folder/note
+  controls plus G-code layer height, nozzle diameter, duration, weight, and
+  exclude-from-total overrides.
+
+### Gaps and evidence boundaries
+
+1. **Main 3D printer is not mapped.** The live retained editor labels “Select
+   one main 3D printer for this model” as required. ModelPrep has no printer
+   picker and sends no model-level `printer`. Its warning is accurate but does
+   not make a G-code publish complete. Retained draft `1797772` again renders
+   only the SL1 row while the API-retained G-code remains invisible in the
+   platform editor.
+2. **Per-G-code material is not user-selectable.** The readback/query supports
+   `material`, and ModelPrep forwards a parsed material id when one happens to
+   exist, but it provides no live material picker or manual mapping. Treat this
+   field as unverified and commonly absent.
+3. **Rich-description parity is partial.** Printables exposes headings, lists,
+   links, inline/block code, blockquotes, image upload, tables, and YouTube/Vimeo
+   embeds. ModelPrep sends converted Markdown HTML and does not provide the
+   authenticated rich-content image/table/video workflow. Platform-side editing
+   also flattens stored headings to paragraphs.
+4. **Store/Club remains account-gated and uncertified.** The audited account
+   renders no paid controls. ModelPrep conditionally exposes Store/Club from
+   capability data, but no eligible-account rendered request/readback exists.
+   The UI phrase “typically $5–$150” is an unverified hint while validation
+   intentionally defers bounds to the server; do not present it as a platform
+   contract.
+5. Normal free model/STL/SLA/Other-file transport has strong historical live
+   evidence. G-code, rich-content, remix/reupload, approval-gated publish,
+   unpacked ZIP, and Store/Club remain separate certification branches.
+
+### Current verdict
+
+- **Free original model without G-code or rich embedded content:** near-ready;
+  safe core is mapped and historically live-proven.
+- **Any G-code publish:** not fully mapped until a live main-printer selector and
+  model-level `printer` payload are implemented and read back.
+- **Store/Club and rich-description media:** not certified; require an eligible
+  account or a separately authorized draft-safe round trip.
+
+## 2026-08-08 print-profile routing slice — root cause corrected
+
+This slice was opened to "implement Printables 3MF/print-profile routing". The
+premise turned out to be wrong, and the correction matters more than the code.
+
+### Printables has no print-profile role
+
+A `.3mf` is an **ordinary model file** on Printables. Live public readback of
+model `1472993` (unauthenticated `print(id:)`, 2026-08-08) returns:
+
+```json
+{ "stls": [{ "id": "6199006", "name": "Happy Birthday Dad.3mf" }],
+  "otherFiles": [], "gcodes": [], "slas": [] }
+```
+
+So the destination for a supplied `.3mf` is the `stls` bucket, which is exactly
+what ModelPrep already sends. There is no profile/print-configuration surface to
+route anything into. Printables' nearest equivalent is the model-level main 3D
+printer plus per-G-code metadata, which remains unimplemented (gap 1 above).
+
+### Why the 3MF was absent from retained draft `1803506`
+
+Not a routing failure and not a transport failure: the file was never selected.
+
+`deploy/src/lib/platform-files.js` gives each platform with a vendor slicer an
+automatic file selection that unticks print profiles sliced by a *different*
+vendor's slicer. Printables' native slicer is Prusa; the fixture's profile is
+`BambuStudio-02.07.01.62`. The profile was therefore auto-excluded before the
+upload loop ever ran.
+
+Verified in a real renderer against the real fixture on 2026-08-08
+(`detectedSlicer: "bambu"`, 30,787 bytes):
+
+| Platform | Native slicer | Sends the Bambu 3MF |
+|---|---|---|
+| MakerWorld | bambu | yes |
+| Cults3D, MyMiniFactory, Thingiverse, Thangs | none | yes |
+| Printables | prusa | **no** (before this slice) |
+| Nexprint, MakerRoad | elegoo | **no** |
+| Creality Cloud | crealityprint | **no** |
+| MakerOnline | anycubic | **no** |
+
+That partition is a 1:1 match with the retained evidence: the 3MF is present on
+every platform in the first two rows and absent on every platform in the last
+four. **The cross-platform "3MF routing defect" recorded on 2026-08-08 does not
+exist.** One selection default explains all five observations, including
+MakerOnline's "I don't have Print Profile Files" and Creality's "Add Print
+Configuration". Nexprint, Creality Cloud, MakerOnline and MakerRoad are still
+affected and are not fixed by this slice.
+
+### Implemented
+
+1. `printablesSourceFileMismatches` / `printablesExpectedFileNames`
+   (`deploy/src/lib/printables-model.js`) fail closed on the files the **user
+   selected**, not on the payload derived from Printables' own processing
+   response. The old comparison could not catch a dropped file: both sides of it
+   come from the same response, so they agree. `.stl` and `.3mf` are also
+   role-checked against the `stls` bucket; other extensions are name-checked
+   only, because no live bucket evidence exists for them.
+2. `excludedProfileNames` (`deploy/src/lib/platform-files.js`) names the profiles
+   a platform will not receive. Printables preflight now warns with the exact
+   filename and says a `.3mf` is an ordinary model file there; the draft and
+   publish receipts carry a `(not sent: …)` suffix and a `skippedProfiles` field.
+   A receipt that lists only what uploaded is what made this look like a
+   platform defect for two audit passes.
+3. The demo fixture selects Printables category **`12`** (`3D Printers › Test
+   Models`, live-confirmed) instead of `36` (`Toys & Games › Action Figures &
+   Statues`), and sets `fileSelection: 'manual'` with no exclusions so its
+   `ordinary-3mf` coverage claim is true rather than aspirational.
+
+The shared auto-exclusion default was **not** changed: it is a deliberate
+duplicate-suppression behavior across five platforms and changing it is a
+product decision, not a Printables fix.
+
+### Evidence
+
+Deploy **371/371**, desktop **207/207**, backend **31/31**, backend `tsc`
+clean, production renderer built, `git diff --check` clean. The rebuilt
+`desktop/dist/mac-arm64/ModelPrep.app` passes
+`codesign --verify --deep --strict` and satisfies its designated requirement
+(`io.makerstats.modelprep`, team `UTZ4TVACJS`); its packaged renderer bundle
+contains all three changes. Notarization remains unproven (`APPLE_TEAM_ID`
+absent). No upload, publish, retry or deletion occurred; retained draft
+`1803506` is untouched and still shows the wrong category and no 3MF.
+
+### Retained certification — draft `1803724`
+
+The user authorized exactly one unpublished draft. The exact signed package was
+launched with a local debug port, the demo fixture loaded through the app's own
+`TRY DEMO` control, the other nine platforms toggled off (`1/10 SELECTED`), and
+the per-platform `SAVE UNPUBLISHED DRAFT` button used. No other platform was
+contacted, nothing was published, retried or deleted.
+
+Before submitting, the packaged app's own UI confirmed the fix: the Printables
+file picker showed all three files ticked including
+`modelprep-calibration-puck-bambu.3mf` (badged `BAMBU STUDIO`), the category
+select read `3D Printers › Test Models` (value `12`), and preflight reported
+exactly **one** warning — the expected tag-normalization notice. The new
+unsent-profile warning correctly did **not** fire, because the profile was
+included.
+
+Authenticated readback of `print(id: 1803724)`:
+
+| Field | Retained value |
+|---|---|
+| state / `datePublished` | `draft` / `null` (unpublished) |
+| `stls` | `…-S.stl`, `…-M.stl`, **`…-bambu.3mf`** — in that order |
+| `gcodes` / `slas` / `otherFiles` | empty |
+| category | `12` — **Test Models** |
+| licence | `3` — CC BY-NC |
+| authorship / AI / NSFW / political | `author` / false / false / false |
+| images | 10, main image `6246774` |
+| tags | calibration, 3dprinter, testmodel, fdm, supportfree, uploadtest |
+| description | HTML retained with structure (`<h1>` + `<p>`) |
+
+All ten retained gallery assets were fetched individually from
+`media.printables.com`: every one returned HTTP 200 at 22–43 KB in the exact
+uploaded order, so these are real stored images rather than empty records. The
+three model files carry Printables' own inspected `stls` records; an unreadable
+upload would have surfaced through `notInspectedFiles` and failed the run.
+
+**This is the first Printables draft to retain the supplied 3MF, and it lands in
+`stls` exactly as the public-readback evidence predicted.** Category `12`
+replaces the `Action Figures & Statues` of draft `1803506`, which is left
+untouched as the before-state.
+
+Still uncertified: G-code main-printer/material, rich-content media, remix and
+reupload, unpacked ZIP, approval-gated publish, public lifecycle, and
+Store/Club. Draft `1803724` and every earlier retained draft must not be
+published or deleted without separate authorization.
+
+### Retained-byte integrity — schema probe and fail-closed size check
+
+Schema probe first, no assumptions. GraphQL introspection is **disabled** on
+`api.printables.com` (`__type` returns "introspection has been disabled"), so
+the field set was established by safe negative validation against public model
+`1472993`. The file type is `STLType`, and it **rejects** `filePath`, `url`,
+`fileUrl`, `path`, `size`, `filesize`, `bytes`, `contentLength`, `hash`,
+`crc32c` and `dateCreated`. It **accepts** `id name folder note order fileSize
+created`.
+
+So there is no file-path field to assert on: `fileSize` is the only
+authoritative byte signal, and it is valid on all four buckets (`stls`, `slas`,
+`gcodes`, `otherFiles`). Both status queries now select it —
+`backend/src/adapters/printables-web.ts` and `desktop/printables-direct.js`.
+The readback type is a new `PrintablesRetainedFile`, deliberately separate from
+the `PrintablesFileInput` mutation type, so a display-only field can never be
+replayed into `modelUpdate` the way the `printer` object once was.
+
+Re-reading retained draft `1803724` through the rebuilt package (no new upload)
+established that Printables stores model files **byte-for-byte**:
+
+| File | Source bytes | Retained `fileSize` | Bucket / order |
+|---|---:|---:|---|
+| `modelprep-calibration-puck-S.stl` | 36,084 | 36,084 | `stls` / 1 |
+| `modelprep-calibration-puck-M.stl` | 54,084 | 54,084 | `stls` / 2 |
+| `modelprep-calibration-puck-bambu.3mf` | 30,787 | 30,787 | `stls` / 3 |
+
+Exact equality is therefore an evidence-backed assertion, not a guess, and
+`printablesSourceFileMismatches` now fails closed on a positive retained size,
+on exact source-size equality where no transformation occurs, and on a status
+response that reports no size at all. An unpacked ZIP is excluded from both the
+name and byte comparison because it legitimately becomes many differently named
+files. Replaying the shipped check against `1803724` returns **zero issues**.
+
+This is Printables byte-retention hardening only. Model-file retention and
+thumbnail generation are separate pipelines, so it says nothing about
+Thingiverse's zero-sized resize thumbnails, which remain a distinct open item.
 
 ## Official references
 

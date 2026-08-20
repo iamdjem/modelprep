@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoExcludedFileIds, isAutoFileSelection, isFileExcluded, sameIdSet, toggleExcludedFileId, withoutExcluded } from './platform-files.js';
+import { autoExcludedFileIds, excludedProfileNames, isAutoFileSelection, isFileExcluded, sameIdSet, toggleExcludedFileId, withoutExcluded } from './platform-files.js';
 
 const files = [{ id: 'a', name: 'a.stl' }, { id: 'b', name: 'b.3mf' }, { id: 'c', name: 'c.3mf' }];
 
@@ -27,8 +27,8 @@ describe('per-platform file exclusions', () => {
 });
 
 // --- Slicer attribution -----------------------------------------------------
-// A project holding one model sliced several ways should not push every profile
-// to every platform. Each vendor slicer maps to that vendor's platform.
+// A native slicer suggests a profile role but never hides a valid 3MF model
+// from another destination.
 
 const profile = (id, slicer) => ({ id, name: `${id}.3mf`, isProfile: true, threemf: { slicer } });
 const geometry = (id, name) => ({ id, name, isProfile: false });
@@ -49,17 +49,17 @@ const includedIds = (platformId) => {
 };
 
 describe('automatic slicer-to-platform attribution', () => {
-  it('keeps only the platform vendor\'s own profiles, plus neutral geometry', () => {
-    expect(includedIds('makerworld')).toEqual(['stl', 'step', 'bambu']);
-    expect(includedIds('creality')).toEqual(['stl', 'step', 'creality']);
-    expect(includedIds('makeronline')).toEqual(['stl', 'step', 'anycubic']);
-    expect(includedIds('printables')).toEqual(['stl', 'step', 'prusa']);
+  it('keeps every compatible 3MF available as ordinary model geometry', () => {
+    expect(includedIds('makerworld')).toEqual(mixed.map((file) => file.id));
+    expect(includedIds('creality')).toEqual(mixed.map((file) => file.id));
+    expect(includedIds('makeronline')).toEqual(mixed.map((file) => file.id));
+    expect(includedIds('printables')).toEqual(mixed.map((file) => file.id));
   });
 
   it('gives both Elegoo platforms the Elegoo profile', () => {
     expect(includedIds('nexprint')).toContain('elegoo');
     expect(includedIds('makeroad')).toContain('elegoo');
-    expect(includedIds('nexprint')).not.toContain('bambu');
+    expect(includedIds('nexprint')).toContain('bambu');
   });
 
   it('never excludes anything for platforms without a slicer of their own', () => {
@@ -98,5 +98,23 @@ describe('automatic slicer-to-platform attribution', () => {
     expect(sameIdSet(['a', 'b'], ['b', 'a'])).toBe(true);
     expect(sameIdSet([], undefined)).toBe(true);
     expect(sameIdSet(['a'], ['a', 'b'])).toBe(false);
+  });
+
+  it('names the profiles a platform will not receive, so a receipt cannot overclaim', () => {
+    // The 2026-08-08 audit read five retained listings with no 3MF as a
+    // cross-platform routing defect. Nothing was routed wrong: a Bambu profile
+    // is unticked on every platform whose native slicer is not Bambu, and no
+    // preflight or receipt said so.
+    const project = [
+      { id: 'a', name: 'puck-S.stl', isProfile: false },
+      { id: 'b', name: 'puck-bambu.3mf', isProfile: true },
+    ];
+    expect(excludedProfileNames(project, { excludedFileIds: ['b'] })).toEqual(['puck-bambu.3mf']);
+    // Only profiles are reported: an unticked plain model file is not a
+    // missing print profile.
+    expect(excludedProfileNames(project, { excludedFileIds: ['a'] })).toEqual([]);
+    expect(excludedProfileNames(project, { excludedFileIds: [] })).toEqual([]);
+    expect(excludedProfileNames(project, undefined)).toEqual([]);
+    expect(excludedProfileNames(undefined, { excludedFileIds: ['b'] })).toEqual([]);
   });
 });

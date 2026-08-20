@@ -81,6 +81,16 @@ export async function parseThreeMF(blob, loadZip) {
       /<metadata\s+name="Application"[^>]*>([^<]+)<\/metadata>/i,
       /<metadata\s+name="BambuStudio:Application"[^>]*>([^<]+)<\/metadata>/i,
     ]);
+    result.units = firstMatch(model, [/<model\b[^>]*\bunit="([^"]+)"/i]) || 'millimeter';
+    result.triangles = (String(model).match(/<triangle\b/gi) || []).length;
+    result.vertices = (String(model).match(/<vertex\b/gi) || []).length;
+    result.materials = (String(model).match(/<(?:base|composite|multi)materials\b/gi) || []).length;
+    result.parts = [...String(model).matchAll(/<object\b([^>]*)>/gi)].map((match, index) => ({
+      id: firstMatch(match[1], [/\bid="([^"]+)"/i]) || String(index + 1),
+      name: firstMatch(match[1], [/\bname="([^"]+)"/i]) || `Part ${index + 1}`,
+      type: firstMatch(match[1], [/\btype="([^"]+)"/i]) || 'model',
+    }));
+    result.shells = result.parts.length;
   }
 
   // 2. Slicer-family fingerprints. PrusaSlicer writes Slic3r_PE.config; the
@@ -88,6 +98,7 @@ export async function parseThreeMF(blob, loadZip) {
   const prusaConfig = await read('Metadata/Slic3r_PE.config');
   const sliceInfo = await read('Metadata/slice_info.config');
   const projectSettings = await read('Metadata/project_settings.config');
+  const modelSettings = await read('Metadata/model_settings.config');
 
   result.slicer = detectSlicerFromApplication(result.application);
   if (result.slicer === 'unknown' && prusaConfig != null) result.slicer = 'prusa';
@@ -114,14 +125,20 @@ export async function parseThreeMF(blob, loadZip) {
     } catch { /* settings stay unset */ }
   }
   if (sliceInfo) {
-    const plates = String(sliceInfo).match(/<plate>/gi);
+    const plates = String(sliceInfo).match(/<plate\b/gi);
     if (plates) result.plates = plates.length;
-    result.estimatedTime = formatSeconds(firstMatch(sliceInfo, [
-      /key="prediction"\s+value="(\d+)"/i,
-    ])) || null;
+    const prediction = firstMatch(sliceInfo, [/key="prediction"\s+value="(\d+)"/i]);
+    result.estimatedTime = formatSeconds(prediction) || null;
     const grams = firstMatch(sliceInfo, [/key="weight"\s+value="([\d.]+)"/i]);
     if (grams) result.filamentGrams = Math.round(Number(grams));
-    result.sliced = true;
+    // Bambu-family project files carry slice_info.config even before slicing;
+    // an XML header alone is not a print profile. Require actual plate output
+    // or a non-empty G-code/prediction marker before calling it sliced.
+    result.sliced = !!(
+      plates?.length
+      || Number(prediction) > 0
+      || /key="gcode_file"\s+value="[^"\s]+"/i.test(sliceInfo)
+    );
   }
   if (prusaConfig) {
     result.sliced = true;
@@ -148,7 +165,10 @@ export async function parseThreeMF(blob, loadZip) {
   // is Metadata/thumbnail.png. This is the most honest preview available: it is
   // what the slicer itself produced, so it shows the actual arrangement on the
   // build plate rather than a re-render of the raw mesh.
-  result.thumbnail = await readPackageThumbnail(zip);
+  const plateConfiguration = parseModelSettingsPlates(modelSettings);
+  if (plateConfiguration.length) result.plates = Math.max(result.plates || 0, plateConfiguration.length);
+  result.plateDetails = await readPackagePlateDetails(zip, result.plates || 0, plateConfiguration);
+  result.thumbnail = result.plateDetails.find((plate) => plate.thumbnail)?.thumbnail || await readPackageThumbnail(zip);
 
   return result;
 }
@@ -180,4 +200,46 @@ async function readPackageThumbnail(zip) {
     } catch { /* try the next candidate */ }
   }
   return null;
+}
+
+async function entryDataUrl(entry) {
+  if (!entry) return null;
+  try {
+    const base64 = await entry.async('base64');
+    return base64 ? `data:image/png;base64,${base64}` : null;
+  } catch { return null; }
+}
+
+function parseModelSettingsPlates(xml) {
+  if (!xml) return [];
+  return [...String(xml).matchAll(/<plate>([\s\S]*?)<\/plate>/gi)].map((match, index) => {
+    const body = match[1];
+    const value = (key) => firstMatch(body, [new RegExp(`key="${key}"\\s+value="([^"]*)"`, 'i')]);
+    return {
+      index: Number(value('plater_id')) || index + 1,
+      name: value('plater_name') || `Plate ${index + 1}`,
+      thumbnailFile: value('thumbnail_file') || null,
+      objectIds: [...body.matchAll(/key="object_id"\s+value="([^"]+)"/gi)].map((object) => object[1]),
+    };
+  });
+}
+
+async function readPackagePlateDetails(zip, declaredCount = 0, configured = []) {
+  const candidates = new Map();
+  for (const name of Object.keys(zip.files || {})) {
+    const match = name.match(/^Metadata\/(?:plate|plate_no_light|top)_(\d+)(?:_small)?\.png$/i);
+    if (!match) continue;
+    const index = Number(match[1]);
+    const priority = /_small\.png$/i.test(name) ? 1 : /plate_no_light/i.test(name) ? 2 : /top_/i.test(name) ? 3 : 4;
+    const current = candidates.get(index);
+    if (!current || priority > current.priority) candidates.set(index, { name, priority });
+  }
+  const count = Math.max(declaredCount, ...candidates.keys(), 0);
+  const details = [];
+  for (let index = 1; index <= count; index += 1) {
+    const config = configured.find((plate) => plate.index === index) || {};
+    const candidate = config.thumbnailFile ? { name: config.thumbnailFile } : candidates.get(index);
+    details.push({ index, name: config.name || `Plate ${index}`, objectIds: config.objectIds || [], thumbnail: candidate ? await entryDataUrl(zip.file(candidate.name)) : null });
+  }
+  return details;
 }

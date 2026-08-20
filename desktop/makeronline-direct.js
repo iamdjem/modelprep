@@ -140,11 +140,23 @@ function normalizeUploadedFile(value, role, source) {
   const item = candidate?.file || candidate?.file_info || candidate?.info || candidate;
   const url = item?.url ?? item?.file_url ?? item?.fileUrl ?? item?.path;
   if (!url) throw new Error('MakerOnline accepted the bytes but returned no file URL.');
+  // `name`/`size` stay convenient for the payload, but they fall back to the
+  // local file, so they CANNOT prove what MakerOnline returned. Carry explicit
+  // provenance alongside them: a verifier that treats a source fallback as a
+  // native response field can never detect an omitted transport field.
+  const nativeFileName = item?.file_name ?? item?.fileName;
+  const nativeFileSize = item?.file_size ?? item?.fileSize;
   return {
     ...item,
     role,
-    name: String(item?.file_name ?? item?.fileName ?? source.name),
-    size: Number(item?.file_size ?? item?.fileSize ?? source.bytes.byteLength),
+    name: String(nativeFileName ?? source.name),
+    size: Number(nativeFileSize ?? source.bytes.byteLength),
+    nativeFileName: nativeFileName == null || String(nativeFileName).trim() === ''
+      ? null
+      : String(nativeFileName),
+    nativeFileSize: Number(nativeFileSize) > 0 ? Number(nativeFileSize) : null,
+    sourceFileName: String(source.name),
+    sourceFileSize: Number(source.bytes.byteLength),
     url: String(url),
     thumbnailUrl: String(item?.thumbnail_url ?? item?.thumbnailUrl ?? item?.thumb_url ?? url),
     key: String(item?.key ?? item?.file_key ?? ''),

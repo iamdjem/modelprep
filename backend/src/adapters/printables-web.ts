@@ -21,6 +21,15 @@ export interface PrintablesError {
   messages?: string[];
 }
 
+/** Readback-only view of a retained file. `fileSize` and `order` are returned
+ * for display and verification and must never be replayed into a mutation:
+ * Printables' file input types reject unknown fields, which is how the
+ * display-only `printer` object broke an earlier G-code save. */
+export interface PrintablesRetainedFile extends PrintablesFileInput {
+  fileSize?: number | null;
+  order?: number;
+}
+
 export interface PrintablesFileInput {
   id: string;
   folder?: string;
@@ -192,6 +201,7 @@ export async function printablesWhoami(session: PrintablesSession) {
       storeActive
       storeFee
       maxStoreModels: maxPaidModels
+      tiers { id name }
       user {
         id
         handle
@@ -207,7 +217,9 @@ export async function printablesWhoami(session: PrintablesSession) {
     ...capabilities,
     ...user,
     id: user?.id ?? data.me.id,
-    tiers: [] as Array<{ id: string; name?: string }>,
+    tiers: (Array.isArray((data.me as { tiers?: Array<{ id: string; name?: string }> }).tiers)
+      ? (data.me as { tiers?: Array<{ id: string; name?: string }> }).tiers
+      : []) as Array<{ id: string; name?: string }>,
   };
 }
 
@@ -398,10 +410,10 @@ export async function printablesModelStatus(session: PrintablesSession, id: stri
       tags?: Array<{ id: string; name: string }>;
       image?: { id: string; filePath?: string; order?: number } | null;
       images?: Array<{ id: string; filePath?: string; order?: number }>;
-      stls?: PrintablesFileInput[];
-      slas?: PrintablesFileInput[];
-      gcodes?: PrintablesFileInput[];
-      otherFiles?: PrintablesFileInput[];
+      stls?: PrintablesRetainedFile[];
+      slas?: PrintablesRetainedFile[];
+      gcodes?: PrintablesRetainedFile[];
+      otherFiles?: PrintablesRetainedFile[];
       remixParents?: Array<{ id: string; parentPrintId?: string; url?: string }>;
       remixDescription?: string | null;
       datePublished?: string | null;
@@ -418,14 +430,14 @@ export async function printablesModelStatus(session: PrintablesSession, id: stri
       tags { id name }
       image { id filePath order }
       images { id filePath order }
-      stls { id name folder note order }
-      slas { id name folder note order layerHeight printDuration }
+      stls { id name folder note order fileSize }
+      slas { id name folder note order layerHeight printDuration fileSize }
       gcodes {
-        id name folder note order weight layerHeight nozzleDiameter printDuration excludeFromTotalSum
+        id name folder note order weight layerHeight nozzleDiameter printDuration excludeFromTotalSum fileSize
         material { id name }
         printer { id name }
       }
-      otherFiles { id name folder note order }
+      otherFiles { id name folder note order fileSize }
       remixParents { id parentPrintId url }
       remixDescription
       publishRequests { id status created }

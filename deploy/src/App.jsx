@@ -3,6 +3,7 @@ import {
   mdToHtml, mdToPlain, mdToMakerWorldHtml, formatBytes,
   fileExt, isModelFile, isProfile, isImageFile, slugify, uniqueFileName,
 } from './lib/format';
+import { makeDemoStl } from './lib/demo-stl';
 import {
   MAKERWORLD_REGULAR_FORMATS, MAKERWORLD_LASER_FORMATS, MAKERWORLD_PRINTERS,
   compatibilityFromProducts, flattenMakerWorldCategories,
@@ -31,7 +32,12 @@ import {
   isDesktopNexprintSession,
   nexprintFetch,
 } from './lib/nexprint-auth.js';
-import { nexprintResponseError, uploadNexprintFile } from './lib/nexprint-upload.js';
+import {
+  nexprintExpectedFiles,
+  nexprintReadbackIssues,
+  nexprintResponseError,
+  uploadNexprintFile,
+} from './lib/nexprint-upload.js';
 import {
   DESKTOP_CREALITY_SECRET,
   crealityFetch,
@@ -42,13 +48,26 @@ import { fileSlicer, parseThreeMF, slicerLabel, SLICERS } from './lib/threemf.js
 import { loadProjectBinaries, rehydrateProject, saveProjectBinaries } from './lib/project-store.js';
 import {
   autoExcludedFileIds,
+  DESTINATION_FILE_ROLES,
+  excludedProfileNames,
   isAutoFileSelection,
   isFileExcluded,
+  platformFileRole,
+  platformFileRoleChoice,
   platformNativeSlicers,
+  resetPlatformFileRoles,
   sameIdSet,
+  setPlatformFileRole,
   toggleExcludedFileId,
   withoutExcluded,
 } from './lib/platform-files.js';
+import {
+  destinationMediaTreatment,
+  destinationOutcome,
+  destinationReadinessSummary,
+  evidenceLabel,
+  platformWorkflow,
+} from './lib/platform-workflow.js';
 import {
   describeDue, dueReleasePlans, dueScheduledTargets, loadReleasePlans, patchReleasePlan,
   pendingReleasePlans, planForProjectPlatform, planKey, releasePlanBlockers, releasePlanIssues, removeReleasePlan,
@@ -60,7 +79,11 @@ import {
   CREALITY_LICENSE_MAP,
   CREALITY_LICENSES,
   CREALITY_MODEL_FORMATS,
+  crealityExpectedFiles,
+  crealityExpectedImages,
   crealityRawModelFiles,
+  crealityUploadReport,
+  runCrealityUpload,
   crealityUsesRenderedModelCover,
 } from './lib/creality.js';
 import {
@@ -99,6 +122,15 @@ import {
   MAKERONLINE_MODEL_FORMATS,
 } from './lib/makeronline.js';
 import {
+  buildMakerOnlineExpectation,
+  makerOnlineExpectationIssues,
+  makerOnlineExpectedFiles,
+  makerOnlineExpectedImages,
+  makerOnlineExpectedProfiles,
+  makerOnlineUploadReport,
+  runMakerOnlineUpload,
+} from './lib/makeronline-verify.js';
+import {
   printablesResponseError,
   uploadPrintablesFile,
   waitForPrintablesUploads,
@@ -112,10 +144,12 @@ import {
   PRINTABLES_FOLDER_NAME_MAX,
   PRINTABLES_PRICE_MIN,
   PRINTABLES_PRICE_MAX,
+  printablesExpectedFiles,
   printablesFileSettingIssues,
   printablesPaidIssues,
   publishVerifiedPrintablesModel,
   printablesReadbackMismatches,
+  printablesSourceFileMismatches,
   validatePrintablesModel,
   waitForPrintablesPublication,
 } from './lib/printables-model.js';
@@ -137,6 +171,22 @@ import {
   retryFailedPublishBatch,
 } from './lib/batch-publish.js';
 import { convertHeicFileToJpeg, isHeicFile } from './lib/heic.js';
+import { buildPlatePreviewMetrics, formatModelDimension } from './lib/build-plate.js';
+import { resolveBuildPlateProfile } from './lib/interactive-build-plate.js';
+import InteractiveBuildPlate from './components/InteractiveBuildPlate.jsx';
+import {
+  assignFilesToAsset,
+  assetPrintabilityIssues,
+  buildAssetCollections,
+  geometrySimilarityFingerprint,
+  groupProjectAssets,
+  matchesAssetQuery,
+  replaceAssetFileRevision,
+  suggestAssetTags,
+} from './lib/assets.js';
+import { hashFilesInWorkers, runBoundedJobs } from './lib/asset-processing.js';
+import { inspectArchive } from './lib/archive.js';
+import { deriveSharedDefaultPatches } from './lib/shared-defaults.js';
 import {
   addFallbackProvider,
   AI_PROVIDER_IDS,
@@ -169,13 +219,57 @@ import {
   Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search, Clock,
   Globe, DollarSign, Info, Edit3, ArrowRight, User, LogOut, Settings,
-  PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus
+  PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus, Box, SlidersHorizontal, MoreHorizontal
 } from 'lucide-react';
 import {
   useAccounts, getAccounts, getActive, setStatus, CONNECTABLE, rehydrateDesktopAccount,
 } from './lib/accounts.js';
 
 // Lets any component open the Connections (accounts) modal without prop-threading.
+const FORMAT_FILTERED_PLATFORM_IDS = new Set(['printables', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs']);
+const SECTIONS = [
+  { id: 'files',     label: 'Files',     icon: Folder,    description: 'Upload your STL and 3MF files' },
+  { id: 'details',   label: 'Details',   icon: FileText,  description: 'Title, description, tags, category, license' },
+  { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover, gallery photos and compatible model videos' },
+  { id: 'profiles',  label: 'Profiles',  icon: Layers,    description: 'Print profile per 3MF, with own description' },
+  { id: 'platforms', label: 'Platforms', icon: Globe,     description: 'Choose where to publish and platform-specific options' },
+  { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Publish once to selected platforms or individually' },
+];
+
+function makeCubeStl(s = 20) {
+  const v = [[0,0,0],[s,0,0],[s,s,0],[0,s,0],[0,0,s],[s,0,s],[s,s,s],[0,s,s]];
+  const faces = [[0,3,2],[0,2,1],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]];
+  let out = 'solid modelprep_demo\n';
+  for (const f of faces) {
+    out += '  facet normal 0 0 0\n    outer loop\n';
+    for (const idx of f) out += `      vertex ${v[idx][0]} ${v[idx][1]} ${v[idx][2]}\n`;
+    out += '    endloop\n  endfacet\n';
+  }
+  out += 'endsolid modelprep_demo\n';
+  return new Blob([out], { type: 'model/stl' });
+}
+
+// Build the bundled-asset patch for the demo: crop-focused images + real model files.
+// MakerWorld's .3mf path REQUIRES a genuine Bambu-Studio 3mf ("not generated by
+// Bambu Studio" → publish fails), and we can't synthesize one. So:
+//   • if a real Bambu .3mf is bundled at public/demo/desk-dragon-bambu.3mf → use it (the
+//     full print-profile flow is demoed AND a connected user can really publish it);
+//   • otherwise → STL-only (drop the 3mf + profiles) so the real publish actually succeeds.
+function mockParseThreeMF(filename) {
+  const printers = ['Bambu A1 Mini', 'Bambu P1S', 'Bambu X1C', 'Prusa MK4', 'Elegoo Centauri Carbon'];
+  const materials = ['PLA', 'PETG', 'PLA Silk', 'ABS', 'PLA Matte'];
+  const layers = ['0.08mm', '0.12mm', '0.16mm', '0.2mm', '0.28mm'];
+  const seed = filename.length;
+  return {
+    printer: printers[seed % printers.length],
+    material: materials[(seed + 1) % materials.length],
+    layerHeight: layers[(seed + 2) % layers.length],
+    plates: 1 + (seed % 3),
+    estimatedTime: `${1 + (seed % 8)}h ${(seed * 7) % 60}min`,
+    filamentGrams: 20 + (seed % 80),
+  };
+}
+
 const ConnectionsCtx = createContext(() => {});
 const useOpenConnections = () => useContext(ConnectionsCtx);
 
@@ -224,7 +318,7 @@ const UPLOAD_URLS = {
   // 2026-08-03: /upload returns HTTP 500 even when signed in (verified against
   // an authenticated session). /create returns 200 and redirects to
   // /create/designs. Browser link only; the direct upload path is unaffected.
-  thingiverse: 'https://www.thingiverse.com/create',
+  thingiverse: 'https://www.thingiverse.com/thing:0/edit',
   // 2026-08-03, verified against a signed-in session by HTTP status, not by
   // rendered appearance: /3d-model/upload and /upload BOTH return 404 (the SPA
   // still renders a marketing shell, so the page looks fine). There is no
@@ -257,6 +351,22 @@ const CULTS_META_TAGS = [
   ['no_support', 'No support'], ['print_in_place', 'Print in place'], ['remix', 'Remix'],
   ['resin_print', 'Resin print'], ['scale_model', 'Scale model'], ['scan', 'Scan'],
 ];
+const CULTS_CATEGORIES = [
+  ['23', 'Art'], ['24', 'Fashion & jewelry'], ['25', 'Electronics'],
+  ['27', 'Tools'], ['29', 'Hobby & DIY'], ['30', 'Home & living'], ['31', 'Toys & games'],
+];
+const CULTS_LICENSES = [
+  ['cc_pddc', 'CC0 / Public domain', 'free'],
+  ['cc_by', 'CC BY', 'free'],
+  ['cc_by_sa', 'CC BY-SA', 'free'],
+  ['cc_by_nd', 'CC BY-ND', 'free'],
+  ['cc_by_nc', 'CC BY-NC', 'free'],
+  ['cc_by_nc_sa', 'CC BY-NC-SA', 'free'],
+  ['cc_by_nc_nd', 'CC BY-NC-ND', 'free'],
+  ['cults_pu', 'Cults Private Use', 'both'],
+  ['cults_cu', 'Cults Commercial Use', 'paid'],
+  ['cults_cu_nd', 'Cults Commercial Use · No derivatives', 'paid'],
+];
 
 const NEXPRINT_MODEL_FORMATS = [
   '3ds', '3mf', 'amf', 'blend', 'dwg', 'dxf', 'elesat', 'f3d', 'f3z',
@@ -279,7 +389,7 @@ const NEXPRINT_LICENSES = [
   { id: 7, name: 'Standard Digital File License' },
 ];
 const NEXPRINT_LICENSE_MAP = {
-  ccby: 0, ccbysa: 1, ccbync: 2, ccbyncsa: 3, ccbynd: 4, cc0: 6, standard: 7,
+  ccby: 0, ccbysa: 1, ccbync: 2, ccbyncsa: 3, ccbynd: 4, ccbyncnd: 5, cc0: 6, standard: 7,
 };
 
 const MYMINIFACTORY_MODEL_FORMATS = [
@@ -378,7 +488,8 @@ export const PLATFORMS = [
       { id: 'web', label: 'Web cover', w: 1920, h: 1440, aspect: '4:3' },
       { id: 'app', label: 'App cover', w: 1500, h: 2000, aspect: '3:4' },
     ],
-    descFormat: 'html', maxImages: 16, maxFileMb: 200, maxTotalMb: 250,
+    preserveGalleryImages: true,
+    descFormat: 'html', maxImages: 16, maxFileMb: 200, maxTotalMb: null,
     // Full accepted raw-model set (re-checked against the live form 2026-07-18).
     formats: MAKERWORLD_REGULAR_FORMATS,
     hasApi: true, apiSupport: 'oneclick', apiLive: true,
@@ -405,11 +516,18 @@ export const PLATFORMS = [
     descFormat: 'markdown', maxImages: null, maxFileMb: 1024, maxTotalMb: null,
     formats: ['3ds', '3mf', 'ai', 'amf', 'bin', 'blend', 'bmp', 'curaprofile', 'dae', 'doc', 'dst', 'dwg', 'dxf', 'eps', 'f3d', 'f3z', 'fcstd', 'fff', 'gbr', 'gbx', 'gcode', 'ini', 'mtl', 'obj', 'pdf', 'ply', 'ppt', 'psd', 'rcp', 'scad', 'skp', 'sldasm', 'sldprt', 'step', 'stl', 'stp', 'svg', 'txt', 'x3d', 'zip'],
     hasApi: true, apiSupport: 'oneclick', apiLive: true,
+    // flat_keywords documented as 20 tags / 300 chars total; total-chars is
+    // checked in the Cults preflight block below.
+    limits: { tagMax: 20 },
     fields: ['price'], note: 'Uploads through Cults3D’s own upload flow. Paid marketplace (you keep 80%). Accepts video (mp4/webm). Put real print photos first in the gallery.',
   },
   {
     id: 'mmf', name: 'MyMiniFactory', org: 'SoulCrafted', dot: '#4FB286',
-    covers: [{ id: 'cover', label: 'Cover', w: 1920, h: 1440, aspect: '4:3' }],
+    // No capture evidence for any MMF cover ratio, and the direct path uploads
+    // the raw original (live-confirmed: 2400x1600 stored uncropped): showing a
+    // 1920x1440 4:3 crop in the preview was a crop MMF never received.
+    covers: [{ id: 'cover', label: 'Original image (no required crop)', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
     // The authenticated form exposes no image-count cap. Keep the verified
     // 100 MiB object-file cap, but do not invent a gallery limit.
     descFormat: 'html', maxImages: null, maxFileMb: 100, maxTotalMb: null,
@@ -442,6 +560,9 @@ export const PLATFORMS = [
   {
     id: 'nexprint', name: 'Nexprint', org: 'Elegoo', dot: '#FFB627',
     covers: [{ id: 'cover', label: 'Cover', w: 2000, h: 1500, aspect: '4:3' }],
+    // Only the cover is a fixed 4:3 crop; the gallery keeps original aspect
+    // (doc-verified). Without this flag the ZIP path hard-cropped every photo.
+    preserveGalleryImages: true,
     descFormat: 'html', maxImages: 10, maxFileMb: 2048, maxTotalMb: null,
     formats: NEXPRINT_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: [], note: 'Uploads through Nexprint’s own upload form. Starts as a draft; Nexprint does not accept videos yet.',
@@ -454,14 +575,19 @@ export const PLATFORMS = [
       { id: 'web', label: 'Web cover', w: 1600, h: 1200, aspect: '4:3' },
       { id: 'app', label: 'App cover', w: 1200, h: 1600, aspect: '3:4' },
     ],
-    descFormat: 'html', maxImages: 10, maxFileMb: 2048, maxTotalMb: null,
+    preserveGalleryImages: true,
+    // No Creality doc records a model-file size cap; the earlier 2048 was
+    // invented and produced hard blocking errors (house rule: no unverified caps).
+    descFormat: 'html', maxImages: 10, maxFileMb: null, maxTotalMb: null,
     formats: CREALITY_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: [], note: 'Uploads through Creality Cloud’s own upload flow. New uploads stay private; you can also update an existing draft. Going public is your call.',
     limits: { titleMax: 60, tagMax: 20 },
   },
   {
     id: 'makeronline', name: 'MakerOnline', org: 'Anycubic', dot: '#111827',
-    covers: [{ id: 'cover', label: 'Cover', w: 1600, h: 1200, aspect: '4:3' }],
+    // The doc explicitly records no required crop; the 1600x1200 4:3 was invented.
+    covers: [{ id: 'cover', label: 'Original image (no required crop)', w: null, h: null, aspect: 'original' }],
+    preserveOriginalImages: true,
     descFormat: 'html', maxImages: 20, maxFileMb: 500, maxTotalMb: null,
     formats: MAKERONLINE_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: [], note: 'Uploads through MakerOnline’s own upload flow. Starts as a draft. Takes model files, documentation, and optional .3mf print profiles.',
@@ -476,7 +602,7 @@ export const PLATFORMS = [
     preserveOriginalImages: true,
     descFormat: 'html', maxImages: 10, maxFileMb: null, maxTotalMb: null,
     formats: MAKEROAD_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Saves privately to MakerRoad; publishing submits it for MakerRoad review. MakerRoad does not accept videos yet.',
+    fields: [], note: 'Every Save enters MakerRoad review. No accepted private/draft path is currently certified, and MakerRoad does not accept videos.',
     limits: { titleMax: 60 },
   },
 ];
@@ -493,14 +619,21 @@ function galleryCapacity(platform) {
 // leave their `limits` unset rather than invent numbers: so they impose no cap until a
 // value is verified from their authenticated upload form (same approach as the MW capture).
 
-// Files a platform's upload flow would consider, before per-platform exclusions.
-// Mirrors what each flow's own format filter accepts, so the Platforms-step file
-// picker shows exactly the set that would otherwise upload.
-const FORMAT_FILTERED_PLATFORM_IDS = new Set(['printables', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs']);
+// Files a platform's upload flow can route, before per-destination roles are
+// applied. This includes documentation/attachment surfaces rather than only the
+// model-format list, so Package never calls a file unsupported while the native
+// adapter is preparing to send it elsewhere.
 export function platformCandidateFiles(platform, project) {
-  return FORMAT_FILTERED_PLATFORM_IDS.has(platform.id)
-    ? project.files.filter((file) => platform.formats.includes(fileExt(file.name)) && !file.isImage)
-    : project.files.filter((f) => f.isModel);
+  return (project?.files || []).filter((file) => {
+    if (file.isImage) return false;
+    const ext = fileExt(file.name);
+    if (platform.formats.includes(ext)) return true;
+    if (platform.id === 'nexprint') return NEXPRINT_ATTACHMENT_FORMATS.includes(ext);
+    if (platform.id === 'creality') return CREALITY_INSTRUCTION_FORMATS.includes(ext);
+    if (platform.id === 'makeronline') return MAKERONLINE_DOCUMENT_FORMATS.includes(ext);
+    if (platform.id === 'makeroad') return MAKEROAD_DOCUMENT_FORMATS.includes(ext);
+    return false;
+  });
 }
 
 // --- Release plans (reminders + scheduled uploads) ---------------------------
@@ -562,30 +695,47 @@ const LICENSES = [
   { id: 'ccbysa', name: 'CC BY-SA: Attribution, ShareAlike', commercial: true, derivatives: true },
   { id: 'ccbync', name: 'CC BY-NC: Attribution, NonCommercial', commercial: false, derivatives: true },
   { id: 'ccbyncsa', name: 'CC BY-NC-SA: NonCommercial, ShareAlike', commercial: false, derivatives: true },
+  { id: 'ccbyncnd', name: 'CC BY-NC-ND: NonCommercial, NoDerivatives', commercial: false, derivatives: false },
   { id: 'ccbynd', name: 'CC BY-ND: Attribution, NoDerivatives', commercial: true, derivatives: false },
   { id: 'standard', name: 'Standard Digital License (paid)', commercial: true, derivatives: false },
 ];
 
-const SECTIONS = [
-  { id: 'files',     label: 'Files',     icon: Folder,    description: 'Upload your STL and 3MF files' },
-  { id: 'details',   label: 'Details',   icon: FileText,  description: 'Title, description, tags, category, license' },
-  { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover, gallery photos and compatible model videos' },
-  { id: 'profiles',  label: 'Profiles',  icon: Layers,    description: 'Print profile per 3MF, with own description' },
-  { id: 'platforms', label: 'Platforms', icon: Globe,     description: 'Choose where to publish and platform-specific options' },
-  { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Publish once to selected platforms or individually' },
+// Creators think in four publishing phases, not the six implementation
+// screens that originally leaked into the sidebar. Details/Media remain
+// focused workspaces inside Listing; print-profile settings now live with the
+// selected 3MF in Package.
+export const WORKFLOW_PHASES = [
+  { id: 'package', label: 'Package', icon: Folder, description: 'Files and print profiles', entry: 'files', sections: ['files', 'profiles'] },
+  { id: 'listing', label: 'Listing', icon: FileText, description: 'Details and media', entry: 'details', sections: ['details', 'images'], substeps: [{ id: 'details', label: 'Details' }, { id: 'images', label: 'Media' }] },
+  { id: 'destinations', label: 'Destinations', icon: Globe, description: 'Platforms and options', entry: 'platforms', sections: ['platforms'] },
+  { id: 'review', label: 'Review & Publish', icon: Send, description: 'Preflight and upload', entry: 'publish', sections: ['publish'] },
 ];
 
-const SAMPLE_DESCRIPTION = `# Articulating Desk Dragon
+export function workflowPhaseForSection(sectionId) {
+  return WORKFLOW_PHASES.find((phase) => phase.sections.includes(sectionId)) || WORKFLOW_PHASES[0];
+}
 
-A snap-fit dragon that prints in place.
+export function workflowPhaseCompletion(completion = {}) {
+  return {
+    package: !!completion.files && !!completion.profiles,
+    listing: !!completion.details && !!completion.images,
+    destinations: !!completion.platforms,
+    review: !!completion.publish,
+  };
+}
 
-No supports, no glue, no shame.
+const SAMPLE_DESCRIPTION = `# ModelPrep Calibration Puck
+
+A small, support-free calibration model used to certify ModelPrep upload mappings.
+
+The fixture is intentionally simple: a flat circular puck with straight walls and a chamfered top edge. The downloadable geometry, Bambu Studio project, preview renders, dimensions, and listing text all describe the same model.
 
 ## What's included
 
-- STL files for both sizes (S, M)
-- A 3MF with my recommended Bambu profile
-- Print orientation diagram
+- 22 × 3.2 mm STL (S)
+- 34 × 4.4 mm STL (M)
+- A Bambu Studio 3MF containing the 34 mm model
+- Model-derived renders and a dimensional reference image
 
 ## Print settings
 
@@ -596,7 +746,7 @@ No supports, no glue, no shame.
 
 ## Tips
 
-If the joints are too tight after printing, give them a gentle wiggle. The clearance is tuned for a 0.4mm nozzle. For 0.6mm nozzles, scale to 105%.`;
+Print flat-side-down. The chamfer is designed to print without supports. This is a synthetic certification fixture, not a photograph of a physical print.`;
 
 // =====================================================================
 // HELPERS
@@ -623,22 +773,6 @@ function downloadCanvas(c, filename) {
     URL.revokeObjectURL(u);
   }, 'image/jpeg', 0.92);
 }
-// Mock 3MF parser: real parsing needs JSZip; for prototype we generate believable profiles
-function mockParseThreeMF(filename) {
-  const printers = ['Bambu A1 Mini', 'Bambu P1S', 'Bambu X1C', 'Prusa MK4', 'Elegoo Centauri Carbon'];
-  const materials = ['PLA', 'PETG', 'PLA Silk', 'ABS', 'PLA Matte'];
-  const layers = ['0.08mm', '0.12mm', '0.16mm', '0.2mm', '0.28mm'];
-  const seed = filename.length;
-  return {
-    printer: printers[seed % printers.length],
-    material: materials[(seed + 1) % materials.length],
-    layerHeight: layers[(seed + 2) % layers.length],
-    plates: 1 + (seed % 3),
-    estimatedTime: `${1 + (seed % 8)}h ${(seed * 7) % 60}min`,
-    filamentGrams: 20 + (seed % 80),
-  };
-}
-
 function makeSampleImage(label = 'SAMPLE', tint = ['#5A7430', '#FFB627', '#262A23']) {
   const c = document.createElement('canvas');
   c.width = 2400; c.height = 1800;
@@ -820,7 +954,7 @@ async function buildPlatformZip(JSZip, platform, project, cover, onProgress = ()
   const others = project.images.filter(i => i.id !== project.coverImageId);
   const galleryLimit = Math.min(others.length, galleryCapacity(platform));
   for (let i = 0; i < galleryLimit; i++) {
-    if (platform.preserveOriginalImages) {
+    if (platform.preserveOriginalImages || platform.preserveGalleryImages) {
       onProgress(`Adding original gallery ${i + 1}/${galleryLimit}`);
       const blob = await fetch(others[i].dataUrl).then((response) => response.blob());
       const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
@@ -908,8 +1042,10 @@ function triggerDownload(blob, filename) {
 // edited on the Platforms step and read by the Publish flow (serializable; File-based
 // docs are kept in a small runtime holder, see mwRuntimeDocs).
 const MW_DEFAULT_OPTS = {
-  categoryId: 401, visibility: 'private', license: '', // '' = follow the Details-step license (see MW_LICENSE_MAP)
+  // '' = auto-matched from the Details-step category/license (lib/shared-defaults.js, MW_LICENSE_MAP)
+  categoryId: '', visibility: 'private', license: '',
   productMode: '3d', laserMode: 'raw', modelSource: 'original',
+  nsfw: false, aiGenerated: false,
   exclusive: false, exclusiveTermsAccepted: false, communityPost: false,
   remixModel: null, remixUrl: '', remixLicense: '', remixDescription: '', relatedModel: null,
   primaryProfileFileId: null, primaryLacFileId: null, cyberBrick: false,
@@ -944,6 +1080,7 @@ const MW_LICENSE_OPTIONS = [
 // Our Details-step license id → the MakerWorld license API value.
 const MW_LICENSE_MAP = {
   cc0: 'CC0', ccby: 'BY', ccbysa: 'BY-SA', ccbync: 'BY-NC', ccbyncsa: 'BY-NC-SA', ccbynd: 'BY-ND',
+  ccbyncnd: 'BY-NC-ND',
   standard: 'Standard Digital File License',
 };
 // Resolve the MakerWorld license: explicit override > mapped from Details > MakerWorld default.
@@ -961,13 +1098,17 @@ const initialProject = {
   tags: [],
   license: 'ccbync',
   profiles: [],
+  assetGroups: {},
+  assetCollections: [],
+  savedAssetSearches: [],
+  watchedFolders: [],
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
     printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: null, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
-    cults: { enabled: true, price: 0, free: true, visibility: 'secret', details: '', metaTags: [], madeWithAi: false, showComments: true },
-    mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: 5, printingTips: '', timeFrom: '', timeTo: '', dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
-    thingiverse: { enabled: true, publication: 'draft', summary: '', categoryId: '', license: 'cc-nc', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
-    thangs: { enabled: true, publication: 'private', structure: 'single', units: 'mm', primaryFileId: '', category: '', allowRemix: true, aiGenerated: false, feedbackEnabled: true, folderId: '', workspaceId: '', resumeDraftId: '', accessTypeId: '', planIds: [], dependencies: [], versionNotes: '', marketplace: false, price: 0, license: 'CC BY-NC' },
+    cults: { enabled: true, price: 0, free: true, visibility: 'secret', categoryId: '', licenseType: '', details: '', metaTags: [], madeWithAi: false, showComments: true },
+    mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: '', printingTips: '', timeFrom: '', timeTo: '', dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
+    thingiverse: { enabled: true, publication: 'draft', summary: '', categoryId: '', license: '', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
+    thangs: { enabled: true, publication: 'private', structure: 'single', units: 'mm', primaryFileId: '', category: '', allowRemix: true, aiGenerated: false, feedbackEnabled: true, folderId: '', workspaceId: '', resumeDraftId: '', accessTypeId: '', planIds: [], dependencies: [], versionNotes: '', marketplace: false, price: 0, license: '' },
     nexprint: {
       enabled: false,
       publication: 'draft',
@@ -975,7 +1116,7 @@ const initialProject = {
       sourceUrl: '',
       sourceModelId: '',
       categoryId: '',
-      licenseType: 2,
+      licenseType: null,
       nsfw: false,
       aiGenerated: false,
       hasBom: false,
@@ -988,7 +1129,7 @@ const initialProject = {
       enabled: false,
       publication: 'private',
       categoryId: '',
-      license: 'CC BY-NC',
+      license: '',
       modelSource: 1,
       sourceUrl: '',
       nsfw: false,
@@ -998,13 +1139,13 @@ const initialProject = {
       publication: 'draft',
       source: 1,
       originalUrl: '',
-      license: 3,
+      license: null,
       categoryId: '',
       permission: 2,
       printMethod: 3,
       aiHelp: false,
       nsfw: false,
-      includePrintProfile: true,
+      includePrintProfile: false,
       printTitle: '',
       printDescription: '',
       relatedKits: false,
@@ -1013,9 +1154,9 @@ const initialProject = {
       exclusive: false,
     },
     makeroad: {
-      enabled: false, publication: 'draft', uploadType: 1, referUrl: '', categoryIds: [],
+      enabled: false, publication: 'review', uploadType: 1, referUrl: '', categoryIds: [], categoryPaths: [],
       printMethods: ['FDM'], printerIds: [], materialIds: [], colorIds: [],
-      licenseIndex: 2, aiGenerated: false, nsfw: false, visibility: 'private',
+      licenseIndex: null, aiGenerated: false, nsfw: false, visibility: 'private',
       scheduled: false, planTime: '', payType: 'free', payValue: 0, termsAccepted: false,
     },
   },
@@ -1036,7 +1177,7 @@ function mergePlatformDefaults(savedPlatforms = {}) {
 // A fully-populated, private/draft-first project for exercising the real desktop
 // publishers. Loading it never uploads by itself; the Publish button remains the
 // single explicit mutation boundary.
-function buildDemoProject() {
+export function buildDemoProject(seedImages = null) {
   const tints = [
     ['#5A7430', '#FFB627', '#262A23'],
     ['#3A86FF', '#4FB286', '#262A23'],
@@ -1044,81 +1185,117 @@ function buildDemoProject() {
     ['#9B5DE5', '#F15BB5', '#262A23'],
   ];
   const labels = ['HERO RENDER', 'PRINTED', 'DETAIL', 'IN SCALE'];
-  const images = tints.map((tint, i) => ({
+  const images = seedImages || tints.map((tint, i) => ({
     id: 'demoimg_' + i,
     dataUrl: makeSampleImage(labels[i], tint),
     naturalW: 2400, naturalH: 1800,
     focal: { x: 0.5, y: i % 2 ? 0.42 : 0.5 },
     alt: labels[i],
   }));
-  const mkFile = (name, size, type) => ({
-    id: 'demofile_' + name,
-    name, size, type,
-    isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
-    isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' },
-    printables: { note: '', folder: '' },
-    blob: new Blob([`ModelPrep demo placeholder: ${name}`], { type: type || 'application/octet-stream' }),
-  });
-  const files = [
-    mkFile('desk-dragon-S.stl', 4_180_000, 'model/stl'),
-    mkFile('desk-dragon-M.stl', 7_640_000, 'model/stl'),
-    mkFile('desk-dragon-bambu.3mf', 9_220_000, 'model/3mf'),
-  ];
-  const profiles = files.filter(f => isProfile(f.name)).map(f => {
-    const parsed = mockParseThreeMF(f.name);
+  // Demo model files are REAL printable content with honest sizes. The old
+  // ~45-byte text blobs claiming 4-8 MB planted unprintable junk on every live
+  // platform (publicly downloadable during the Nexprint exposure).
+  const mkFile = (name, type, blob) => {
+    const realBlob = blob || new Blob([`ModelPrep demo placeholder: ${name}`], { type: type || 'application/octet-stream' });
     return {
+      id: 'demofile_' + name,
+      name, size: realBlob.size, type,
+      isModel: isModelFile(name), isProfile: isProfile(name), isImage: isImageFile(name),
+      isLaserCut: isMakerWorldLaserFile(name), makerWorld: { note: '', openSource: true, folderPath: '' },
+      printables: { note: '', folder: '' },
+      blob: realBlob,
+    };
+  };
+  const demoStl = (opts) => new Blob([makeDemoStl(opts)], { type: 'model/stl' });
+  const files = [
+    mkFile('modelprep-calibration-puck-S.stl', 'model/stl', demoStl({ diameter: 22, height: 3.2, segments: 120 })),
+    mkFile('modelprep-calibration-puck-M.stl', 'model/stl', demoStl({ diameter: 34, height: 4.4, segments: 180 })),
+    mkFile('modelprep-calibration-puck-bambu.3mf', 'model/3mf'),
+  ];
+  const profiles = files.filter(f => isProfile(f.name)).map(f => ({
       id: 'prof_' + f.id,
       fileId: f.id,
       name: f.name.replace(/\.3mf$/i, ''),
-      // Keep the prose in sync with the parsed profile so the demo doesn't
-      // contradict itself (description printer vs parsed printer).
-      description: `Calibrated for ${parsed.printer}, 0.4mm nozzle. Matte PLA, ${parsed.layerHeight} layers, 15% gyroid infill, no supports.`,
+      description: 'Calibration-puck project file. Use as a print profile only after ModelPrep confirms embedded printer and sliced-plate metadata.',
       useMainCover: false,
       coverImageId: images[1].id,
       photoIds: [images[1].id, images[2].id],
       visibility: 'private',
       compatiblePrinters: [],
-      realPhotoConfirmed: true,
+      // Bundled images are honest model-derived renders, not physical-print photos.
+      // This deliberately keeps MakerWorld's real-photo-only publish branch fail-closed.
+      realPhotoConfirmed: false,
       guidelinesAccepted: true,
-      parsed,
-    };
-  });
+      parsed: null,
+    }));
   return {
-    name: 'Articulating Desk Dragon (demo)',
+    name: 'ModelPrep Calibration Puck (demo)',
     files,
     images,
     coverImageId: images[0].id,
-    title: 'Articulating Desk Dragon: Print-in-Place',
+    title: 'ModelPrep Calibration Puck — Upload Test Fixture',
     description: SAMPLE_DESCRIPTION,
-    category: 'Toys & Games',
-    tags: ['articulated', 'flexi', 'dragon', 'print-in-place', 'no-supports', 'desk-toy', 'fidget', 'fantasy'],
+    category: 'Tools',
+    tags: ['calibration', 'test-model', '3d-printer', 'support-free', 'fdm', 'upload-test'],
     license: 'ccbync',
     profiles,
     platforms: {
       makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
-      printables: { enabled: true, publication: 'draft', categoryId: '36', licenseId: '3', summary: 'A print-in-place articulated desk dragon with poseable wings and tail.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
+      // 12 = "3D Printers › Test Models" (live taxonomy, 2026-08-08). The
+      // fixture previously shipped 36 = "Toys & Games › Action Figures &
+      // Statues", which retained draft 1803506 duly displayed for a
+      // calibration puck.
+      //
+      // `fileSelection: 'manual'` is what makes this fixture's `ordinary-3mf`
+      // coverage claim true. Printables' native slicer is Prusa, so the
+      // automatic selection leaves a Bambu-sliced .3mf unticked - which is why
+      // every earlier retained draft came back without it. Printables has no
+      // print-profile role, so the profile is exercised here as what it
+      // actually is there: an ordinary model file the user opted in.
+      printables: { enabled: true, publication: 'draft', categoryId: '12', licenseId: '3', summary: 'A support-free calibration puck for testing 3D-model upload mappings.', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null, fileSelection: 'manual', excludedFileIds: [] },
       // Keep the cross-platform certification fixture free so the shared
       // CC BY-NC license remains valid on Cults. Paid Cults listings require
       // CULTS CU and are certified as a separate optional branch.
-      cults: { enabled: true, price: 0, free: true, visibility: 'secret', details: '', metaTags: [], madeWithAi: false, showComments: true },
-      mmf: { enabled: true, publication: 'private', categoryIds: [60, 462], licenseId: 5, printingTips: 'Print-in-place. No supports required.', timeFrom: 180, timeTo: 300, dimensions: '120 × 75 × 45', dimensionsUnit: 0, technology: 'FDM', materialQuantity: '45 g', supportFree: true, remix: false, remixParentIds: [], confirmOriginalNoAi: true },
-      thingiverse: { enabled: true, publication: 'draft', summary: 'A print-in-place articulated desk dragon.', categoryId: '124', license: 'cc-nc', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
+      cults: { enabled: true, price: 0, free: true, visibility: 'secret', categoryId: '27', licenseType: 'cc_by_nc', details: 'FDM calibration fixture. Print the flat face on the bed; the 0.8 mm chamfer needs no supports.', metaTags: ['functional_part', 'no_support'], madeWithAi: false, showComments: true },
+      mmf: { enabled: true, publication: 'private', categoryIds: [60, 462], licenseId: 5, printingTips: 'Print flat-side-down. No supports required.', timeFrom: 10, timeTo: 25, dimensions: '34 × 34 × 4.4', dimensionsUnit: 0, technology: 'FDM', materialQuantity: '4 g', supportFree: true, remix: false, remixParentIds: [], confirmOriginalNoAi: true },
+      thingiverse: {
+        enabled: true, publication: 'draft', summary: 'A support-free calibration puck for upload-path testing.',
+        // 129 = 3D Printing › Tests. The earlier 124 maps to Toys & Games ›
+        // Mechanical Toys and was visibly wrong on retained draft 7393174.
+        categoryId: '129', license: 'cc-nc', aiGenerated: false, wip: false,
+        customizable: false, remix: false, sourceThingId: '', nsfw: false,
+        printSettings: {
+          printerBrand: 'Bambu Lab', printer: 'A1 Mini', rafts: 'No', supports: 'No',
+          resolution: '0.2 mm', infill: '15% gyroid', material: 'PLA',
+          filamentBrand: 'Generic', color: 'Green',
+          notes: 'Print flat-side-down with three wall loops. The top chamfer is support-free.',
+        },
+        sections: [], education: null, termsAccepted: false,
+      },
       thangs: {
         ...initialProject.platforms.thangs,
         enabled: true,
         publication: 'private',
         structure: 'single',
-        primaryFileId: 'demofile_desk-dragon-S.stl',
-        category: 'Toys & Games/Articulated',
+        primaryFileId: 'demofile_modelprep-calibration-puck-S.stl',
+        category: '3D Printer Parts & Accessories/Test Prints & Calibration',
         versionNotes: 'ModelPrep private single-part certification upload.',
       },
       nexprint: {
         enabled: true,
-        publication: 'draft',
+        publication: 'review',
+        // Nexprint's native slicer is Elegoo, so automatic selection unticks a
+        // Bambu-sliced profile and the fixture's 3MF never reached it. Opt in
+        // explicitly: on Nexprint a .3mf is an ordinary `modelFileList` entry
+        // (not an attachment - .3mf is not in the attachment extension list),
+        // and its separate print-profile block stays empty because ModelPrep
+        // sends `settingList: []`.
+        fileSelection: 'manual',
+        excludedFileIds: [],
         originalityType: 1,
         sourceUrl: '',
         sourceModelId: '',
-        categoryId: '1422473859006468',
+        categoryId: '1422473859022859',
         licenseType: 2,
         nsfw: false,
         aiGenerated: false,
@@ -1131,7 +1308,14 @@ function buildDemoProject() {
       creality: {
         enabled: true,
         publication: 'private',
-        categoryId: '6007',
+        // Creality's native slicer is Creality Print, so automatic selection
+        // unticks a Bambu-sliced profile. Opt in explicitly: a .3mf is an
+        // ordinary `modelList` entry here. Creality's parsed Print
+        // Configuration surface (`model3mfList`/`include3mf`) is a separate
+        // mode that needs a real 3MF parser and stays empty.
+        fileSelection: 'manual',
+        excludedFileIds: [],
+        categoryId: '1645',
         license: 'CC BY-NC',
         modelSource: 1,
         sourceUrl: '',
@@ -1139,18 +1323,26 @@ function buildDemoProject() {
       },
       makeronline: {
         enabled: true,
+        // MakerOnline's native slicer is Anycubic, so automatic selection
+        // excludes this Bambu profile. This certification fixture deliberately
+        // exercises the same physical 3MF as both a raw model and parsed print
+        // profile, so opt it in explicitly.
+        fileSelection: 'manual',
+        excludedFileIds: [],
         publication: 'draft',
         source: 1,
         originalUrl: '',
         license: 3,
-        categoryId: '104',
+        categoryId: '36',
         permission: 2,
-        printMethod: 3,
+        printMethod: 1,
         aiHelp: false,
         nsfw: false,
-        includePrintProfile: true,
-        printTitle: 'Desk Dragon: Bambu A1 Mini',
-        printDescription: '0.2 mm PLA profile with 15% gyroid infill and no supports.',
+        // Enabled only by loadDemoAssets after the bundled 3MF proves it has
+        // an embedded printer and a genuinely sliced plate.
+        includePrintProfile: false,
+        printTitle: 'Calibration Puck: Bambu A1 Mini',
+        printDescription: '34 mm puck, 0.2 mm PLA, 15% gyroid infill, three walls, no supports.',
         relatedKits: false,
         storeKitIds: [],
         syncChina: false,
@@ -1161,9 +1353,21 @@ function buildDemoProject() {
         enabled: true,
         publication: 'draft',
         categoryIds: [],
-        categoryPaths: ["Games & Toys › Kids' Toys"],
+        categoryPaths: ['Professional Fields › Test Models'],
         visibility: 'private',
       },
+    },
+    __certificationCoverage: {
+      makerworld: ['raw-model-files', 'ordered-gallery', 'private-draft', 'license', 'category', 'tags', 'bom-off', 'real-photo-fail-closed'],
+      printables: ['raw-model-files', 'ordinary-3mf', 'ordered-gallery', 'draft', 'summary', 'authorship-original', 'license', 'category', 'normalized-tags'],
+      cults: ['raw-model-files', 'ordinary-3mf', 'ordered-media', 'secret', 'free', 'license', 'details', 'functional-part', 'no-support'],
+      mmf: ['raw-model-files', 'ordinary-3mf', 'ordered-gallery', 'private', 'license', 'two-level-category', 'dimensions', 'print-time-range', 'material-quantity', 'support-free', 'original-no-ai'],
+      thingiverse: ['raw-model-files', 'ordinary-3mf', 'ordered-gallery', 'draft', 'license', 'category', 'summary', 'markdown-description', 'structured-print-settings'],
+      thangs: ['primary-model', 'reference-files', 'ordered-gallery', 'private', 'license', 'category', 'markdown-description', 'owner-url'],
+      nexprint: ['raw-model-files', 'ordinary-3mf', 'empty-print-profile-block', 'cover-plus-gallery', 'draft', 'license', 'category', 'original', 'bom', 'world-first-off'],
+      creality: ['raw-model-files', 'ordinary-3mf', 'empty-print-configuration', 'dual-cover-crops', 'private', 'license', 'category', 'original', 'maturity-off'],
+      makeronline: ['raw-model-files', 'ordinary-3mf', 'print-profile-fail-closed', 'ordered-gallery', 'draft', 'license', 'category', 'private-permission', 'fdm', 'no-ai'],
+      makeroad: ['raw-model-files', 'profile-file', 'ordered-gallery', 'review-submission', 'license', 'category', 'fdm', 'free', 'review-fail-closed'],
     },
     __testProject: true,
   };
@@ -1173,23 +1377,17 @@ function buildDemoProject() {
 // A coherent landscape / portrait / square set makes the focal-point behavior obvious
 // and stays deterministic offline. Each composition has useful landmarks near the edges,
 // so switching between 4:3, 1:1, and 3:4 visibly changes what remains in frame.
-const DEMO_IMAGE_ASSETS = [
-  { file: 'desk-dragon-landscape.webp', alt: 'Desk dragon: wide workshop hero', focal: { x: 0.66, y: 0.38 } },
-  { file: 'desk-dragon-portrait.webp', alt: 'Desk dragon: portrait product shot', focal: { x: 0.64, y: 0.34 } },
-  { file: 'desk-dragon-detail.webp', alt: 'Desk dragon: print detail', focal: { x: 0.68, y: 0.36 } },
-  { file: 'desk-dragon-rear.webp', alt: 'Desk dragon: rear articulation', focal: { x: 0.58, y: 0.30 } },
-  { file: 'desk-dragon-hand-scale.webp', alt: 'Desk dragon: hand-held scale', focal: { x: 0.62, y: 0.30 } },
-  { file: 'desk-dragon-wing-detail.webp', alt: 'Desk dragon: wing mechanism', focal: { x: 0.62, y: 0.34 } },
-  { file: 'desk-dragon-tail-detail.webp', alt: 'Desk dragon: tail articulation', focal: { x: 0.68, y: 0.30 } },
-  { file: 'desk-dragon-front.webp', alt: 'Desk dragon: front view', focal: { x: 0.50, y: 0.34 } },
-  { file: 'desk-dragon-side.webp', alt: 'Desk dragon: side profile', focal: { x: 0.33, y: 0.32 } },
-  { file: 'desk-dragon-printer-bed.webp', alt: 'Desk dragon: printer-bed context', focal: { x: 0.65, y: 0.36 } },
-  { file: 'desk-dragon-overhead.webp', alt: 'Desk dragon: overhead articulation', focal: { x: 0.70, y: 0.30 } },
-  { file: 'desk-dragon-measure.webp', alt: 'Desk dragon: dimensional scale', focal: { x: 0.68, y: 0.34 } },
-  { file: 'desk-dragon-shelf.webp', alt: 'Desk dragon: shelf display', focal: { x: 0.27, y: 0.44 } },
-  { file: 'desk-dragon-low-angle.webp', alt: 'Desk dragon: low-angle hero', focal: { x: 0.42, y: 0.34 } },
-  { file: 'desk-dragon-rear-wings.webp', alt: 'Desk dragon: rear wing spread', focal: { x: 0.58, y: 0.40 } },
-  { file: 'desk-dragon-material.webp', alt: 'Desk dragon: layer and material detail', focal: { x: 0.61, y: 0.30 } },
+export const DEMO_IMAGE_ASSETS = [
+  { file: 'calibration-puck-hero.webp', alt: 'Model-derived render of the 34 mm calibration puck', focal: { x: 0.5, y: 0.48 } },
+  { file: 'calibration-puck-dimensions.webp', alt: 'Calibration puck dimensions: 34 mm diameter by 4.4 mm high', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-top.webp', alt: 'Top view of the calibration puck', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-side.webp', alt: 'Side render showing the chamfered top edge', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-sizes.webp', alt: 'The 22 mm and 34 mm calibration puck variants', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-flat-base.webp', alt: 'Diagram identifying the flat print-bed face', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-chamfer.webp', alt: 'Detail diagram of the support-free chamfer', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-profile.webp', alt: 'Bambu Studio project preview for the 34 mm puck', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-files.webp', alt: 'Fixture inventory: two STL files and one Bambu Studio 3MF', focal: { x: 0.5, y: 0.5 } },
+  { file: 'calibration-puck-certification.webp', alt: 'Synthetic fixture disclosure and certification scope', focal: { x: 0.5, y: 0.5 } },
 ];
 
 async function loadDemoImages() {
@@ -1229,24 +1427,10 @@ async function loadDemoImages() {
   return built;
 }
 
-// A valid ASCII STL of a cube: a real, uploadable model file.
-function makeCubeStl(s = 20) {
-  const v = [[0,0,0],[s,0,0],[s,s,0],[0,s,0],[0,0,s],[s,0,s],[s,s,s],[0,s,s]];
-  const faces = [[0,3,2],[0,2,1],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]];
-  let out = 'solid modelprep_demo\n';
-  for (const f of faces) {
-    out += '  facet normal 0 0 0\n    outer loop\n';
-    for (const idx of f) out += `      vertex ${v[idx][0]} ${v[idx][1]} ${v[idx][2]}\n`;
-    out += '    endloop\n  endfacet\n';
-  }
-  out += 'endsolid modelprep_demo\n';
-  return new Blob([out], { type: 'model/stl' });
-}
-
 // Build the bundled-asset patch for the demo: crop-focused images + real model files.
 // MakerWorld's .3mf path REQUIRES a genuine Bambu-Studio 3mf ("not generated by
 // Bambu Studio" → publish fails), and we can't synthesize one. So:
-//   • if a real Bambu .3mf is bundled at public/demo/desk-dragon-bambu.3mf → use it (the
+//   • if a real Bambu .3mf is bundled at public/demo/modelprep-calibration-puck-bambu.3mf → use it (the
 //     full print-profile flow is demoed AND a connected user can really publish it);
 //   • otherwise → STL-only (drop the 3mf + profiles) so the real publish actually succeeds.
 async function loadDemoAssets(base) {
@@ -1254,21 +1438,36 @@ async function loadDemoAssets(base) {
   // 3–10 image window, so the same fixture can be sent to all destinations.
   const images = (await loadDemoImages()).slice(0, 10);
   const cover = images[0];
-  const realMf = await fetch(`${import.meta.env.BASE_URL}demo/desk-dragon-bambu.3mf`)
+  const realMf = await fetch(`${import.meta.env.BASE_URL}demo/modelprep-calibration-puck-bambu.3mf`)
     .then((r) => (r.ok ? r.blob() : null)).catch(() => null);
 
   let files, profiles;
+  let usablePrintProfile = false;
   if (realMf) {
+    const scan = await parseThreeMF(realMf, loadJSZip);
+    usablePrintProfile = !!(scan.sliced && scan.printer && Number(scan.plates) > 0);
     files = base.files.map((f) => {
-      if (/\.3mf$/i.test(f.name)) return { ...f, blob: realMf, size: realMf.size };
-      if (/\.stl$/i.test(f.name)) { const stl = makeCubeStl(); return { ...f, blob: stl, size: stl.size }; }
+      if (/\.3mf$/i.test(f.name)) return { ...f, blob: realMf, size: realMf.size, threemf: scan, previewDataUrl: images[9]?.dataUrl || cover.dataUrl };
+      if (/-S\.stl$/i.test(f.name)) return { ...f, previewDataUrl: images[2]?.dataUrl || cover.dataUrl };
+      if (/\.stl$/i.test(f.name)) return { ...f, previewDataUrl: images[8]?.dataUrl || cover.dataUrl };
       return f;
     });
-    profiles = base.profiles.map((p) => ({ ...p, coverImageId: images[1]?.id || cover.id, photoIds: images.map((im) => im.id) }));
+    profiles = usablePrintProfile ? base.profiles.map((p) => ({
+      ...p,
+      coverImageId: images[1]?.id || cover.id,
+      photoIds: images.map((im) => im.id),
+      parsed: {
+        printer: scan.printer,
+        material: scan.material || '',
+        layerHeight: scan.layerHeight || '',
+        plates: scan.plates,
+        estimatedTime: scan.estimatedTime || '',
+        filamentGrams: scan.filamentGrams || null,
+      },
+    })) : [];
   } else {
     // No real Bambu 3mf available → STL-only so a connected user's real publish succeeds.
     files = base.files.filter((f) => !/\.3mf$/i.test(f.name)).map((f) => {
-      if (/\.stl$/i.test(f.name)) { const stl = makeCubeStl(); return { ...f, blob: stl, size: stl.size }; }
       return f;
     });
     profiles = [];
@@ -1282,7 +1481,7 @@ async function loadDemoAssets(base) {
       ...base.platforms,
       makeronline: {
         ...base.platforms.makeronline,
-        includePrintProfile: !!realMf,
+        includePrintProfile: usablePrintProfile,
       },
     },
   };
@@ -1299,7 +1498,12 @@ function serializeProjectMeta(p) {
   return {
     name: p.name, title: p.title, description: p.description,
     tags: p.tags, category: p.category, license: p.license,
+    profiles: p.profiles,
     platforms: p.platforms,
+    assetGroups: p.assetGroups || {},
+    assetCollections: p.assetCollections || [],
+    savedAssetSearches: p.savedAssetSearches || [],
+    watchedFolders: p.watchedFolders || [],
     savedAt: Date.now(),
   };
 }
@@ -1312,14 +1516,29 @@ function canonicalAutosaveValue(value) {
   );
 }
 
+// Fields written by the shared-defaults materializer (lib/shared-defaults.js).
+// While the auto flag is true, the value is derived from the shared category/
+// license, which the fingerprint already covers, so neither the flag nor the
+// derived value is a user edit.
+const AUTO_MANAGED_FLAGS = ['categoryAuto', 'licenseAuto', 'licenseAutoExact'];
+const AUTO_MANAGED_VALUE_FIELDS = {
+  categoryAuto: ['categoryId', 'categoryIds', 'categoryPaths', 'category'],
+  licenseAuto: ['license', 'licenseId', 'licenseType', 'licenseIndex'],
+};
+
 function meaningfulPlatformSettings(platforms = {}) {
   const meaningful = {};
   for (const id of Object.keys(platforms || {}).sort()) {
     const settings = platforms[id];
     if (!settings || typeof settings !== 'object') continue;
     const defaults = initialProject.platforms[id] || {};
+    const derivedKeys = new Set(AUTO_MANAGED_FLAGS);
+    for (const [flag, fields] of Object.entries(AUTO_MANAGED_VALUE_FIELDS)) {
+      if (settings[flag] === true) for (const field of fields) derivedKeys.add(field);
+    }
     const differences = {};
     for (const key of Object.keys(settings).sort()) {
+      if (derivedKeys.has(key)) continue;
       if (JSON.stringify(canonicalAutosaveValue(settings[key])) !== JSON.stringify(canonicalAutosaveValue(defaults[key]))) {
         differences[key] = settings[key];
       }
@@ -1339,6 +1558,11 @@ function autosaveFingerprint(saved) {
     tags: saved.tags || [],
     category: saved.category || '',
     license: saved.license || '',
+    profiles: saved.profiles || [],
+    assetGroups: saved.assetGroups || {},
+    assetCollections: saved.assetCollections || [],
+    savedAssetSearches: saved.savedAssetSearches || [],
+    watchedFolders: saved.watchedFolders || [],
     // Restoring merges newly introduced platform defaults into old snapshots.
     // Default-valued fields are not user edits and must not make the same
     // snapshot look new on the next launch.
@@ -1365,7 +1589,8 @@ function markAutosaveHandled(saved) {
   } catch (e) { /* private mode */ }
 }
 function projectHasContent(p) {
-  return !!(p.title || p.description || p.tags.length ||
+  return !!(p.files.length || p.images.length || (p.media || []).length ||
+    p.title || p.description || p.tags.length ||
     Object.values(p.platforms).some(pl => pl.price || pl.contestEntry || pl.remix));
 }
 
@@ -1416,7 +1641,7 @@ function readFileText(file) {
   return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result || ''); r.onerror = () => res(''); r.readAsText(file); });
 }
 
-async function buildImportImage(file, idx) {
+async function buildImportImage(file, idx, sourceFileId = null) {
   const dataUrl = await new Promise((res) => {
     const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null);
     try { r.readAsDataURL(file); } catch { res(null); }
@@ -1425,7 +1650,8 @@ async function buildImportImage(file, idx) {
   try {
     const img = await loadImageFromDataUrl(dataUrl);
     return { id: 'img_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).slice(2, 7),
-      dataUrl, naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: 0.5 },
+      dataUrl, name: file.name, size: file.size, sourceFileId,
+      naturalW: img.naturalWidth, naturalH: img.naturalHeight, focal: { x: 0.5, y: 0.5 },
       alt: file.name.replace(/\.[^.]+$/, '') };
   } catch { return null; }
 }
@@ -1520,6 +1746,7 @@ function buildImportSummaryText(s) {
 export default function App() {
   const [project, dispatchProject] = useReducer(projectReducer, initialProject);
   const [currentSection, setCurrentSection] = useState('files');
+  const syncingPackageImageIds = useRef(new Set());
 
   // Release-plan scheduler: while the app is open, surface due reminders as
   // system notifications and, for scheduled uploads, jump to the Publish step
@@ -1740,8 +1967,150 @@ export default function App() {
   // Thin dispatchers: keep the existing call-site shapes working:
   //   updateProject({ ...patch })         shallow-merge
   //   setProject(prev => next) / setProject(obj)   functional or full replace
-  const updateProject = (patch) => dispatchProject({ type: 'PATCH', patch });
+  const updateProject = useCallback((patch) => dispatchProject(typeof patch === 'function' ? { type: 'APPLY', updater: patch } : { type: 'PATCH', patch }), []);
   const setProject = (v) => dispatchProject(typeof v === 'function' ? { type: 'APPLY', updater: v } : { type: 'SET', value: v });
+
+  // "We pick a close match for each": materialize the shared Details category
+  // and license into per-platform options (lib/shared-defaults.js). Only empty
+  // or still-auto fields are touched; panels flip categoryAuto/licenseAuto to
+  // false on a manual change, which permanently stops re-mapping that field.
+  // Printables categories are deliberately server-driven, so its match uses
+  // the live /printables/meta list fetched here once when needed.
+  const [printablesLiveCategories, setPrintablesLiveCategories] = useState(null);
+  useEffect(() => {
+    const printables = project.platforms?.printables;
+    const wantsLive = !!project.category && !!printables
+      && printables.categoryAuto !== false
+      && (printables.categoryAuto === true || !printables.categoryId);
+    if (!wantsLive || printablesLiveCategories !== null) return undefined;
+    let alive = true;
+    fetch(`${WORKER_URL}/api/v1/printables/meta`)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.message || `HTTP ${response.status}`);
+        return Array.isArray(data.categories) ? data.categories : [];
+      })
+      .then((categories) => { if (alive) setPrintablesLiveCategories(categories); })
+      .catch(() => { if (alive) setPrintablesLiveCategories([]); });
+    return () => { alive = false; };
+  }, [project.category, project.platforms?.printables, printablesLiveCategories]);
+  useEffect(() => {
+    const patches = deriveSharedDefaultPatches(project, { printablesCategories: printablesLiveCategories });
+    if (!patches) return;
+    updateProject((current) => {
+      const platforms = { ...current.platforms };
+      let changed = false;
+      for (const [platformId, patch] of Object.entries(patches)) {
+        if (!platforms[platformId]) continue;
+        platforms[platformId] = { ...platforms[platformId], ...patch };
+        changed = true;
+      }
+      return changed ? { ...current, platforms } : current;
+    });
+  }, [project, printablesLiveCategories, updateProject]);
+
+  // Package is the single import surface: a photo added beside the model files
+  // must also become Listing media. Keep a source-file link so removing or
+  // reclassifying the Package item removes only its derived gallery image,
+  // while images added directly in Listing remain independent.
+  useEffect(() => {
+    const eligible = project.files.filter((file) => projectFileRole(file) === 'reference' && file.blob);
+    const eligibleIds = new Set(eligible.map((file) => file.id));
+    const staleIds = new Set(project.images
+      .filter((image) => image.sourceFileId && !eligibleIds.has(image.sourceFileId))
+      .map((image) => image.id));
+    if (staleIds.size) {
+      setProject((prev) => {
+        const images = prev.images.filter((image) => !staleIds.has(image.id));
+        const coverImageId = staleIds.has(prev.coverImageId) ? (images[0]?.id || null) : prev.coverImageId;
+        const profiles = prev.profiles.map((profile) => ({
+          ...profile,
+          coverImageId: staleIds.has(profile.coverImageId) ? null : profile.coverImageId,
+          photoIds: (profile.photoIds || []).filter((id) => !staleIds.has(id)),
+        }));
+        return { ...prev, images, coverImageId, profiles };
+      });
+      return;
+    }
+
+    const linkedImageBySource = new Map(project.images
+      .filter((image) => image.sourceFileId)
+      .map((image) => [image.sourceFileId, image.id]));
+    const linkedSourceIds = new Set(linkedImageBySource.keys());
+    const unlinkedBySignature = new Map();
+    for (const image of project.images) {
+      const imageName = image.name || image.alt;
+      if (image.sourceFileId || !imageName) continue;
+      const key = `${String(imageName).toLowerCase()}:${Number(image.size) || 0}`;
+      if (!unlinkedBySignature.has(key)) unlinkedBySignature.set(key, []);
+      unlinkedBySignature.get(key).push(image.id);
+    }
+    const relinks = new Map();
+    const duplicateImageIds = new Set();
+    const duplicateReplacement = new Map();
+    for (const file of eligible) {
+      const fileName = String(file.name).toLowerCase();
+      const fileStem = fileName.replace(/\.[^.]+$/, '');
+      const size = Number(file.size) || 0;
+      const matches = unlinkedBySignature.get(`${fileName}:${size}`)
+        || unlinkedBySignature.get(`${fileStem}:${size}`);
+      const imageId = matches?.shift();
+      if (!imageId) continue;
+      relinks.set(imageId, file.id);
+      for (const duplicateId of matches) {
+        duplicateImageIds.add(duplicateId);
+        duplicateReplacement.set(duplicateId, imageId);
+      }
+      const linkedImageId = linkedImageBySource.get(file.id);
+      if (linkedImageId && linkedImageId !== imageId) {
+        duplicateImageIds.add(linkedImageId);
+        duplicateReplacement.set(linkedImageId, imageId);
+      }
+    }
+    if (relinks.size) {
+      setProject((prev) => {
+        const images = prev.images
+          .filter((image) => !duplicateImageIds.has(image.id))
+          .map((image) => relinks.has(image.id) ? { ...image, sourceFileId: relinks.get(image.id) } : image);
+        const replacementFor = (imageId) => {
+          if (!duplicateImageIds.has(imageId)) return imageId;
+          return duplicateReplacement.get(imageId) || null;
+        };
+        return {
+          ...prev,
+          images,
+          coverImageId: replacementFor(prev.coverImageId) || images[0]?.id || null,
+          profiles: prev.profiles.map((profile) => ({
+            ...profile,
+            coverImageId: replacementFor(profile.coverImageId),
+            photoIds: (profile.photoIds || []).map(replacementFor).filter(Boolean),
+          })),
+        };
+      });
+      return;
+    }
+
+    const pending = eligible.filter((file) => !linkedSourceIds.has(file.id)
+      && !syncingPackageImageIds.current.has(file.id));
+    if (!pending.length) return;
+    pending.forEach((file) => syncingPackageImageIds.current.add(file.id));
+    Promise.all(pending.map((file, index) => buildImportImage(file.blob, index, file.id)))
+      .then((built) => {
+        pending.forEach((file) => syncingPackageImageIds.current.delete(file.id));
+        setProject((prev) => {
+          const liveFiles = new Map(prev.files.map((file) => [file.id, file]));
+          const alreadyLinked = new Set(prev.images.map((image) => image.sourceFileId).filter(Boolean));
+          const additions = built.filter((image) => image
+            && liveFiles.has(image.sourceFileId)
+            && projectFileRole(liveFiles.get(image.sourceFileId)) === 'reference'
+            && !alreadyLinked.has(image.sourceFileId));
+          if (!additions.length) return prev;
+          const images = [...prev.images, ...additions];
+          return { ...prev, images, coverImageId: prev.coverImageId || additions[0].id };
+        });
+      })
+      .catch(() => pending.forEach((file) => syncingPackageImageIds.current.delete(file.id)));
+  }, [project.files, project.images]);
 
   // Scan newly added 3MF files for their real slicer/print metadata. Detection
   // is advisory: it sets badges, profile stats and smart defaults, and the user
@@ -1778,11 +2147,17 @@ export default function App() {
     // 3MFs and pruning deleted ones can't clobber each other (was two stale-
     // closure updateProject calls that could drop a just-added profile).
     setProject(prev => {
-      const liveFileIds = new Set(prev.files.map(f => f.id));
-      const existing = new Set(prev.profiles.map(p => p.fileId));
-      const kept = prev.profiles.filter(p => liveFileIds.has(p.fileId));
+      const liveFiles = new Map(prev.files.map(f => [f.id, f]));
+      // A 3MF extension alone does not make a print profile. Keep a profile
+      // while its archive is still being scanned, but remove it once the real
+      // metadata proves the project has not been sliced.
+      const kept = prev.profiles.filter(p => {
+        const file = liveFiles.get(p.fileId);
+        return !!file && file.threemf?.sliced !== false;
+      });
+      const existing = new Set(kept.map(p => p.fileId));
       const added = prev.files
-        .filter(f => isProfile(f.name) && !existing.has(f.id))
+        .filter(f => projectFileRole(f) === 'profile' && f.threemf?.sliced === true && !existing.has(f.id))
         .map(f => ({
           id: 'prof_' + f.id,
           fileId: f.id,
@@ -1835,6 +2210,7 @@ export default function App() {
       tags: saved.tags || [],
       category: saved.category || '',
       license: saved.license || 'ccbync',
+      profiles: Array.isArray(saved.profiles) ? saved.profiles : [],
       platforms: mergePlatformDefaults(saved.platforms),
     };
     // A scheduled publish that came due while the app was closed restores
@@ -1873,11 +2249,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep every auto-mode platform's file selection in step with the files that
-  // exist. Slicer detection is async (the .3mf is parsed after import), and
-  // files arrive in batches, so this has to re-run rather than be decided once
-  // at drop time. Platforms the user has touched are left alone: `manual` means
-  // their choice wins over any later import.
+  // Migrate the old automatic whole-file exclusions to the role model. No
+  // slicer now causes an automatic exclusion, so an untouched saved project is
+  // repaired to include its 3MF as a model while explicit manual omissions stay.
   useEffect(() => {
     let changed = false;
     const nextPlatforms = { ...project.platforms };
@@ -1893,19 +2267,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.files, project.platforms]);
 
-  // Section completion logic
+  // Every phase and final preflight reads the same structured readiness. A
+  // partial batch remains reviewable; “Destinations complete” is stricter and
+  // means every selected destination has zero blocking requirements.
+  const readiness = useMemo(() => deriveProjectReadiness(project), [project]);
   const completion = useMemo(() => ({
-    files: project.files.length > 0,
-    details: project.title.trim() && project.description.trim() && project.category && project.tags.length > 0,
-    images: project.images.length > 0 && project.coverImageId !== null,
-    // Vacuous truths read as pre-checked steps on an empty project, so both
-    // gate on having files first.
-    profiles: project.files.length > 0 && (project.profiles.length === 0 || project.profiles.every(p => p.name.trim())),
-    platforms: project.files.length > 0 && Object.values(project.platforms).some(p => p.enabled),
-    publish: false,
-  }), [project]);
+    files: readiness.package.sendable,
+    profiles: readiness.package.profileBlockers.length === 0,
+    details: readiness.listing.details,
+    images: readiness.listing.media,
+    platforms: readiness.destinations.allReady,
+    publish: readiness.review.complete,
+  }), [readiness]);
 
-  const allReady = completion.files && completion.details && completion.images && completion.profiles && completion.platforms;
+  const allReady = readiness.package.ready && readiness.listing.ready && readiness.destinations.selectedCount > 0;
 
   const saveAsTemplate = () => {
     setShowTemplates(false);
@@ -2346,6 +2721,11 @@ function GlobalStyles() {
          control is capped, so make the stack explicit. Flex labels (checkboxes)
          blockify their children anyway, so they are unaffected. */
       .mp-platform-panel label > span { display: block; }
+      /* Options panels run dense; give them the working text size so per-
+         platform forms stay readable at depth. */
+      .mp-platform-panel { font-size: 0.95rem; line-height: 1.5; }
+      .mp-platform-panel .text-xs,
+      .mp-platform-panel .text-\[11px\] { font-size: 0.85rem; }
       .mp-section-content > * { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 
       /* Status pill: quiet rounded badge, sentence case. */
@@ -2654,6 +3034,15 @@ const MAX_BUILD_FILE_MB = 2048;
 // Pre-flight: validate the project against ONE platform's real requirements before publish,
 // so the user is told what won't pass instead of finding out after a failed upload.
 // Returns { errors:[], warnings:[] }: errors will definitely fail; warnings may degrade.
+// Videos live in project.media (the model-file drop handler never accepts
+// them), so any "has video" check reading project.files is dead code (X2).
+export function projectHasVideo(project) {
+  return (project?.media || []).some((media) => {
+    const type = String(media?.type || media?.blob?.type || '').toLowerCase();
+    return type.startsWith('video/') || ['mp4', 'mov', 'm4v', 'webm', 'avi'].includes(fileExt(media?.name || ''));
+  });
+}
+
 export function platformPreflight(platform, project) {
   if (platform.id === 'makerworld') {
     return makerWorldPublishIssues(project, { ...MW_DEFAULT_OPTS, ...(project.platforms?.makerworld || {}) }, {
@@ -2667,16 +3056,19 @@ export function platformPreflight(platform, project) {
   const MB = 1024 * 1024;
   const candidateFiles = platformCandidateFiles(platform, project);
   const platformOpts = project.platforms?.[platform.id];
-  const modelFiles = withoutExcluded(candidateFiles, platformOpts);
+  const modelFiles = candidateFiles.filter((file) =>
+    platformFileRole(platform.id, file, platformOpts) !== 'not-sent');
+  const primaryFiles = modelFiles.filter((file) => {
+    const role = platformFileRole(platform.id, file, platformOpts);
+    return role === 'model' || role === 'profile';
+  });
 
-  if (!modelFiles.length) {
+  if (!primaryFiles.length) {
     errors.push(candidateFiles.length
-      ? `All compatible files are excluded for ${platform.name}: re-include at least one in its file list.`
+      ? `No model or print-profile role is selected for ${platform.name}; assign at least one compatible file in Package.`
       : 'No model file to upload (add an .stl/.3mf in Files).');
   }
   for (const f of modelFiles) {
-    const ext = fileExt(f.name);
-    if (!platform.formats.includes(ext)) errors.push(`${f.name}: .${ext} isn't accepted here (this file won't upload).`);
     if (platform.maxFileMb && f.size / MB > platform.maxFileMb) errors.push(`${f.name} is ${formatBytes(f.size)}: over the ${platform.maxFileMb}MB per-file cap.`);
   }
   const totalMb = project.files.reduce((s, f) => s + f.size, 0) / MB;
@@ -2696,11 +3088,48 @@ export function platformPreflight(platform, project) {
   if (!project.category) warnings.push('No category selected.');
 
   const cults = project.platforms?.cults;
-  if (platform.id === 'cults' && cults && !cults.free && !(cults.price > 0)) warnings.push('Marked paid but the price is 0.');
+  if (platform.id === 'cults' && cults) {
+    if (!CULTS_CATEGORIES.some(([id]) => id === String(cults.categoryId || ''))) {
+      errors.push('Choose an explicit Cults3D category before upload. ModelPrep will not substitute a fallback.');
+    }
+    const chosenCultsLicense = CULTS_LICENSES.find(([id]) => id === String(cults.licenseType || ''));
+    const cultsPaid = cults.free === false || Number(cults.price) > 0;
+    if (!chosenCultsLicense) {
+      errors.push('Choose an explicit Cults3D license before upload. ModelPrep will not substitute a fallback.');
+    } else if (cultsPaid && chosenCultsLicense[2] === 'free') {
+      errors.push(`${chosenCultsLicense[1]} is not valid for a paid Cults3D listing.`);
+    } else if (!cultsPaid && chosenCultsLicense[2] === 'paid') {
+      errors.push(`${chosenCultsLicense[1]} is not valid for a free Cults3D listing.`);
+    }
+    if (!cults.free && !(cults.price > 0)) warnings.push('Marked paid but the price is 0.');
+    // Documented caps previously unenforced (X5): failure used to surface only
+    // after the bytes had already uploaded, orphaning auto-deactivated listings.
+    if (!cults.free && cults.price > 0 && (cults.price < 0.65 || cults.price > 1200)) {
+      errors.push('Cults3D prices must be between 0.65 and 1200.');
+    }
+    const keywordChars = project.tags.join(', ').length;
+    if (keywordChars > 300) errors.push(`Cults3D keywords total ${keywordChars}/300 characters.`);
+    const oversized = project.images.filter((image) => (image.naturalW || 0) > 8000 || (image.naturalH || 0) > 8000);
+    if (oversized.length) errors.push(`${oversized.length} image${oversized.length === 1 ? ' exceeds' : 's exceed'} Cults3D's 8000×8000 pixel cap.`);
+  }
   const printables = project.platforms?.printables;
   if (platform.id === 'printables' && printables) {
+    // Live-confirmed: an uploaded G-code with no printer persists via the API
+    // but never renders in Printables' own edit UI (rows group by printer), so
+    // the user cannot see, edit, or delete it there.
+    if (project.files.some((file) => ['gcode', 'bgcode'].includes(fileExt(file.name)))) {
+      warnings.push('Printables groups print files by printer and ModelPrep does not send one: your G-code will be stored but invisible in Printables’ editor until you set the model’s Main 3D printer on Printables.');
+    }
     errors.push(...printablesFileSettingIssues(modelFiles));
     errors.push(...printablesPaidIssues(printables));
+    // Printables has no print-profile surface: a .3mf is an ordinary model
+    // file (live readback files it under `stls`). So an unticked profile is
+    // simply a model file that will not upload, and saying so here is what
+    // stops the next retained draft from looking like a routing failure.
+    const skippedProfiles = excludedProfileNames(project.files, printables);
+    if (skippedProfiles.length) {
+      warnings.push(`Printables has no print-profile section: a .3mf uploads as an ordinary model file. ${skippedProfiles.length === 1 ? 'This profile is' : `These ${skippedProfiles.length} profiles are`} not ticked for Printables and will not upload: ${skippedProfiles.join(', ')}. Tick ${skippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${skippedProfiles.length === 1 ? 'it' : 'them'}.`);
+    }
     if (!printables.categoryId) errors.push('Choose a Printables category in Platforms.');
     if (printables.aiGenerated == null) errors.push('Answer whether AI was used in Platforms.');
     if ((printables.authorship === 'remix' || printables.authorship === 'reupload') && !printables.remixParents?.[0]) {
@@ -2744,11 +3173,22 @@ export function platformPreflight(platform, project) {
     if (project.tags.length > 20) errors.push('Nexprint accepts at most 20 tags.');
     if (project.tags.some((tag) => [...String(tag)].length > 50)) errors.push('Nexprint tags may not exceed 50 characters.');
     if ([...mdToHtml(project.description)].length > 10000) errors.push('The rendered Nexprint description exceeds 10,000 characters.');
-    if (project.files.some((file) => fileExt(file.name) === 'mp4' || fileExt(file.name) === 'webm')) {
+    if (projectHasVideo(project)) {
       warnings.push('Nexprint’s current upload form has no video field; video files will not upload.');
     }
     if (nexprint.aiGenerated && !project.tags.some((tag) => /ai[-\s]?generated/i.test(tag))) {
       warnings.push('ModelPrep will add the required “AI-generated” tag to the Nexprint listing.');
+    }
+    // Two different facts, and conflating them is what made a selection
+    // default look like a platform defect: a profile that is not ticked never
+    // uploads at all, and a profile that does upload still arrives without
+    // Nexprint's print-profile block.
+    const nexprintSkippedProfiles = excludedProfileNames(project.files, nexprint);
+    if (nexprintSkippedProfiles.length) {
+      warnings.push(`${nexprintSkippedProfiles.length === 1 ? 'This print profile is' : `These ${nexprintSkippedProfiles.length} print profiles are`} not ticked for Nexprint and will not upload: ${nexprintSkippedProfiles.join(', ')}. Tick ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'}.`);
+    }
+    if (modelFiles.some((file) => file.isProfile)) {
+      warnings.push('Nexprint print-profile blocks (per-3MF name, intro and plate previews) are not transmitted yet; your 3MF uploads as a plain model file and the listing shows “Print Profile (0)”. Add the profile on Nexprint after publishing if you want the profile card.');
     }
   }
   const creality = project.platforms?.creality;
@@ -2765,13 +3205,19 @@ export function platformPreflight(platform, project) {
     if (project.tags.length > 20) errors.push('Creality Cloud accepts at most 20 tags.');
     if (project.tags.some((tag) => [...String(tag)].length > 30)) errors.push('Creality Cloud tags may not exceed 30 characters.');
     if (instructions.length) warnings.push(`${instructions.length} compatible instruction file${instructions.length === 1 ? '' : 's'} will upload with the model.`);
-    if (project.files.some((file) => ['mp4', 'webm'].includes(fileExt(file.name)))) {
+    if (projectHasVideo(project)) {
       warnings.push('The current Creality model form has no direct video upload; add a YouTube link in the rich description instead.');
     }
-    const nonCreality3mfs = withoutExcluded(project.files, creality)
-      .filter((file) => file.isProfile && !['crealityprint', 'unknown'].includes(fileSlicer(file)));
-    if (nonCreality3mfs.length) {
-      warnings.push(`${nonCreality3mfs.length} 3MF file${nonCreality3mfs.length === 1 ? ' was' : 's were'} sliced outside Creality Print and will upload as plain model files: Creality Cloud can't read print settings from other slicers yet.`);
+    // Same split as Nexprint: a profile that is not ticked never uploads at
+    // all, which is a different fact from one that uploads without being
+    // parsed into a Print Configuration.
+    const crealitySkipped = excludedProfileNames(project.files, creality);
+    if (crealitySkipped.length) {
+      warnings.push(`${crealitySkipped.length === 1 ? 'This print profile is' : `These ${crealitySkipped.length} print profiles are`} not ticked for Creality Cloud and will not upload: ${crealitySkipped.join(', ')}. Tick ${crealitySkipped.length === 1 ? 'it' : 'them'} in this platform's file list to include ${crealitySkipped.length === 1 ? 'it' : 'them'}.`);
+    }
+    const creality3mfs = withoutExcluded(project.files, creality).filter((file) => file.isProfile);
+    if (creality3mfs.length) {
+      warnings.push(`${creality3mfs.length} 3MF file${creality3mfs.length === 1 ? ' uploads' : 's upload'} as plain model files: ModelPrep doesn't build Creality Print Configurations yet, so their print settings won't be parsed into the listing.`);
     }
   }
   const makeronline = project.platforms?.makeronline;
@@ -2799,6 +3245,9 @@ export function platformPreflight(platform, project) {
     const documentation = project.files.filter((file) => MAKERONLINE_DOCUMENT_FORMATS.includes(fileExt(file.name)) && !MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
     if (documentation.length > 50) errors.push('MakerOnline accepts at most 50 documentation files.');
     if (makeronline.relatedKits && !(makeronline.storeKitIds || []).length) errors.push('Choose at least one MakerOnline Creative Kit.');
+    if (projectHasVideo(project)) {
+      warnings.push('MakerOnline’s current upload form has no video field; video media will not upload.');
+    }
     if (makeronline.syncChina && (Number(makeronline.permission || 2) !== 1 || makeronline.nsfw)) {
       errors.push('MakerOnline China sync requires a public, non-NSFW model.');
     }
@@ -2817,13 +3266,17 @@ export function platformPreflight(platform, project) {
     if (makeronline.exclusive && !makeronline.exclusiveEligible) errors.push('This MakerOnline account is not currently eligible for exclusive submission.');
   }
   if (platform.id === 'makeroad') {
-    const videos = (project.media || []).filter((media) => {
-      const type = String(media?.type || media?.blob?.type || '').toLowerCase();
-      return type.startsWith('video/') || ['mp4', 'mov', 'm4v', 'webm', 'avi'].includes(fileExt(media?.name || ''));
-    });
-    if (videos.length) {
+    if (projectHasVideo(project)) {
       warnings.push('MakerRoad’s current upload form has no native video field; video media will not upload.');
     }
+    // Documented caps (X5): previously checked only inside buildSubmitPayload,
+    // after every byte had already uploaded.
+    const opts = project.platforms?.makeroad;
+    const total = (values) => values.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    const roadModels = total(withoutExcluded(project.files.filter((file) => MAKEROAD_MODEL_FORMATS.includes(fileExt(file.name)) && !file.isProfile), opts));
+    const roadDocs = total(withoutExcluded(project.files.filter((file) => MAKEROAD_DOCUMENT_FORMATS.includes(fileExt(file.name))), opts));
+    if (roadModels > 500 * MB) errors.push(`MakerRoad model files total ${formatBytes(roadModels)}: over the 500 MB cap.`);
+    if (roadDocs > 50 * MB) errors.push(`MakerRoad documents total ${formatBytes(roadDocs)}: over the 50 MB cap.`);
   }
   const mmf = project.platforms?.mmf;
   if (platform.id === 'mmf' && mmf) {
@@ -2837,9 +3290,19 @@ export function platformPreflight(platform, project) {
     if (String(mmf.dimensions || '').length > 100) errors.push('MyMiniFactory dimensions must be at most 100 characters.');
     if (String(mmf.materialQuantity || '').length > 45) errors.push('MyMiniFactory material quantity must be at most 45 characters.');
     if (project.images.some((image) => !image.dataUrl)) errors.push('Every MyMiniFactory image must be available for upload.');
+    // Documented 5 MiB per-image cap, previously enforced only mid-transfer
+    // (myminifactory-direct.js) after earlier images had already uploaded.
+    const mmfOversized = project.images.filter((image) => image.dataUrl && (image.dataUrl.length * 3) / 4 > 5 * MB);
+    if (mmfOversized.length) errors.push(`${mmfOversized.length} image${mmfOversized.length === 1 ? ' exceeds' : 's exceed'} MyMiniFactory's 5 MB image cap.`);
   }
   const makeroad = project.platforms?.makeroad;
   if (platform.id === 'makeroad' && makeroad) {
+    const hasConfirmedPrintPhoto = (project.profiles || []).some((profile) => profile.realPhotoConfirmed);
+    if (!hasConfirmedPrintPhoto) {
+      const message = 'MakerRoad review requires a confirmed real photo of the printed model; synthetic renders may be rejected even when using Save.';
+      if (project.__testProject) warnings.push(`${message} Demo transport testing is allowed, but a review rejection is not a certified listing.`);
+      else errors.push(`${message} Confirm a real print photo in Profiles before uploading.`);
+    }
     const makerRoadCategoryCount = (makeroad.categoryIds || []).length || (makeroad.categoryPaths || []).length;
     if (makerRoadCategoryCount < 1 || makerRoadCategoryCount > 3) errors.push('Choose 1 to 3 MakerRoad categories in Platforms.');
     if (project.images.length < 3 || project.images.length > 10) errors.push('MakerRoad requires 3 to 10 ordered images.');
@@ -2872,8 +3335,69 @@ export function platformPreflight(platform, project) {
     if (thingiverse.remix && !String(thingiverse.sourceThingId || '').trim()) errors.push('Thingiverse remixes require a source Thing ID.');
     if (thingiverse.customizable && !modelFiles.some((file) => fileExt(file.name) === 'scad')) errors.push('Thingiverse Customizer requires at least one .SCAD model file.');
     if (thingiverse.publication === 'publish' && !thingiverse.termsAccepted) errors.push('Accept Thingiverse’s current terms before publish.');
+    if (projectHasVideo(project)) {
+      warnings.push('Thingiverse has no video upload; video media will not upload.');
+    }
   }
   return { errors, warnings };
+}
+
+// Shared phase readiness. `reports` is the exact platformPreflight output later
+// consumed by Review & Upload; phase completion is therefore incapable of
+// claiming success while final preflight disagrees.
+export function deriveProjectReadiness(project = {}) {
+  const enabled = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+  const reports = enabled.map((platform) => ({ platform, ...platformPreflight(platform, project) }));
+  const scanning = (project.files || []).filter((file) => file.isProfile && file.blob && !file.threemf);
+  const routedFiles = enabled.flatMap((platform) => platformCandidateFiles(platform, project).filter((file) => (
+    platformFileRole(platform.id, file, project.platforms?.[platform.id]) !== 'not-sent'
+  )));
+  const globallySendable = (project.files || []).some((file) => ['model', 'source', 'profile', 'laser'].includes(projectFileRole(file)));
+  const sendable = enabled.length ? routedFiles.length > 0 : globallySendable;
+  const profilePattern = /profile|3mf|slicer|bambu|real printed model|guideline/i;
+  const profileBlockers = [
+    ...scanning.map((file) => `${file.name} is still being inspected for sliced-profile metadata.`),
+    ...reports.flatMap((report) => report.errors.filter((message) => profilePattern.test(message)).map((message) => `${report.platform.name}: ${message}`)),
+  ];
+  const details = !!String(project.title || '').trim()
+    && !!String(project.description || '').trim()
+    && !!project.category
+    && (project.tags || []).length > 0;
+  const media = (project.images || []).length > 0 && !!project.coverImageId;
+  const readyReports = reports.filter((report) => report.errors.length === 0);
+  const blockedReports = reports.filter((report) => report.errors.length > 0);
+  return {
+    package: {
+      ready: sendable && profileBlockers.length === 0,
+      sendable,
+      profileBlockers,
+      scanningCount: scanning.length,
+    },
+    listing: { ready: details && media, details, media },
+    destinations: {
+      selectedCount: enabled.length,
+      readyCount: readyReports.length,
+      blockedCount: blockedReports.length,
+      allReady: enabled.length > 0 && blockedReports.length === 0,
+      reports,
+    },
+    review: { complete: false, canUploadAny: readyReports.length > 0 },
+  };
+}
+
+// File routing is project data, so removing a file must remove every dangling
+// destination decision with it. Otherwise a later import can inherit a stale
+// manual role simply because a browser generated the same id.
+export function pruneDestinationFileState(platforms = {}, removedIds = new Set()) {
+  const removed = removedIds instanceof Set ? removedIds : new Set(removedIds || []);
+  return Object.fromEntries(Object.entries(platforms || {}).map(([platformId, settings]) => {
+    const fileRoles = Object.fromEntries(Object.entries(settings?.fileRoles || {}).filter(([fileId]) => !removed.has(fileId)));
+    const excludedFileIds = (settings?.excludedFileIds || []).filter((fileId) => !removed.has(fileId));
+    const next = { ...settings, fileRoles, excludedFileIds };
+    if (removed.has(String(next.primaryFileId || ''))) next.primaryFileId = '';
+    if (removed.has(String(next.primaryProfileFileId || ''))) next.primaryProfileFileId = '';
+    return [platformId, next];
+  }));
 }
 
 function FilesSection({ project, updateProject, setCurrentSection }) {
@@ -2882,6 +3406,9 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   // "Clear all" removes files plus their attached per-platform settings, so it
   // asks for a second click before doing anything.
   const [confirmClear, setConfirmClear] = useState(false);
+  const [roleFilter, setRoleFilter] = useState('all');
+  const hashingIdsRef = useRef(new Set());
+  const thumbnailIdsRef = useRef(new Set());
   const [fileQuery, setFileQuery] = useState('');
   const [fileView, setFileView] = useState('list');   // 'list' reads names, 'grid' reads previews
   const [thumbSize, setThumbSize] = useState(56);     // preview edge in px
@@ -2893,9 +3420,41 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
     return () => clearTimeout(t);
   }, [confirmClear]);
 
+
+  // Hash imported binaries with two bounded workers. Blobs are read in the
+  // worker, so a folder of large meshes cannot materialize every file on the
+  // React thread at once. Receipts are persisted on each file.
+  useEffect(() => {
+    const pending = project.files.filter((file) => file.blob && !file.contentHash && !hashingIdsRef.current.has(file.id));
+    if (!pending.length) return undefined;
+    pending.forEach((file) => hashingIdsRef.current.add(file.id));
+    hashFilesInWorkers(pending).then((receipts) => {
+      receipts.forEach((receipt) => hashingIdsRef.current.delete(receipt.id));
+      const hashes = Object.fromEntries(receipts.map((receipt) => [receipt.id, receipt.hash]));
+      if (receipts.some((receipt) => receipt.hash)) {
+        updateProject((current) => ({ ...current, files: current.files.map((file) => hashes[file.id] ? { ...file, contentHash: hashes[file.id] } : file) }));
+      }
+    });
+    return undefined;
+  }, [project.files, updateProject]);
+
+  // Pre-render STL previews off the main thread so tables and tiles show the
+  // real mesh instead of a placeholder icon.
+  useEffect(() => {
+    const pending = project.files.filter((file) => file.blob && fileExt(file.name) === 'stl' && !file.previewDataUrl && !thumbnailIdsRef.current.has(file.id));
+    if (!pending.length) return undefined;
+    pending.forEach((file) => thumbnailIdsRef.current.add(file.id));
+    runBoundedJobs(pending, async (file) => [file.id, await renderStlThumb(file, THUMB_SIZES[THUMB_SIZES.length - 1])], 2).then((receipts) => {
+      receipts.forEach(([id]) => thumbnailIdsRef.current.delete(id));
+      const previews = Object.fromEntries(receipts.filter(([, url]) => url));
+      if (Object.keys(previews).length) updateProject((current) => ({ ...current, files: current.files.map((file) => previews[file.id] ? { ...file, previewDataUrl: previews[file.id] } : file) }));
+    });
+    return undefined;
+  }, [project.files, updateProject]);
+
   const handleFiles = (fileList) => {
     const arr = Array.from(fileList);
-    const supported = arr.filter(f => isModelFile(f.name) || isMakerWorldLaserFile(f.name)
+    const supported = arr.filter(f => isModelFile(f.name) || isImageFile(f.name) || isMakerWorldLaserFile(f.name)
       || PRINTABLES_FORMATS.includes(fileExt(f.name))
       || NEXPRINT_MODEL_FORMATS.includes(fileExt(f.name))
       || NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(f.name))
@@ -2914,12 +3473,16 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
     // De-duplicate names against existing files and within this batch.
     const taken = new Set(project.files.map(f => f.name.toLowerCase()));
     const renamed = [];
-    const additions = withinLimit.map(f => {
+    const additions = withinLimit.map((f, index) => {
       const name = uniqueFileName(f.name, taken);
       taken.add(name.toLowerCase());
       if (name !== f.name) renamed.push(`${f.name} → ${name}`);
+      const sourcePath = String(f.webkitRelativePath || f.name);
+      const folderPath = sourcePath.includes('/') ? sourcePath.split('/').slice(1, -1).join('/') : '';
       return {
-        id: 'f_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+        id: 'f_' + Date.now() + '_' + index + '_' + Math.random().toString(36).slice(2, 7),
+        sourcePath,
+        packagePath: folderPath,
         name,
         size: f.size,
         type: f.type,
@@ -2927,8 +3490,8 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
         isProfile: isProfile(f.name),
         isImage: isImageFile(f.name),
         isLaserCut: isMakerWorldLaserFile(f.name),
-        makerWorld: { note: '', openSource: true, folderPath: '' },
-        printables: { note: '', folder: '' },
+        makerWorld: { note: '', openSource: true, folderPath },
+        printables: { note: '', folder: folderPath },
         blob: f,  // keep the actual File so we can include it in ZIP exports
       };
     });
@@ -2951,7 +3514,13 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
     updateProject({ files: [...project.files, ...additions] });
   };
 
-  const removeFile = (id) => updateProject({ files: project.files.filter(f => f.id !== id) });
+  const removeFile = (id) => updateProject({
+    files: project.files.filter(f => f.id !== id),
+    profiles: project.profiles.filter((profile) => profile.fileId !== id),
+  });
+  const changeRole = (id, role) => updateProject({
+    files: project.files.map((file) => file.id === id ? { ...file, ...fileRolePatch(role) } : file),
+  });
   const updateFile = (id, patch) => updateProject({
     files: project.files.map((file) => (file.id === id ? { ...file, ...patch } : file)),
   });
@@ -2979,8 +3548,16 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
   };
 
   const totalSize = project.files.reduce((s, f) => s + f.size, 0);
-  const visibleFiles = sortProjectFiles(filterProjectFiles(project.files, fileQuery), fileSort);
-  const duplicateIds = duplicateFileIds(project.files);
+  const persistedHashes = Object.fromEntries(project.files.map((file) => [file.id, file.contentHash]));
+  const exactIds = exactDuplicateFileIds(project.files, persistedHashes);
+  const sizeDuplicateIds = duplicateFileIds(project.files);
+  // Hash-confirmed duplicates once hashing lands; the size heuristic covers
+  // the moments before a hash exists.
+  const duplicateIds = exactIds.size ? exactIds : sizeDuplicateIds;
+  const visibleFiles = sortProjectFiles(
+    filterProjectFiles(project.files, fileQuery).filter((file) => fileMatchesRoleFilter(file, roleFilter, duplicateIds)),
+    fileSort,
+  );
   const duplicateGroups = findDuplicateGroups(project.files);
   const matchCount = visibleFiles.length;
 
@@ -3098,6 +3675,11 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                   </button>
                 )}
               </label>
+              <div className="mp-segmented" role="group" aria-label="Filter files by role">
+                {[['all', 'All'], ['models', 'Models'], ['profiles', 'Profiles'], ['documents', 'Docs & photos'], ['issues', 'Issues']].map(([id, label]) => (
+                  <button key={id} onClick={() => setRoleFilter(id)} aria-pressed={roleFilter === id}>{label}</button>
+                ))}
+              </div>
               <label className="flex items-center gap-1.5">
                 <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Sort</span>
                 <select
@@ -3201,7 +3783,7 @@ function FilesSection({ project, updateProject, setCurrentSection }) {
                     </thead>
                     <tbody>
                   {files.map(f => (
-                    <FileRow key={f.id} file={f} thumbSize={thumbSize} duplicate={duplicateIds.has(f.id)} onOpen={() => setPreviewIndex(visibleFiles.indexOf(f))} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)}
+                    <FileRow key={f.id} file={f} thumbSize={thumbSize} duplicate={duplicateIds.has(f.id)} onOpen={() => setPreviewIndex(visibleFiles.indexOf(f))} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)} onChangeRole={(role) => changeRole(f.id, role)}
                       onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)}
                       onUpdatePrintables={(patch) => updatePrintablesFile(f.id, patch)}
                       onUpdateFile={(patch) => updateFile(f.id, patch)} />
@@ -3298,6 +3880,71 @@ export function duplicateFileIds(files = []) {
   return ids;
 }
 
+export const FILE_ROLE_OPTIONS = [
+  { id: 'model', label: 'Model' },
+  { id: 'profile', label: 'Print profile' },
+  { id: 'source', label: 'Source CAD' },
+  { id: 'document', label: 'Documentation' },
+  { id: 'laser', label: 'Laser & Cut' },
+  { id: 'reference', label: 'Reference image' },
+];
+
+export function projectFileRole(file = {}) {
+  if (file.roleOverride) return file.roleOverride;
+  if (file.isProfile) return 'profile';
+  if (file.isImage) return 'reference';
+  if (file.isLaserCut) return 'laser';
+  if (file.isModel) {
+    return ['step', 'stp', 'iges', 'igs', 'dwg'].includes(fileExt(file.name)) ? 'source' : 'model';
+  }
+  return 'document';
+}
+
+export function fileRolePatch(role) {
+  const base = { roleOverride: role, isModel: false, isProfile: false, isImage: false, isLaserCut: false };
+  if (role === 'profile') return { ...base, isModel: true, isProfile: true };
+  if (role === 'model' || role === 'source') return { ...base, isModel: true };
+  if (role === 'laser') return { ...base, isLaserCut: true };
+  if (role === 'reference') return { ...base, isImage: true };
+  return base;
+}
+
+export function fileMatchesRoleFilter(file, filter = 'all', duplicateIds = new Set()) {
+  const role = projectFileRole(file);
+  if (filter === 'models') return ['model', 'source', 'laser'].includes(role);
+  if (filter === 'profiles') return role === 'profile';
+  if (filter === 'documents') return ['document', 'reference'].includes(role);
+  if (filter === 'issues') return duplicateIds.has(file.id);
+  return true;
+}
+
+export function exactDuplicateFileIds(files = [], hashes = {}) {
+  const byHash = new Map();
+  for (const file of files || []) {
+    const hash = hashes[file.id];
+    if (!hash) continue;
+    const key = `${fileExt(file.name)}:${hash}`;
+    if (!byHash.has(key)) byHash.set(key, []);
+    byHash.get(key).push(file.id);
+  }
+  const ids = new Set();
+  for (const group of byHash.values()) if (group.length > 1) group.forEach((id) => ids.add(id));
+  return ids;
+}
+
+export function fileDestinationCoverage(file, project) {
+  const enabled = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+  let supported = 0;
+  let included = 0;
+  for (const platform of enabled) {
+    const candidate = platformCandidateFiles(platform, project).some((item) => item.id === file.id);
+    if (!candidate) continue;
+    supported += 1;
+    if (platformFileRole(platform.id, file, project.platforms?.[platform.id]) !== 'not-sent') included += 1;
+  }
+  return { included, supported, total: enabled.length };
+}
+
 // Sorting the way a file manager does. "Type" groups by extension first so all
 // the .3mf profiles sit together, then falls back to name.
 export const FILE_SORTS = {
@@ -3318,9 +3965,9 @@ export function sortProjectFiles(files = [], sortKey = 'added') {
 // dropped so a simple project still looks simple.
 export function groupProjectFiles(files = []) {
   const groups = [
-    { key: 'models', title: 'Model files', hint: 'the printable geometry', match: (f) => f.isModel && !f.isProfile },
-    { key: 'profiles', title: 'Print profiles', hint: 'sliced .3mf packages', match: (f) => f.isProfile },
-    { key: 'media', title: 'Images & video', hint: null, match: (f) => f.isImage || isGalleryVideoFile(f) },
+    { key: 'models', title: 'Model files', hint: 'the printable geometry', match: (f) => ['model', 'source', 'laser'].includes(projectFileRole(f)) || (projectFileRole(f) === 'profile' && f.threemf?.sliced === false) },
+    { key: 'profiles', title: 'Print profiles', hint: 'sliced .3mf packages', match: (f) => projectFileRole(f) === 'profile' && f.threemf?.sliced !== false },
+    { key: 'media', title: 'Images & video', hint: null, match: (f) => projectFileRole(f) === 'reference' || isGalleryVideoFile(f) },
   ];
   const claimed = new Set();
   const out = [];
@@ -3347,6 +3994,7 @@ export function groupProjectFiles(files = []) {
 // more than the render. Results are cached by file id so switching view mode or
 // resizing does not re-parse an 80MB mesh.
 const stlThumbCache = new Map();
+const stlMeshCache = new Map();
 let stlWorker = null;
 let stlSeq = 0;
 function renderStlThumb(file, size) {
@@ -3376,26 +4024,53 @@ function renderStlThumb(file, size) {
       resolve(url);
     };
     stlWorker.addEventListener('message', onMessage);
-    file.blob.arrayBuffer()
-      .then((buffer) => stlWorker.postMessage({ id, buffer, size }, [buffer]))
-      .catch(() => { stlWorker.removeEventListener('message', onMessage); resolve(null); });
+    stlWorker.postMessage({ id, blob: file.blob, size });
   });
 }
 
-function FileThumb({ file, size = 40 }) {
+// The thumbnail worker already parsed the STL off the main thread. Ask the
+// same worker for a bounded triangle sample when the large preview opens, then
+// cache it so rotating the model or reopening the preview never reparses it.
+function loadStlMesh(file) {
+  if (file.previewMesh?.triangles?.length) return Promise.resolve({ triangles: file.previewMesh.triangles, bounds: file.previewMesh.bounds || null });
+  if (stlMeshCache.has(file.id)) return Promise.resolve(stlMeshCache.get(file.id));
+  if (!file.blob || typeof Worker === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      if (!stlWorker) stlWorker = new Worker(new URL('./lib/stl-thumbnail.worker.js', import.meta.url), { type: 'module' });
+    } catch { resolve(null); return; }
+    const id = ++stlSeq;
+    const onMessage = (event) => {
+      if (event.data?.id !== id) return;
+      stlWorker.removeEventListener('message', onMessage);
+      if (!event.data.ok || !event.data.triangles?.length) {
+        stlMeshCache.set(file.id, null);
+        resolve(null);
+        return;
+      }
+      const mesh = { triangles: event.data.triangles, bounds: event.data.bounds || null };
+      stlMeshCache.set(file.id, mesh);
+      resolve(mesh);
+    };
+    stlWorker.addEventListener('message', onMessage);
+    stlWorker.postMessage({ id, blob: file.blob, mode: 'mesh' });
+  });
+}
+
+export function FileThumb({ file, size = 40, fill = false }) {
   const isProf = file.isProfile;
   const isImg = file.isImage;
   const isVid = isGalleryVideoFile(file);
   const isStl = !isImg && !isVid && ['stl'].includes(fileExt(file.name));
-  const [plate, setPlate] = useState(file.threemf?.thumbnail || null);
+  const [plate, setPlate] = useState(file.threemf?.thumbnail || file.previewDataUrl || null);
   const [src, setSrc] = useState(null);
 
   // A .3mf carries the slicer's plate render; an .stl carries only geometry, so
   // it gets drawn. Rendered at the largest size used and scaled down, so zooming
   // never re-parses the mesh.
   useEffect(() => {
-    setPlate(file.threemf?.thumbnail || null);
-    if (!isStl || file.threemf?.thumbnail) return undefined;
+    setPlate(file.threemf?.thumbnail || file.previewDataUrl || null);
+    if (!isStl || file.previewDataUrl || file.threemf?.thumbnail) return undefined;
     let live = true;
     renderStlThumb(file, THUMB_SIZES[THUMB_SIZES.length - 1]).then((url) => { if (live && url) setPlate(url); });
     return () => { live = false; };
@@ -3411,8 +4086,7 @@ function FileThumb({ file, size = 40 }) {
   }, [file.blob, file.dataUrl, isImg, isVid]);
 
   const box = {
-    width: size,
-    height: size,
+    ...(fill ? { width: '100%', aspectRatio: '1 / 1' } : { width: size, height: size }),
     background: isProf ? 'var(--primary-tint)' : isImg || isVid ? 'rgba(38,42,35,0.10)' : 'var(--surface-sunken)',
     border: '1px solid var(--border)',
     borderRadius: 6,
@@ -3427,14 +4101,14 @@ function FileThumb({ file, size = 40 }) {
   }
   if (isImg && src) {
     return (
-      <span className="flex-shrink-0 overflow-hidden" style={box}>
+      <span className="block flex-shrink-0 overflow-hidden" style={box}>
         <img src={src} alt="" className="w-full h-full object-cover" />
       </span>
     );
   }
   if (isVid && src) {
     return (
-      <span className="flex-shrink-0 overflow-hidden" style={box}>
+      <span className="block flex-shrink-0 overflow-hidden" style={box}>
         <video src={src} muted playsInline preload="metadata" className="w-full h-full object-cover" />
       </span>
     );
@@ -3448,38 +4122,574 @@ function FileThumb({ file, size = 40 }) {
     </span>
   );
 }
+function fileReadiness(file, project, duplicate, exactDuplicate) {
+  const coverage = fileDestinationCoverage(file, project);
+  if (exactDuplicate) return { label: 'Exact duplicate', color: '#3E5420', coverage };
+  if (duplicate) return { label: 'Possible duplicate', color: '#B86B00', coverage };
+  // Photos and gallery videos are never platform *files*: they publish through
+  // the Listing gallery on every destination. Scoring them against the
+  // platform file lists produced a red "Not supported" on perfectly good
+  // photos, which read as an error. Report their real state instead.
+  if (projectFileRole(file) === 'reference' || isGalleryVideoFile(file)) {
+    const inGallery = (project.images || []).some((image) => image.sourceFileId === file.id)
+      || (project.media || []).some((item) => item.sourceFileId === file.id);
+    return inGallery
+      ? { label: 'In gallery', color: '#237A50', coverage, gallery: true }
+      : { label: 'Not in gallery', color: '#B86B00', coverage, gallery: true };
+  }
+  if (coverage.total > 0 && coverage.supported === 0) return { label: 'Not supported', color: '#3E5420', coverage };
+  if (coverage.total > 0 && coverage.included === 0) return { label: 'Excluded', color: '#6A6D73', coverage };
+  return { label: 'Ready', color: '#237A50', coverage };
+}
+
+function PackageFileRow({ file, project, compact, thumbSize, selected, active, duplicate, exactDuplicate, onSelect, onActivate, onOpen, onRemove }) {
+  const status = fileReadiness(file, project, duplicate, exactDuplicate);
+  const role = FILE_ROLE_OPTIONS.find((item) => item.id === projectFileRole(file))?.label || 'File';
+  const meta = file.isProfile ? slicerLabel(fileSlicer(file)) : file.packagePath || `.${fileExt(file.name)}`;
+  const destinationLabel = status.gallery ? 'Gallery' : status.coverage.total ? `${status.coverage.included} / ${status.coverage.total}` : 'Choose';
+  const hasInteractivePreview = ['stl', '3mf'].includes(fileExt(file.name));
+  return (
+    <div onClick={onActivate}
+      className="grid items-center px-3 border-t cursor-pointer"
+      style={{ gridTemplateColumns: '28px minmax(240px,2fr) minmax(90px,.7fr) 80px 110px 110px 24px', minHeight: compact ? 52 : Math.max(72, thumbSize + 14), borderColor: 'rgba(38,42,35,0.11)', background: active ? 'rgba(90,116,48,0.075)' : 'transparent', boxShadow: active ? 'inset 3px 0 #5A7430' : 'none' }}>
+      <input type="checkbox" checked={selected} aria-label={`Select ${file.name}`} onClick={(event) => event.stopPropagation()} onChange={(event) => onSelect(event.target.checked)} />
+      <div className="flex items-center gap-3 min-w-0">
+        <button onClick={(event) => { event.stopPropagation(); onOpen(); }} aria-label={`Preview ${file.name}`} className="relative flex-shrink-0 group">
+          <FileThumb file={file} size={thumbSize} />
+          {!compact && <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition" style={{ background: 'rgba(38,42,35,0.48)', color: '#fff' }}><Plus size={17} /></span>}
+        </button>
+        <div className="min-w-0">
+          <button onClick={(event) => { event.stopPropagation(); onActivate(); }} aria-label={`Inspect ${file.name}`} className="block max-w-full text-sm font-semibold truncate text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5A7430]">{file.name}</button>
+          <div className="flex items-center gap-2 mt-0.5 min-w-0">
+            <span className="text-[11px] truncate" style={{ color: 'rgba(38,42,35,0.58)' }}>{meta}</span>
+            {hasInteractivePreview && (
+              <button type="button" onClick={(event) => { event.stopPropagation(); onOpen(); }} className="mp-mono flex-shrink-0 inline-flex items-center gap-1 text-[9px] uppercase tracking-[0.08em] hover:text-[#3E5420] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5A7430]" style={{ color: '#8F2D00' }}>
+                <Box size={10} /> 3D build plate
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      <span className="text-xs truncate">{role}</span>
+      <span className="mp-mono text-[11px]">{formatBytes(file.size)}</span>
+      <div className="pr-4"><span className="mp-mono text-[11px]">{destinationLabel}</span>{!status.gallery && status.coverage.total > 0 && <div className="h-0.5 mt-1" style={{ background: 'rgba(38,42,35,0.12)' }}><div className="h-full" style={{ width: `${(status.coverage.included / status.coverage.total) * 100}%`, background: '#5A7430' }} /></div>}</div>
+      <span className="text-[11px] flex items-center gap-1.5" style={{ color: status.color }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: status.color }} />{status.label}</span>
+      <button onClick={(event) => { event.stopPropagation(); onRemove(); }} aria-label={`Remove ${file.name}`} title="Remove" className="p-1 opacity-45 hover:opacity-100 hover:text-[#3E5420]"><Trash2 size={14} /></button>
+    </div>
+  );
+}
+
+// Phone photos all start with the same prefix (PXL_2025…), so end-truncation
+// renders fifteen identical labels. Keep the start and the distinguishing tail.
+function middleEllipsis(name = '', max = 26) {
+  if (name.length <= max) return name;
+  const head = Math.ceil((max - 1) * 0.42);
+  const tail = max - 1 - head;
+  return `${name.slice(0, head)}…${name.slice(-tail)}`;
+}
+
+// Grid tiles are image-first: the thumbnail is the identity, one compact name
+// line below it, and a status chip only when something needs attention. Role
+// and nominal status live in the section header, not repeated on every card.
+const NOMINAL_FILE_STATUS = new Set(['Ready', 'In gallery']);
+function PackageFileGridTile({ file, size, project, selected, active, duplicate, exactDuplicate, onSelect, onActivate, onOpen }) {
+  const status = fileReadiness(file, project, duplicate, exactDuplicate);
+  const attention = !NOMINAL_FILE_STATUS.has(status.label);
+  const hasInteractivePreview = ['stl', '3mf'].includes(fileExt(file.name));
+  return (
+    <div className="border cursor-pointer group relative" onClick={onActivate}
+      style={{ borderColor: active ? '#5A7430' : attention ? 'rgba(184,107,0,0.55)' : 'rgba(38,42,35,0.15)', background: active ? 'rgba(90,116,48,0.06)' : 'rgba(255,255,255,0.25)', boxShadow: active ? '0 0 0 1px #5A7430' : 'none' }}>
+      <button onClick={(event) => { event.stopPropagation(); onOpen(); }} aria-label={`Preview ${file.name}`} className="relative block w-full">
+        <FileThumb file={file} fill />
+        <input type="checkbox" checked={selected} aria-label={`Select ${file.name}`}
+          onClick={(event) => event.stopPropagation()} onChange={(event) => onSelect(event.target.checked)}
+          className={`absolute top-2 left-2 z-10 transition-opacity ${selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`} />
+        {hasInteractivePreview && <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-1 mp-mono text-[9px] uppercase tracking-[0.08em]" style={{ background: '#262A23', color: '#FFFFFF' }}><Box size={10} /> 3D</span>}
+        {attention && <span className="absolute top-1.5 right-1.5 mp-pill" style={{ background: 'rgba(255,182,39,0.92)', color: '#262A23', fontSize: 10 }}>{status.label}</span>}
+      </button>
+      <div className="px-2 py-1.5 flex items-center gap-1.5 min-w-0">
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" title={status.label} style={{ background: status.color }} />
+        <span className="text-[11px] truncate" title={file.name}>{middleEllipsis(file.name)}</span>
+      </div>
+    </div>
+  );
+}
+
+function PackageProfileEditor({ file, profile, project, onUpdateProfile, onUpdatePlatform, onOpenMedia }) {
+  const [picker, setPicker] = useState(null);
+  useEffect(() => {
+    if (!picker) return undefined;
+    const close = (event) => { if (event.key === 'Escape') setPicker(null); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [picker]);
+  if (!profile) return <p className="text-xs">Inspecting sliced profile metadata…</p>;
+  const cover = profile.useMainCover
+    ? project.images.find((image) => image.id === project.coverImageId)
+    : project.images.find((image) => image.id === profile.coverImageId);
+  const photos = project.images.filter((image) => (profile.photoIds || []).includes(image.id));
+  const togglePhoto = (id) => {
+    const selected = (profile.photoIds || []).includes(id);
+    onUpdateProfile({ photoIds: selected ? profile.photoIds.filter((value) => value !== id) : [...(profile.photoIds || []), id] });
+  };
+  return <>
+    <div className="flex justify-center p-3" style={{ background: '#262A23' }}><FileThumb file={file} size={190} /></div>
+    <label className="block text-[11px] space-y-1"><span className="flex justify-between"><span>Profile name</span><span>{(profile.name || '').length}/60</span></span><input className="mp-input text-xs" maxLength={60} value={profile.name || ''} onChange={(event) => onUpdateProfile({ name: event.target.value })} /></label>
+    <label className="block text-[11px] space-y-1"><span>Description</span><textarea rows={4} className="mp-input text-xs resize-y" value={profile.description || ''} onChange={(event) => onUpdateProfile({ description: event.target.value })} /></label>
+    <div className="grid grid-cols-2 gap-2"><Stat label="Printer" value={profile.parsed?.printer || file.threemf?.printer || 'Not detected'} /><Stat label="Material" value={profile.parsed?.material || file.threemf?.material || '—'} /><Stat label="Layer" value={profile.parsed?.layerHeight || file.threemf?.layerHeight || '—'} /><Stat label="Plates" value={profile.parsed?.plates || file.threemf?.plates || '—'} /><Stat label="Print time" value={profile.parsed?.estimatedTime || file.threemf?.estimatedTime || '—'} /><Stat label="Filament" value={profile.parsed?.filamentGrams ? `${profile.parsed.filamentGrams}g` : '—'} /></div>
+    <label className="flex items-start gap-2 text-[11px] pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}><input type="checkbox" checked={project.platforms?.makerworld?.primaryProfileFileId === file.id} onChange={(event) => onUpdatePlatform('makerworld', { primaryProfileFileId: event.target.checked ? file.id : null })} /><span><strong>Primary MakerWorld profile</strong><br /><span style={{ color: 'rgba(38,42,35,0.58)' }}>Chooses this native Bambu profile without excluding other 3MFs as models.</span></span></label>
+    <label className="block text-[11px] space-y-1"><span>MakerWorld profile visibility</span><select className="mp-input text-xs" value={profile.visibility || 'private'} onChange={(event) => onUpdateProfile({ visibility: event.target.value })}><option value="private">Private</option><option value="public">Public</option></select></label>
+    <div className="pt-3 border-t space-y-2" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+      <div className="text-[11px] font-semibold">Profile cover</div>
+      <label className="flex gap-2 text-[11px]"><input type="radio" checked={profile.useMainCover !== false} onChange={() => onUpdateProfile({ useMainCover: true })} />Use listing cover</label>
+      <label className="flex gap-2 text-[11px]"><input type="radio" checked={profile.useMainCover === false} onChange={() => { onUpdateProfile({ useMainCover: false }); setPicker('cover'); }} />Choose a gallery image</label>
+      {cover && <div className="flex items-center gap-2"><img src={cover.dataUrl} alt="Selected profile cover" className="w-14 h-14 object-cover" /><button type="button" onClick={() => setPicker('cover')} className="text-[10px] underline">Change cover</button></div>}
+    </div>
+    <div className="pt-3 border-t space-y-2" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+      <div className="flex items-center justify-between gap-2"><span className="text-[11px] font-semibold">Real print photos · required for MakerWorld</span>{project.images.length > 0 && <button type="button" onClick={() => setPicker('photos')} className="text-[10px] underline">Choose photos</button>}</div>
+      {project.images.length === 0 ? <button type="button" onClick={onOpenMedia} className="mp-btn mp-btn-ghost w-full justify-center text-[11px]">Add photos in Listing <ChevronRight size={13} /></button> : <div className="flex gap-1.5 overflow-x-auto">{photos.map((image) => <img key={image.id} src={image.dataUrl} alt="" className="w-12 h-12 object-cover flex-shrink-0" />)}{photos.length === 0 && <span className="text-[11px]" style={{ color: '#B91C1C' }}>No real print photo selected.</span>}</div>}
+      <label className="flex items-start gap-2 text-[11px]"><input type="checkbox" checked={!!profile.realPhotoConfirmed} onChange={(event) => onUpdateProfile({ realPhotoConfirmed: event.target.checked })} /><span>I confirm at least one selected image shows the real printed model, not only a render.</span></label>
+    </div>
+    <details className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}><summary className="cursor-pointer text-[11px] font-semibold">Additional compatible printers ({(profile.compatiblePrinters || []).length})</summary><div className="grid grid-cols-1 gap-1.5 mt-2">{MAKERWORLD_PRINTERS.map((printer) => { const selected = (profile.compatiblePrinters || []).includes(printer.product); return <label key={printer.product} className="flex items-center gap-1.5 text-[10px]"><input type="checkbox" checked={selected} onChange={() => onUpdateProfile({ compatiblePrinters: selected ? profile.compatiblePrinters.filter((name) => name !== printer.product) : [...(profile.compatiblePrinters || []), printer.product] })} />{printer.product}</label>; })}</div></details>
+    <label className="flex items-start gap-2 text-[11px] pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}><input type="checkbox" checked={!!profile.guidelinesAccepted} onChange={(event) => onUpdateProfile({ guidelinesAccepted: event.target.checked })} /><span>I have read and this profile meets MakerWorld’s <a href="https://makerworld.com/en/rules" target="_blank" rel="noreferrer" className="underline">Print Profile Guidelines</a>.</span></label>
+    {picker && <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(38,42,35,0.62)' }} onMouseDown={() => setPicker(null)}><div role="dialog" aria-modal="true" aria-label={picker === 'cover' ? 'Choose profile cover' : 'Choose real print photos'} className="mp-card w-full max-w-3xl max-h-[78vh] overflow-hidden flex flex-col" style={{ background: '#FFFFFF' }} onMouseDown={(event) => event.stopPropagation()}><div className="p-4 border-b flex items-center"><h3 className="mp-display text-[24px] flex-1">{picker === 'cover' ? 'Choose profile cover' : 'Choose real print photos'}</h3><button type="button" onClick={() => setPicker(null)} aria-label="Close profile image picker" className="p-2"><X size={18} /></button></div><div className="p-4 overflow-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">{project.images.map((image, index) => { const selected = picker === 'cover' ? profile.coverImageId === image.id : (profile.photoIds || []).includes(image.id); return <button key={image.id} type="button" aria-pressed={selected} aria-label={`${selected ? 'Deselect' : 'Select'} ${image.alt || `image ${index + 1}`}`} onClick={() => { if (picker === 'cover') { onUpdateProfile({ useMainCover: false, coverImageId: image.id }); setPicker(null); } else togglePhoto(image.id); }} className="relative aspect-square" style={{ outline: selected ? '3px solid #5A7430' : '1px solid rgba(38,42,35,0.18)' }}><img src={image.dataUrl} alt="" className="w-full h-full object-cover" />{selected && <span className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center" style={{ background: '#5A7430' }}><Check size={13} color="#fff" /></span>}</button>; })}</div>{picker === 'photos' && <div className="p-3 border-t flex items-center justify-between"><span className="text-xs">{(profile.photoIds || []).length} selected</span><button type="button" className="mp-btn text-xs" onClick={() => setPicker(null)}>Done</button></div>}</div></div>}
+  </>;
+}
+
+function AssetBuildPlateWorkspace({ file, asset, project, onUpdateFile, onFullscreen }) {
+  const [stlMesh, setStlMesh] = useState(null);
+  const [tool, setTool] = useState('orbit');
+  const [plateIndex, setPlateIndex] = useState(1);
+  const [selectedPart, setSelectedPart] = useState(null);
+  const [parts, setParts] = useState([]);
+  const format = fileExt(file?.name);
+  const printer = file?.threemf?.printer || '';
+  const plateDetails = file?.threemf?.plateDetails?.length
+    ? file.threemf.plateDetails
+    : Array.from({ length: Math.max(1, file?.threemf?.plates || 1) }, (_, index) => ({ index: index + 1 }));
+  const selectedPlate = plateDetails.find((plate) => plate.index === plateIndex) || plateDetails[0];
+  const slicerPreview = selectedPlate?.thumbnail || file?.threemf?.thumbnail || null;
+  const [renderMode, setRenderMode] = useState(format === '3mf' && slicerPreview ? 'slicer' : '3d');
+  useEffect(() => {
+    setPlateIndex(plateDetails[0]?.index || 1);
+    setSelectedPart(null);
+    setTool('orbit');
+    setRenderMode(format === '3mf' && (plateDetails[0]?.thumbnail || file?.threemf?.thumbnail) ? 'slicer' : '3d');
+  }, [file.id, format]);
+  useEffect(() => {
+    let live = true;
+    setStlMesh(null);
+    if (format === 'stl') loadStlMesh(file).then((mesh) => {
+      if (!live) return;
+      setStlMesh(mesh);
+      if (mesh?.triangles?.length && !file.previewMesh) {
+        const dimensions = buildPlatePreviewMetrics(mesh.bounds)?.dimensions || null;
+        const geometry = { ...(file.geometry || {}), triangles: Math.round(mesh.triangles.length / 9), dimensions, units: 'mm' };
+        onUpdateFile({ previewMesh: mesh, geometry, geometryFingerprint: geometrySimilarityFingerprint(geometry) });
+      }
+    });
+    return () => { live = false; };
+  }, [file, format, onUpdateFile]);
+  const plateProfile = resolveBuildPlateProfile({ printer, fallbackSize: 256 });
+  const issues = assetPrintabilityIssues(asset, { width: plateProfile.printable.width, depth: plateProfile.printable.depth, height: plateProfile.printable.height || 256 });
+  const dimensions = stlMesh?.bounds ? buildPlatePreviewMetrics(stlMesh.bounds)?.dimensions : file?.geometry?.dimensions || file?.threemf?.dimensions;
+  const toolMode = tool === 'wireframe' ? 'wireframe' : tool === 'xray' ? 'xray' : 'solid';
+  return (
+    <section className="border" style={{ borderColor: 'rgba(38,42,35,0.16)', background: '#262A23' }} aria-label={`${file.name} build plate workspace`}>
+      <div className="min-h-[46px] px-3 flex items-center gap-2 flex-wrap border-b" style={{ borderColor: 'rgba(255,255,255,0.14)', color: '#FFFFFF' }}>
+        {plateDetails.length > 1 && <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Build plates">
+          {plateDetails.map((plate) => <button key={plate.index} type="button" role="tab" aria-selected={plateIndex === plate.index} onClick={() => setPlateIndex(plate.index)} className="min-h-[40px] px-3 mp-mono text-[10px] uppercase whitespace-nowrap" style={{ background: plateIndex === plate.index ? 'var(--primary-ink)' : 'transparent', color: plateIndex === plate.index ? 'var(--primary-tint)' : '#FFFFFF', border: '1px solid rgba(255,255,255,0.18)' }}>Plate {plate.index}</button>)}
+        </div>}
+        {format === '3mf' && slicerPreview && <div className="flex gap-1" role="group" aria-label="3MF preview source">
+          {[['slicer', 'Slicer plate'], ['3d', '3D assembly']].map(([id, label]) => <button key={id} type="button" onClick={() => { setRenderMode(id); if (id === 'slicer') setTool('orbit'); }} aria-pressed={renderMode === id} className="min-h-[40px] px-2 mp-mono text-[9px] uppercase" style={{ background: renderMode === id ? 'rgba(255,255,255,0.14)' : 'transparent', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.18)' }}>{label}</button>)}
+        </div>}
+        <div className="ml-auto flex gap-1" role="toolbar" aria-label="3D inspection tools">
+          {[['orbit', 'Orbit'], ['measure', 'Measure'], ['section', 'Section']].map(([id, label]) => <button key={id} type="button" onClick={() => { setRenderMode('3d'); setTool(tool === id && id !== 'orbit' ? 'orbit' : id); }} aria-pressed={renderMode === '3d' && tool === id} className="min-h-[44px] px-3 mp-mono text-xs uppercase" style={{ background: renderMode === '3d' && tool === id ? '#5A7430' : 'transparent', color: '#FFFFFF', border: '1px solid rgba(255,255,255,0.18)' }}>{label}</button>)}
+          <details className="relative">
+            <summary className="min-h-[44px] px-3 mp-mono text-xs uppercase cursor-pointer list-none flex items-center gap-1" style={{ border: '1px solid rgba(255,255,255,0.18)' }}>Display <ChevronDown size={13} /></summary>
+            <div className="absolute right-0 top-full mt-1 z-20 w-40 p-1" style={{ background: '#1C1F24', border: '1px solid rgba(255,255,255,0.18)' }}>
+              {[['wireframe', 'Wireframe'], ['xray', 'X-ray']].map(([id, label]) => <button key={id} type="button" onClick={() => { setRenderMode('3d'); setTool(tool === id ? 'orbit' : id); }} aria-pressed={renderMode === '3d' && tool === id} className="w-full min-h-[44px] px-3 text-left text-sm" style={{ background: renderMode === '3d' && tool === id ? '#5A7430' : 'transparent', color: '#FFFFFF' }}>{label}</button>)}
+            </div>
+          </details>
+          <button type="button" onClick={onFullscreen} className="min-h-[44px] px-3 mp-mono text-xs uppercase" style={{ border: '1px solid rgba(255,255,255,0.18)' }}>Full screen</button>
+        </div>
+      </div>
+      <div className={`grid ${parts.length > 1 ? 'lg:grid-cols-[200px_minmax(0,1fr)]' : ''}`}>
+        {parts.length > 1 && <aside className="border-b lg:border-b-0 lg:border-r p-3" style={{ borderColor: 'rgba(255,255,255,0.12)', color: '#FFFFFF' }}>
+          <div className="mp-mono text-[10px] uppercase tracking-[0.15em] mb-2">Parts</div>
+          <button type="button" onClick={() => setSelectedPart(null)} className="w-full min-h-[36px] px-2 text-left text-[11px]" style={{ background: selectedPart == null ? 'rgba(255,255,255,0.12)' : 'transparent' }}>All parts <span className="opacity-55">({parts.length || 1})</span></button>
+          {(parts.length ? parts : [{ id: 'model', name: asset?.name || file.name }]).map((part) => <button key={part.id} type="button" onClick={() => setSelectedPart(part.id)} className="w-full min-h-[36px] px-2 text-left text-[11px] truncate" style={{ background: selectedPart === part.id ? 'rgba(90,116,48,0.22)' : 'transparent' }}>{part.name}</button>)}
+          <div className="mt-4 pt-3 border-t" style={{ borderColor: 'rgba(255,255,255,0.12)' }}>
+            <div className="mp-mono text-[9px] uppercase opacity-55">Tool</div>
+            <div className="text-xs mt-1">{tool === 'measure' ? 'Exact bounding dimensions' : tool === 'section' ? 'Z section plane enabled' : tool === 'wireframe' ? 'Mesh topology' : tool === 'xray' ? 'Transparent assembly' : 'Orbit and inspect'}</div>
+          </div>
+        </aside>}
+        <div className="relative" style={{ minHeight: 'clamp(280px, 38vh, 440px)' }}>
+          {renderMode === 'slicer' && slicerPreview ? <div className="absolute inset-0 flex items-center justify-center p-4" style={{ background: '#202329' }}>
+            <img src={slicerPreview} alt={`${file.name} plate ${plateIndex} embedded slicer preview`} className="w-full h-full object-contain" />
+            <div className="absolute left-3 bottom-3 px-2 py-1 mp-mono text-[9px] uppercase" style={{ color: '#FFFFFF', background: 'rgba(38,42,35,0.82)', border: '1px solid rgba(255,255,255,0.18)' }}>Embedded slicer render · Plate {plateIndex}</div>
+          </div> : (format === '3mf' || stlMesh?.triangles?.length) ? <InteractiveBuildPlate
+            triangles={format === 'stl' ? stlMesh?.triangles : null}
+            sourceFile={format === '3mf' ? file : null}
+            format={format}
+            plateSize={256}
+            fallbackSrc={slicerPreview}
+            name={file.name}
+            printer={printer}
+            displayMode={toolMode}
+            sectionEnabled={tool === 'section'}
+            selectedPart={selectedPart}
+            selectedPlate={plateIndex}
+            onPartsDiscovered={setParts}
+          /> : <div className="absolute inset-0 flex items-center justify-center text-xs" style={{ color: 'rgba(255,255,255,0.65)' }}>Preparing the cached preview mesh…</div>}
+          {renderMode === '3d' && tool === 'measure' && dimensions && <div className="absolute left-3 top-3 p-3 grid grid-cols-3 gap-4" style={{ color: '#FFFFFF', background: 'rgba(38,42,35,0.82)', border: '1px solid rgba(255,255,255,0.18)' }}>{['x', 'y', 'z'].map((axis) => <div key={axis}><div className="mp-mono text-[9px] uppercase opacity-55">{axis}</div><div className="mp-mono text-xs mt-1">{formatModelDimension(dimensions[axis])} mm</div></div>)}</div>}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-px" style={{ background: 'rgba(255,255,255,0.12)', color: '#FFFFFF' }}>
+        <div className="p-3" style={{ background: '#1C1F24' }}><div className="mp-mono text-[9px] uppercase opacity-55">Triangles</div><div className="text-xs mt-1">{file.geometry?.triangles || file.threemf?.triangles || (stlMesh?.triangles?.length ? Math.round(stlMesh.triangles.length / 9) : 'Scanning')}</div></div>
+        <div className="p-3" style={{ background: '#1C1F24' }}><div className="mp-mono text-[9px] uppercase opacity-55">Shells</div><div className="text-xs mt-1">{file.geometry?.shells || file.threemf?.shells || '—'}</div></div>
+        <div className="p-3" style={{ background: '#1C1F24' }}><div className="mp-mono text-[9px] uppercase opacity-55">Units</div><div className="text-xs mt-1">{file.geometry?.units || file.threemf?.units || 'mm'}</div></div>
+        <div className="p-3" style={{ background: '#1C1F24' }}><div className="mp-mono text-[9px] uppercase opacity-55">Plate fit</div><div className="text-xs mt-1" style={{ color: issues.some((issue) => issue.level === 'blocked') ? '#FF9B75' : '#7DE0B1' }}>{issues.length ? `${issues.length} issue${issues.length === 1 ? '' : 's'}` : 'Fits'}</div></div>
+        <div className="p-3" style={{ background: '#1C1F24' }}><div className="mp-mono text-[9px] uppercase opacity-55">Revision</div><div className="text-xs mt-1">v{file.revision || 1}</div></div>
+      </div>
+    </section>
+  );
+}
+
+function ArchiveContents({ file }) {
+  const [result, setResult] = useState({ entries: [], error: null, loading: true });
+  useEffect(() => {
+    let live = true;
+    inspectArchive(file.blob, async () => (await import('jszip')).default).then((next) => { if (live) setResult({ ...next, loading: false }); });
+    return () => { live = false; };
+  }, [file.blob]);
+  if (result.loading) return <p className="text-[11px] opacity-55">Reading archive index…</p>;
+  if (result.error) return <p className="text-[11px]" style={{ color: '#3E5420' }}>{result.error}</p>;
+  return <div className="max-h-40 overflow-auto space-y-1">{result.entries.map((entry) => <div key={entry.path} className="min-h-[32px] px-2 flex items-center gap-2 border text-[10px]" style={{ borderColor: 'rgba(38,42,35,0.1)' }}><span className="mp-mono uppercase opacity-55 w-8">.{entry.extension}</span><span className="truncate flex-1" title={entry.path}>{entry.path}</span><span className="mp-mono uppercase opacity-45">{entry.role}</span></div>)}</div>;
+}
+
+function AssetInspector({ asset, file, project, exactDuplicate, onUpdateFile, onRename, onUpdateProfile, onOpenMedia, onSelectFile, onOpenPreview, onSuggestTags, onGroupSelected, onUpdatePlatform, buildPlateActive = false, tab, setTab }) {
+  const replacementRef = useRef(null);
+  const [nameDraft, setNameDraft] = useState(file.name);
+  useEffect(() => setNameDraft(file.name), [file.id, file.name]);
+  const profile = project.profiles.find((item) => item.fileId === file.id);
+  const issues = assetPrintabilityIssues(asset);
+  const tags = [...new Set([...(asset.tags || []), ...(file.assetTags || [])])];
+  const enabled = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+  return (
+    <div className="space-y-4">
+      <div><div className="mp-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: '#3E5420' }}>Asset</div><h3 className="mp-display text-[24px] leading-tight mt-1">{asset.name}</h3><div className="mp-mono text-[10px] uppercase mt-1" style={{ color: 'rgba(38,42,35,0.52)' }}>{asset.files.length} files · {formatBytes(asset.metadata.bytes)} · v{file.revision || 1}</div></div>
+      {!buildPlateActive && <button type="button" onClick={onOpenPreview} className="mp-btn w-full"><Box size={16} /> Open 3D build plate</button>}
+      <div className="grid grid-cols-3 border" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>{[['general', 'General'], ['profile', 'Profile'], ['destinations', 'Platforms']].map(([id, label]) => <button key={id} type="button" onClick={() => setTab(id)} disabled={id === 'profile' && !profile} className="min-h-[40px] text-[9px] uppercase disabled:opacity-35" style={{ borderBottom: tab === id ? '2px solid #5A7430' : '2px solid transparent' }}>{label}</button>)}</div>
+      {tab === 'general' && <label className="block text-[11px]">File name<input aria-label="File name" className="mp-input text-xs mt-1" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={() => { if (nameDraft.trim() && nameDraft.trim() !== file.name) onRename(nameDraft.trim()); }} onKeyDown={(event) => { if (event.key === 'Enter' && nameDraft.trim()) onRename(nameDraft.trim()); }} /></label>}
+      {tab === 'profile' && profile && <PackageProfileEditor file={file} profile={profile} project={project} onUpdateProfile={onUpdateProfile} onUpdatePlatform={onUpdatePlatform} onOpenMedia={onOpenMedia} />}
+      {tab === 'destinations' && <section><p className="text-xs" style={{ color: 'rgba(38,42,35,0.62)' }}>Choose the exact native role for this file on every selected destination. Automatic choices show why they were made.</p><div className="space-y-3 mt-3">{enabled.map((platform) => { const options = project.platforms[platform.id] || {}; return <div key={platform.id}><div className="flex items-center gap-2 mb-1"><PlatformMark platform={platform} size={20} /><strong className="text-[11px]">{platform.name}</strong></div><DestinationFileRoleRow platform={platform} file={file} opts={options} onChange={(destinationRole) => onUpdatePlatform(platform.id, { fileSelection: 'manual', fileRoles: setPlatformFileRole(options, file.id, destinationRole), excludedFileIds: (options.excludedFileIds || []).filter((id) => String(id) !== String(file.id)) })} onReset={() => { const fileRoles = { ...(options.fileRoles || {}) }; delete fileRoles[String(file.id)]; onUpdatePlatform(platform.id, { fileRoles }); }} /></div>; })}</div></section>}
+      <section className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><div className="flex items-center justify-between"><div className="mp-mono text-[10px] uppercase tracking-[0.14em]">Child files</div><button type="button" onClick={onGroupSelected} className="text-[10px] underline">Group selected</button></div><div className="mt-2 space-y-1">{asset.files.map((child) => <button key={child.id} type="button" onClick={() => onSelectFile(child.id)} className="w-full min-h-[40px] px-2 flex items-center gap-2 text-left border" style={{ borderColor: child.id === file.id ? '#5A7430' : 'rgba(38,42,35,0.12)', background: child.id === file.id ? 'rgba(90,116,48,0.07)' : 'transparent' }}><span className="mp-mono text-[9px] uppercase w-12 opacity-55">.{child.extension}</span><span className="text-[11px] truncate flex-1">{child.name}</span><span className="mp-mono text-[8px] uppercase opacity-55">{child.role.replace('print-', '')}</span></button>)}</div></section>
+      {fileExt(file.name) === 'zip' && <section className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><div className="mp-mono text-[10px] uppercase tracking-[0.14em] mb-2">Archive contents</div><ArchiveContents file={file} /></section>}
+      <section className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><div className="flex items-center justify-between"><div className="mp-mono text-[10px] uppercase tracking-[0.14em]">Metadata & tags</div><button type="button" onClick={onSuggestTags} className="text-[10px] underline">Auto tag</button></div><div className="flex flex-wrap gap-1.5 mt-2">{tags.length ? tags.map((tag) => <span key={tag} className="px-2 py-1 text-[9px] uppercase border" style={{ borderColor: 'rgba(38,42,35,0.15)' }}>{tag}</span>) : <span className="text-[11px] opacity-55">No tags yet</span>}</div><div className="grid grid-cols-2 gap-2 mt-3"><Stat label="Plates" value={asset.metadata.plateCount || '—'} /><Stat label="Slicer" value={asset.metadata.slicers.join(', ') || 'Raw model'} /><Stat label="Printer" value={asset.metadata.printers.join(', ') || 'Not set'} /><Stat label="Hash" value={file.contentHash ? file.contentHash.slice(0, 8) : 'Processing'} /></div></section>
+      {(exactDuplicate || issues.length > 0) && <section className="p-3 border" style={{ borderColor: 'rgba(184,58,0,0.35)', background: 'rgba(255,182,39,0.09)' }}><div className="mp-mono text-[10px] uppercase" style={{ color: '#3E5420' }}>Needs review</div>{exactDuplicate && <p className="text-[11px] mt-1">Exact duplicate content detected.</p>}{issues.map((issue) => <p key={issue.id} className="text-[11px] mt-1">{issue.label}</p>)}</section>}
+      <section className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><div className="mp-mono text-[10px] uppercase tracking-[0.14em] mb-2">Destination readiness</div><div className="space-y-1.5">{enabled.map((platform) => { const check = platformPreflight(platform, project); return <div key={platform.id} className="min-h-[38px] px-2 flex items-center gap-2 border text-[10px]" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><span className="w-1.5 h-1.5 rounded-full" style={{ background: check.errors.length ? '#3E5420' : check.warnings.length ? '#D58A00' : '#247255' }} /><span className="flex-1">{platform.name}</span><span className="mp-mono uppercase opacity-60">{check.errors.length ? `${check.errors.length} blocked` : check.warnings.length ? `${check.warnings.length} warning` : 'Ready'}</span></div>; })}</div></section>
+      <section className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><div className="mp-mono text-[10px] uppercase tracking-[0.14em] mb-2">History</div><div className="text-[11px]">Current revision v{file.revision || 1}</div>{(file.assetVersions || []).slice().reverse().map((version) => <div key={`${version.revision}-${version.replacedAt}`} className="text-[10px] mt-1 opacity-60">v{version.revision} · {version.name} · {formatBytes(version.size)}</div>)}<input ref={replacementRef} type="file" className="hidden" accept={`.${fileExt(file.name)}`} onChange={(event) => { const replacement = event.target.files?.[0]; if (replacement) onUpdateFile(replaceAssetFileRevision(file, replacement)); event.target.value = ''; }} /><button type="button" onClick={() => replacementRef.current?.click()} className="mt-2 text-[11px] underline">Replace as new revision</button></section>
+      <details className="pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><summary className="cursor-pointer mp-mono text-[10px] uppercase tracking-[0.14em]">Advanced file settings</summary><label className="block mt-3 text-[11px]">File role<select className="mp-input text-xs mt-1" value={projectFileRole(file)} onChange={(event) => onUpdateFile(fileRolePatch(event.target.value))}>{FILE_ROLE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label></details>
+    </div>
+  );
+}
+
+function PackageFileInspector({ file, project, tab, setTab, onClose, onUpdateFile, onRename, onUpdateProfile, onUpdatePlatform, onOpenMedia, onOpenPreview }) {
+  const [nameDraft, setNameDraft] = useState(file.name);
+  useEffect(() => setNameDraft(file.name), [file.id, file.name]);
+  const profile = project.profiles.find((item) => item.fileId === file.id);
+  const role = projectFileRole(file);
+  const coverage = fileDestinationCoverage(file, project);
+  const enabled = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+  const commitName = () => { if (nameDraft.trim() && nameDraft.trim() !== file.name) onRename(nameDraft.trim()); };
+  const roleLabel = FILE_ROLE_OPTIONS.find((item) => item.id === role)?.label || 'File';
+  const hasInteractivePreview = ['stl', '3mf'].includes(fileExt(file.name));
+  return (
+    <aside aria-label={`${file.name} inspector`} className="border min-w-0 self-start xl:sticky xl:top-3" style={{ borderColor: 'rgba(38,42,35,0.16)', background: 'rgba(247,244,235,0.84)' }}>
+      <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><div className="min-w-0 flex-1"><div className="font-semibold text-sm truncate">{file.name}</div><div className="mp-mono text-[10px] uppercase tracking-[0.12em] mt-1" style={{ color: 'rgba(38,42,35,0.55)' }}>{roleLabel} · {formatBytes(file.size)}</div></div><button onClick={onClose} aria-label="Close file inspector" className="p-1"><X size={17} /></button></div>
+      {hasInteractivePreview && <button type="button" onClick={onOpenPreview} className="w-full min-h-[42px] px-4 flex items-center justify-between border-b text-left hover:bg-[rgba(90,116,48,0.07)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#5A7430]" style={{ borderColor: 'rgba(38,42,35,0.12)' }}><span className="inline-flex items-center gap-2 text-xs font-semibold"><Box size={15} style={{ color: '#3E5420' }} /> Open 3D build plate</span><ChevronRight size={14} /></button>}
+      <div className="grid grid-cols-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
+        {[['general', 'General'], ['profile', 'Profile'], ['destinations', 'Platforms']].map(([id, label]) => <button key={id} onClick={() => setTab(id)} disabled={id === 'profile' && !profile} className="py-3 text-[10px] uppercase tracking-[0.11em] disabled:opacity-35" style={{ borderBottom: tab === id ? '2px solid #5A7430' : '2px solid transparent' }}>{label}</button>)}
+      </div>
+      <div className="p-4 space-y-4 max-h-[calc(100vh-250px)] overflow-auto">
+        {tab === 'general' && <>
+          <label className="block text-[11px] space-y-1"><span>File name</span><input className="mp-input text-xs" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === 'Enter') commitName(); }} /></label>
+          <label className="block text-[11px] space-y-1"><span>File role</span><select className="mp-input text-xs" value={role} onChange={(event) => onUpdateFile(fileRolePatch(event.target.value))}>{FILE_ROLE_OPTIONS.map((option) => <option key={option.id} value={option.id} disabled={option.id === 'profile' && fileExt(file.name) !== '3mf'}>{option.label}</option>)}</select></label>
+          <label className="block text-[11px] space-y-1"><span>Package folder</span><input className="mp-input text-xs" value={file.packagePath || ''} placeholder="parts/large" onChange={(event) => onUpdateFile({ packagePath: event.target.value.replace(/^\/+/, '') })} /></label>
+          {file.isProfile && <label className="block text-[11px] space-y-1"><span>Detected slicer</span><select className="mp-input text-xs" value={file.slicerOverride || ''} onChange={(event) => onUpdateFile({ slicerOverride: event.target.value || null })}><option value="">Auto: {slicerLabel(fileSlicer(file))}</option>{Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
+          <div className="grid grid-cols-2 gap-2 pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}><Stat label="Included" value={coverage.total ? `${coverage.included}/${coverage.total}` : 'No targets'} /><Stat label="Format" value={`.${fileExt(file.name)}`} /></div>
+          <details className="pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}><summary className="cursor-pointer text-[11px]">Platform file notes</summary><div className="space-y-2 mt-3"><label className="block text-[11px] space-y-1"><span>MakerWorld note</span><input className="mp-input text-xs" value={file.makerWorld?.note || ''} onChange={(event) => onUpdateFile({ makerWorld: { ...(file.makerWorld || {}), note: event.target.value } })} /></label><label className="block text-[11px] space-y-1"><span>Printables note</span><input className="mp-input text-xs" value={file.printables?.note || ''} onChange={(event) => onUpdateFile({ printables: { ...(file.printables || {}), note: event.target.value } })} /></label></div></details>
+        </>}
+        {tab === 'profile' && profile && <PackageProfileEditor file={file} profile={profile} project={project} onUpdateProfile={onUpdateProfile} onUpdatePlatform={onUpdatePlatform} onOpenMedia={onOpenMedia} />}
+        {tab === 'destinations' && <>
+          <p className="text-xs" style={{ color: 'rgba(38,42,35,0.62)' }}>Choose the exact native role for this file on every selected destination. Automatic choices show why they were made.</p>
+          {enabled.length === 0 ? <p className="text-xs p-3 border" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>No destinations selected yet.</p> : enabled.map((platform) => {
+            const options = project.platforms[platform.id] || {};
+            return <div key={platform.id} className="pt-2"><div className="flex items-center gap-2"><PlatformMark platform={platform} size={22} /><strong className="text-xs">{platform.name}</strong></div><DestinationFileRoleRow platform={platform} file={file} opts={options}
+              onChange={(destinationRole) => onUpdatePlatform(platform.id, {
+                fileSelection: 'manual',
+                fileRoles: setPlatformFileRole(options, file.id, destinationRole),
+                excludedFileIds: (options.excludedFileIds || []).filter((id) => String(id) !== String(file.id)),
+              })}
+              onReset={() => { const fileRoles = { ...(options.fileRoles || {}) }; delete fileRoles[String(file.id)]; onUpdatePlatform(platform.id, { fileRoles, excludedFileIds: (options.excludedFileIds || []).filter((id) => String(id) !== String(file.id)) }); }} /></div>;
+          })}
+        </>}
+      </div>
+    </aside>
+  );
+}
 
 // Grid view: the preview leads and the name is secondary, which is the right
 // order when you are scanning plate renders rather than reading filenames.
 // Click a preview to see it properly. A 40px tile answers "which file is this";
 // this answers "is this the right model, sliced the way I meant". STL is
 // re-rendered large rather than upscaled, so the detail is real.
-function FilePreviewModal({ files, index, onClose, onIndex }) {
+function SlicerBuildPlate({
+  src, bounds, nativePlate = false, name, triangles = null, sourceFile = null,
+  format = '', previewMode = '3d', onPreviewMode = null, hasSlicerImage = false, printer = '',
+}) {
+  const metrics = buildPlatePreviewMetrics(bounds);
+  const interactive = previewMode === '3d' && (triangles?.length || (format === '3mf' && sourceFile?.blob));
+
+  if (interactive) {
+    const plateSize = metrics?.plateSize || 256;
+    const plateProfile = resolveBuildPlateProfile({ printer, fallbackSize: plateSize });
+    return (
+      <div className="w-full mx-auto" data-testid="slicer-build-plate">
+        <div className="flex items-center justify-between mb-2 gap-3">
+          <div>
+            <div className="mp-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: '#FFFFFF' }}>Build plate</div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              {plateProfile.native
+                ? `${plateProfile.printer} · ${plateProfile.printable.width} × ${plateProfile.printable.depth} mm printable`
+                : `Generic preview plate · ${plateProfile.printable.width} × ${plateProfile.printable.depth} mm`}
+            </div>
+          </div>
+          {hasSlicerImage && onPreviewMode ? (
+            <div className="flex items-center gap-1 p-1" style={{ border: '1px solid rgba(255,255,255,0.16)' }}>
+              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ background: '#FFFFFF', color: '#262A23' }} aria-pressed="true">3D model</button>
+              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ color: '#FFFFFF' }} onClick={() => onPreviewMode('slicer')} aria-pressed="false">Slicer image</button>
+            </div>
+          ) : (
+            <span className="mp-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: 'rgba(255,255,255,0.48)' }}>Interactive 3D</span>
+          )}
+        </div>
+
+        <div
+          className="relative mx-auto aspect-square select-none"
+          style={{
+            width: 'min(100%, max(260px, calc(100vh - 270px)))',
+            maxWidth: 620,
+            minHeight: 260,
+            filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.32))',
+          }}
+        >
+          <InteractiveBuildPlate
+            triangles={triangles}
+            sourceFile={sourceFile}
+            format={format}
+            plateSize={plateSize}
+            fallbackSrc={src}
+            name={name}
+            printer={printer}
+          />
+        </div>
+
+        {metrics && (
+          <div className="grid grid-cols-3 gap-px mt-2" style={{ background: 'rgba(255,255,255,0.12)' }}>
+            {['x', 'y', 'z'].map((axis) => (
+              <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: '#1C1F24' }}>
+                <span className="mp-mono text-[10px] uppercase" style={{ color: 'rgba(255,255,255,0.48)' }}>{axis}</span>
+                <span className="mp-mono text-[11px]" style={{ color: '#FFFFFF' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const gridStyle = metrics ? {
+    backgroundImage: [
+      'linear-gradient(rgba(176,181,193,0.18) 1px, transparent 1px)',
+      'linear-gradient(90deg, rgba(176,181,193,0.18) 1px, transparent 1px)',
+      'linear-gradient(rgba(176,181,193,0.06) 1px, transparent 1px)',
+      'linear-gradient(90deg, rgba(176,181,193,0.06) 1px, transparent 1px)',
+    ].join(','),
+    backgroundSize: `${metrics.majorPercent}% ${metrics.majorPercent}%, ${metrics.majorPercent}% ${metrics.majorPercent}%, ${metrics.minorPercent}% ${metrics.minorPercent}%, ${metrics.minorPercent}% ${metrics.minorPercent}%`,
+  } : {};
+
+  return (
+    <div className="w-full mx-auto" data-testid="slicer-build-plate">
+      <div className="flex items-center justify-between mb-2 gap-3">
+        <div>
+          <div className="mp-mono text-[11px] uppercase tracking-[0.18em]" style={{ color: '#FFFFFF' }}>Build plate</div>
+          <div className="text-[11px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+            {nativePlate ? 'Embedded render from the slicer' : metrics ? `Dark textured plate · ${metrics.plateSize} × ${metrics.plateSize} mm` : 'Generated mesh preview'}
+          </div>
+        </div>
+        <span className="mp-mono text-[10px] uppercase tracking-[0.16em]" style={{ color: 'rgba(255,255,255,0.48)' }}>
+          {hasSlicerImage && onPreviewMode ? (
+            <span className="flex items-center gap-1 p-1" style={{ border: '1px solid rgba(255,255,255,0.16)' }}>
+              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ color: '#FFFFFF' }} onClick={() => onPreviewMode('3d')} aria-pressed="false">3D model</button>
+              <button type="button" className="mp-mono px-2 py-1 text-[9px] uppercase" style={{ background: '#FFFFFF', color: '#262A23' }} aria-pressed="true">Slicer image</button>
+            </span>
+          ) : nativePlate ? 'Slicer image' : 'Angled view'}
+        </span>
+      </div>
+
+      <div
+        className="relative mx-auto aspect-square select-none"
+        style={{
+          width: 'min(100%, max(260px, calc(100vh - 270px)))',
+          maxWidth: 620,
+          minHeight: 260,
+          filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.32))',
+        }}
+      >
+        <div className="absolute inset-0 overflow-hidden rounded-[3px]" style={{ background: nativePlate ? '#24272D' : '#55565E' }}>
+          <div
+            className={nativePlate ? 'absolute inset-0 overflow-hidden' : 'absolute left-[7%] right-[7%] top-[2%] bottom-[4%]'}
+            style={nativePlate ? undefined : {
+              transform: 'perspective(840px) rotateX(52deg) rotateZ(-2.5deg)',
+              transformOrigin: '50% 58%',
+              filter: 'drop-shadow(0 30px 18px rgba(15,16,20,0.52))',
+            }}
+          >
+            {!nativePlate && (
+              <div
+                className="absolute inset-0 rounded-[18px]"
+                aria-hidden="true"
+                style={{
+                  background: '#1E2026',
+                  boxShadow: '0 13px 0 #17191E, 0 16px 0 rgba(0,0,0,0.3)',
+                  clipPath: 'polygon(3% 3%, 40% 3%, 42% 0, 58% 0, 60% 3%, 97% 3%, 100% 6%, 100% 94%, 97% 97%, 65% 97%, 63% 100%, 37% 100%, 35% 97%, 3% 97%, 0 94%, 0 6%)',
+                }}
+              />
+            )}
+
+            <div
+              className={nativePlate ? 'absolute inset-0 overflow-hidden' : 'absolute inset-[10px] overflow-hidden rounded-[12px]'}
+              style={{
+                backgroundColor: '#2D2F37',
+                border: nativePlate ? '1px solid rgba(255,255,255,0.24)' : '1px solid rgba(176,181,193,0.28)',
+                boxShadow: nativePlate ? undefined : 'inset 0 0 0 2px rgba(13,14,18,0.52)',
+                ...(!nativePlate ? gridStyle : {}),
+              }}
+            >
+              {!nativePlate && (
+                <>
+                  <div className="absolute inset-[7px] rounded-[8px] border pointer-events-none" style={{ borderColor: 'rgba(176,181,193,0.16)' }} />
+                  <div className="absolute left-[7%] top-[4%] mp-mono text-[10px] font-semibold tracking-[0.06em]" style={{ color: 'rgba(255,255,255,0.84)' }}>
+                    ModelPrep textured PEI plate
+                  </div>
+                  <div className="absolute top-[5%] right-[6%] mp-mono text-[9px]" style={{ color: 'rgba(176,181,193,0.68)' }}>
+                    {metrics?.plateSize || ''} × {metrics?.plateSize || ''}
+                  </div>
+                  <div className="absolute left-1/2 top-[1.8%] -translate-x-1/2 w-[21%] h-[3px] rounded-full" style={{ background: 'rgba(176,181,193,0.28)' }} />
+                </>
+              )}
+
+              <img
+                src={src}
+                alt={nativePlate ? `${name} embedded slicer build plate` : `${name} on an auto-fit build plate`}
+                draggable="false"
+                className={nativePlate ? 'absolute inset-0 w-full h-full object-contain' : 'absolute left-1/2 top-1/2 object-contain'}
+                style={nativePlate ? undefined : {
+                  width: `${metrics?.modelPercent || 78}%`,
+                  height: `${metrics?.modelPercent || 78}%`,
+                  transform: 'translate(-50%, -50%)',
+                  filter: 'drop-shadow(0 12px 9px rgba(0,0,0,0.42))',
+                }}
+              />
+
+              {!nativePlate && (
+                <>
+                  <span className="absolute left-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>0</span>
+                  <span className="absolute right-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
+                  <span className="absolute left-[2.5%] top-[8%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
+                  <div className="absolute left-[4%] bottom-[8%] h-11 w-11" aria-hidden="true">
+                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ background: '#5A7430' }} />
+                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ background: '#00B84A' }} />
+                    <span className="absolute right-0 bottom-0 mp-mono text-[9px]" style={{ color: '#FF8A5B' }}>X</span>
+                    <span className="absolute left-1 top-0 mp-mono text-[9px]" style={{ color: '#3ADB76' }}>Y</span>
+                  </div>
+                  <div className="absolute left-[10%] right-[10%] bottom-0 h-[6.5%] flex items-center justify-between px-[5%] mp-mono uppercase tracking-[0.05em]" style={{ background: '#D9DADD', color: '#30323A', fontSize: '8px' }}>
+                    <span>PLA / ABS / PETG</span>
+                    <span>Hot surface</span>
+                    <span>ModelPrep</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {!nativePlate && metrics && (
+        <div className="grid grid-cols-3 gap-px mt-2" style={{ background: 'rgba(255,255,255,0.12)' }}>
+          {['x', 'y', 'z'].map((axis) => (
+            <div key={axis} className="flex items-baseline justify-between px-3 py-2" style={{ background: '#1C1F24' }}>
+              <span className="mp-mono text-[10px] uppercase" style={{ color: 'rgba(255,255,255,0.48)' }}>{axis}</span>
+              <span className="mp-mono text-[11px]" style={{ color: '#FFFFFF' }}>{formatModelDimension(metrics.dimensions[axis])} mm</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' }) {
+  const dialogRef = useRef(null);
   const file = files[index];
-  const [stlUrl, setStlUrl] = useState(null);
+  const [stlPreview, setStlPreview] = useState(null);
+  const [stlMesh, setStlMesh] = useState(null);
+  const [previewMode, setPreviewMode] = useState('3d');
   const [objectUrl, setObjectUrl] = useState(null);
   const isImg = file?.isImage;
   const isVid = file && isGalleryVideoFile(file);
-  const isStl = file && !isImg && !isVid && fileExt(file.name) === 'stl';
-  const plate = file?.threemf?.thumbnail || null;
+  const format = file ? fileExt(file.name) : '';
+  const isStl = file && !isImg && !isVid && format === 'stl';
+  const isThreeMF = file && !isImg && !isVid && format === '3mf';
+  const plate = file?.threemf?.thumbnail || file?.previewDataUrl || null;
+  const printer = file?.threemf?.printer
+    || files.find((candidate) => candidate?.threemf?.printer)?.threemf?.printer
+    || projectPrinter
+    || '';
 
   useEffect(() => {
+    const previousFocus = document.activeElement;
+    requestAnimationFrame(() => dialogRef.current?.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')?.focus());
     const onKey = (event) => {
       if (event.key === 'Escape') onClose();
+      else if (event.key === 'Tab' && dialogRef.current) {
+        const focusable = [...dialogRef.current.querySelectorAll('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+        if (!focusable.length) return;
+        const first = focusable[0]; const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+      else if (event.target?.closest?.('[data-testid="interactive-build-plate"]')) return;
       else if (event.key === 'ArrowRight') onIndex((index + 1) % files.length);
       else if (event.key === 'ArrowLeft') onIndex((index - 1 + files.length) % files.length);
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); previousFocus?.focus?.(); };
   }, [index, files.length, onClose, onIndex]);
 
   useEffect(() => {
-    setStlUrl(null);
+    setStlPreview(null);
+    setStlMesh(null);
+    setPreviewMode(isStl || (isThreeMF && file?.blob) ? '3d' : 'slicer');
     if (!isStl) return undefined;
     let live = true;
-    renderStlThumb(file, 512).then((url) => { if (live) setStlUrl(url); });
+    renderStlThumb(file, 768).then((url) => { if (live) setStlPreview(url ? { url } : null); });
+    loadStlMesh(file).then((mesh) => { if (live) setStlMesh(mesh); });
     return () => { live = false; };
-  }, [file, isStl]);
+  }, [file, isStl, isThreeMF]);
 
   useEffect(() => {
     setObjectUrl(null);
@@ -3493,7 +4703,11 @@ function FilePreviewModal({ files, index, onClose, onIndex }) {
 
   if (!file) return null;
   const slicer = file.isProfile ? fileSlicer(file) : null;
-  const large = plate || stlUrl;
+  const show3D = previewMode === '3d' && (isStl || (isThreeMF && file.blob));
+  const large = show3D ? (stlPreview?.url || plate || null) : (plate || stlPreview?.url);
+  const previewReady = show3D
+    ? (isThreeMF || !!stlMesh?.triangles?.length)
+    : !!large;
 
   return (
     <div
@@ -3502,7 +4716,7 @@ function FilePreviewModal({ files, index, onClose, onIndex }) {
       style={{ background: 'rgba(38,42,35,0.82)' }}
       onMouseDown={onClose}
     >
-      <div className="mp-card max-w-4xl w-full flex flex-col" style={{ background: '#FFFFFF' }} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} tabIndex={-1} className="mp-card max-w-4xl w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ background: '#FFFFFF' }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
           <div className="min-w-0 flex-1">
             <div className="mp-display text-[18px] leading-none truncate">{file.name}</div>
@@ -3514,13 +4728,30 @@ function FilePreviewModal({ files, index, onClose, onIndex }) {
           <button onClick={onClose} aria-label="Close preview" className="p-2 hover:text-[#3E5420] transition"><X size={18} /></button>
         </div>
 
-        <div className="flex items-center justify-center p-4" style={{ background: '#262A23', minHeight: 320 }}>
-          {isVid && objectUrl && <video src={objectUrl} controls className="max-h-[60vh] max-w-full" />}
-          {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[60vh] max-w-full object-contain" />}
-          {!isImg && !isVid && large && <img src={large} alt="" className="max-h-[60vh] max-w-full object-contain" />}
-          {!isImg && !isVid && !large && (
+        {/* Photos sit on a paper-toned stage: the old near-black stage read as
+            broken letterboxing around portrait shots. The dark stage remains
+            for the 3D/slicer views, where a viewport is expected to be dark. */}
+        <div className="flex items-center justify-center p-4 sm:p-6 overflow-y-auto" style={{ background: isImg || isVid ? 'rgba(38,42,35,0.06)' : '#262A23', minHeight: 320 }}>
+          {isVid && objectUrl && <video src={objectUrl} controls className="max-h-[72vh] max-w-full" />}
+          {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[72vh] max-w-full object-contain" style={{ boxShadow: '0 1px 14px rgba(38,42,35,0.18)' }} />}
+          {!isImg && !isVid && previewReady && (
+            <SlicerBuildPlate
+              src={large}
+              bounds={stlMesh?.bounds || stlPreview?.bounds || null}
+              nativePlate={!show3D && !!plate}
+              name={file.name}
+              triangles={show3D ? stlMesh?.triangles || null : null}
+              sourceFile={show3D ? file : null}
+              format={format}
+              previewMode={previewMode}
+              onPreviewMode={setPreviewMode}
+              hasSlicerImage={isThreeMF && !!plate}
+              printer={printer}
+            />
+          )}
+          {!isImg && !isVid && !previewReady && (
             <p className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              {isStl ? 'Drawing the model…' : 'No preview available for this file type.'}
+              {isStl ? 'Preparing interactive 3D model…' : 'No preview available for this file type.'}
             </p>
           )}
         </div>
@@ -3561,7 +4792,8 @@ function FileTile({ file, size, onRemove, onOpen }) {
   );
 }
 
-export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdatePrintables, onUpdateFile, onOpen, thumbSize = 40, duplicate = false }) {
+export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdatePrintables, onUpdateFile, onChangeRole, onOpen, thumbSize = 40, duplicate = false }) {
+  const role = projectFileRole(file);
   const isProf = file.isProfile;
   const isImg = file.isImage;
   const ext = fileExt(file.name);
@@ -3616,7 +4848,22 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
         </td>
         <td>
           <div className="flex items-center gap-2 flex-wrap">
-            {isProf ? (
+            {onChangeRole ? (
+              <select
+                aria-label={`Role for ${file.name}`}
+                title="What this file is for; destinations route files by role"
+                className="mp-input-sm text-xs"
+                style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto', background: role === 'profile' ? 'var(--primary-tint)' : undefined }}
+                value={role}
+                onChange={(e) => onChangeRole(e.target.value)}
+              >
+                <option value="model">Model</option>
+                <option value="profile">Print profile</option>
+                <option value="reference">Reference photo</option>
+                <option value="source">Source file</option>
+                <option value="document">Document</option>
+              </select>
+            ) : isProf ? (
               <span className="mp-pill" style={{ background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>Print profile</span>
             ) : isImg ? (
               <span className="mp-pill" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Reference image</span>
@@ -3764,10 +5011,10 @@ function FileSizeWarnings({ files, totalSize }) {
       warnings.push({ platform: 'Most platforms', limit: `${COMMON_FILE_MB}MB per file`, current: `${fm.toFixed(0)}MB (${f.name})` });
     }
   });
-  if (totalMb > 250) warnings.push({ platform: 'MakerWorld', limit: '250MB total', current: `${totalMb.toFixed(0)}MB` });
+  // 200 MiB is the current documented .3mf cap; no aggregate cap is documented.
   files.filter(f => f.isProfile).forEach(f => {
-    if (mb(f.size) > 150) {
-      warnings.push({ platform: 'MakerWorld', limit: '150MB per profile', current: `${mb(f.size).toFixed(0)}MB (${f.name})` });
+    if (mb(f.size) > 200) {
+      warnings.push({ platform: 'MakerWorld', limit: '200MB per profile', current: `${mb(f.size).toFixed(0)}MB (${f.name})` });
     }
   });
   if (warnings.length === 0) return null;
@@ -4545,22 +5792,23 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
 
       {/* ✨ AI generate: reads the photos (+ an optional one-line hint) and fills in
           Title, Description, Tags and Category. The most you ever type is one line. */}
-      <div className="mp-card p-4 mt-6" style={{ background: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
-        <div className="flex items-center gap-2 mb-2.5">
+      <details className="mp-card mt-6" style={{ background: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
+        <summary className="mp-disclosure min-h-[48px] px-4 flex items-center gap-2 cursor-pointer">
           <Sparkles size={15} style={{ color: 'var(--primary)' }} />
           <span className="text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>Generate with AI</span>
           <span className="text-xs" style={{ color: 'var(--ink-65)' }}>
-            from your {project.images.length} photo{project.images.length === 1 ? '' : 's'}
+            from your {project.images.length} photo{project.images.length === 1 ? '' : 's'} and an optional hint
           </span>
           <button
-            onClick={() => openSettings('ai')}
+            onClick={(e) => { e.preventDefault(); openSettings('ai'); }}
             className="ml-auto text-xs flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[rgba(255,255,255,0.7)]"
             style={{ color: 'var(--ink-65)' }}
             title="Configure the AI provider in Settings"
           >
             <Settings size={12} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : 'Set up AI'}
           </button>
-        </div>
+        </summary>
+        <div className="px-4 pb-4">
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             className="mp-input flex-1"
@@ -4587,14 +5835,15 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           Looks at your print photos to write everything, then you review and tweak below. Respects each platform's length and tag limits.
           {!aiPrimary && ' Right now it writes from your hint alone. Connect an AI assistant in Settings to write from the photos themselves.'}
         </p>
-      </div>
+        </div>
+      </details>
 
       <div className="mt-6 max-w-3xl space-y-5">
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="mb-0">Title</Label>
-              {lim.titleMax && (
-                <span className="mp-mono text-xs" style={{ color: titleOver ? '#5A7430' : 'rgba(38,42,35,0.66)' }}>
+              {lim.titleMax && (titleOver || project.title.length >= lim.titleMax * 0.8) && (
+                <span className="mp-mono text-xs" style={{ color: titleOver ? 'var(--warn-text)' : 'rgba(38,42,35,0.66)' }}>
                   {project.title.length}/{lim.titleMax}
                   {titleOver && ` · over ${lim.titleMaxBy}'s limit`}
                 </span>
@@ -4619,7 +5868,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                     aria-pressed={previewMode === m}
                     style={{ height: 24, textTransform: 'capitalize' }}
                   >
-                    {m}
+                    {m === 'formats' ? 'Adaptations' : m}
                   </button>
                 ))}
                 {!project.description && project.__testProject && (
@@ -4651,12 +5900,11 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             )}
 
             <div className="flex items-center justify-between mt-1.5">
-              <span className="mp-mono text-xs" style={{ color: descOver ? '#5A7430' : 'rgba(38,42,35,0.66)' }}>
-                {project.description.length}{lim.descMax ? `/${lim.descMax}` : ''} chars
-                {descOver && ` · over ${lim.descMaxBy}'s limit`}
-              </span>
-              <span className="mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                Reformatted automatically for each platform · see Formats
+              {(descOver || (lim.descMax && project.description.length >= lim.descMax * 0.8)) && <span className="mp-mono text-xs" style={{ color: descOver ? 'var(--danger-text)' : 'var(--warn-text)' }}>
+                {project.description.length}/{lim.descMax} chars{descOver && ` · over ${lim.descMaxBy}'s limit`}
+              </span>}
+              <span className="mp-mono text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                Adapted automatically per destination
               </span>
             </div>
           </div>
@@ -4805,6 +6053,17 @@ function Label({ children, className = '' }) {
   return <label className={`text-[13px] font-medium block mb-1.5 ${className}`} style={{ color: 'var(--ink)' }}>{children}</label>;
 }
 
+function AutoMatchNote({ active, exact = true, kind = 'category' }) {
+  if (!active) return null;
+  return (
+    <p className="text-[11px] mt-1" style={{ color: exact ? '#24634f' : '#8A4B08' }}>
+      {exact
+        ? `Matched from your Details ${kind} · change below to override`
+        : `Closest available to your Details ${kind} · change below to override`}
+    </p>
+  );
+}
+
 function FormatTabs({ description }) {
   const [active, setActive] = useState('md');
   const [copied, setCopied] = useState(null); // null | 'ok' | 'fail'
@@ -4874,6 +6133,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
   const [imageWorkspace, setImageWorkspace] = useState('gallery');
   const [cropPlatformId, setCropPlatformId] = useState('makerworld');
   const [imgNotice, setImgNotice] = useState(null); // string | null
+  const [draggedImageId, setDraggedImageId] = useState(null);
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop)
     ? window.modelprepDesktop
     : null;
@@ -5036,8 +6296,22 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
     updateProject({ images: imgs });
   };
 
+  const moveImageTo = (sourceId, targetId) => {
+    if (!sourceId || sourceId === targetId) return;
+    const imgs = [...project.images];
+    const sourceIndex = imgs.findIndex((image) => image.id === sourceId);
+    const targetIndex = imgs.findIndex((image) => image.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = imgs.splice(sourceIndex, 1);
+    imgs.splice(targetIndex, 0, moved);
+    updateProject({ images: imgs });
+  };
+
   const activeImage = project.images.find(i => i.id === activeImageId) || project.images[0];
-  const cropPlatform = PLATFORMS.find((platform) => platform.id === cropPlatformId) || PLATFORMS[0];
+  const cropPlatforms = PLATFORMS.filter((platform) => ['makerworld', 'nexprint', 'creality'].includes(platform.id) && project.platforms?.[platform.id]?.enabled);
+  const videoSupported = ['makerworld', 'cults'].some((platformId) => project.platforms?.[platformId]?.enabled);
+  const existingVideos = (project.media || []).filter((item) => item.kind === 'video');
+  const cropPlatform = cropPlatforms.find((platform) => platform.id === cropPlatformId) || cropPlatforms[0] || PLATFORMS.find((platform) => platform.id === 'makerworld');
 
   return (
     <div className="w-full min-w-0">
@@ -5055,7 +6329,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         </div>
       )}
 
-      <div className="mp-card p-4 mt-5" data-testid="typed-video-media">
+      {(videoSupported || existingVideos.length > 0) && <div className="mp-card p-4 mt-5" data-testid="typed-video-media">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="mp-display text-[20px] flex items-center gap-2"><Video size={18} /> Model videos</div>
@@ -5063,9 +6337,9 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
               MakerWorld: one MP4/MOV, maximum 30 seconds. Cults3D: ordered MP4/WebM media. Other platforms skip videos.
             </p>
           </div>
-          <button type="button" onClick={() => videoInputRef.current?.click()} className="mp-btn mp-btn-ghost text-xs py-2 px-3">
+          {videoSupported && <button type="button" onClick={() => videoInputRef.current?.click()} className="mp-btn mp-btn-ghost text-xs py-2 px-3">
             <Plus size={13} /> Add video
-          </button>
+          </button>}
           <input ref={videoInputRef} type="file" multiple accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm" onChange={(event) => handleVideoFiles(event.target.files)} className="hidden" />
         </div>
         {(project.media || []).filter((item) => item.kind === 'video').length > 0 && (
@@ -5085,7 +6359,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {project.images.length === 0 ? (
         <ImageDropZone
@@ -5107,7 +6381,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
             <div className="flex items-baseline gap-2 min-w-0">
               <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{project.images.length} images</span>
               <span className="text-xs truncate" style={{ color: 'var(--ink-50)' }}>
-                · this order is used on every platform, cover first
+                · drag to reorder · cover first on every platform
               </span>
             </div>
             <button onClick={chooseImageFiles} className="mp-btn mp-btn-ghost text-xs">
@@ -5121,7 +6395,16 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
               const active = activeImageId === img.id;
               const isCover = project.coverImageId === img.id;
               return (
-                <li key={img.id} className="relative flex-shrink-0 group" style={{ width: 104 }}>
+                <li
+                  key={img.id}
+                  draggable
+                  onDragStart={() => setDraggedImageId(img.id)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => { event.preventDefault(); moveImageTo(draggedImageId, img.id); setDraggedImageId(null); }}
+                  onDragEnd={() => setDraggedImageId(null)}
+                  className="relative flex-shrink-0 group"
+                  style={{ width: 104, opacity: draggedImageId === img.id ? 0.4 : undefined }}
+                >
                   <button
                     onClick={() => setActiveImageId(img.id)}
                     aria-pressed={active}
@@ -5180,14 +6463,14 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                   >
                     Gallery editor
                   </button>
-                  <button
+                  {cropPlatforms.length > 0 && <button
                     role="tab"
                     aria-selected={imageWorkspace === 'crops'}
                     aria-pressed={imageWorkspace === 'crops'}
                     onClick={() => setImageWorkspace('crops')}
                   >
                     Platform crops
-                  </button>
+                  </button>}
                 </div>
                 <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
                   <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
@@ -5224,7 +6507,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       <label className="min-w-[220px]">
                         <span className="sr-only">Platform to preview</span>
                         <select className="mp-input-sm w-full" value={cropPlatformId} onChange={(event) => setCropPlatformId(event.target.value)}>
-                          {PLATFORMS.map((platform) => (
+                          {cropPlatforms.map((platform) => (
                             <option key={platform.id} value={platform.id}>{platform.name}</option>
                           ))}
                         </select>
@@ -5765,6 +7048,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
     updateProject({ platforms: next });
   };
   const [savedDefault, setSavedDefault] = useState(false);
+  const [expandedPlatformId, setExpandedPlatformId] = useState(null);
   const saveAsDefault = () => {
     setDefaultPlatforms(PLATFORMS.filter(p => project.platforms[p.id]?.enabled).map(p => p.id));
     setSavedDefault(true); setTimeout(() => setSavedDefault(false), 2000);
@@ -5810,6 +7094,8 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
             connectionLabel={connectionLabel}
             onConnect={() => openConnections('accounts')}
             onToggle={() => togglePlatform(p.id)}
+            expanded={expandedPlatformId === p.id}
+            onExpand={() => setExpandedPlatformId((current) => current === p.id ? null : p.id)}
             onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
           />;
         })}
@@ -5833,6 +7119,8 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
             project={project}
             connectionLabel="Export package"
             onToggle={() => togglePlatform(p.id)}
+            expanded={expandedPlatformId === p.id}
+            onExpand={() => setExpandedPlatformId((current) => current === p.id ? null : p.id)}
             onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
           />
         ))}
@@ -5949,75 +7237,71 @@ export function ReleasePlanControls({ platform, project }) {
   );
 }
 
-// Per-platform file checklist. Everything compatible is included by default;
-// unchecking a file adds it to this platform's excludedFileIds so slicer-
-// specific variants (e.g. an Elegoo 3MF) can be kept off platforms where they
-// only add noise. Preflight fails closed if every file ends up excluded.
+function destinationRoleAvailability(platform, file) {
+  const ext = fileExt(file.name);
+  const candidate = platformCandidateFiles(platform, { files: [file] }).length > 0;
+  return {
+    model: candidate && platform.formats.includes(ext),
+    profile: candidate && ext === '3mf' && ['makerworld', 'makeronline', 'makeroad'].includes(platform.id),
+    documentation: candidate,
+    'not-sent': true,
+  };
+}
+
+export function DestinationFileRoleRow({ platform, file, opts, onChange, onReset }) {
+  const choice = platformFileRoleChoice(platform.id, file, opts);
+  const availability = destinationRoleAvailability(platform, file);
+  const unsupported = !availability.model && !availability.profile && !availability.documentation;
+  const ext = fileExt(file.name);
+  const detectedSlicer = file.isProfile ? slicerLabel(fileSlicer(file)) : '';
+  return (
+    <div className="py-2.5 border-b last:border-b-0" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-xs font-medium truncate flex-1" title={file.name}>{file.name}</span>
+        {detectedSlicer && <span className="mp-mono text-xs uppercase tracking-[0.08em] opacity-65">{detectedSlicer}</span>}
+        <span className="mp-mono text-[9px] uppercase tracking-[0.1em] px-2 py-0.5 rounded-full" style={{ background: choice.automatic ? 'rgba(58,134,255,0.10)' : 'rgba(90,116,48,0.10)', color: choice.automatic ? '#245DA8' : '#8F2D00' }}>{choice.automatic ? 'Automatic' : 'Manual'}</span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2">
+        <select aria-label={`${file.name} role for ${platform.name}`} className="mp-input text-xs py-1.5" value={choice.role} disabled={unsupported} onChange={(event) => onChange(event.target.value)}>
+          {DESTINATION_FILE_ROLES.map((role) => <option key={role.id} value={role.id} disabled={!availability[role.id]}>{role.label}</option>)}
+        </select>
+        {!choice.automatic && <button type="button" onClick={onReset} className="text-[10px] underline whitespace-nowrap">Reset to Auto</button>}
+      </div>
+      <p className="text-[10px] mt-1 leading-snug" style={{ color: unsupported ? '#B91C1C' : 'rgba(38,42,35,0.60)' }}>
+        {unsupported ? `.${ext || 'file'} is not accepted by this destination.` : choice.reason}
+        {choice.suggestedRole && choice.role !== choice.suggestedRole ? ` Suggested role: ${choice.suggestedRole === 'profile' ? 'Print profile' : choice.suggestedRole}.` : ''}
+      </p>
+    </div>
+  );
+}
+
+// One role per file/destination intersection. Slicer affinity only proposes a
+// native profile role; a foreign-slicer 3MF remains an ordinary model.
 export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
-  const candidates = platformCandidateFiles(platform, project);
-  if (candidates.length < 2) return null; // nothing to choose between
-  const excludedCount = candidates.filter((file) => isFileExcluded(file, opts)).length;
-  const nativeSlicers = platformNativeSlicers(platform.id);
-  const auto = isAutoFileSelection(opts);
-  // Say what the automatic choice was and why, so an unticked file never looks
-  // like something went missing.
-  const autoNote = auto && nativeSlicers && excludedCount > 0
-    ? `Auto-selected: ${nativeSlicers.map(slicerLabel).join(' / ')} profiles and shared model files. ${excludedCount} profile${excludedCount === 1 ? '' : 's'} from other slicers left unticked; tick any to include ${excludedCount === 1 ? 'it' : 'them'}.`
-    : null;
-  const setExcluded = (fileId) => {
-    // The first manual tick pins the selection: later imports must not silently
-    // re-decide something the user has chosen.
-    onUpdate('fileSelection', 'manual');
-    onUpdate('excludedFileIds', toggleExcludedFileId(opts, fileId));
+  if (!project.files.length) return null;
+  const resetAll = () => {
+    const reset = resetPlatformFileRoles();
+    Object.entries(reset).forEach(([field, value]) => onUpdate(field, value));
   };
   return (
     <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5 flex items-center gap-2 flex-wrap" style={{ color: 'rgba(38,42,35,0.66)' }}>
-        <span>Files for {platform.name}{excludedCount ? ` · ${excludedCount} not included` : ''}</span>
-        {!auto && nativeSlicers && (
-          <button
-            type="button"
-            onClick={() => {
-              onUpdate('fileSelection', 'auto');
-              onUpdate('excludedFileIds', autoExcludedFileIds(platform.id, project.files));
-            }}
-            className="mp-mono text-[11px] uppercase tracking-[0.12em] underline"
-            style={{ color: 'var(--accent-text)' }}
-          >
-            Reset to automatic
-          </button>
-        )}
+        <span>Files and roles for {platform.name}</span>
+        {(Object.keys(opts.fileRoles || {}).length > 0 || (opts.excludedFileIds || []).length > 0) && <button type="button" onClick={resetAll} className="mp-mono text-[10px] uppercase tracking-[0.12em] underline" style={{ color: 'var(--accent-text)' }}>Reset all to Auto</button>}
       </div>
-      {autoNote && <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(38,42,35,0.66)' }}>{autoNote}</p>}
+      <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(38,42,35,0.66)' }}>The selected role is what the native adapter will do with this file. Automatic choices always explain their reason.</p>
       <div className="space-y-1">
-        {candidates.map((file) => {
-          const included = !isFileExcluded(file, opts);
-          const slicer = file.isProfile ? fileSlicer(file) : null;
-          const isNative = slicer && nativeSlicers?.includes(slicer);
-          return (
-            <label key={file.id} className="flex items-center gap-2 text-xs cursor-pointer">
-              <input
-                type="checkbox"
-                checked={included}
-                aria-label={`Send ${file.name} to ${platform.name}`}
-                onChange={() => setExcluded(file.id)}
-                style={{ accentColor: '#5A7430' }}
-              />
-              <span className="truncate" style={{ opacity: included ? 1 : 0.45 }}>{file.name}</span>
-              {slicer && slicer !== 'unknown' && (
-                <span
-                  className="mp-mono text-[11px] uppercase tracking-[0.15em] px-1 py-0.5 flex-shrink-0"
-                  style={isNative
-                    ? { background: 'rgba(79,178,134,0.18)', color: '#247255' }
-                    : { background: 'rgba(38,42,35,0.08)' }}
-                  title={isNative ? `${platform.name}'s own slicer` : undefined}
-                >
-                  {slicerLabel(slicer)}
-                </span>
-              )}
-            </label>
-          );
-        })}
+        {project.files.map((file) => <DestinationFileRoleRow key={file.id} platform={platform} file={file} opts={opts}
+          onChange={(role) => {
+            onUpdate('fileSelection', 'manual');
+            onUpdate('fileRoles', setPlatformFileRole(opts, file.id, role));
+            onUpdate('excludedFileIds', (opts.excludedFileIds || []).filter((id) => String(id) !== String(file.id)));
+          }}
+          onReset={() => {
+            const fileRoles = { ...(opts.fileRoles || {}) }; delete fileRoles[String(file.id)];
+            onUpdate('fileRoles', fileRoles);
+            onUpdate('excludedFileIds', (opts.excludedFileIds || []).filter((id) => String(id) !== String(file.id)));
+          }} />)}
       </div>
     </div>
   );
@@ -6115,11 +7399,12 @@ function PanelSection({ title, hint, children }) {
   );
 }
 
-function PlatformCard({ platform, state, project, connectionLabel, onConnect, onToggle, onUpdate }) {
-  const [expanded, setExpanded] = useState(false);
+function PlatformCard({ platform, state, project, connectionLabel, onConnect, onToggle, onUpdate, expanded = false, onExpand }) {
   const acceptedFormats = platform.id === 'makerworld' && state.productMode === 'laser-cut'
     ? MAKERWORLD_LASER_FORMATS
     : platform.formats;
+  const issues = platformPreflight(platform, project);
+  const readiness = destinationReadinessSummary(platform.id, issues, project);
   return (
     // An expanded card is an editing surface, not a tile: it spans the whole row
     // so its options get real width, and so one tall card can't leave the rest of
@@ -6167,7 +7452,14 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                 }}>{connectionLabel}</span>
               ))}
             </div>
-            <button onClick={() => setExpanded(s => !s)} className="p-2 opacity-50 hover:opacity-100 transition flex-shrink-0 ml-auto" aria-label={expanded ? 'Collapse platform options' : 'Expand platform options'} aria-expanded={expanded}>
+            {state.enabled && (
+              <span className="mp-pill flex-shrink-0 ml-auto whitespace-nowrap" title={readiness.missingCount ? `${readiness.missingCount} missing requirement${readiness.missingCount === 1 ? '' : 's'}` : readiness.evidence} style={readiness.status === 'blocked'
+                ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
+                : readiness.status === 'warning'
+                  ? { background: 'rgba(255,182,39,0.18)', color: '#8A5A08' }
+                  : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{readiness.label}</span>
+            )}
+            <button onClick={onExpand} className={`p-2 opacity-50 hover:opacity-100 transition flex-shrink-0 ${state.enabled ? '' : 'ml-auto'}`} aria-label={expanded ? 'Collapse platform options' : 'Expand platform options'} aria-expanded={expanded}>
               {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
             </button>
         </div>
@@ -6178,7 +7470,15 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
         <p className="text-xs mt-2" style={{ color: 'rgba(38,42,35,0.65)' }}>
           <span style={{ color: 'rgba(38,42,35,0.5)' }}>{platform.org}</span>
           {platform.note ? ` · ${platform.note}` : ''}
+          {state.enabled ? <span style={{ color: 'var(--ink-50)' }}> · native outcome: {readiness.outcome.outcome}</span> : null}
         </p>
+        <details className="mt-1.5">
+          <summary className="mp-disclosure cursor-pointer text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>Requirements &amp; evidence</summary>
+          <div className="mt-2 p-3 text-xs leading-5 rounded-md" style={{ background: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
+            <div>{platformWorkflow(platform.id).evidence}</div>
+            <div className="mt-1">{acceptedFormats.length} accepted package format{acceptedFormats.length === 1 ? '' : 's'} · {destinationMediaTreatment(platform.id).join(' · ')}</div>
+          </div>
+        </details>
       </div>
 
       {expanded && (
@@ -6187,6 +7487,14 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
         // stretched across 1800px is unreadable: the eye loses the line between
         // the label and the value.
         <div className="mp-platform-panel px-3.5 pb-3.5 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+          {(issues.errors.length > 0 || issues.warnings.length > 0) && (
+            <PanelSection title="Needs attention">
+              <div className="space-y-1.5">
+                {issues.errors.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ background: 'var(--danger-tint)', color: 'var(--danger-text)' }}>{message}</div>)}
+                {issues.warnings.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ background: 'rgba(255,182,39,0.14)', color: '#6F3C06' }}>{message}</div>)}
+              </div>
+            </PanelSection>
+          )}
           <PanelSection title="Limits">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
               <Stat label="Max images" value={Number.isFinite(platform.maxImages) ? platform.maxImages : 'No limit listed'} />
@@ -6314,6 +7622,25 @@ export function CultsOptions({ opts, onUpdate }) {
     : [...metaTags, value]);
   return (
     <div className="mt-3 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <Label>Cults3D category (required)</Label>
+          <select aria-label="Cults3D category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
+            <option value="">Choose exact category…</option>
+            {CULTS_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
+        </div>
+        <div>
+          <Label>Cults3D license (required)</Label>
+          <select aria-label="Cults3D license" className="mp-input" value={opts.licenseType || ''} onChange={(event) => onUpdate({ licenseType: event.target.value, licenseAuto: false })}>
+            <option value="">Choose compatible license…</option>
+            {CULTS_LICENSES.filter(([, , scope]) => opts.free === false ? scope !== 'free' : scope !== 'paid').map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+          <AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" />
+        </div>
+      </div>
+      <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>Both mappings are resolved before any file upload. ModelPrep no longer substitutes a generic category or license after bytes are sent.</p>
       <div>
         <Label>Visibility</Label>
         <div className="flex items-center gap-3 text-xs">
@@ -6378,12 +7705,13 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
             value={selectedCategoryId}
             onChange={(event) => {
               const selected = categories.find((category) => category.id === event.target.value);
-              onUpdate('categoryIds', selected?.pathIds || []);
+              onUpdate({ categoryIds: selected?.pathIds || [], categoryAuto: false });
             }}
           >
             <option value="">Choose MyMiniFactory category…</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
           </select>
+          <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
           <p className="text-[11px] mt-1 opacity-70">{categorySource === 'live' ? 'Loaded from MyMiniFactory’s current taxonomy.' : 'Using the audited taxonomy snapshot; reconnect to refresh it live.'}</p>
         </div>
         <div>
@@ -6395,9 +7723,10 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
         </div>
         <div>
           <Label>License</Label>
-          <select aria-label="License" className="mp-input" value={Number(opts.licenseId || 5)} onChange={(event) => onUpdate('licenseId', Number(event.target.value))}>
+          <select aria-label="License" className="mp-input" value={Number(opts.licenseId || 5)} onChange={(event) => onUpdate({ licenseId: Number(event.target.value), licenseAuto: false })}>
             {MYMINIFACTORY_LICENSES.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
           </select>
+          <AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" />
         </div>
         <div>
           <Label>Technology</Label>
@@ -6603,12 +7932,15 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
             <option value="">Choose Nexprint category…</option>
+            {opts.categoryId && !categories.some((category) => String(category.id) === String(opts.categoryId))
+              && <option value={opts.categoryId}>Saved category {opts.categoryId}</option>}
             {categories.map((category) => (
               <option key={category.id} value={category.id}>{category.name}</option>
             ))}
           </select>
+          <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
           {!categories.length && <p className="text-[11px] mt-1 opacity-70">Category tree loads from Nexprint’s current live taxonomy.</p>}
         </div>
         <div>
@@ -6616,6 +7948,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
           <select className="mp-input" value={Number(opts.licenseType ?? NEXPRINT_LICENSE_MAP[project.license] ?? 7)} onChange={(event) => onUpdate('licenseType', Number(event.target.value))}>
             {NEXPRINT_LICENSES.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
           </select>
+          <AutoMatchNote active={opts.licenseType == null} kind="license" />
         </div>
       </div>
 
@@ -6726,7 +8059,7 @@ export function CrealityOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select aria-label="Creality category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+          <select aria-label="Creality category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
             <option value="">Choose Creality category…</option>
             {CREALITY_CATEGORIES.map((category) => (
               <optgroup key={category.id} label={category.label}>
@@ -6735,12 +8068,14 @@ export function CrealityOptions({ opts, project, onUpdate }) {
               </optgroup>
             ))}
           </select>
+          <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
         </div>
         <div>
           <Label>License</Label>
           <select aria-label="Creality license" className="mp-input" value={opts.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL'} onChange={(event) => onUpdate('license', event.target.value)}>
             {CREALITY_LICENSES.map((license) => <option key={license.value} value={license.value}>{license.label}</option>)}
           </select>
+          <AutoMatchNote active={!opts.license} kind="license" />
         </div>
       </div>
 
@@ -6774,6 +8109,22 @@ export function makerRoadReadbackIssues(expected, model) {
   if (plan != null && Number(plan) !== (expected.scheduled ? 2 : 1)) issues.push('MakerRoad read-back changed the publication plan.');
   const payType = model.payType;
   if (payType != null && Number(payType) !== ({ free: 1, points: 2, cash: 3 }[expected.payType] || 1)) issues.push('MakerRoad read-back changed the download price type.');
+  // A save that MakerRoad's review REJECTED must never report "verified":
+  // all seven retained drafts were review-rejected while this readback passed
+  // (live-confirmed 2026-08-07). The state field name is uncaptured, so treat
+  // any status-looking field with a value as reportable rather than silent.
+  for (const field of ['auditStatus', 'checkStatus', 'reviewStatus', 'audit_status', 'status']) {
+    if (own(field) && model[field] != null && model[field] !== '' && Number(model[field]) !== 0) {
+      issues.push(`MakerRoad reports ${field}=${String(model[field])} for this save; open the draft on MakerRoad and confirm it was not rejected in review before treating it as published or verified.`);
+      break;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(model, 'descBody') && String(expected.description || '').trim() && !String(model.descBody || '').trim()) {
+    issues.push('MakerRoad read-back lost the description.');
+  }
+  if (own('printType') && (expected.printMethods || []).length && !makerRoadReadbackValues(model.printType).length) {
+    issues.push('MakerRoad read-back shows no print method although one was sent; the required Print Method field did not persist.');
+  }
   for (const [field, label, expectedCount] of [
     ['fileModel', 'model files', expected.models], ['filePrintconf', 'print configurations', expected.profiles],
     ['fileDoc', 'instruction documents', expected.documents], ['pics', 'images', expected.images],
@@ -6815,20 +8166,21 @@ export function MakerRoadOptions({ opts, onUpdate }) {
       }).catch((error) => { if (alive) setMeta((value) => ({ ...value, loading: false, error: error.message })); });
     return () => { alive = false; };
   }, [secret]);
-  const toggle = (field, id, max = Infinity) => {
+  const toggle = (field, id, max = Infinity, extra = null) => {
     const values = (opts[field] || []).map(String);
-    onUpdate(field, values.includes(String(id)) ? values.filter((value) => value !== String(id)) : values.length < max ? [...values, String(id)] : values);
+    const next = values.includes(String(id)) ? values.filter((value) => value !== String(id)) : values.length < max ? [...values, String(id)] : values;
+    onUpdate(extra ? { [field]: next, ...extra } : { [field]: next });
   };
   const license = MAKEROAD_LICENSES[Number(opts.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
   return (
     <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="grid md:grid-cols-2 gap-3">
-        <div><Label>Batch action</Label><select aria-label="MakerRoad batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save private draft (recommended)</option><option value="publish">Submit for public review (LIVE)</option></select></div>
+        <div><Label>Native action</Label><select aria-label="MakerRoad batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save · enters MakerRoad review</option><option value="publish">Submit for public review (LIVE)</option></select><p className="text-[13px] mt-1" style={{ color: '#8F2D00' }}>MakerRoad does not currently retain a private draft in tested flows. Save is a review submission.</p></div>
         <div><Label>Upload type</Label><select aria-label="MakerRoad upload type" className="mp-input" value={Number(opts.uploadType || 1)} onChange={(e) => onUpdate('uploadType', Number(e.target.value))}><option value={1}>Original</option><option value={2}>Remix</option></select></div>
       </div>
       {Number(opts.uploadType || 1) === 2 && <div><Label>Original model URL</Label><input className="mp-input" value={opts.referUrl || ''} onChange={(e) => onUpdate('referUrl', e.target.value)} placeholder="https://…" /></div>}
-      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3)} />{item.name}</label>)}</div></div>
-      <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><select aria-label="MakerRoad license" className="mp-input" value={Number(opts.licenseIndex || 0)} onChange={(e) => onUpdate('licenseIndex', Number(e.target.value))}>{MAKEROAD_LICENSES.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}</select></div><div><Label>Visibility</Label><select className="mp-input" value={opts.visibility || 'private'} onChange={(e) => onUpdate('visibility', e.target.value)}><option value="private">Private</option><option value="public">Public</option></select></div></div>
+      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: '#24634f' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad’s live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
+      <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><select aria-label="MakerRoad license" className="mp-input" value={Number(opts.licenseIndex || 0)} onChange={(e) => onUpdate({ licenseIndex: Number(e.target.value), licenseAuto: false })}>{MAKEROAD_LICENSES.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div><div><Label>Visibility</Label><select className="mp-input" value={opts.visibility || 'private'} onChange={(e) => onUpdate('visibility', e.target.value)}><option value="private">Private</option><option value="public">Public</option></select></div></div>
       <div><Label>Print methods</Label><div className="flex gap-4 text-xs">{['FDM', 'LCD', 'Others'].map((value) => <label key={value}><input type="checkbox" checked={(opts.printMethods || []).includes(value)} onChange={() => toggle('printMethods', value)} /> {value}</label>)}</div></div>
       {!!meta.printers.length && <div><Label>Compatible printers (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('printerIds', e.target.value); e.target.value = ''; }}><option value="">Add printer…</option>{meta.printers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.printerIds || []).length} selected</p></div>}
       <div className="grid md:grid-cols-2 gap-3">
@@ -6868,7 +8220,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><select aria-label="Thangs visibility" className="mp-input" value={opts.publication || 'private'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="private">Private (recommended)</option><option value="public">Public (LIVE)</option></select></div><div><Label>Structure</Label><select aria-label="Thangs structure" className="mp-input" value={opts.structure || 'single'} onChange={(e) => onUpdate('structure', e.target.value)}><option value="single">Single model</option><option value="bulk">Separate bulk models</option><option value="multipart">Multipart model</option><option value="assembly">Assembly</option></select></div></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Units</Label><select className="mp-input" value={opts.units || 'mm'} onChange={(e) => onUpdate('units', e.target.value)}><option value="mm">Millimeters</option><option value="cm">Centimeters</option><option value="m">Meters</option><option value="in">Inches</option></select></div><div><Label>Primary part</Label><select className="mp-input" value={opts.primaryFileId || modelFiles[0]?.id || ''} onChange={(e) => onUpdate('primaryFileId', e.target.value)}>{modelFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select></div></div>
-    <div><Label>Category path</Label><select aria-label="Thangs category" className="mp-input" value={opts.category || ''} onChange={(e) => onUpdate('category', e.target.value)}><option value="">Choose category…</option>{categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select>{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
+    <div><Label>Category path</Label><select aria-label="Thangs category" className="mp-input" value={opts.category || ''} onChange={(e) => onUpdate({ category: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" />{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Folder ID (optional)</Label><input className="mp-input" value={opts.folderId || ''} onChange={(e) => onUpdate('folderId', e.target.value)} /></div><div><Label>Workspace ID (optional)</Label><input className="mp-input" value={opts.workspaceId || ''} onChange={(e) => onUpdate('workspaceId', e.target.value)} /></div></div>
     <div><Label>Resume existing private draft ID (recovery only)</Label><input aria-label="Thangs resume draft ID" className="mp-input" value={opts.resumeDraftId || ''} onChange={(e) => onUpdate('resumeDraftId', e.target.value.trim())} placeholder="Leave empty for a new model" /><p className="text-[11px] opacity-70">Use only after Thangs created a private draft but rejected its details; ModelPrep will update that draft instead of creating a duplicate.</p></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Access type ID (optional)</Label><input className="mp-input" value={opts.accessTypeId || ''} onChange={(e) => onUpdate('accessTypeId', e.target.value)} /></div><div><Label>Plan IDs (comma-separated)</Label><input className="mp-input" value={(opts.planIds || []).join(', ')} onChange={(e) => onUpdate('planIds', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div></div>
@@ -6876,7 +8228,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
     <div><Label>Version notes</Label><textarea className="mp-input" value={opts.versionNotes || ''} onChange={(e) => onUpdate('versionNotes', e.target.value)} /></div>
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={opts.allowRemix !== false} onChange={(e) => onUpdate('allowRemix', e.target.checked)} /> Allow remix</label><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={opts.feedbackEnabled !== false} onChange={(e) => onUpdate('feedbackEnabled', e.target.checked)} /> Enable feedback</label></div>
     <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.marketplace} onChange={(e) => onUpdate('marketplace', e.target.checked)} /> Paid marketplace listing (account eligibility required)</label>{opts.marketplace && <input aria-label="Thangs price" className="mp-input" type="number" min="0" value={opts.price || 0} onChange={(e) => onUpdate('price', Number(e.target.value))} />}
-    <div><Label>License</Label><input className="mp-input" value={opts.license || ''} onChange={(e) => onUpdate('license', e.target.value)} /></div>
+    <div><Label>License</Label><input className="mp-input" value={opts.license || ''} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })} /><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div>
     <p className="text-[11px] opacity-60">Model files over 250 MB must be reference files. ModelPrep verifies details, attachments, and license after creation. Plans and paid access remain account-gated.</p>
   </div>;
 }
@@ -6885,9 +8237,9 @@ export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) 
   const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     <div className="p-2.5 text-[11px]" style={{ background: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
-    <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate('license', e.target.value)}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select></div></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div></div>
     <div><Label>Summary (required)</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /></div>
-    <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate('categoryId', e.target.value)}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
+    <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate({ categoryId: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated</label><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label><label><input type="checkbox" checked={!!opts.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> NSFW</label></div>
     {!hasScad && <p className="text-[11px] opacity-60">Thingiverse enables Customizer only when the upload includes a .SCAD model file.</p>}
     <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
@@ -6994,10 +8346,11 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select aria-label="MakerOnline category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+          <select aria-label="MakerOnline category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
             <option value="">{meta.loading ? 'Loading live taxonomy…' : 'Choose MakerOnline category…'}</option>
             {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
           </select>
+          <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
           {!secret && <p className="text-[11px] mt-1 opacity-70">Connect MakerOnline to load its live category tree.</p>}
         </div>
         <div>
@@ -7005,6 +8358,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
           <select aria-label="MakerOnline license" className="mp-input" value={license} onChange={(event) => onUpdate('license', Number(event.target.value))}>
             {MAKERONLINE_LICENSES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
+          <AutoMatchNote active={opts.license == null} kind="license" />
         </div>
       </div>
 
@@ -7156,7 +8510,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <Label>Printables category (required)</Label>
-          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate('categoryId', event.target.value)}>
+          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
             <option value="">Choose from live taxonomy…</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
@@ -7164,6 +8518,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
               </option>
             ))}
           </select>
+          <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
         </div>
         <div>
           <Label>Printables license (required)</Label>
@@ -7171,6 +8526,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
             <option value="">Use mapped project license</option>
             {licenses.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
           </select>
+          <AutoMatchNote active={!opts.licenseId} kind="license" />
         </div>
       </div>
       {metaState.error && (
@@ -7235,8 +8591,8 @@ export function PrintablesOptions({ opts, onUpdate }) {
             </label>
             {opts.store && (
               <div>
-                <Label>Store price (whole USD, ${PRINTABLES_PRICE_MIN}–${PRINTABLES_PRICE_MAX})</Label>
-                <input className="mp-input" type="number" min={PRINTABLES_PRICE_MIN} max={PRINTABLES_PRICE_MAX} step="1" value={opts.price || ''} onChange={(event) => onUpdate('price', event.target.value)} />
+                <Label>Store price (whole USD; Printables applies its own bounds, typically ${PRINTABLES_PRICE_MIN}–${PRINTABLES_PRICE_MAX})</Label>
+                <input className="mp-input" type="number" min="1" step="1" value={opts.price || ''} onChange={(event) => onUpdate('price', event.target.value)} />
               </div>
             )}
             {opts.club && (
@@ -7391,6 +8747,19 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
     setPublishBatch((current) => retryFailedPublishBatch(current, `batch-retry-${Date.now()}`));
   };
   const readyTargetCount = publishTargets.filter((target) => target.mode !== 'missing' && target.issues.errors.length === 0).length;
+  const reviewReports = enabled.map((platform) => {
+    const issues = platformPreflight(platform, project);
+    return { platform, issues, summary: destinationReadinessSummary(platform.id, issues, project) };
+  });
+  const reviewReadyCount = reviewReports.filter((report) => report.summary.status !== 'blocked').length;
+  const reviewBlockedCount = reviewReports.length - reviewReadyCount;
+  const fixSectionFor = (message = '') => /file|model|profile|3mf|slicer|bambu/i.test(message)
+    ? 'files'
+    : /image|photo|cover|gallery|video/i.test(message)
+      ? 'images'
+      : /title|description|tag|shared category|shared license/i.test(message)
+        ? 'details'
+        : 'platforms';
 
   // Release queue: due scheduled plans for THIS project auto-start a normal
   // single-target batch as soon as this step is mounted and idle. Reminders
@@ -7528,43 +8897,12 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
     </>
   );
 
-  if (!allReady) {
-    return (
-      <div className="w-full min-w-0">
-        <SectionHeader number="06" title="Prepare upload packages" subtitle="Complete the missing steps to prepare platform-ready packages." />
-        <div className="mt-6 space-y-2">
-          {SECTIONS.slice(0, -1).map(s => (
-            <button key={s.id} onClick={() => setCurrentSection(s.id)} className="w-full p-3.5 mp-card flex items-center gap-3 text-left transition hover:border-[#5A7430]">
-              <div className="w-8 h-8 flex items-center justify-center flex-shrink-0" style={{ background: completion[s.id] ? '#4FB286' : 'rgba(38,42,35,0.08)' }}>
-                {completion[s.id] ? <Check size={14} color="#fff" /> : <AlertCircle size={14} style={{ color: '#5A7430' }} />}
-              </div>
-              <div className="flex-1">
-                <div className="mp-display text-[18px] leading-none">{s.label}</div>
-                <div className="mp-body text-[13px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                  {completion[s.id] ? 'Complete' : 'Missing or incomplete'}
-                </div>
-              </div>
-              <ChevronRight size={14} className="opacity-50" />
-            </button>
-          ))}
-        </div>
-        {releaseQueuePanel}
-        <p className="mt-6 text-xs max-w-[80ch]" style={{ color: 'var(--ink-50)' }}>
-        <span style={{ fontWeight: 600, color: 'var(--warn-text)' }}>Beta.</span>{' '}
-        Private and draft publishing are fully tested. Public and paid publishing work but are still being double-checked per platform, so review each platform's visibility before publishing publicly.
-      </p>
-
-      <SectionNav backLabel="Back to Platforms" onBack={() => setCurrentSection('platforms')} />
-      </div>
-    );
-  }
-
   return (
     <div className="w-full min-w-0">
       <SectionHeader
         number="06"
         title="Publish"
-        subtitle="Review the adapted package, then publish to all selected platforms or individually."
+        subtitle={`${reviewReadyCount} ready · ${reviewBlockedCount} need attention. Upload the ready destinations now or fix the blocked ones first.`}
       />
 
       <ProjectReviewSummary project={project} cover={cover} setCurrentSection={setCurrentSection} />
@@ -7572,6 +8910,34 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       {/* Read in sequence, so laid out in sequence: what is wrong, then what
           will be sent, then the per-platform detail. */}
       <div className="mt-5 grid gap-4">
+        <div className="mp-card p-4">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+            <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Destination readiness</span>
+            <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Evidence is shown per platform; no destination is described as universally certified.</span>
+          </div>
+          <div className="grid gap-1.5">
+            {reviewReports.map(({ platform, summary }) => (
+              <div key={platform.id} className="flex items-center gap-3 rounded-lg border px-3 py-2.5" style={{ borderColor: 'var(--border)' }}>
+                <PlatformMark platform={platform} size={26} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate" style={{ color: 'var(--ink)' }}>{platform.name} <span className="font-normal" style={{ color: 'var(--ink-50)' }}>· {summary.outcome.outcome}</span></div>
+                  <div className="text-xs mt-0.5 truncate" style={{ color: summary.status === 'blocked' ? 'var(--danger-text)' : 'var(--ink-50)' }}>{summary.firstIssue || `${summary.evidence} · package ready`}</div>
+                </div>
+                <span className="mp-pill flex-shrink-0" style={summary.status === 'blocked'
+                  ? { background: 'var(--danger-tint)', color: 'var(--danger-text)' }
+                  : summary.status === 'warning'
+                    ? { background: 'rgba(255,182,39,0.18)', color: '#8A5A08' }
+                    : { background: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>{summary.label}</span>
+                {summary.firstIssue && (
+                  <button type="button" onClick={() => setCurrentSection(fixSectionFor(summary.firstIssue))} className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Fix</button>
+                )}
+              </div>
+            ))}
+          </div>
+          {reviewBlockedCount > 0 && (
+            <p className="text-xs mt-3" style={{ color: 'var(--ink-50)' }}>The upload action below skips blocked destinations automatically.</p>
+          )}
+        </div>
         <PreflightPanel enabled={enabled} project={project} setCurrentSection={setCurrentSection} />
 
         {releaseQueuePanel}
@@ -7785,7 +9151,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
     creality: 'Web + app covers · ordered gallery · raw files, instructions and visibility',
     makeronline: 'Ordered images · adapted listing and categories · model files, docs and optional 3MF print profiles',
     mmf: 'Ordered photos · full category path · private/public choice · model files and print details',
-    makeroad: '3–10 ordered images · categories matched automatically · models, profiles and private draft',
+    makeroad: '3–10 ordered images · categories matched automatically · models, profiles and review submission',
     thangs: 'Ordered images · model files · references, category, license and private state',
     thingiverse: 'Uploads as a draft first · ordered files and media · category, license and full listing details',
   };
@@ -7831,7 +9197,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
           )}
           {noPublicRealTargets && (
             <p className="text-xs leading-relaxed mt-1.5" style={{ color: '#24634f' }}>
-              No public listings: {targets.map((target) => `${target.name} ${target.visibility}`).join(' · ')}.
+              No public listings: {targets.map((target) => `${target.name} ${target.nativeOutcome === 'review' ? 'review pending' : target.visibility}`).join(' · ')}.
             </p>
           )}
           {safeDemo && (
@@ -7842,8 +9208,8 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
           {isTestProject && !safeDemo && (
             <div className="text-xs leading-relaxed mt-2" style={{ color: '#8A4B08' }}>
               <p>
-                Sample upload: this sends the bundled sample files to every connected account. Everything is set to
-                private, secret, or draft; anything unavailable is skipped and reported below.
+                Sample upload: this sends the bundled sample files to every connected account. Destinations use
+                private, secret, draft, or review-pending outcomes; anything unavailable is skipped and reported below.
               </p>
               {onDryRun && (
                 <label className="flex items-start gap-2 mt-1.5 cursor-pointer">
@@ -7864,7 +9230,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             ? <><Loader size={14} className="mp-spin" /> Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete</>
             : readyTargets.length === 0
               ? <><Send size={14} /> Connect an account to publish</>
-              : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload sample' : safeDemo ? 'Practice publish' : (hasReal ? (noPublicRealTargets ? 'Upload' : 'Publish') : 'Practice publish')} to {readyTargets.length} platform{readyTargets.length === 1 ? '' : 's'}</>}
+              : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload sample' : safeDemo ? 'Practice upload' : 'Upload'} to {readyTargets.length} ready destination{readyTargets.length === 1 ? '' : 's'}</>}
         </button>
       </div>
 
@@ -7884,7 +9250,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
           </span>
           {summary.failed > 0 && (
             <button onClick={onRetryFailed} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-3">
-              <RefreshCw size={12} /> Retry {summary.failed} failed only
+              <RefreshCw size={12} /> Verify existing upload{summary.failed === 1 ? '' : 's'}
             </button>
           )}
         </div>
@@ -8714,8 +10080,8 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       const fd = new FormData();
       fd.append('name', project.title || 'ModelPrep web-flow publish');
       fd.append('description', project.description || 'Sent from ModelPrep.');
-      fd.append('category', project.category || '');
-      fd.append('license', project.license || '');
+      fd.append('categoryId', String(project.platforms?.cults?.categoryId || ''));
+      fd.append('licenseType', String(project.platforms?.cults?.licenseType || ''));
       fd.append('free', String(project.platforms?.cults?.free ?? true));
       fd.append('price', String(project.platforms?.cults?.price ?? 0));
       fd.append('visibility', effectiveVisibility);
@@ -9097,6 +10463,7 @@ const PRINTABLES_LICENSE_MAP = {
   ccbynd: '8',
   ccbync: '3',
   ccbyncsa: '4',
+  ccbyncnd: '6',
   standard: '13',
 };
 
@@ -9219,6 +10586,14 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
       const cover = orderedImages[0];
       const modelFiles = withoutExcluded(project.files.filter((file) =>
         file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage && !isHeicFile(file.name)), project.platforms?.printables);
+      const expectedFiles = printablesExpectedFiles(modelFiles, options);
+      // A receipt that lists only what uploaded reads as a complete listing.
+      // Name the profiles this platform was not given so a retained draft with
+      // no 3MF is never mistaken for a transport failure again.
+      const skippedProfiles = excludedProfileNames(project.files, project.platforms?.printables);
+      const skippedNote = skippedProfiles.length
+        ? ` (not sent: ${skippedProfiles.join(', ')})`
+        : '';
       const uploadRecords = [];
 
       for (let index = 0; index < orderedImages.length; index += 1) {
@@ -9335,7 +10710,13 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
       setModelId(id);
       setProgress('Verifying saved metadata and files…');
       const readback = await workerRequest(`status?id=${encodeURIComponent(id)}`, null, 'GET');
-      const mismatches = printablesReadbackMismatches(modelPayload, readback.model);
+      const mismatches = [
+        ...printablesReadbackMismatches(modelPayload, readback.model),
+        // Assert against the files the user selected, not against the payload
+        // we derived from Printables' own processing response: a dropped or
+        // uninspected file agrees with itself on both sides of that comparison.
+        ...printablesSourceFileMismatches(expectedFiles, readback.model),
+      ];
       if (mismatches.length) {
         throw new Error(`Printables saved the model, but verification found: ${mismatches.join('; ')}`);
       }
@@ -9345,11 +10726,13 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
           state: 'draft',
           url: `https://www.printables.com/model/${id}/edit`,
           verified: true,
+          skippedProfiles,
         });
         setStatus('done');
-        reportBatch(batchRunId, 'success', 'Unpublished draft saved and verified', {
+        reportBatch(batchRunId, 'success', `Unpublished draft saved and verified${skippedNote}`, {
           publicationState: 'draft',
           url: `https://www.printables.com/model/${id}/edit`,
+          skippedProfiles,
         });
         return;
       }
@@ -9378,13 +10761,15 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
         url: publishedState === 'live'
           ? `https://www.printables.com/model/${id}${slug ? `-${slug}` : ''}`
           : `https://www.printables.com/model/${id}/edit`,
+        skippedProfiles,
       });
       setStatus('done');
-      reportBatch(batchRunId, 'success', publishedState === 'live' ? 'Confirmed live' : 'Publication approval pending', {
+      reportBatch(batchRunId, 'success', `${publishedState === 'live' ? 'Confirmed live' : 'Publication approval pending'}${skippedNote}`, {
         publicationState: publishedState,
         url: publishedState === 'live'
           ? `https://www.printables.com/model/${id}${slug ? `-${slug}` : ''}`
           : `https://www.printables.com/model/${id}/edit`,
+        skippedProfiles,
       });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -9672,8 +11057,8 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       const gallery = orderedImages.slice(1, 10);
       const modelFiles = withoutExcluded(project.files.filter((file) =>
         file.blob && NEXPRINT_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.nexprint);
-      const attachments = project.files.filter((file) =>
-        file.blob && NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(file.name)));
+      const attachments = withoutExcluded(project.files.filter((file) =>
+        file.blob && NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(file.name))), project.platforms?.nexprint);
       if (!cover) throw new Error('Choose a cover image before sending to Nexprint.');
       if (!modelFiles.length) throw new Error('Add at least one Nexprint-compatible model file.');
 
@@ -9756,6 +11141,21 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       }
       if (publish && readbackState != null && Number(readbackState) === 0) {
         throw new Error('Nexprint read-back still reports a draft after public publish was requested.');
+      }
+      // Status alone was never a field-level receipt. Assert the files the user
+      // actually selected against what Nexprint retained, using only the
+      // fields its readback authoritatively echoes.
+      const readbackIssues = nexprintReadbackIssues({
+        files: nexprintExpectedFiles(modelFiles, modelRecords),
+        // Identity and order, taken from the records Nexprint returned for the
+        // exact bytes this run uploaded.
+        attachments: attachmentRecords,
+        cover: coverRecord,
+        photos: photoRecords,
+        draft: !publish,
+      }, readback.model);
+      if (readbackIssues.length) {
+        throw new Error(`Nexprint saved the model, but verification found: ${readbackIssues.join('; ')}`);
       }
       const state = publish ? 'public' : 'draft';
       setResult({
@@ -9997,15 +11397,27 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
     }
 
     setStatus('uploading'); setError(''); setResult(null);
+    // Set as soon as Creality returns a created object, so the error path can
+    // still report what exists on the account.
+    let retained = null;
     try {
       const orderedImages = orderedPlatformImages(platform, project);
       const cover = orderedImages[0];
       const gallery = orderedImages.slice(1, 10);
-      const modelFiles = withoutExcluded(crealityRawModelFiles(project.files, project.profiles), project.platforms?.creality);
-      const instructionFiles = withoutExcluded(project.files.filter((file) =>
-        file.blob && CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name))), project.platforms?.creality);
+      const modelFiles = crealityRawModelFiles(project.files).filter((file) =>
+        platformFileRole('creality', file, project.platforms?.creality) === 'model');
+      const instructionFiles = project.files.filter((file) =>
+        file.blob && CREALITY_INSTRUCTION_FORMATS.includes(fileExt(file.name))
+          && platformFileRole('creality', file, project.platforms?.creality) === 'documentation');
       if (!cover) throw new Error('Choose a cover image before sending to Creality Cloud.');
       if (!modelFiles.length) throw new Error('Add at least one Creality-compatible model file.');
+      const crealityLicense = options.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL';
+      // Name any print profile this platform is not being given, so a retained
+      // listing with no 3MF is never mistaken for a transport failure.
+      const crealitySkippedProfiles = excludedProfileNames(project.files, project.platforms?.creality);
+      const crealitySkippedNote = crealitySkippedProfiles.length
+        ? ` (not sent: ${crealitySkippedProfiles.join(', ')})`
+        : '';
 
       setProgress('Uploading Creality web cover…');
       const pcCover = await uploadCrealityFile({
@@ -10024,11 +11436,12 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       const galleryRecords = [];
       for (let index = 0; index < gallery.length; index += 1) {
         setProgress(`Uploading Creality gallery image ${index + 1} of ${gallery.length}…`);
+        const original = await originalImageUpload(gallery[index], 'gallery', index + 1);
         const record = await uploadCrealityFile({
           workerUrl: WORKER_URL, secret, role: 'photo',
-          file: await croppedImageFile(gallery[index], 1600, 1200, 'gallery', index + 1),
+          file: original.file,
         });
-        galleryRecords.push({ ...record, width: 1600, height: 1200 });
+        galleryRecords.push({ ...record, width: original.width, height: original.height });
       }
 
       const modelRecords = [];
@@ -10056,52 +11469,70 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
       setProgress(publication === 'public'
         ? 'Publishing Creality model publicly…'
         : 'Creating private Creality model…');
-      const saved = await request('submit', {
-        title: project.title.trim(),
-        description: mdToHtml(project.description),
-        categoryId: String(options.categoryId),
-        license: options.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL',
-        modelSource: Number(options.modelSource || 1),
-        publication,
-        nsfw: !!options.nsfw,
-        pcCover,
-        appCover,
-        gallery: galleryRecords,
-        models: modelRecords,
+      setProgress('Waiting for Creality to finish processing the model…');
+      // Creality settles a new model asynchronously, so certify by polling the
+      // SAME saved id - never by resubmitting. A hard contradiction fails at
+      // once; a timeout preserves the receipt and reports the exact fields that
+      // never settled.
+      const expectedCreality = {
+        // Built from the upload records, whose `fileKey` carries the md5
+        // Creality also reports back as `fileMd5`.
+        files: crealityExpectedFiles(modelRecords),
+        categoryId: options.categoryId,
+        license: crealityLicense,
+        name: project.title.trim(),
+        covers: crealityExpectedImages(galleryRecords),
+        pcCovers: crealityExpectedImages([pcCover]),
+        appCovers: crealityExpectedImages([appCover]),
         instructions: instructionRecords,
-        tags: project.tags,
+        private: publication === 'private',
+      };
+      const outcome = await runCrealityUpload({
+        request,
+        payload: {
+          title: project.title.trim(),
+          description: mdToHtml(project.description),
+          categoryId: String(options.categoryId),
+          license: crealityLicense,
+          modelSource: Number(options.modelSource || 1),
+          publication,
+          nsfw: !!options.nsfw,
+          pcCover,
+          appCover,
+          gallery: galleryRecords,
+          models: modelRecords,
+          instructions: instructionRecords,
+          tags: project.tags,
+        },
+        expected: expectedCreality,
+        // Show the retained object the moment it exists, so a later failure
+        // can never leave the user without an id.
+        onRetained: (value) => { retained = value; setResult({ ...value, verified: false, pending: true }); },
+        onProgress: ({ attempts }) => setProgress(
+          `Waiting for Creality to finish processing the model (check ${attempts})…`,
+        ),
       });
-
-      setProgress('Reading the saved Creality model back…');
-      const readback = await request(`status?id=${encodeURIComponent(saved.id)}&state=${encodeURIComponent(saved.state)}`, null, 'GET');
-      const model = readback.model || {};
-      const info = model.modelInfo || model.modelGroupDetail || model.groupItem || model;
-      const readbackTitle = info.groupName || info.modelName || '';
-      if (readbackTitle && String(readbackTitle) !== project.title.trim()) {
-        throw new Error(`Creality read-back returned a different title: ${readbackTitle}.`);
-      }
-      if (publication === 'private' && info.isShared === true) {
-        throw new Error('Creality read-back reports a shared model instead of private.');
-      }
-      if (publication === 'public' && info.isShared === false) {
-        throw new Error('Creality read-back still reports a private model after public publish.');
-      }
-      if (info.categoryId != null && String(info.categoryId) !== String(options.categoryId)) {
-        throw new Error(`Creality read-back returned category ${info.categoryId} instead of ${options.categoryId}.`);
-      }
-      const readbackModels = model.modelList || info.modelList;
-      if (Array.isArray(readbackModels) && readbackModels.length < modelRecords.length) {
-        throw new Error(`Creality read-back returned ${readbackModels.length} model files after uploading ${modelRecords.length}.`);
-      }
-      setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: true });
-      setStatus('done');
-      reportBatch(batchRunId, 'success', `${saved.state} Creality model saved and read back`, {
-        publicationState: saved.state,
-        url: saved.url,
+      // One mapping for both outcomes: an uncertified `detail` already names
+      // the retained object, so it must not be re-decorated here.
+      const report = crealityUploadReport(outcome, {
+        skippedProfiles: crealitySkippedProfiles,
+        skippedNote: crealitySkippedNote,
       });
+      setResult(report.result);
+      setStatus(report.ok ? 'done' : 'error');
+      if (!report.ok) setError(report.message);
+      reportBatch(batchRunId, report.ok ? 'success' : 'error', report.message, report.metadata);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message);
+      // Only unexpected failures reach here. `runCrealityUpload` outcomes are
+      // handled above and already carry their retained sentence.
+      const detail = retained
+        ? `${message} The model was created and is retained at ${retained.url} (${retained.id}); it was not published, retried or deleted.`
+        : message;
+      if (retained) setResult({ ...retained, verified: false, uncertified: true });
+      setError(detail); setStatus('error'); reportBatch(batchRunId, 'error', detail, retained ? {
+        publicationState: retained.state, url: retained.url, uncertified: true,
+      } : undefined);
     } finally { setProgress(''); }
   };
 
@@ -10200,7 +11631,7 @@ function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     try {
       const readback = await request(`status?id=${encodeURIComponent(id)}`, null);
       if (!readback.readback?.details || !readback.readback?.license) throw new Error('Thangs complete read-back was empty.');
-      setResult({ id, url: `https://thangs.com/designer/model/${encodeURIComponent(id)}`, verified: true }); setStatus('done');
+      setResult({ id, url: readback.readback.url, verified: true }); setStatus('done');
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); setStatus('error'); } finally { setProgress(''); }
   };
   const submit = async (isPublic, runId = null) => {
@@ -10251,15 +11682,17 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
   const submit = async (publish, runId = null) => {
     const preflight = platformPreflight(platform, project);
     if (preflight.errors.length) { const message = preflight.errors.join(' '); setError(message); setStatus('error'); report(runId, 'error', message); return; }
-    if (simulate) { setStatus('uploading'); setProgress('Simulating MakerRoad private save…'); await new Promise((resolve) => setTimeout(resolve, 500)); setResult({ demo: true, state: publish ? 'pending' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'MakerRoad save simulated: nothing uploaded', { publicationState: publish ? 'pending' : 'draft', simulated: true }); return; }
+    if (simulate) { setStatus('uploading'); setProgress('Simulating MakerRoad review submission…'); await new Promise((resolve) => setTimeout(resolve, 500)); setResult({ demo: true, state: 'pending' }); setStatus('done'); setProgress(''); report(runId, 'success', 'MakerRoad review submission simulated: nothing uploaded', { publicationState: 'pending', simulated: true }); return; }
     if (!isDesktopMakerRoadSession(secret)) { const message = 'Connect MakerRoad in ModelPrep Desktop before uploading.'; setError(message); setStatus('error'); report(runId, 'error', message); return; }
     setStatus('uploading'); setError(''); setResult(null);
     let saved = null;
     try {
+      let liveMeta = null;
+      const getMeta = async () => { if (!liveMeta) liveMeta = (await request('meta', null, 'GET')).meta || {}; return liveMeta; };
       let resolvedCategoryIds = (options.categoryIds || []).map(String);
       if (!resolvedCategoryIds.length && (options.categoryPaths || []).length) {
         setProgress('Resolving the current MakerRoad categories…');
-        const metadata = await request('meta', null, 'GET');
+        const metadata = { meta: await getMeta() };
         const liveCategories = flattenMakerRoadOptions(metadata.meta?.modelsClassify || []);
         resolvedCategoryIds = options.categoryPaths.map((path) => {
           const wanted = normalizeMakerRoadCategoryPath(path);
@@ -10267,6 +11700,22 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
         }).filter(Boolean);
         if (resolvedCategoryIds.length !== options.categoryPaths.length) {
           throw new Error('MakerRoad’s live category taxonomy no longer contains the prepared test category. Choose a current category in Platforms.');
+        }
+      }
+      // MakerRoad's serializer takes taxonomy ids, not UI labels: a live check
+      // (2026-08-07) showed every draft's required Print Method unchecked
+      // because the English labels were silently dropped. Resolve the selected
+      // labels against the live printerType catalog before sending.
+      let resolvedPrintMethods = (options.printMethods || []).map(String);
+      if (resolvedPrintMethods.length) {
+        setProgress('Resolving MakerRoad print methods…');
+        const catalog = flattenMakerRoadOptions((await getMeta()).printerType || []);
+        resolvedPrintMethods = resolvedPrintMethods.map((method) => {
+          const hit = catalog.find((item) => item.id === method || item.name.toLowerCase() === method.toLowerCase());
+          return hit?.id || '';
+        }).filter(Boolean);
+        if (resolvedPrintMethods.length !== (options.printMethods || []).length) {
+          throw new Error('MakerRoad’s live print-method catalog does not contain the selected method(s). Re-pick the print method in Platforms.');
         }
       }
       const orderedImages = orderedPlatformImages(platform, project).slice(0, 10);
@@ -10293,11 +11742,11 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
       const profiles = await uploadMany(profileFiles, 'profile', 'print configuration');
       const documents = await uploadMany(documentFiles, 'document', 'document');
       const license = MAKEROAD_LICENSES[Number(options.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
-      setProgress(publish ? 'Submitting MakerRoad model for review…' : 'Saving private MakerRoad draft…');
+      setProgress(publish ? 'Submitting MakerRoad model for public review…' : 'Saving MakerRoad model for review…');
       saved = await request('submit', {
         action: publish ? 'publish' : 'save', uploadType: Number(options.uploadType || 1), referUrl: options.referUrl,
         models, profiles, images, documents, title: project.title, description: mdToHtml(project.description),
-        categoryIds: resolvedCategoryIds, tags: project.tags, printMethods: options.printMethods || [],
+        categoryIds: resolvedCategoryIds, tags: project.tags, printMethods: resolvedPrintMethods,
         printerIds: options.printerIds || [], materialIds: options.materialIds || [], colorIds: options.colorIds || [],
         aiGenerated: !!options.aiGenerated, nsfw: !!options.nsfw, visibility: options.visibility || 'private',
         scheduled: !!options.scheduled, planTime: options.planTime, payType: options.payType || 'free', payValue: options.payValue || 0,
@@ -10308,21 +11757,27 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
       const readbackIssues = makerRoadReadbackIssues({
         title: project.title.trim(), visibility: options.visibility || 'private', scheduled: !!options.scheduled,
         payType: options.payType || 'free', models: models.length, profiles: profiles.length, documents: documents.length, images: images.length,
+        description: mdToHtml(project.description), printMethods: resolvedPrintMethods,
       }, readback.model);
       if (readbackIssues.length) throw new Error(readbackIssues.join(' '));
-      const publicationState = publish ? 'pending' : 'draft';
+      const publicationState = 'pending';
       setResult({ ...saved, verified: true, state: publicationState }); setStatus('done');
-      report(runId, 'success', publish ? 'MakerRoad submission saved and read back; review pending' : 'Private MakerRoad draft saved and read back', { publicationState, url: saved.url });
-    } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); }
+      report(runId, 'success', 'MakerRoad submission saved and read back; review pending', { publicationState, url: saved.url });
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      if (saved?.id) setResult({ ...saved, verified: false, state: 'uncertified' });
+      setError(message); setStatus('error');
+      report(runId, 'error', message, saved?.url ? { publicationState: 'uncertified', url: saved.url } : {});
+    }
     finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return; handledBatchRun.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
   return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts')}>Connect MakerRoad</button>}
     {status === 'uploading' && <div className="text-xs flex gap-2"><Loader size={14} className="mp-spin" />{progress}</div>}
-    {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate private save' : 'Save private draft'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate review submit' : 'Submit for review (LIVE)'}</button></div>}
-    {error && <p className="text-xs text-red-700">{error}</p>}
-    {status === 'done' && <div className="text-xs" style={{ color: '#247255' }}><Check size={14} className="inline mr-1" />{result?.demo ? 'Simulation complete: nothing uploaded.' : result?.state === 'pending' ? 'Saved and verified; public review is pending.' : 'Private draft saved and verified.'}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open result</a>}</div>}
+    {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate Save to review' : 'Save to MakerRoad review'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate public review submit' : 'Submit for public review (LIVE)'}</button></div>}
+    {error && <p className="text-xs text-red-700">{error}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open retained save</a>}</p>}
+    {status === 'done' && <div className="text-xs" style={{ color: '#247255' }}><Check size={14} className="inline mr-1" />{result?.demo ? 'Simulation complete: nothing uploaded.' : 'Saved and read back; MakerRoad review is pending.'}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open result</a>}</div>}
   </div>;
 }
 
@@ -10411,13 +11866,17 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
     }
 
     setStatus('uploading'); setError(''); setResult(null);
+    // Set as soon as MakerOnline returns a saved object, so any later
+    // failure still reports what exists on the account.
+    let retained = null;
     try {
       const orderedImages = orderedPlatformImages(platform, project).slice(0, 20);
       const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.makeronline);
-      const documentationFiles = project.files.filter((file) =>
+      const documentationFiles = withoutExcluded(project.files.filter((file) =>
         file.blob
+        && !file.isImage
         && MAKERONLINE_DOCUMENT_FORMATS.includes(fileExt(file.name))
-        && !MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name)));
+        && !MAKERONLINE_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.makeronline);
       const profileFiles = options.includePrintProfile && Number(options.printMethod || 3) !== 2
         ? withoutExcluded(project.files.filter((file) => file.blob && fileExt(file.name) === '3mf'), project.platforms?.makeronline)
         : [];
@@ -10482,7 +11941,7 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
       }
 
       setProgress(publication === 'public' ? 'Publishing MakerOnline model publicly…' : 'Saving unpublished MakerOnline draft…');
-      const saved = await request('submit', {
+      const makerOnlinePayload = {
         publication,
         title: project.title.trim(),
         description: mdToHtml(project.description),
@@ -10505,39 +11964,54 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
         printProfiles: profileRecords,
         printImages: profileImageRecords,
         printTitle: String(options.printTitle || project.profiles[0]?.name || project.title).trim(),
-        printDescription: mdToHtml(options.printDescription || project.profiles[0]?.description || ''),
+        // The documented print_desc cap is 1,000 characters; the typed field is
+        // capped in the UI but this fallback path was not, and mdToHtml adds
+        // markup on top, so clamp the rendered value.
+        printDescription: mdToHtml(options.printDescription || project.profiles[0]?.description || '').slice(0, 1000),
+        tags: project.tags,
+      };
+
+      setProgress('Waiting for MakerOnline to finish processing the model…');
+      // Expectations come from the upload records MakerOnline returned for the
+      // exact bytes sent, never from the readback itself. The previous checks
+      // only rejected FEWER files than uploaded, so a swapped, renamed or
+      // unparsed retained model passed.
+      const expectedMakerOnline = buildMakerOnlineExpectation({
+        payload: makerOnlinePayload,
+        modelRecords,
+        imageRecords,
+        profileRecords,
+        profileImageRecords,
+        documentCount: documentRecords.length,
         tags: project.tags,
       });
-
-      setProgress('Reading the saved MakerOnline model back…');
-      const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null, 'GET');
-      const model = readback.model || {};
-      const info = model.mold_info || model.moldInfo || model.model || model;
-      const readbackTitle = info.title || info.model_title || info.modelTitle || '';
-      if (readbackTitle && String(readbackTitle) !== project.title.trim()) {
-        throw new Error(`MakerOnline read-back returned a different title: ${readbackTitle}.`);
-      }
-      const readbackCategory = info.category_id ?? info.categoryId;
-      if (readbackCategory != null && String(readbackCategory) !== String(options.categoryId)) {
-        throw new Error(`MakerOnline read-back returned category ${readbackCategory} instead of ${options.categoryId}.`);
-      }
-      const readbackImages = info.images || model.images;
-      if (Array.isArray(readbackImages) && readbackImages.length < imageRecords.length) {
-        throw new Error(`MakerOnline read-back returned ${readbackImages.length} images after uploading ${imageRecords.length}.`);
-      }
-      const readbackFiles = info.files || model.files;
-      if (Array.isArray(readbackFiles) && readbackFiles.length < modelRecords.length) {
-        throw new Error(`MakerOnline read-back returned ${readbackFiles.length} raw model files after uploading ${modelRecords.length}.`);
-      }
-      setResult({ id: String(saved.id), state: saved.state, url: saved.url, verified: true });
-      setStatus('done');
-      reportBatch(batchRunId, 'success', `${saved.state} MakerOnline model saved and read back`, {
-        publicationState: saved.state,
-        url: saved.url,
+      const outcome = await runMakerOnlineUpload({
+        request,
+        payload: makerOnlinePayload,
+        expected: expectedMakerOnline,
+        onRetained: (value) => { retained = value; setResult({ ...value, verified: false, pending: true }); },
+        onProgress: ({ attempts }) => setProgress(
+          `Waiting for MakerOnline to finish processing the model (check ${attempts})…`,
+        ),
+      });
+      const report = makerOnlineUploadReport(outcome);
+      setResult(report.result);
+      setStatus(report.ok ? 'done' : 'error');
+      if (!report.ok) setError(report.message);
+      reportBatch(batchRunId, report.ok ? 'success' : 'error', report.message, {
+        ...report.metadata,
       });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      setError(message); setStatus('error'); reportBatch(batchRunId, 'error', message);
+      // Only unexpected failures reach here; runMakerOnlineUpload outcomes are
+      // handled above and already carry their retained sentence.
+      const detail = retained
+        ? `${message} The model was created and is retained at ${retained.url} (${retained.id}); it was not published, retried or deleted.`
+        : message;
+      if (retained) setResult({ ...retained, verified: false, uncertified: true });
+      setError(detail); setStatus('error'); reportBatch(batchRunId, 'error', detail, retained ? {
+        publicationState: retained.state, url: retained.url, uncertified: true,
+      } : undefined);
     } finally { setProgress(''); }
   };
 
@@ -10681,7 +12155,8 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
     setStatus('uploading'); setError(''); setResult(null);
     let saved = null;
     try {
-      const orderedImages = orderedPlatformImages(platform, project).slice(0, platform.maxImages || 20);
+      // MMF documents no gallery cap; `|| 20` silently dropped images 21+.
+      const orderedImages = orderedPlatformImages(platform, project).slice(0, platform.maxImages ?? Infinity);
       const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && MYMINIFACTORY_MODEL_FORMATS.includes(fileExt(file.name))), project.platforms?.mmf);
       if (!orderedImages.length) throw new Error('Choose a cover image before sending to MyMiniFactory.');
       if (!modelFiles.length) throw new Error('Add at least one MyMiniFactory-compatible object file.');
@@ -10729,6 +12204,8 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
         categoryIds: options.categoryIds || [],
         imageNames: imageRecords.map((image) => image.name),
         fileNames: modelFiles.map((file) => file.name),
+        description: mdToHtml(project.description),
+        tags: project.tags,
         advanced: {
           licenseId: Number(options.licenseId || 5),
           printingTips: String(options.printingTips || ''),
@@ -11083,14 +12560,21 @@ function UpdatePanel({ desktop }) {
 // sanitized log or open a prefilled problem report. Desktop-only.
 function DiagnosticsPanel({ desktop }) {
   const [diag, setDiag] = useState({ count: 0, entries: [] });
+  const [keepAlive, setKeepAlive] = useState(null);
   const [note, setNote] = useState('');
   const [msg, setMsg] = useState('');
   useEffect(() => {
     if (!desktop?.getDiagnostics) return;
     desktop.getDiagnostics().then((value) => setDiag(value || { count: 0, entries: [] })).catch(() => {});
+    desktop.sessionKeepAliveStatus?.().then((value) => setKeepAlive(value || null)).catch(() => {});
   }, [desktop]);
   if (!desktop?.getDiagnostics) return null;
   const recent = diag.entries?.slice(-3).reverse() || [];
+  const keepAliveRows = (keepAlive?.results || []).sort((a, b) => b.at - a.at);
+  const agoLabel = (at) => {
+    const minutes = Math.max(0, Math.round((Date.now() - at) / 60000));
+    return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
+  };
   return (
     <div className="mp-card p-3 space-y-2">
       <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
@@ -11105,6 +12589,23 @@ function DiagnosticsPanel({ desktop }) {
             <li key={i} className="truncate mp-mono">{e.source}/{e.kind}: {String(e.message || '').split('\n')[0]}</li>
           ))}
         </ul>
+      )}
+      {desktop.sessionKeepAliveStatus && (
+        <div className="pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+          <div className="mp-mono text-[10px] uppercase tracking-[0.12em] mb-1" style={{ color: 'rgba(38,42,35,0.6)' }}>Session keep-alive</div>
+          {keepAliveRows.length === 0 ? (
+            <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.55)' }}>No background pass yet. It runs 10 minutes after launch, then every 6 hours, and only touches platforms with a stored session.</p>
+          ) : (
+            <ul className="text-[11px] space-y-0.5 mp-mono">
+              {keepAliveRows.map((row) => (
+                <li key={row.platform} className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: row.ok ? '#247255' : '#B86B00' }} />
+                  {row.platform} · {row.ok ? 'refreshed' : 'silent refresh failed'} · {agoLabel(row.at)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       <textarea
         aria-label="Problem description"
@@ -12192,9 +13693,9 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
         }
       }
 
-      // Crop every image to MakerWorld's exact aspects (4:3 web cover + 3:4 app cover,
-      // 4:3 gallery) using the focal point, and re-encode to JPEG: so the uploaded files
-      // match the per-platform preview instead of being raw images MakerWorld center-crops.
+      // MakerWorld fixes only its two cover slots. Gallery/profile photos keep
+      // their source bytes and framing; 4:3 there is a recommendation, not a
+      // destructive upload requirement.
       const webSpec = platform.covers.find(c => c.aspect === '4:3') || platform.covers[0];
       const appSpec = platform.covers.find(c => c.aspect === '3:4');
       setProgressMsg('Preparing cover…');
@@ -12203,12 +13704,13 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
       let portraitUrl = cover.url;
       if (appSpec) { portraitUrl = (await uploadOne(await cropImageToBlob(coverImg, appSpec.w, appSpec.h), 'cover-portrait.jpg')).url; }
 
-      // Gallery / Model Pictures: crop each to MakerWorld's recommended 4:3, capped at maxImages.
+      // Gallery / Model Pictures: preserve originals, capped at maxImages.
       const galleryImgs = project.images.filter(i => i.id !== coverImg.id).slice(0, galleryCapacity(platform));
       setProgressMsg('Preparing gallery…');
       const galleryUrls = [];
       for (let i = 0; i < galleryImgs.length; i++) {
-        const u = (await uploadOne(await cropImageToBlob(galleryImgs[i], webSpec.w, webSpec.h), `image-${i + 2}.jpg`)).url;
+        const original = await originalImageUpload(galleryImgs[i], 'image', i + 2);
+        const u = (await uploadOne(original.blob, original.name)).url;
         galleryUrls.push(u); imageUrlById[galleryImgs[i].id] = u;
       }
       let designVideo = [];
@@ -12231,7 +13733,8 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
         if (imageUrlById[imageId]) continue;
         const image = project.images.find((item) => item.id === imageId);
         if (!image) continue;
-        imageUrlById[imageId] = (await uploadOne(await cropImageToBlob(image, webSpec.w, webSpec.h), `profile-${imageId}.jpg`)).url;
+        const original = await originalImageUpload(image, `profile-${imageId}`);
+        imageUrlById[imageId] = (await uploadOne(original.blob, original.name)).url;
       }
       const profilePicUrls = profileImageIds.map((id) => imageUrlById[id]).filter(Boolean);
 
@@ -12296,6 +13799,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
         input = {
           title: project.title || 'ModelPrep upload',
           license, visibility, tags: project.tags ?? [],
+          nsfw: !!opts.nsfw, isAIGC: !!opts.aiGenerated,
           ...remixFields,
           modelFiles: mfList,
           ...(lacFile ? {
@@ -12308,7 +13812,9 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
             profileVisibility: laserProfile.visibility || visibility,
             profilePictures: profilePicUrls,
           } : {}),
-          pictures: [cover.url, portraitUrl, ...galleryUrls].filter(Boolean),
+          // No doc records a portrait slot for Laser & Cut; the extra 3:4 crop
+          // showed up live as a duplicate, badly cropped second gallery image.
+          pictures: [cover.url, ...galleryUrls].filter(Boolean),
           ...(cyberBrick ? { cyberBrick } : {}),
           ...(relatedModel ? { relatedModel: { id: relatedModel.id, designType: 0, title: relatedModel.title, cover: relatedModel.cover, status: relatedModel.status } } : {}),
           ...(docGuide.length ? { docGuide } : {}),
@@ -12333,6 +13839,8 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           tags: project.tags ?? [],
           license,
           visibility,
+          nsfw: !!opts.nsfw,
+          isAIGC: !!opts.aiGenerated,
           coverUrl: cover.url,
           coverPortraitUrl: portraitUrl,
           galleryUrls,
@@ -12773,9 +14281,11 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         {!isLC ? (
           <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Category</span>
             <input className={`${inputCls} mb-1`} value={categoryQuery} onChange={(e) => setCategoryQuery(e.target.value)} placeholder="Search categories…" />
-            <select className={inputCls} value={o.categoryId} onChange={(e) => onUpdate('categoryId', e.target.value)}>
+            <select className={inputCls} value={o.categoryId} onChange={(e) => onUpdate({ categoryId: Number(e.target.value) || '', categoryAuto: false })}>
+              {!o.categoryId && <option value="">Choose MakerWorld category…</option>}
               {visibleCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
+            <AutoMatchNote active={o.categoryAuto === true} kind="category" />
           </label>
         ) : (
           <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Source</span>
@@ -12789,6 +14299,11 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             <option value="private">Private</option><option value="public">Public</option>
           </select>
         </label>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-xs">
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!o.aiGenerated} onChange={(e) => onUpdate('aiGenerated', e.target.checked)} /> AI-generated content</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!o.nsfw} onChange={(e) => onUpdate('nsfw', e.target.checked)} /> Mature content (NSFW)</label>
       </div>
 
       {!isLC && profileFiles.length > 0 && (
@@ -12987,6 +14502,26 @@ function cropImageToBlob(image, w, h, mime = 'image/jpeg', quality = 0.92) {
     img.onerror = () => reject(new Error('image load failed'));
     img.src = image.dataUrl;
   });
+}
+
+// Gallery slots on MakerWorld and Creality accept the creator's original
+// framing. Covers still use cropImageToBlob; this helper deliberately preserves
+// the source bytes, MIME type and natural dimensions for every non-cover slot.
+export async function originalImageUpload(image, prefix = 'image', index = 0) {
+  const blob = await fetch(image.dataUrl).then((response) => response.blob());
+  const extension = blob.type === 'image/png' ? 'png'
+    : blob.type === 'image/webp' ? 'webp'
+      : blob.type === 'image/gif' ? 'gif'
+        : blob.type === 'image/avif' ? 'avif' : 'jpg';
+  const suffix = index ? `-${String(index).padStart(2, '0')}` : '';
+  const name = `${prefix}${suffix}-${slugify(image.alt || 'model-image')}.${extension}`;
+  return {
+    blob,
+    file: new File([blob], name, { type: blob.type || 'image/jpeg' }),
+    name,
+    width: Number(image.naturalW) || null,
+    height: Number(image.naturalH) || null,
+  };
 }
 
 function CoverPreview({ image, cover, onDownload, hideDownload }) {

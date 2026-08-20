@@ -132,16 +132,17 @@ function extractCsrfToken(html) {
 }
 
 function resolveCategory(value) {
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && Object.values(CATEGORY_IDS).includes(numeric)) {
+    return { categoryId: numeric, substituted: false };
+  }
   if (CATEGORY_IDS[value]) return { categoryId: CATEGORY_IDS[value], substituted: false };
-  return { categoryId: 29, substituted: !!value };
+  return null;
 }
 
 function resolveLicense(value, isPaid) {
-  const requested = LICENSES[value];
-  const fallback = isPaid ? 'cults_cu' : 'cults_pu';
-  if (!requested || !LICENSE_RULES[requested]?.[isPaid ? 'paid' : 'free']) {
-    return { licenseType: fallback, substituted: !!value };
-  }
+  const requested = LICENSE_RULES[value] ? value : LICENSES[value];
+  if (!requested || !LICENSE_RULES[requested]?.[isPaid ? 'paid' : 'free']) return null;
   return { licenseType: requested, substituted: false };
 }
 
@@ -485,12 +486,17 @@ function cultsAssetReadback(html, kind) {
   return { ids, filenames };
 }
 
-async function readCreation(session, slug, fetchImpl) {
-  const response = await fetchImpl(`${CULTS_BASE}/en/creations/${encodeURIComponent(slug)}/edit`, {
-    headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', Cookie: session.cookies },
-    redirect: 'manual',
-  });
-  if (!response.ok) throw new Error(`Cults edit readback returned HTTP ${response.status}.`);
+async function readCreation(session, slug, fetchImpl, { attempts = 10, delayMs = 1000 } = {}) {
+  let response;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    response = await fetchImpl(`${CULTS_BASE}/en/creations/${encodeURIComponent(slug)}/edit`, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'text/html', Cookie: session.cookies },
+      redirect: 'manual',
+    });
+    if (response.ok || response.status !== 404 || attempt === attempts) break;
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  if (!response?.ok) throw new Error(`Cults edit readback returned HTTP ${response?.status || 0}.`);
   const html = await response.text();
   const nameInput = [...html.matchAll(/<input\b[^>]*>/gi)]
     .map((match) => match[0])
@@ -635,12 +641,14 @@ function createCultsDirectClient({
     const pricing = rawPricing === 'paid' ? 'priced'
       : rawPricing === 'open' ? 'open_priced'
         : rawPricing || (paid ? 'priced' : 'free');
-    const category = Number(form.text('categoryId')) > 0
-      ? { categoryId: Number(form.text('categoryId')), substituted: false }
-      : resolveCategory(form.text('category'));
-    const license = form.text('licenseType')
-      ? { licenseType: form.text('licenseType'), substituted: false }
-      : resolveLicense(form.text('license'), paid);
+    const category = resolveCategory(form.text('categoryId') || form.text('category'));
+    if (!category) {
+      return jsonResponse({ error: 'invalid_category', hint: 'Choose an explicit supported Cults3D category before uploading files.' }, 400);
+    }
+    const license = resolveLicense(form.text('licenseType') || form.text('license'), paid);
+    if (!license) {
+      return jsonResponse({ error: 'invalid_license', hint: `Choose a Cults3D license that is valid for a ${paid ? 'paid' : 'free'} listing before uploading files.` }, 400);
+    }
     let tags = form.text('flatKeywords');
     if (!tags) {
       const values = form.texts('tags');
@@ -660,8 +668,6 @@ function createCultsDirectClient({
       return jsonResponse({ error: 'invalid_meta_tags', hint: 'Cults3D received an unknown meta tag.' }, 400);
     }
     const substituted = [];
-    if (category.substituted) substituted.push('category');
-    if (license.substituted) substituted.push('license');
 
     const requestFetch = accountFetch(accountId);
     const session = await getSession(credentials, accountId);

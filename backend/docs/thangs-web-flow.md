@@ -4,6 +4,41 @@ Audit date: **2026-08-01**
 Surface: authenticated `iamdjem` production account, portfolio/upload entry, official help center, current Next.js/Turbopack bundles, and first-party request definitions
 Mutation update: on **2026-08-01** the authenticated first-party browser flow uploaded private item `1583118` (`desk-dragon-bambu.3mf`). The current bundle showed that signed PUTs use `application/octet-stream` for model files; ModelPrep was incorrectly sending model MIME types and has been corrected. A separate reconnect defect was traced to ModelPrep's obsolete cookie-only validator: current Thangs stores the access token and current-user record in origin local storage, keeps a refresh cookie, and authenticates API requests with `Authorization: Bearer`. ModelPrep now captures that access token inside the isolated main-process window, encrypts it with Electron safe storage, and verifies it against `GET https://production-api.thangs.com/users/current?likes=false`. The token is never sent to the renderer. The exact packaged app subsequently created private model `1583272` and passed details, attachments, license, category, visibility and metadata readback, completing safe-core isolated-path certification.
 
+## 2026-08-08 signed-in continuation audit
+
+The current My Thangs page, Add new → Upload modal, and retained private editor
+for model `1585793` were inspected signed-in and read-only in normal Chrome. No
+file was selected, no value was changed, and Save/Delete/public/paid actions
+were not invoked.
+
+Upload step 1 advertises `.3mf`, `.blend`, `.fbx`, `.glb`, `.gltf`, `.obj`,
+`.step`, `.stl`, and `.usdz`. The editor exposes six Audience values (public,
+private, paid members, print only, purchase, purchase plus paid members), four
+print-compatibility booleans (FDM, resin, other, additional hardware), video
+embed URLs, separate inspiration/remix attribution, and dynamic/addable licences.
+
+Retained `1585793` still has an empty Images surface while all ten JPGs appear
+under Attachments; its My Thangs row reports size `-`. This proves the old
+serializer failure, not that the newer local image/part correction works live.
+
+### Current ModelPrep gaps
+
+1. Renderer fields for units, structure, access type, plans, dependencies,
+   version notes and feedback are dropped by `desktop/thangs-direct.js`.
+2. Single/bulk/multipart/assembly labels are misleading: save always creates one
+   v4 draft and only associates/names parts; bulk/assembly/version semantics are
+   not implemented.
+3. Audience covers only private/public plus generic paid, not the six live modes.
+4. Print compatibility, video links and derivative attribution are absent.
+5. Licence is arbitrary free text, not the live dynamic/addable selector.
+6. Readback only checks that details, attachments and licence responses exist;
+   it does not compare intended and persisted state.
+7. The corrected v4 Images/Model association path remains local-only and needs
+   one authorized private upload after exact readback exists.
+
+Verdict: historical private single-part transport evidence remains useful, but
+the integration is neither option-complete nor fully verified.
+
 ## Integration decision
 
 **SUPPORTED PUBLIC API NOT FOUND; EXPERIMENTAL DESKTOP PATH IMPLEMENTED AND SAFE CORE LIVE-CERTIFIED.** The official help center describes website upload, bulk upload through Thangs Sync, a membership API for some exclusive sellers, and custom model/membership APIs for qualifying professional designers. It does not document a generally available third-party model-upload API. Treat all routes below as a **REQUEST CONTRACT**, not a public API. ModelPrep's isolated-session, corrected signed-upload, validation, create/assets, and details/attachments/license readback path is live-certified for one private single-part model. Optional multipart/bulk/assembly, versions, plans, paid/membership, public/access and other branches remain separate.
@@ -85,7 +120,9 @@ POST standalone-files                         standalone metadata
 
 Only model parts take `models/upload-urls`; non-model files (photos and reference files) take `attachments/upload-urls`, which stores under `uploads/attachments/<uuid>/`. Attachment-route uploads are not sent to `models/validatefiles`. Licenses stay on the model route, matching `UPLOAD_MODEL_LICENSE`.
 
-**CORRECTION (2026-08-07): the presign route does NOT determine `attachmentType`.** An earlier revision of this file claimed it did, reasoning from a live public model whose images sit under `uploads/attachments/`. A live end-to-end publish from the packaged app disproved it: with photos correctly presigned through `attachments/upload-urls`, model `1585777` still listed all ten `.jpg` files under the editor's Attachments section with an empty Images gallery. **The real cause is still unknown.** Do not treat the route as the fix. The leading untested hypothesis is the create path: Thangs' own uploader posts everything in one `POST v2/models` with attachments inline, whereas ModelPrep creates a bare draft with `POST v4/models` and then applies metadata with `PUT v4/models/{id}/details`, which may file every attachment as a resource. A secondary discrepancy: the web create sends attachment entries keyed `newFileName`, ModelPrep sends `filename`. Confirming either requires reading `GET models/{id}/attachments`, which needs the bearer token.
+**CORRECTION (2026-08-07): the presign route does NOT determine `attachmentType`.** An earlier revision of this file claimed it did, reasoning from a live public model whose images sit under `uploads/attachments/`. A live end-to-end publish from the packaged app disproved it: with photos correctly presigned through `attachments/upload-urls`, model `1585777` still listed all ten `.jpg` files under the editor's Attachments section with an empty Images gallery.
+
+**RESOLVED (2026-08-07, first-party serializer read from the live bundle):** the v4 details request (`updateModelDetailsRequestFromState`) has SEPARATE arrays: `images` ({id?, filename, animatedFilename?, landscapeFilename?, caption?}, from `imageRequests`) and `attachments` ({id, name, filename}, from `attachmentRequests`). ModelPrep was sending photos inside `attachments`, which is exactly the resource classification we observed. The same serializer shows: audience is the string `visibility` (`private`/`public`/`paid`, ModelPrep's old `isPublic` key was silently ignored and private was only ever the server default), there is NO `parts` array in the details request (ModelPrep's `parts` was ignored, leaving every part unassociated: empty Model section, size "-", owner preview 404), and parts are instead created server-side by `POST v4/models/validate-files {files:[uploadedNames]}` AFTER the draft exists, then named through `partNames` [{partIdentifier, name}] plus `primaryPart` (identifiers read back from `GET v4/models/{id}` → `partRequests`). The old `models/validatefiles` call at upload time (before any draft) did not associate anything. `desktop/thangs-direct.js` now follows the full first-party sequence: create → upload → `v4/models/validate-files` → `GET v4/models/{id}` → `PUT v4/models/{id}/details` with images/attachments split, `visibility`, `partNames` and `primaryPart`. Endpoint map read from the bundle: `POST v4/models[/bulk]`, `POST v4/models/validate-files`, `PUT v4/models/{id}/details`, `v4/models/{id}/parts/{partIdentifier}`, `POST v2/standalone-files[/bulk]`. NOT yet live-certified: needs one authorized private upload with readback confirming a populated Images gallery and an associated Model section.
 
 `attachmentType` is server-assigned and is either `image` or `resource`; the client's own predicate is extension-based (`isImage = isAnAcceptedType(file, PHOTO_FILE_EXTS)`). At create time the web app filters the payload's `attachments` down to images only, sending everything else as `referenceFiles`.
 
@@ -96,3 +133,13 @@ The presign response uses `signedUrl` and `newFileName`. The submit builder crea
 ## ModelPrep parity requirements
 
 Parity requires isolated authenticated storage; explicit private default; single/bulk/multipart/assembly choices; model, image, reference, standalone, dependency, and license roles; signed upload progress/retry; server validation; dynamic category/tag/license/plan reads; units/primary part/folder/workspace; remix/AI/feedback; paid/membership branches only when eligible; asset generation; canonical metadata/attachment/license readback; and version support. The private free single-part safe core is certified at model `1583272`; certify each optional structure, version, plan, commercial and public/access branch independently.
+
+## 2026-08-09 isolated-session read-only recheck
+
+The rebuilt exact package confirmed that the isolated Thangs account still
+appears connected as `iamdjem`, then invoked only **Verify existing draft** for
+model `1586259`. The authenticated `GET status?id=1586259` path ended with
+`net::ERR_CONNECTION_CLOSED`. It was not retried; no create, update, upload, or
+publish action ran. This does not overturn the earlier package readback, but it
+means current independent retained verification and native rendered DOM remain
+unproved.

@@ -2,7 +2,9 @@ const THINGIVERSE_ORIGIN = 'https://www.thingiverse.com';
 const UPLOAD_URL = `${THINGIVERSE_ORIGIN}/thing:0/edit`;
 const FORMATS = new Set(['stl', 'obj', '3mf', 'scad', 'jpg', 'jpeg', 'txt', 'amf', 'dae', '3ds', 'x3d', 'blend', 'ply', 'fcstd', 'dxf', 'ai', 'svg', 'cdr', 'ps', 'eps', 'epsi', 'sch', 'brd', 'png', 'gif', 'doc', 'docx']);
 const LICENSES = new Set(['cc', 'cc-sa', 'cc-nd', 'cc-nc', 'cc-nc-sa', 'cc-nc-nd', 'pd0', 'gpl', 'lgpl', 'bsd', 'cern-ohl-s', 'cern-ohl-w', 'cern-ohl-p']);
-const DEFAULT_INCLUDED_APPS = [1127];
+// No default apps: 1127 was sent on every Thing without any doc evidence and
+// produced no visible effect (Customizer stays SCAD-gated regardless).
+const DEFAULT_INCLUDED_APPS = [];
 const DEFAULT_EDU_DETAIL_TYPES = ['skills', 'duration', 'overview', 'plan', 'materials', 'prep', 'assessment', 'references', 'grades', 'subjects', 'standards'];
 const jsonResponse = (body, status = 200) => ({ status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const errorResponse = (error, status = 502) => jsonResponse({ error: 'thingiverse_failed', message: error instanceof Error ? error.message : String(error) }, status);
@@ -28,13 +30,14 @@ function buildThingPayload(input) {
     filament_color: input.printSettings?.color || input.printSettings?.filamentColor,
     notes: input.printSettings?.notes || input.printSettings?.printNotes,
   });
+  // The Thing body IS the summary part (Markdown-capable). Sending only the
+  // one-line summary shipped Things with no description at all, so the full
+  // Markdown description rides in the body after the summary line.
+  const body = [String(input.summary || '').trim(), String(input.description || '').trim()].filter(Boolean).join('\n\n');
   const details = [
-    { type: 'summary', data: [{ content: String(input.summary) }] },
-    { type: 'settings', data: Object.keys(print).length ? [print] : undefined },
-    { type: 'tips' },
-    { type: 'design' },
-    { type: 'custom' },
+    { type: 'summary', data: [{ content: body }] },
   ];
+  if (Object.keys(print).length) details.push({ type: 'settings', data: [print] });
   for (const section of input.sections || []) {
     if (section?.type && ['tips', 'design', 'custom'].includes(section.type)) details.push(section);
     else details.push({ type: 'custom', name: String(section?.title || 'Details'), data: Array.isArray(section?.content) ? section.content : [textSection('', section?.content || '')] });
@@ -45,7 +48,7 @@ function buildThingPayload(input) {
     category: Number(input.categoryId),
     files: (input.files || []).filter((file) => file.role !== 'image').map((file) => ({ id: file.id, type: 'pending' })),
     images: [],
-    description: String(input.summary),
+    description: body,
     is_customizer: !!input.customizable,
     is_wip: !!input.wip,
     is_ai: !!input.aiGenerated,

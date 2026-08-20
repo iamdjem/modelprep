@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createWindowFetch, buildFetchScript, buildRequestDescriptor, FORBIDDEN_REQUEST_HEADERS, DEFAULT_MAX_BODY_BYTES } = require('./cults-window-fetch');
+const { createWindowFetch, createCultsFetchRouter, createPacedFetch, buildFetchScript, buildRequestDescriptor, FORBIDDEN_REQUEST_HEADERS, DEFAULT_MAX_BODY_BYTES } = require('./cults-window-fetch');
 
 // Run the generated in-page script inside a sandbox that fakes the page's
 // fetch/atob/btoa, so we cover the actual code that runs inside the Cults window.
@@ -163,4 +163,35 @@ test('the size guard clears real mesh files but still refuses a runaway', async 
     buildRequestDescriptor('https://s3.example/files', { method: 'POST', body: Buffer.alloc(2048) }, 1024),
     /exceeds the 1024-byte limit/,
   );
+});
+
+test('signed Cults storage posts bypass page CORS while Cults requests stay in-page', async () => {
+  const calls = [];
+  const routed = createCultsFetchRouter({
+    pageFetch: async (url) => { calls.push(['page', String(url)]); return 'page'; },
+    storageFetch: async (url) => { calls.push(['storage', String(url)]); return 'storage'; },
+  });
+
+  assert.equal(await routed('https://cults3d.com/en/file_uploaders/new?blueprint=true'), 'page');
+  assert.equal(await routed('https://s3.eu-west-3.amazonaws.com/files.cults3d.com', { method: 'POST' }), 'storage');
+  assert.equal(await routed('https://files.cults3d.com/example.webp'), 'page');
+  assert.deepEqual(calls.map(([transport]) => transport), ['page', 'storage', 'page']);
+});
+
+test('Cults first-party requests are serialized instead of bursting into Cloudflare', async () => {
+  let active = 0;
+  let peak = 0;
+  const starts = [];
+  const paced = createPacedFetch(async (value) => {
+    starts.push(Date.now());
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 4));
+    active -= 1;
+    return value;
+  }, 8);
+  assert.deepEqual(await Promise.all([paced('one'), paced('two'), paced('three')]), ['one', 'two', 'three']);
+  assert.equal(peak, 1);
+  assert.ok(starts[1] - starts[0] >= 6);
+  assert.ok(starts[2] - starts[1] >= 6);
 });

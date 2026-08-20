@@ -204,12 +204,13 @@ export function makerWorldPublishIssues(project, opts = {}, runtime = {}) {
   if (!files.length) errors.push(productMode === 'laser-cut'
     ? 'Add at least one Laser & Cut file (.lac, .svg, .dxf, image, or .ai).'
     : 'Add at least one MakerWorld 3D model file.');
+  // Documented caps only: .3mf 200 MiB (current live spec; the old 150 rejected
+  // legitimate 150-200 MiB Bambu files), .lac 100 MiB. Raw-file and aggregate
+  // caps are documented UNKNOWN, so none are enforced (house rule: no invented caps).
   for (const file of files) {
-    const limitMb = fileExt(file.name) === '3mf' ? 150 : 200;
-    if ((file.size || 0) > limitMb * MB) errors.push(`${file.name} exceeds MakerWorld's ${limitMb}MB per-file limit.`);
+    const limitMb = fileExt(file.name) === '3mf' ? 200 : fileExt(file.name) === 'lac' ? 100 : null;
+    if (limitMb && (file.size || 0) > limitMb * MB) errors.push(`${file.name} exceeds MakerWorld's ${limitMb}MB per-file limit.`);
   }
-  const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0);
-  if (totalBytes > 250 * MB) errors.push('MakerWorld model files exceed the 250MB total limit.');
   if ((project?.tags || []).length > 50) errors.push('MakerWorld accepts at most 50 tags.');
   const searchableText = [project?.title, project?.description, ...(project?.tags || [])].filter(Boolean).join('\n').toLocaleLowerCase();
   const blockedWords = [...new Set((runtime.forbiddenWords || [])
@@ -251,6 +252,11 @@ export function makerWorldPublishIssues(project, opts = {}, runtime = {}) {
     }
     if (opts.cyberBrick && laserMode !== 'lac') errors.push('CyberBrick is only available for Bambu Suite .lac Laser & Cut uploads.');
     if (opts.cyberBrick && !(runtime.cyberControlCount > 0)) errors.push('CyberBrick requires at least one control configuration JSON file.');
+    // The Laser & Cut builder currently has no summary/category fields, so a
+    // written description is silently discarded. Returning before the checks
+    // below hid that from the user entirely; at minimum they must be told.
+    if (String(project?.description || '').trim()) warnings.push('MakerWorld Laser & Cut submissions currently have no description field; your description will not be included in this listing.');
+    if (Number(opts.categoryId) > 0) warnings.push('MakerWorld Laser & Cut submissions currently have no category field; the selected category is not sent.');
     return { errors, warnings, files };
   }
 

@@ -29,6 +29,54 @@ require an image cover before any video, and reject every media item above
 10 MiB before authentication or storage upload. This closes a transport-parity
 gap; it is local verification only and creates no new Cults artifact.
 
+## 2026-08-08 signed-in upload-flow refresh
+
+The blank create form, retained secret creation edit form, and its price editor
+were inspected read-only in the user's normal signed-in Chrome session. No
+field was saved and no creation, upload, price change, publication, discount,
+deactivation, or deletion was performed.
+
+The live first page still exposes the five usages, 10 top-level categories,
+maximum three subcategories, 12 fixed meta tags, maximum 20 free tags, Markdown
+description, manufacturing instructions, ordered model/media inputs, one AI
+declaration covering photos/videos/files, and comments. The visible accepted
+model-file list contains the 40 extensions in section 3.4 and does **not** list
+`.rar`. The visible media contract is JPG/PNG/WebP/WebM/MP4, 10 MiB and
+8000x8000; it does **not** advertise GIF. Bundle-derived GIF support therefore
+remains local-only and must not be called current-form proven.
+
+The retained creation confirms three ordered model files and 10 ordered WebP
+media, `Game`, eight tags, 3D-printing usage, comments on, AI off, and no
+manufacturing instructions, subcategory, or meta tags. Its price page confirms
+all 14 documented licences and `public`, `secret`, and `offline` choices. On
+this CZK account/page the fixed-price control reports `min=14`, `max=26000`,
+`step=0.01`; open price reports `min=0`, `max=26000`, `step=0.01`. The paid
+branch also exposes a separate **Add discount** flow. These currency-specific
+bounds supplement, not replace, the earlier USD capture.
+
+Current ModelPrep parity is partial:
+
+- the renderer exposes only free/fixed paid and labels fixed price USD; it has
+  no open-price, currency, or discount control;
+- it exposes no usage or subcategory selector, and the actual desktop create
+  request hardcodes only `3dp` and an empty subcategory;
+- category and licence come from generic project fields and may be substituted,
+  rather than letting the user select the exact Cults values;
+- manufacturing instructions, all 12 meta tags, AI, comments, ordered media,
+  typed video, model files, free/fixed USD price, licence mapping, and
+  secret/public are serialized;
+- post-submit readback compares only title, listing visibility, and ordered
+  blueprint/illustration IDs and filenames. It does not certify description,
+  instructions, usage, category/subcategory, tags/meta tags, AI/comments,
+  pricing/currency, or licence.
+
+Verdict: the historical free/secret 3D-printing safe core remains the strongest
+branch, but the flow is **not fully mapped in the product UI or fully verified
+by readback**. Before another certification upload, add exact Cults category,
+subcategory and usage controls; add currency-aware fixed/open pricing (and
+classify discounts); then extend fail-closed readback across every submitted
+metadata and price-page field.
+
 ## 2026-08-02 full form-to-adapter audit
 
 The current signed-in `/en/creations/new` form, retained secret edit form,

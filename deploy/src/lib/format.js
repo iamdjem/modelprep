@@ -6,33 +6,51 @@ export function escapeHtml(s) {
 }
 
 export function inlineFormat(t) {
-  return t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // Images first so the link rule can't match inside ![alt](url) and orphan the bang.
+  return t.replace(/!\[(.*?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
           .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/~~(.+?)~~/g, '<del>$1</del>')
           .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2">$1</a>')
           .replace(/`(.+?)`/g, '<code>$1</code>');
 }
 
-export function mdToHtml(md) {
+// opts.maxHeading: per-platform heading-depth ceiling (deeper #s clamp to it).
+export function mdToHtml(md, opts = {}) {
   if (!md) return '';
-  const lines = md.split('\n'); const out = []; let inList = false, inCode = false;
-  let codeBuf = [], paraBuf = [];
-  const flushPara = () => { if (paraBuf.length) { const t = paraBuf.join(' ').trim(); if (t) out.push(`<p>${inlineFormat(t)}</p>`); paraBuf = []; } };
-  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  const maxHeading = opts.maxHeading || 6;
+  const lines = md.split('\n'); const out = []; let listTag = null, inCode = false;
+  let codeBuf = [], paraBuf = [], quoteBuf = [];
+  // Single newlines inside a block are hard breaks: joining with a space
+  // collapsed multi-line blocks (e.g. print settings) into one run-on paragraph.
+  const flushPara = () => { if (paraBuf.length) { const t = paraBuf.map(l => l.trim()).join('<br>').trim(); if (t) out.push(`<p>${inlineFormat(t)}</p>`); paraBuf = []; } };
+  const closeList = () => { if (listTag) { out.push(`</${listTag}>`); listTag = null; } };
+  const flushQuote = () => { if (quoteBuf.length) { out.push(`<blockquote><p>${inlineFormat(quoteBuf.map(l => l.trim()).join('<br>').trim())}</p></blockquote>`); quoteBuf = []; } };
   for (const line of lines) {
     if (line.startsWith('```')) {
       if (inCode) { out.push(`<pre><code>${codeBuf.join('\n')}</code></pre>`); codeBuf = []; inCode = false; }
-      else { flushPara(); closeList(); inCode = true; }
+      else { flushPara(); flushQuote(); closeList(); inCode = true; }
       continue;
     }
     if (inCode) { codeBuf.push(escapeHtml(line)); continue; }
-    const h = line.match(/^(#{1,3})\s+(.+)$/);
-    if (h) { flushPara(); closeList(); out.push(`<h${h[1].length}>${inlineFormat(h[2])}</h${h[1].length}>`); continue; }
-    const li = line.match(/^[-*]\s+(.+)$/);
-    if (li) { flushPara(); if (!inList) { out.push('<ul>'); inList = true; } out.push(`<li>${inlineFormat(li[1])}</li>`); continue; }
+    const h = line.match(/^(#{1,6})\s+(.+)$/);
+    if (h) { flushPara(); flushQuote(); closeList(); const lvl = Math.min(h[1].length, maxHeading); out.push(`<h${lvl}>${inlineFormat(h[2])}</h${lvl}>`); continue; }
+    const q = line.match(/^>\s?(.*)$/);
+    if (q) { flushPara(); closeList(); quoteBuf.push(q[1]); continue; }
+    flushQuote();
+    const ol = line.match(/^\s*\d+\.\s+(.+)$/);
+    const ul = line.match(/^\s*[-*]\s+(.+)$/);
+    if (ol || ul) {
+      flushPara();
+      const want = ol ? 'ol' : 'ul';
+      if (listTag !== want) { closeList(); out.push(`<${want}>`); listTag = want; }
+      out.push(`<li>${inlineFormat((ol || ul)[1])}</li>`);
+      continue;
+    }
     if (line.trim() === '') { flushPara(); closeList(); continue; }
     closeList(); paraBuf.push(line);
   }
-  flushPara(); closeList();
+  flushPara(); flushQuote(); closeList();
   return out.join('\n');
 }
 
@@ -41,8 +59,11 @@ export function mdToHtml(md) {
 //   target/rel, ordered + unordered lists, blockquotes. Inline code, strikethrough, <pre>
 //   and <hr> are NOT supported (stripped) — so we render their text as plain.
 function inlineFormatMW(t) {
-  return t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // Images first so the link rule can't match inside ![alt](url) and orphan the bang.
+  return t.replace(/!\[(.*?)\]\((.+?)\)/g, '<a target="_blank" rel="noopener noreferrer" href="$2">$1</a>')
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
           .replace(/\*(.+?)\*/g, '<i>$1</i>')
+          .replace(/~~(.+?)~~/g, '$1') // strikethrough unsupported → keep text only
           .replace(/\[(.+?)\]\((.+?)\)/g, '<a target="_blank" rel="noopener noreferrer" href="$2">$1</a>')
           .replace(/`(.+?)`/g, '$1'); // inline code unsupported → keep text only
 }
@@ -52,13 +73,16 @@ export function mdToMakerWorldHtml(md) {
   const lines = md.split('\n'); const out = [];
   let listTag = null;       // 'ul' | 'ol' | null
   let quoteBuf = [], paraBuf = [];
-  const flushPara = () => { if (paraBuf.length) { const t = paraBuf.join(' ').trim(); if (t) out.push(`<p>${inlineFormatMW(t)}</p>`); paraBuf = []; } };
+  // Single newlines inside a block are hard breaks (CKEditor <br>): joining with
+  // a space collapsed multi-line blocks into one run-on paragraph.
+  const flushPara = () => { if (paraBuf.length) { const t = paraBuf.map(l => l.trim()).join('<br>').trim(); if (t) out.push(`<p>${inlineFormatMW(t)}</p>`); paraBuf = []; } };
   const closeList = () => { if (listTag) { out.push(`</${listTag}>`); listTag = null; } };
-  const flushQuote = () => { if (quoteBuf.length) { out.push(`<blockquote><p>${inlineFormatMW(quoteBuf.join(' ').trim())}</p></blockquote>`); quoteBuf = []; } };
+  const flushQuote = () => { if (quoteBuf.length) { out.push(`<blockquote><p>${inlineFormatMW(quoteBuf.map(l => l.trim()).join('<br>').trim())}</p></blockquote>`); quoteBuf = []; } };
   for (const raw of lines) {
     const line = raw.replace(/^```.*$/, ''); // drop code fences; keep any content as plain
     const h = line.match(/^(#{1,6})\s+(.+)$/);
-    if (h) { flushPara(); flushQuote(); closeList(); out.push(`<h${Math.min(h[1].length + 1, 6)}>${inlineFormatMW(h[2])}</h${Math.min(h[1].length + 1, 6)}>`); continue; }
+    // Documented MakerWorld CKEditor schema is h2-h4 only: clamp deeper headings to h4.
+    if (h) { flushPara(); flushQuote(); closeList(); const lvl = Math.min(h[1].length + 1, 4); out.push(`<h${lvl}>${inlineFormatMW(h[2])}</h${lvl}>`); continue; }
     const q = line.match(/^>\s?(.*)$/);
     if (q) { flushPara(); closeList(); quoteBuf.push(q[1]); continue; }
     flushQuote();
@@ -85,6 +109,8 @@ export function mdToPlain(md) {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/!\[(.*?)\]\((.+?)\)/g, '$1 ($2)')
     .replace(/\[(.+?)\]\((.+?)\)/g, '$1 ($2)')
     .replace(/`(.+?)`/g, '$1')
     .replace(/^[-*]\s+/gm, '• ');

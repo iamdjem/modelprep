@@ -24,6 +24,20 @@ describe('mdToMakerWorldHtml (matches MakerWorld CKEditor schema)', () => {
   it('inline code is stripped to plain text (unsupported in MW)', () => {
     expect(mdToMakerWorldHtml('use `npm`')).toBe('<p>use npm</p>');
   });
+  it('keeps single-newline lines as <br> instead of collapsing into one run-on paragraph', () => {
+    expect(mdToMakerWorldHtml('**Layer height:** 0.2mm\n**Infill:** 15%'))
+      .toBe('<p><strong>Layer height:</strong> 0.2mm<br><strong>Infill:</strong> 15%</p>');
+  });
+  it('clamps headings deeper than ### to h4 (documented schema is h2-h4)', () => {
+    expect(mdToMakerWorldHtml('#### D\n##### E')).toBe('<h4>D</h4><h4>E</h4>');
+  });
+  it('strikethrough is stripped to plain text (unsupported in MW)', () => {
+    expect(mdToMakerWorldHtml('~~old~~ new')).toBe('<p>old new</p>');
+  });
+  it('image syntax becomes a link without an orphaned bang', () => {
+    expect(mdToMakerWorldHtml('![pic](https://m.com/p.jpg)'))
+      .toBe('<p><a target="_blank" rel="noopener noreferrer" href="https://m.com/p.jpg">pic</a></p>');
+  });
 });
 
 describe('slugify', () => {
@@ -104,6 +118,26 @@ describe('mdToHtml', () => {
     const html = mdToHtml('```\n<tag>\n```');
     expect(html).toContain('<pre><code>');
     expect(html).toContain('&lt;tag&gt;');
+  });
+  it('keeps single-newline lines as <br> instead of collapsing into one run-on paragraph', () => {
+    expect(mdToHtml('**Layer height:** 0.2mm\n**Infill:** 15% gyroid\n**Supports:** None needed\n**Wall loops:** 3'))
+      .toBe('<p><strong>Layer height:</strong> 0.2mm<br><strong>Infill:</strong> 15% gyroid<br><strong>Supports:</strong> None needed<br><strong>Wall loops:</strong> 3</p>');
+  });
+  it('renders ordered lists instead of collapsing them into a paragraph', () => {
+    expect(mdToHtml('1. First\n2. Second')).toBe('<ol>\n<li>First</li>\n<li>Second</li>\n</ol>');
+  });
+  it('renders blockquotes instead of leaking >', () => {
+    expect(mdToHtml('> Note: careful')).toBe('<blockquote><p>Note: careful</p></blockquote>');
+  });
+  it('renders strikethrough', () => {
+    expect(mdToHtml('~~old~~ new')).toBe('<p><del>old</del> new</p>');
+  });
+  it('image syntax becomes a link without an orphaned bang', () => {
+    expect(mdToHtml('![pic](https://m.com/p.jpg)')).toBe('<p><a href="https://m.com/p.jpg">pic</a></p>');
+  });
+  it('supports #### deep headings and honours a per-platform ceiling', () => {
+    expect(mdToHtml('#### Deep')).toBe('<h4>Deep</h4>');
+    expect(mdToHtml('#### Deep', { maxHeading: 3 })).toBe('<h3>Deep</h3>');
   });
 });
 

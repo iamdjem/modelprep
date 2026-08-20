@@ -21,7 +21,13 @@ export function normalizePrintablesTags(tags = []) {
 }
 
 export function buildPrintablesSummary(explicitSummary, description) {
-  const source = String(explicitSummary || description || '')
+  // The summary is plain text with no documented restrictions: a hand-typed
+  // summary must ship verbatim ("Print-in-place" was reaching Printables as
+  // "Print in place"). Only the description-derived fallback needs Markdown
+  // stripped out of it.
+  const typed = String(explicitSummary || '').replace(/\s+/g, ' ').trim();
+  if (typed) return typed.slice(0, 120);
+  const source = String(description || '')
     .replace(/<[^>]*>/g, ' ')
     .replace(/[#_*`~>[\]()!-]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -133,8 +139,11 @@ export function printablesPaidIssues(options = {}, capability = options.capabili
   if (options.store) {
     if (!capability?.storeActive) issues.push('Activate Printables Store before selecting a paid Store model.');
     const price = Number(options.price);
-    if (!Number.isInteger(price) || price < PRINTABLES_PRICE_MIN || price > PRINTABLES_PRICE_MAX) {
-      issues.push(`Printables Store price must be a whole dollar amount from $${PRINTABLES_PRICE_MIN} to $${PRINTABLES_PRICE_MAX}.`);
+    // The 5-150 bounds are unverified (the doc says price bounds are
+    // server-provided and a live probe did not locate them), so only require a
+    // positive whole-dollar amount and let the server enforce its own range.
+    if (!Number.isInteger(price) || price <= 0) {
+      issues.push('Printables Store price must be a positive whole dollar amount.');
     }
     if (capability?.maxStoreModels && capability.storeModelsCount >= capability.maxStoreModels) {
       issues.push(`This account has reached its Printables Store model limit (${capability.maxStoreModels}).`);
@@ -174,6 +183,85 @@ export function validatePrintablesModel({
     issues.push('Describe what changed in this remix.');
   }
   return issues;
+}
+
+// Printables has no print-profile role. Live public readback of model 1472993
+// (2026-08-08) shows a `.3mf` filed under `stls` alongside ordinary geometry,
+// so a print profile is an ordinary model file here and "where did the profile
+// go" is a selection question, not a routing one.
+//
+// Only these two extensions have live bucket evidence. Anything else is
+// name-checked but not role-checked, because guessing a bucket for .step/.obj
+// would encode an unproven contract as a hard failure.
+const PRINTABLES_PROVEN_BUCKET = new Map([['stl', 'stls'], ['3mf', 'stls']]);
+
+function printablesExt(name) {
+  const match = String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match ? match[1] : '';
+}
+
+// The source files that must come back verbatim, with the byte count each one
+// should retain. An unpacked ZIP legitimately becomes many differently named
+// files of different sizes, so it is excluded from both checks.
+//
+// Live-proven on retained draft 1803724 (2026-08-08): Printables stores model
+// files byte-for-byte, so retained `fileSize` equals the source size exactly
+// for every non-unpacked upload. That makes exact equality a safe assertion
+// rather than a guess.
+export function printablesExpectedFiles(files = [], options = {}) {
+  return files
+    .filter((file) => String(file?.name || ''))
+    .filter((file) => !(printablesExt(file.name) === 'zip' && options.zipMode !== 'archive'))
+    .map((file) => ({
+      name: String(file.name),
+      size: Number.isFinite(Number(file?.size)) && Number(file.size) > 0 ? Number(file.size) : null,
+    }));
+}
+
+// Fail closed on what the user actually selected, not on what processing
+// returned. `printablesReadbackMismatches` compares the saved model against the
+// payload we sent, and that payload is itself built from the processing
+// response - so a file Printables silently drops or refuses to inspect agrees
+// on both sides and passes. This is the check that catches it.
+export function printablesSourceFileMismatches(expectedFiles = [], model = null) {
+  const buckets = ['stls', 'slas', 'gcodes', 'otherFiles'];
+  const retained = new Map();
+  for (const bucket of buckets) {
+    for (const file of model?.[bucket] || []) {
+      const key = String(file?.name || '').toLowerCase();
+      if (!key) continue;
+      if (!retained.has(key)) retained.set(key, []);
+      retained.get(key).push({ bucket, fileSize: file?.fileSize });
+    }
+  }
+  const mismatches = [];
+  for (const expected of expectedFiles) {
+    const name = String(expected?.name ?? expected ?? '');
+    const key = name.toLowerCase();
+    const found = retained.get(key);
+    if (!found?.length) {
+      mismatches.push(`${name}: selected for Printables but absent from the saved model files`);
+      continue;
+    }
+    const { bucket, fileSize } = found.shift();
+    const wanted = PRINTABLES_PROVEN_BUCKET.get(printablesExt(name));
+    if (wanted && bucket !== wanted) {
+      mismatches.push(`${name}: expected Printables to file this under ${wanted}, received ${bucket}`);
+    }
+    // A retained record with no bytes behind it is the failure mode a
+    // name-only check cannot see, so an unreported size is itself a failure:
+    // both status queries request `fileSize`.
+    const retainedSize = Number(fileSize);
+    if (fileSize == null || !Number.isFinite(retainedSize) || retainedSize <= 0) {
+      mismatches.push(`${name}: Printables reported no retained file size`);
+      continue;
+    }
+    const expectedSize = Number(expected?.size);
+    if (Number.isFinite(expectedSize) && expectedSize > 0 && retainedSize !== expectedSize) {
+      mismatches.push(`${name}: expected ${expectedSize} retained bytes, received ${retainedSize}`);
+    }
+  }
+  return mismatches;
 }
 
 export function printablesReadbackMismatches(expected, model) {

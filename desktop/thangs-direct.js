@@ -40,44 +40,60 @@ function validateUpload(role, file) {
 }
 function validateSubmit(input) {
   const issues = [];
+  const parts = input.parts || [];
   if (!String(input.name || '').trim()) issues.push('name is required');
-  if (!(input.parts || []).length) issues.push('at least one model part is required');
-  if (!['single', 'bulk', 'multipart', 'assembly'].includes(input.structure)) issues.push('choose a valid model structure');
-  if (input.structure === 'single' && (input.parts || []).length !== 1) issues.push('single models require exactly one part');
-  if ((input.parts || []).length > 1 && !(input.parts || []).some((part) => part.primary)) issues.push('choose a primary part');
-  if (input.structure !== 'single' && (input.parts || []).some((part) => SINGLE_PART_ONLY_FORMATS.has(ext(part.name)))) issues.push('3MF, FBX and GLB files can only be uploaded as single-part models');
-  if (!String(input.units || '').trim()) issues.push('units are required');
+  if (!parts.length) issues.push('at least one model part is required');
+  if (parts.length > 1 && !parts.some((part) => part.primary)) issues.push('choose a primary part');
+  if (parts.length > 1 && parts.some((part) => SINGLE_PART_ONLY_FORMATS.has(ext(part.name)))) issues.push('3MF, FBX and GLB files can only be uploaded as single-part models');
   if (input.marketplace && !(Number(input.price) > 0)) issues.push('marketplace listings require a positive price');
   return issues;
 }
 function buildModelPayload(input) {
   const issues = validateSubmit(input); if (issues.length) throw new Error(`Thangs validation failed: ${issues.join('; ')}.`);
+  // v4/models/{id}/details contract, read from the live first-party serializer
+  // (`updateModelDetailsRequestFromState`, bundle capture 2026-08-07):
+  // - photos ride in `images` ({id?, filename, caption?}); putting them in
+  //   `attachments` is what filed every photo as a resource with an empty gallery
+  // - `attachments` carries only non-image reference files ({id?, name, filename})
+  // - audience is the string `visibility` (`private`/`public`/`paid`), not `isPublic`
+  // - model parts are NOT in this request: association happens through
+  //   POST v4/models/validate-files, and this request only names them via
+  //   `partNames` [{partIdentifier, name}] + `primaryPart` (added in save()).
   const payload = {
     name: String(input.name).trim(), description: String(input.description || ''),
-    category: input.category || null, tags: input.tags || [], isPublic: !!input.isPublic,
-    accessTypeId: input.accessTypeId || null, planIds: input.planIds || [], allowRemix: !!input.allowRemix,
-    // `isAiGenerated`, not `aiGenerated`. The latter appears nowhere in Thangs'
-    // client and is not a field it knows, so the flag ModelPrep sent was
-    // silently dropped and the model kept whatever the server defaulted to.
-    isAiGenerated: !!input.aiGenerated, feedbackEnabled: input.feedbackEnabled !== false,
-    units: input.units,
-    modelType: input.structure, dependencies: input.dependencies || [], versionNotes: input.versionNotes || '',
-    marketplace: !!input.marketplace, price: input.marketplace ? Number(input.price) : 0,
-    license: input.license || null, licenseFile: input.licenseFile?.uploadedName || null,
-    parts: input.parts.map((part, index) => ({
-      originalFileName: part.name,
-      originalPartName: part.partName || part.name,
-      filename: part.uploadedName,
-      size: part.size,
-      isPrimary: !!part.primary || (input.parts.length === 1 && index === 0),
-    })),
-    attachments: (input.images || []).map((file) => ({ name: file.name, filename: file.uploadedName, size: file.size })),
-    referenceFiles: (input.references || []).map((file) => ({ name: file.name, filename: file.uploadedName, size: file.size })),
+    tags: input.tags || [],
+    visibility: input.marketplace ? 'paid' : input.isPublic ? 'public' : 'private',
+    allowRemix: !!input.allowRemix,
+    isAiGenerated: !!input.aiGenerated,
+    isInitialUpload: !String(input.existingId || '').trim(),
+    images: (input.images || []).map((file) => ({ filename: file.uploadedName, ...(file.caption ? { caption: String(file.caption) } : {}) })),
+    attachments: (input.references || []).map((file) => ({ name: file.name, filename: file.uploadedName })),
   };
-  // The v4 details union rejects explicit null for these optional identifiers.
+  // The serializer omits absent optional values entirely; explicit nulls are rejected.
+  if (input.category) payload.category = input.category;
+  if (input.license) payload.license = input.license;
+  if (input.marketplace) payload.marketplacePrice = Number(input.price);
   if (String(input.folderId || '').trim()) payload.folderId = String(input.folderId).trim();
   if (String(input.workspaceId || '').trim()) payload.workspaceId = String(input.workspaceId).trim();
   return [payload];
+}
+
+// partRequests entries come back from GET v4/models/{id} after validate-files.
+// Their shape is server-defined; match each request to the uploaded part by any
+// string field that carries the original or uploaded file name.
+function matchPartRequests(partRequests, parts) {
+  const requests = Array.isArray(partRequests) ? partRequests.filter((r) => r && r.partIdentifier != null) : [];
+  if (!requests.length) return null;
+  const nameOf = (part) => String(part.partName || part.name || '');
+  const matches = (request, part) => Object.values(request).some((v) => typeof v === 'string' && (v === part.name || v === part.uploadedName || v.endsWith(`/${part.name}`)));
+  const partNames = [];
+  let primaryPart = null;
+  for (const request of requests) {
+    const part = parts.find((p) => matches(request, p)) || null;
+    partNames.push({ partIdentifier: request.partIdentifier, name: part ? nameOf(part) : String(request.name || request.partIdentifier) });
+    if (part && (part.primary || parts.length === 1)) primaryPart = request.partIdentifier;
+  }
+  return { partNames, primaryPart: primaryPart ?? requests[0].partIdentifier };
 }
 
 function extractCreatedModelId(created) {
@@ -169,10 +185,10 @@ function createThangsDirectClient({ fetchImpl = fetch, apiOrigin = process.env.M
     const uploadContentTypes = { txt: 'text/plain', md: 'text/markdown', pdf: 'application/pdf' };
     const put = await fetchImpl(uploadUrl, { method: 'PUT', headers: { 'Content-Type': uploadContentTypes[ext(file.name)] || 'application/octet-stream' }, body: file.bytes });
     if (!put.ok) throw new Error(`Thangs storage upload failed (HTTP ${put.status}).`);
-    // Validation builds the part tree, so it applies to files on the model
-    // route. Attachment-route uploads are not model files and are not validated
-    // by the first-party flow either.
-    if (!standalone && !attachment) await api(context, 'models/validatefiles', { method: 'POST', body: { fileNames: [uploadedName] }, label: 'file validation' });
+    // Model-file validation moved into save(): the first-party v4 flow runs
+    // POST v4/models/validate-files AFTER the draft exists, and that call is
+    // what builds the draft's partRequests. Validating here, before any draft
+    // exists, left every part unassociated (empty Model section, preview 404).
     return { role, name: file.name, uploadedName, size: file.bytes.byteLength };
   }
   async function save(context, input) {
@@ -202,12 +218,29 @@ function createThangsDirectClient({ fetchImpl = fetch, apiOrigin = process.env.M
       if (!id) throw new Error('Thangs created no model id.');
     }
     try {
+      // First-party sequence: validate the uploaded model files against the
+      // draft (this is what creates the draft's partRequests server-side),
+      // read the draft back for the generated partIdentifiers, then apply the
+      // full details with the parts named and a primary part chosen.
+      const uploadedNames = (input.parts || []).map((part) => part.uploadedName).filter(Boolean);
+      if (uploadedNames.length) await api(context, 'v4/models/validate-files', { method: 'POST', body: { files: uploadedNames }, label: 'model file validation' });
+      let draft = null;
+      try { draft = await api(context, `v4/models/${id}`, { label: 'draft part read-back' }); } catch { draft = null; }
+      const partInfo = matchPartRequests(draft?.draftModel?.partRequests ?? draft?.partRequests, input.parts || []);
+      if (partInfo) { details.partNames = partInfo.partNames; details.primaryPart = partInfo.primaryPart; }
       await api(context, `v4/models/${id}/details`, { method: 'PUT', body: details, label: `model details for private draft ${id}` });
     } catch (error) {
       error.draftId = id;
       throw error;
     }
-    return { id: String(id), state: input.isPublic ? 'public' : 'private', url: `${THANGS_ORIGIN}/designer/model/${encodeURIComponent(id)}` };
+    // Thangs listing URLs require the owner's username segment. The former
+    // `/designer/model/<id>` receipt looked plausible but always 404ed.
+    const owner = await whoami(context);
+    return {
+      id: String(id),
+      state: input.marketplace ? 'paid' : input.isPublic ? 'public' : 'private',
+      url: `${THANGS_ORIGIN}/designer/${encodeURIComponent(owner.username || owner.nickname)}/3d-model/${encodeURIComponent(id)}`,
+    };
   }
   async function status(context, id) {
     const [details, attachments] = await Promise.all([
@@ -231,7 +264,14 @@ function createThangsDirectClient({ fetchImpl = fetch, apiOrigin = process.env.M
       }
     }
     if (!license) throw new Error(`Thangs details read-back for ${id} returned no license.`);
-    return { details, attachments, license };
+    const owner = await whoami(context);
+    return {
+      details,
+      attachments,
+      license,
+      owner,
+      url: `${THANGS_ORIGIN}/designer/${encodeURIComponent(owner.username || owner.nickname)}/3d-model/${encodeURIComponent(id)}`,
+    };
   }
   async function handleRequest(request, context) {
     try {
@@ -246,4 +286,4 @@ function createThangsDirectClient({ fetchImpl = fetch, apiOrigin = process.env.M
   }
   return { api, handleRequest, meta, save, status, upload, whoami };
 }
-module.exports = { IMAGE_FORMATS, LICENSE_FORMATS, MODEL_FORMATS, SINGLE_PART_ONLY_FORMATS, THANGS_API_ORIGIN, THANGS_ORIGIN, UPLOAD_URL, buildModelPayload, createThangsDirectClient, extractCreatedModelId, findLicenseReadback, validateSubmit, validateUpload };
+module.exports = { IMAGE_FORMATS, LICENSE_FORMATS, MODEL_FORMATS, SINGLE_PART_ONLY_FORMATS, THANGS_API_ORIGIN, THANGS_ORIGIN, UPLOAD_URL, buildModelPayload, createThangsDirectClient, extractCreatedModelId, findLicenseReadback, matchPartRequests, validateSubmit, validateUpload };

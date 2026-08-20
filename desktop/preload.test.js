@@ -38,6 +38,7 @@ test('desktop preload exposes a complete ten-platform connection contract', () =
   assert.equal(exposed.bridgeVersion, 10);
   assert.equal(typeof exposed.captureResourceTelemetry, 'function');
   assert.equal(typeof exposed.pickGalleryImages, 'function');
+  for (const method of ['indexAssets', 'searchAssets', 'watchedAssetFolders', 'chooseWatchedAssetFolder', 'onAssetFolderChanged']) assert.equal(typeof exposed[method], 'function', `asset library is missing ${method}`);
   assert.equal(typeof exposed.discoverAccounts, 'function');
   assert.equal(typeof exposed.recoverAccount, 'function');
   const contracts = {

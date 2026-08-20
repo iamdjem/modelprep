@@ -31,6 +31,61 @@ test('MakerOnline roles map to the captured scene types and enforce file familie
   assert.throws(() => validateUpload('documentation', { name: 'video.mp4', bytes: Buffer.alloc(1) }), /documentation/i);
 });
 
+test('MakerOnline upload record separates native response fields from source fallbacks', async () => {
+  // `name`/`size` fall back to the local file, so they cannot prove what
+  // MakerOnline returned. Only the native fields may be treated as evidence.
+  const clientFor = (data) => createMakerOnlineDirectClient({
+    fetchImpl: async () => response({ code: 0, data }),
+  });
+  const source = { name: 'part.stl', mimeType: 'model/stl', bytes: Buffer.from('solid test') };
+
+  const full = await clientFor({
+    key: 'models/part.stl', url: 'https://cdn.example/part.stl',
+    file_name: 'part.stl', file_size: 10,
+  }).upload(context, 'model', source);
+  assert.equal(full.nativeFileName, 'part.stl');
+  assert.equal(full.nativeFileSize, 10);
+  assert.equal(full.sourceFileName, 'part.stl');
+  assert.equal(full.sourceFileSize, source.bytes.byteLength);
+
+  // Each native field missing independently must be reported as null, never
+  // silently replaced by the source value.
+  const noName = await clientFor({
+    key: 'models/part.stl', url: 'https://cdn.example/part.stl', file_size: 10,
+  }).upload(context, 'model', source);
+  assert.equal(noName.nativeFileName, null);
+  assert.equal(noName.name, 'part.stl', 'convenience name may still fall back');
+  assert.equal(noName.sourceFileName, 'part.stl');
+
+  const noSize = await clientFor({
+    key: 'models/part.stl', url: 'https://cdn.example/part.stl', file_name: 'part.stl',
+  }).upload(context, 'model', source);
+  assert.equal(noSize.nativeFileSize, null);
+  assert.equal(noSize.size, source.bytes.byteLength, 'convenience size may still fall back');
+
+  const zeroSize = await clientFor({
+    key: 'models/part.stl', url: 'https://cdn.example/part.stl', file_name: 'part.stl', file_size: 0,
+  }).upload(context, 'model', source);
+  assert.equal(zeroSize.nativeFileSize, null, 'a zero size is not a usable native size');
+
+  const blankName = await clientFor({
+    key: 'models/part.stl', url: 'https://cdn.example/part.stl', file_name: '   ', file_size: 10,
+  }).upload(context, 'model', source);
+  assert.equal(blankName.nativeFileName, null, 'a blank name is not a usable native name');
+
+  const noKey = await clientFor({
+    url: 'https://cdn.example/part.stl', file_name: 'part.stl', file_size: 10,
+  }).upload(context, 'model', source);
+  assert.equal(noKey.key, '', 'a missing key stays empty rather than being invented');
+
+  // A missing URL is fatal at the transport boundary itself.
+  await assert.rejects(
+    () => clientFor({ key: 'models/part.stl', file_name: 'part.stl', file_size: 10 })
+      .upload(context, 'model', source),
+    /returned no file URL/i,
+  );
+});
+
 test('MakerOnline upload sends the raw token, cookies, scene type, and bytes directly', async () => {
   const calls = [];
   const client = createMakerOnlineDirectClient({

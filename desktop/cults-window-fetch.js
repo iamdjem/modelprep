@@ -171,7 +171,42 @@ function createWindowFetch(options = {}) {
   };
 }
 
+/**
+ * Keep Cloudflare-protected Cults requests in the authenticated page, but send
+ * the already-signed storage POST through Electron's network session. The S3
+ * policy is the authorization; it neither needs Cults cookies nor benefits
+ * from page-origin CORS, which can hide the real S3 response as "Failed to
+ * fetch".
+ */
+function createCultsFetchRouter({ pageFetch, storageFetch }) {
+  if (typeof pageFetch !== 'function') throw new Error('createCultsFetchRouter requires pageFetch.');
+  if (typeof storageFetch !== 'function') throw new Error('createCultsFetchRouter requires storageFetch.');
+  return (url, options) => {
+    let hostname = '';
+    try { hostname = new URL(String(url)).hostname.toLowerCase(); } catch { /* page transport reports malformed URLs */ }
+    return hostname === 's3.eu-west-3.amazonaws.com'
+      ? storageFetch(url, options)
+      : pageFetch(url, options);
+  };
+}
+
+function createPacedFetch(fetchImpl, minimumIntervalMs = 200) {
+  if (typeof fetchImpl !== 'function') throw new Error('createPacedFetch requires a fetch implementation.');
+  let tail = Promise.resolve();
+  let lastStartedAt = 0;
+  return (url, options) => {
+    const run = tail.then(async () => {
+      const waitMs = Math.max(0, Number(minimumIntervalMs) - (Date.now() - lastStartedAt));
+      if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+      lastStartedAt = Date.now();
+      return fetchImpl(url, options);
+    });
+    tail = run.catch(() => {});
+    return run;
+  };
+}
+
 module.exports = {
-  createWindowFetch, buildFetchScript, buildRequestDescriptor,
+  createWindowFetch, createCultsFetchRouter, createPacedFetch, buildFetchScript, buildRequestDescriptor,
   FORBIDDEN_REQUEST_HEADERS, DEFAULT_MAX_BODY_BYTES,
 };

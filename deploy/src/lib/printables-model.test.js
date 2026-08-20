@@ -9,11 +9,13 @@ import {
   PRINTABLES_RICH_IMAGE_MAX_BYTES,
   PRINTABLES_PRICE_MIN,
   PRINTABLES_PRICE_MAX,
+  printablesExpectedFiles,
   printablesFileSettingIssues,
   printablesPaidIssues,
   publishVerifiedPrintablesModel,
   printablesPublishStrategy,
   printablesReadbackMismatches,
+  printablesSourceFileMismatches,
   validatePrintablesModel,
   waitForPrintablesPublication,
 } from './printables-model.js';
@@ -144,11 +146,14 @@ describe('Printables model contract helpers', () => {
 
   it('enforces the live rich-image and account-gated Store/Club contract', () => {
     expect(PRINTABLES_RICH_IMAGE_MAX_BYTES).toBe(8 * 1024 * 1024);
-    expect(PRINTABLES_PRICE_MIN).toBe(5);
-    expect(PRINTABLES_PRICE_MAX).toBe(150);
+    // Price bounds are server-provided (unlocated by live probe), so the
+    // client only requires a positive whole-dollar amount.
     expect(printablesPaidIssues({ store: true, price: '4', authorship: 'author' }, {
       designerStatus: 'APPROVED', storeActive: true, storeModelsCount: 0, maxStoreModels: 10, tiers: [],
-    })).toEqual(['Printables Store price must be a whole dollar amount from $5 to $150.']);
+    })).toEqual([]);
+    expect(printablesPaidIssues({ store: true, price: '4.50', authorship: 'author' }, {
+      designerStatus: 'APPROVED', storeActive: true, storeModelsCount: 0, maxStoreModels: 10, tiers: [],
+    })).toEqual(['Printables Store price must be a positive whole dollar amount.']);
     expect(printablesPaidIssues({ club: true, authorship: 'reupload' }, {
       designerStatus: 'APPROVED', storeActive: false, tiers: [{ id: '1' }],
     })).toEqual(['Printables does not allow paid or Club reuploads.']);
@@ -206,5 +211,85 @@ describe('Printables model contract helpers', () => {
         'NSFW flag: expected false, received true',
         'images: expected 1, received 0',
       ]);
+  });
+  it('lists the source files that must come back verbatim, with their bytes', () => {
+    const files = [
+      { name: 'puck-S.stl', size: 36084 },
+      { name: 'puck-bambu.3mf', size: 30787 },
+      { name: 'extras.zip', size: 900 },
+    ];
+    // An unpacked ZIP becomes many differently named files of different sizes,
+    // so it is excluded from both the name and the byte comparison.
+    expect(printablesExpectedFiles(files, { zipMode: 'unzip' }))
+      .toEqual([{ name: 'puck-S.stl', size: 36084 }, { name: 'puck-bambu.3mf', size: 30787 }]);
+    expect(printablesExpectedFiles(files, { zipMode: 'archive' })).toHaveLength(3);
+    // An unknown source size must not become a phantom expectation of 0 bytes.
+    expect(printablesExpectedFiles([{ name: 'a.stl' }], {})).toEqual([{ name: 'a.stl', size: null }]);
+  });
+
+  it('fails closed when a selected file is missing from the saved model', () => {
+    // Live evidence (public model 1472993): Printables files a .3mf under
+    // `stls`, so the profile is an ordinary model file with no separate role.
+    const model = {
+      stls: [
+        { id: '1', name: 'puck-S.stl', fileSize: 36084 },
+        { id: '2', name: 'puck-bambu.3mf', fileSize: 30787 },
+      ],
+      slas: [], gcodes: [], otherFiles: [{ id: '3', name: 'notes.txt', fileSize: 12 }],
+    };
+    expect(printablesSourceFileMismatches([
+      { name: 'puck-S.stl', size: 36084 },
+      { name: 'puck-bambu.3mf', size: 30787 },
+      { name: 'notes.txt', size: 12 },
+    ], model)).toEqual([]);
+    // The defect this exists to catch: the payload we send is derived from
+    // Printables' own processing response, so a dropped file agrees with
+    // itself on both sides of printablesReadbackMismatches and passes.
+    expect(printablesSourceFileMismatches([
+      { name: 'puck-S.stl', size: 36084 }, { name: 'puck-bambu.3mf', size: 30787 },
+    ], { stls: [{ id: '1', name: 'puck-S.stl', fileSize: 36084 }], slas: [], gcodes: [], otherFiles: [] }))
+      .toEqual(['puck-bambu.3mf: selected for Printables but absent from the saved model files']);
+  });
+
+  it('fails closed on a retained record with no bytes behind it', () => {
+    // Live-proven on draft 1803724: Printables stores model files verbatim, so
+    // retained fileSize equals the source size exactly.
+    const call = (retained) => printablesSourceFileMismatches(
+      [{ name: 'puck-S.stl', size: 36084 }],
+      { stls: [{ id: '1', name: 'puck-S.stl', ...retained }], slas: [], gcodes: [], otherFiles: [] },
+    );
+    expect(call({ fileSize: 36084 })).toEqual([]);
+    expect(call({ fileSize: 0 })).toEqual(['puck-S.stl: Printables reported no retained file size']);
+    // A status query that does not select fileSize cannot certify retention.
+    expect(call({})).toEqual(['puck-S.stl: Printables reported no retained file size']);
+    expect(call({ fileSize: null })).toEqual(['puck-S.stl: Printables reported no retained file size']);
+    expect(call({ fileSize: 12 })).toEqual(['puck-S.stl: expected 36084 retained bytes, received 12']);
+    // An unknown source size still requires a positive retained size.
+    expect(printablesSourceFileMismatches([{ name: 'puck-S.stl', size: null }], {
+      stls: [{ id: '1', name: 'puck-S.stl', fileSize: 999 }], slas: [], gcodes: [], otherFiles: [],
+    })).toEqual([]);
+  });
+
+  it('checks the bucket only for the two extensions with live evidence', () => {
+    expect(printablesSourceFileMismatches([{ name: 'puck-bambu.3mf', size: 30787 }], {
+      stls: [], slas: [], gcodes: [], otherFiles: [{ id: '9', name: 'puck-bambu.3mf', fileSize: 30787 }],
+    })).toEqual([
+      'puck-bambu.3mf: expected Printables to file this under stls, received otherFiles',
+    ]);
+    // .step has no live bucket evidence, so it is name-checked only rather
+    // than failing a build on a guessed contract.
+    expect(printablesSourceFileMismatches([{ name: 'part.step', size: 5 }], {
+      stls: [], slas: [], gcodes: [], otherFiles: [{ id: '9', name: 'part.step', fileSize: 5 }],
+    })).toEqual([]);
+  });
+
+  it('matches file names case-insensitively and one-for-one', () => {
+    expect(printablesSourceFileMismatches([{ name: 'Puck-S.STL', size: 7 }], {
+      stls: [{ id: '1', name: 'puck-s.stl', fileSize: 7 }], slas: [], gcodes: [], otherFiles: [],
+    })).toEqual([]);
+    // Two selected files of the same name need two retained files.
+    expect(printablesSourceFileMismatches([{ name: 'a.stl', size: 7 }, { name: 'a.stl', size: 7 }], {
+      stls: [{ id: '1', name: 'a.stl', fileSize: 7 }], slas: [], gcodes: [], otherFiles: [],
+    })).toEqual(['a.stl: selected for Printables but absent from the saved model files']);
   });
 });

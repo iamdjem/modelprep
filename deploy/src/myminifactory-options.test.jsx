@@ -42,7 +42,7 @@ describe('MyMiniFactory-specific upload options', () => {
     expect(screen.getByText(/Required declaration:/i).closest('label').querySelector('input')).toBeChecked();
 
     fireEvent.change(screen.getByLabelText(/MyMiniFactory category/i), { target: { value: '780' } });
-    expect(onUpdate).toHaveBeenCalledWith('categoryIds', [1015, 785, 780]);
+    expect(onUpdate).toHaveBeenCalledWith({ categoryIds: [1015, 785, 780], categoryAuto: false });
   });
 
   it('accepts only a numeric existing-object ID for the read-only re-read', () => {

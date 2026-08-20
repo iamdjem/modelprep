@@ -2,6 +2,51 @@
 
 Date captured: 2026-07-31; current-form refresh: 2026-08-02
 
+## 2026-08-08 continuation audit and premium-branch correction
+
+ModelPrep's packaged/development UI was inspected read-only with its managed
+MyMiniFactory account still connected as `iamdjem`. The normal Chrome profile
+was signed out, so this pass did **not** claim a fresh authenticated create-form
+DOM capture and did not upload, submit, save, accept terms, or edit anything.
+The reachable ModelPrep UI and transport were compared with the current
+first-party Creator Portal guides:
+
+- [How to upload an object](https://creator.myminifactory.com/how-to-upload-an-object)
+- [Using Archive Mode to upload files](https://creator.myminifactory.com/using-archive-mode-to-upload-files)
+- [The Store FAQ](https://creator.myminifactory.com/the-store-faq)
+
+The safe core and advanced print/remix/licence mapping below remain strong, but
+the prior “Comprehensively mapped” and “premium branches mapped” wording was too
+broad. Current confirmed gaps are:
+
+- **Sell STL Files is not implemented.** The first-party flow says the premium
+  creator toggle reveals object price, purchase message, and post-purchase
+  message. ModelPrep has no MyMiniFactory store toggle, price, or either message
+  in its UI, request, parser, or readback.
+- **Premium file limits are not capability-driven.** The official Store FAQ
+  documents 500 MB per file for Premium Creators, while this account's captured
+  form reports 100 MiB. ModelPrep hardcodes 100 MiB and never reads/exposes the
+  premium limit, so a premium account would be rejected too early.
+- **Archive/ZIP mode is documented but not mapped or implemented.** The official
+  branch supports up to 25 archives at about 5 GB each and has no generated 3D
+  viewer. ModelPrep always sends `fileMode=0`, `watermarkPdfs=false`, uses the
+  normal presigned-file path, and exposes no archive mode or capability state.
+- **Remix-parent UX remains partial.** The native form searches and selects a
+  real parent; ModelPrep accepts raw comma-separated IDs and validates only that
+  at least one ID is present, not that the object exists before upload.
+- **Native category divergence remains risky.** ModelPrep requires and submits
+  category IDs during create even though the captured native create form had no
+  category control; the server historically accepted this, but it is
+  undocumented create-time behavior and needs a future authorized recheck.
+- **Public review remains action-gated.** The official approval documentation
+  confirms a software check plus human review and recommends a real printed
+  photo; a successful submit is not proof that the object is live.
+
+Scan The World remains explicitly out of ModelPrep product scope per the user's
+2026-08-04 decision. The unexplained `license_store` field remains deliberately
+unmapped until MyMiniFactory documents its semantics. Neither should be folded
+into the store-price gap by guessing.
+
 ModelPrep uses MyMiniFactory's authenticated first-party web form because no current documented third-party object-upload API was found. The integration runs only in Electron. Cookies, the form CSRF token, and the per-upload folder name remain in the isolated `persist:myminifactory` partition and main process; the renderer stores only `desktop-managed-myminifactory-session-v1`.
 
 MyMiniFactory's current default sign-in is passwordless: the creator enters an
@@ -381,14 +426,18 @@ flow never exercises**, so it deserves a re-check whenever the form changes.
 | Visibility `Private=0` / `Public=2` | mapped | current select exposes exactly two values | Private live-certified; **Public action-gated** |
 | Public review flow | mapped, **manually deferred by the user** | current DOM value `2` and submit control | user elected on 2026-08-03 to certify this only with a genuine model, never the test fixture; awaiting that model |
 | Original/no-AI declaration | implemented | current required checkbox and desktop preflight | locally verified; alternative combinations action-gated |
-| ZIP / archive mode (~5 GB, 25 archive files) | mapped, **account-gated** | `can_use_zip_mode: false` for this account | eligibility gate recorded; not investigable on this account |
-| Premium-creator branches | mapped, **account-gated** | `isPremiumCreator: false` for this account | eligibility gate recorded; not investigable on this account |
+| ZIP / archive mode (~5 GB, 25 archive files) | documented, **not implemented; account-gated** | `can_use_zip_mode: false` for this account plus current first-party Archive Mode guide | ModelPrep always sends normal `fileMode=0`; no archive UI/payload/readback |
+| Premium creator file limit | documented, **not implemented dynamically** | `isPremiumCreator: false` here; current Store FAQ documents 500 MB per file for Premium | ModelPrep hardcodes this free account's 100 MiB cap |
+| Sell STL Files: price, purchase message, post-purchase message | documented, **not implemented; account-gated** | current first-party upload guide | absent from ModelPrep UI/payload/readback |
 | Scan The World (`stw-checkbox` + 12 `stw_object_type[...]` controls) | **available to this account**, deliberately unmapped | interactive toggle, 2026-08-03 | sits inside the collapsed Advanced Settings accordion; fully visible and enabled once opened. Not gated — unmapped is a scope decision (heritage-submission programme). **Product-scope decision confirmed by the user on 2026-08-04: Scan The World is out of ModelPrep scope; keep documented-only, do not serialize.** |
 | `threedobject_temp_type[license_store]` | **offered and enabled**, deliberately unmapped | current signed-in form, 2026-08-03 | visible, enabled and unchecked for this account; the form states only the label “License store”, so its semantics are genuinely unknown and it is not mapped |
 | Object deletion | not implemented | — | never attempted; requires explicit authority |
 
-**Comprehensively mapped:** yes for the create/edit surface reachable by this
-account. Every control on `/upload/object` **and** `/object/edit/<id>` is
+**Comprehensively mapped:** no. The free-account create/edit surface reachable
+in the 2026-08-03 capture was classified, but current first-party documentation
+confirms premium Sell STL Files and Archive Mode branches that ModelPrep does
+not expose or serialize. Within the previously reachable free-account surface,
+every control on `/upload/object` **and** `/object/edit/<id>` was
 classified, the two forms are diffed field by field, and every control has been
 interactively toggled to record what it reveals. The one untested conditional is
 file-drop staging (`#showondrop`), which needs a file uploaded to the create
@@ -399,7 +448,7 @@ reported 40 create-form fields as though they were all presented together, when
 only 7 are visible on load and the rest sit behind a closed accordion. It also
 misclassified Scan The World as account-gated. Any future re-audit of this or
 another platform must include an interactive pass, not just a DOM read.
-**Fully certified:** no. Public/review, ZIP mode, premium branches, the
+**Fully certified:** no. Public/review, ZIP mode, premium/store branches, the
 extension and count extremes, and the two unmapped surfaces all lack live
 evidence, and two of them cannot be reached with this account at all.
 
@@ -486,3 +535,15 @@ path, trace id, and safe server error/title details without logging cookies,
 CSRF values, signed URLs, upload UUIDs, or request payload values. Do not blindly
 replay an ambiguous failed create; use the batch's failed-only retry after
 reviewing whether MyMiniFactory may already have created an object.
+
+## 2026-08-09 isolated-session owner re-read
+
+The rebuilt exact package used ModelPrep's still-connected isolated account to
+perform the dedicated **Verify existing object (read-only)** action for object
+`831756`. The authenticated owner read succeeded without creating or editing
+anything: visibility `private`, ten images ordered by retained `position`, cover
+`cover-model-derived-render-of-the-34-mm-calibration-puck.jpg`, three files, and
+category IDs `60/462`. This is fresh retained/API evidence displayed by the
+packaged ModelPrep UI. It is not native MyMiniFactory hydrated-page DOM proof;
+the normal Chrome profile remains signed out, so that distinct evidence level
+is still blocked.

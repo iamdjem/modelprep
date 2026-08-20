@@ -85,13 +85,28 @@ export function serializeProjectBinaries(project) {
       printables: file.printables || null,
       threemf: file.threemf || null,
       slicerOverride: file.slicerOverride || null,
+      roleOverride: file.roleOverride ?? null,
+      sourcePath: file.sourcePath ?? file.name ?? '',
+      packagePath: file.packagePath ?? '',
+      assetId: file.assetId ?? null,
+      contentHash: file.contentHash ?? null,
+      geometryFingerprint: file.geometryFingerprint ?? null,
+      geometry: file.geometry || null,
+      revision: file.revision || 1,
+      assetVersions: file.assetVersions || [],
+      assetTags: file.assetTags || [],
+      derivedPreviews: file.derivedPreviews || [],
+      previewDataUrl: file.previewDataUrl || null,
+      previewMesh: file.previewMesh || null,
     }));
 
   const images = (project?.images || [])
     .filter((image) => image?.blob || image?.dataUrl)
     .map((image) => ({
       id: image.id,
+      name: image.name || '',
       alt: image.alt || '',
+      sourceFileId: image.sourceFileId || null,
       focal: image.focal || { x: 0.5, y: 0.5 },
       naturalW: image.naturalW || 0,
       naturalH: image.naturalH || 0,
@@ -123,7 +138,22 @@ export function rehydrateProject(project, record) {
   const fileById = new Map((record.files || []).map((file) => [String(file.id), file]));
   const imageById = new Map((record.images || []).map((image) => [String(image.id), image]));
 
-  const files = (record.files || []).map((stored) => ({ ...stored }));
+  const files = (record.files || []).map((stored) => ({
+    ...stored,
+    roleOverride: stored.roleOverride ?? null,
+    sourcePath: stored.sourcePath ?? stored.name ?? '',
+    packagePath: stored.packagePath ?? '',
+    assetId: stored.assetId ?? null,
+    contentHash: stored.contentHash ?? null,
+    geometryFingerprint: stored.geometryFingerprint ?? null,
+    geometry: stored.geometry || null,
+    revision: stored.revision || 1,
+    assetVersions: stored.assetVersions || [],
+    assetTags: stored.assetTags || [],
+    derivedPreviews: stored.derivedPreviews || [],
+    previewDataUrl: stored.previewDataUrl || null,
+    previewMesh: stored.previewMesh || null,
+  }));
   const images = (record.images || []).map((stored) => ({
     ...stored,
     dataUrl: stored.dataUrl || null,
@@ -135,7 +165,43 @@ export function rehydrateProject(project, record) {
     ? project.coverImageId
     : (images[0]?.id ?? null);
 
-  return { ...project, files, images, profiles, coverImageId };
+  // Per-destination roles and legacy exclusions live in localStorage metadata,
+  // while their files live here. If IndexedDB no longer has a file, retaining
+  // either reference would make the restored UI describe a file that cannot be
+  // uploaded. Preserve untouched platform option objects when nothing is stale.
+  let platforms = project?.platforms;
+  if (platforms && typeof platforms === 'object' && !Array.isArray(platforms)) {
+    let changed = false;
+    const nextPlatforms = {};
+    for (const [platformId, options] of Object.entries(platforms)) {
+      if (!options || typeof options !== 'object' || Array.isArray(options)) {
+        nextPlatforms[platformId] = options;
+        continue;
+      }
+      let nextOptions = options;
+      if (options.fileRoles && typeof options.fileRoles === 'object' && !Array.isArray(options.fileRoles)) {
+        const keptRoles = Object.fromEntries(
+          Object.entries(options.fileRoles).filter(([fileId]) => fileById.has(String(fileId))),
+        );
+        if (Object.keys(keptRoles).length !== Object.keys(options.fileRoles).length) {
+          nextOptions = { ...nextOptions, fileRoles: keptRoles };
+        }
+      }
+      if (Array.isArray(options.excludedFileIds)) {
+        const keptExcluded = options.excludedFileIds.filter((fileId) => fileById.has(String(fileId)));
+        if (keptExcluded.length !== options.excludedFileIds.length) {
+          nextOptions = { ...nextOptions, excludedFileIds: keptExcluded };
+        }
+      }
+      if (nextOptions !== options) changed = true;
+      nextPlatforms[platformId] = nextOptions;
+    }
+    if (changed) platforms = nextPlatforms;
+  }
+
+  const restored = { ...project, files, images, profiles, coverImageId };
+  if (platforms !== undefined) restored.platforms = platforms;
+  return restored;
 }
 
 // --- IndexedDB layer --------------------------------------------------------

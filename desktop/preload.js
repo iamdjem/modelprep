@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   // account, request, file, URL, cookie, or token data crosses this channel.
   captureResourceTelemetry: (state) => ipcRenderer.invoke('telemetry:resource-snapshot', state),
   pickGalleryImages: () => ipcRenderer.invoke('media:pick-gallery-images'),
+  indexAssets: (assets) => ipcRenderer.invoke('assets:index', assets),
+  searchAssets: (query, limit) => ipcRenderer.invoke('assets:search', query, limit),
+  watchedAssetFolders: () => ipcRenderer.invoke('assets:watched-folders'),
+  chooseWatchedAssetFolder: () => ipcRenderer.invoke('assets:choose-watched-folder'),
+  onAssetFolderChanged: (cb) => { const h = (_event, change) => cb(change); ipcRenderer.on('assets:folder-changed', h); return () => ipcRenderer.removeListener('assets:folder-changed', h); },
   // Local CLI agents (Codex, Claude Code) as AI providers, so a maker can spend a subscription
   // they already have instead of a metered API key. Photos + prompt only; each CLI's sign-in
   // stays where that CLI keeps it and never crosses this bridge.
@@ -58,6 +63,9 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   // nothing leaves the machine unless the user exports or reports a problem.
   reportDiagnostic: (entry) => ipcRenderer.invoke('diagnostics:report', entry),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
+  // Read-only: when the background session keep-alive last touched each
+  // platform and whether the silent refresh succeeded.
+  sessionKeepAliveStatus: () => ipcRenderer.invoke('session-keepalive:status'),
   exportDiagnostics: () => ipcRenderer.invoke('diagnostics:export'),
   reportProblem: (payload) => ipcRenderer.invoke('diagnostics:report-problem', payload),
   // Auto-update (packaged builds): status + a manual check + install-on-restart.

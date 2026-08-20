@@ -287,12 +287,10 @@ export default {
     // plus optional Cults-direct overrides (categoryId, licenseCode, etc.) for
     // power users or test scripts that want to bypass the mapping layer.
     //
-    // Resolution order for each field:
-    //   1. Cults-direct field if present (`categoryId`, `licenseCode`, `downloadPrice`, `currency`)
-    //   2. Mapped from platform-neutral field (`category`, `license`, `price`, `free`)
-    //   3. Sensible default (Various / cults_pu / free)
-    // Whatever falls back to a default is reported in `substituted` so the UI
-    // can show a "your choice wasn't used" warning.
+    // Cults-direct identifiers are accepted when valid; platform-neutral
+    // category/license values are mapped only when an exact mapping exists.
+    // Missing, unknown, and price-incompatible values fail before the external
+    // create call rather than silently falling back to a different contract.
     if (path === '/api/v1/cults3d/publish' && req.method === 'POST') {
       const creds = getCreds(req, env);
       if (!creds) {
@@ -324,25 +322,24 @@ export default {
       const currency = isPaid ? (body.currency ?? 'USD') : undefined;
 
       // ---- Category --------------------------------------------------------
-      // Only flag 'category' as substituted when the user picked something
-      // we couldn't map. If they didn't pick at all, defaulting to Various
-      // isn't really a "substitution" — just a fallback.
-      let categoryId = body.categoryId;
-      if (!categoryId) {
-        const resolved = resolveCultsCategory(body.category);
-        categoryId = resolved.categoryId;
-        if (resolved.substituted && body.category) substituted.push('category');
+      const resolvedCategory = resolveCultsCategory(body.categoryId || body.category);
+      if (!resolvedCategory) {
+        return json({
+          error: 'invalid_category',
+          hint: 'Choose an explicit supported Cults3D category before publishing.',
+        }, { status: 400 });
       }
+      const categoryId = resolvedCategory.categoryId;
 
       // ---- License (enforces free/paid compatibility) ----------------------
-      // Only flag 'license' as substituted when the user actually picked
-      // a license. Same reasoning as category — a default isn't a swap.
-      let licenseCode = body.licenseCode;
-      if (!licenseCode) {
-        const resolved = resolveCultsLicense(body.license, isPaid);
-        licenseCode = resolved.licenseCode;
-        if (resolved.substituted && body.license) substituted.push('license');
+      const resolvedLicense = resolveCultsLicense(body.licenseCode || body.license, isPaid);
+      if (!resolvedLicense) {
+        return json({
+          error: 'invalid_license',
+          hint: `Choose a Cults3D license that is valid for a ${isPaid ? 'paid' : 'free'} listing before publishing.`,
+        }, { status: 400 });
       }
+      const licenseCode = resolvedLicense.licenseCode;
 
       // Tags: Cults's `metaTags: [String!]` field exists but rejects all
       // common-word user tags with "Unknown meta tag" — it's Cults's INTERNAL
@@ -468,15 +465,16 @@ export default {
         const description = str('description').trim() || 'Sent via ModelPrep web-flow pipeline.';
         const details = str('details');
 
-        // Category: accept either a raw `categoryId` (integer) OR a
-        // platform-neutral `category` string like 'Toys & Games' and map it
-        // via cults3d-mappings. Same fallback semantics as the GraphQL route.
-        let categoryId = Number(str('categoryId'));
-        if (!Number.isFinite(categoryId) || categoryId <= 0) {
-          const r = resolveCultsCategoryInt(str('category') || undefined);
-          categoryId = r.categoryId;
-          if (r.substituted && str('category')) substituted.push('category');
+        // Category: accept a known integer ID or an exactly mapped ModelPrep
+        // label. Never silently file an unknown choice under "Various".
+        const resolvedCategory = resolveCultsCategoryInt(str('categoryId') || str('category'));
+        if (!resolvedCategory) {
+          return json({
+            error: 'invalid_category',
+            hint: 'Choose an explicit supported Cults3D category before uploading files.',
+          }, { status: 400 });
         }
+        const categoryId = resolvedCategory.categoryId;
 
         // Tags: accept either pre-joined `flatKeywords` OR a `tags` JSON array
         // OR a single `tags` string. Cults's field is space-separated text.
@@ -533,14 +531,16 @@ export default {
         const downloadOpenPrice = Number(str('downloadOpenPrice')) || 0;
         const currency = str('currency') || 'USD';
 
-        // License: accept Cults-direct `licenseType` OR ModelPrep `license`
-        // ('ccby' etc.) and resolve via mappings, enforcing free/paid rules.
-        let licenseType = str('licenseType');
-        if (!licenseType) {
-          const r = resolveCultsLicense(str('license') || undefined, isPaid);
-          licenseType = r.licenseCode;
-          if (r.substituted && str('license')) substituted.push('license');
+        // License: accept a known direct code or an exactly mapped ModelPrep
+        // value, while enforcing Cults's free/paid compatibility rules.
+        const resolvedLicense = resolveCultsLicense(str('licenseType') || str('license'), isPaid);
+        if (!resolvedLicense) {
+          return json({
+            error: 'invalid_license',
+            hint: `Choose a Cults3D license that is valid for a ${isPaid ? 'paid' : 'free'} listing before uploading files.`,
+          }, { status: 400 });
         }
+        const licenseType = resolvedLicense.licenseCode;
 
         const visibility = (str('visibility') || 'secret') as 'public' | 'secret';
 

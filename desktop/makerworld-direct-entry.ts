@@ -169,7 +169,7 @@ export async function handleMakerWorldRequest(
       if (!Number.isFinite(size) || size < 0) return json({ error: 'invalid_file_size' }, 400);
       const useType = body.useType || 'makerworld/model';
       if (useType !== 'makerworld/model') return json({ error: 'invalid_use_type' }, 400);
-      const maxBytes = /\.3mf$/i.test(fileName) ? 150 * 1024 * 1024 : MAX_MW_DIRECT_UPLOAD_BYTES;
+      const maxBytes = /\.3mf$/i.test(fileName) ? 200 * 1024 * 1024 : MAX_MW_DIRECT_UPLOAD_BYTES;
       if (size > maxBytes) return json({ error: 'file_too_large', maxBytes, gotBytes: size }, 413);
       return json({ ok: true, size, ...(await mwPresignUpload(session, fileName, useType)) });
     }
@@ -181,7 +181,7 @@ export async function handleMakerWorldRequest(
       const useType = form.text.get('useType') || 'makerworld/model';
       if (useType !== 'makerworld/model') return json({ error: 'invalid_use_type' }, 400);
       const size = file.bytes.byteLength;
-      const maxBytes = /\.3mf$/i.test(fileName) ? 150 * 1024 * 1024 : MAX_MW_DIRECT_UPLOAD_BYTES;
+      const maxBytes = /\.3mf$/i.test(fileName) ? 200 * 1024 * 1024 : MAX_MW_DIRECT_UPLOAD_BYTES;
       if (size > maxBytes) return json({ error: 'file_too_large', maxBytes, gotBytes: size }, 413);
       return json({ ok: true, ...(await mwUploadFile(session, fileName, file.bytes, useType)) });
     }

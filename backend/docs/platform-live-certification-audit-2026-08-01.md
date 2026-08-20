@@ -1,5 +1,23 @@
 # ModelPrep platform live certification audit
 
+> **2026-08-08 status override:** This document contains historical retained
+> certification evidence. Before relying on any conclusion or artifact state,
+> read `platform-current-state-2026-08-08.md` and
+> `demo-upload-live-verification-2026-08-08.md`. The old 10/10 safe-core
+> conclusion is not the current claim: the coherent fixture exposed missing
+> 3MF/profile routing, blocked rendered checks, a truthful MakerWorld photo
+> preflight block, and MakerRoad review rejection.
+
+> Newest exact-package evidence: `demo-upload-live-verification-2026-08-08.md`.
+> Its authorized ten-target batch found eight nominal successes, two failures,
+> multiple incomplete receipts, and a semantically invalid demo fixture.
+
+> **SUPERSEDED IN PART (2026-08-07).** Several "certified" results here did not
+> survive live re-inspection: MakerRoad saves were review-rejected, MMF core
+> fixtures were deleted from the platform, Printables 1797774 is gone, and the
+> readbacks that certified description/print-method content were blind to those
+> fields. Current state: `live-ui-verification-2026-08-07.md`.
+
 Audit date: **2026-08-04**
 Repository: `/Users/alex/modelprep`
 Packaged runtime: `desktop/dist/mac-arm64/ModelPrep.app`
@@ -270,6 +288,28 @@ added). Two stale entry-point URLs were found and fixed — `UPLOAD_URLS.thangs`
 (404) and `UPLOAD_URLS.thingiverse` (500). All ten `UPLOAD_URLS` have now been
 loaded and checked by HTTP status; the other eight return 200.
 
+### 2026-08-08 Cults3D correction
+
+The “clean — audit gate closed” result above is historical and overstated. A
+fresh signed-in, read-only inspection of the blank create form, retained secret
+edit form, and price editor found the following current gaps:
+
+- ModelPrep hardcodes 3D-printing usage and an empty subcategory; it exposes no
+  exact Cults usage, subcategory, category, or licence picker.
+- The renderer offers free/fixed USD only. The current CZK page also exposes
+  fixed 14–26,000 CZK, open 0–26,000 CZK, currency-specific bounds, and a
+  separate discount flow.
+- Persisted readback compares title, visibility, and ordered blueprint/
+  illustration IDs and filenames only. It does not compare the remaining
+  metadata, taxonomy, AI/comments, pricing/currency, or licence.
+- Current visible help lists 40 model formats without `.rar` and media
+  JPG/PNG/WebP/WebM/MP4 without GIF. Prior bundle evidence for GIF remains
+  implemented/local-only, not current-form or live-certified evidence.
+
+The free/secret 3D-printing safe core remains historical live evidence. Full
+option parity and field-by-field readback are open; no mutation occurred during
+this correction pass. See `cults3d-web-flow.md` for the exact live map.
+
 ## 2026-08-04 independent visual, DOM and developer-tools validation
 
 Method: every retained/edit or create entry point was reopened in the user's
@@ -296,6 +336,38 @@ was submitted and no account data was changed.
 This pass confirms that the safe-core mapping is complete for nine platforms at
 the currently reachable visual depth. It does **not** turn file-gated,
 account-gated, paid, public or destructive branches into certified behavior.
+
+### 2026-08-08 MakerOnline correction
+
+A signed-in read-only pass unblocked MakerOnline. The current blank create form
+matches the documented visible Step 1 branches, and retained draft `316221`
+shows 20 images, three raw files, expected metadata/category/licence, and zero
+Print Profile Files. The account contains eight retained drafts; none changed.
+
+The earlier “no new implementation gap” and broad readback wording are
+overstated. ModelPrep cannot insert the native Quill editor's inline images.
+Its receipt accepts missing readback fields and compares only title/category and
+minimum image/raw-file counts, not exact order/names or description, tags,
+licence, permission/state, print method, AI/NSFW, documents, kits/sync/Exclusive,
+or parsed-profile fields/media. Optional branches remain uncertified.
+
+### 2026-08-08 MyMiniFactory correction
+
+The earlier “no safe-core, advanced-field or readback gap” result remains true
+only for the captured free-account branch. Current first-party Creator Portal
+documentation confirms premium branches ModelPrep does not map:
+
+- Sell STL Files: price, purchase message, and post-purchase message;
+- Premium 500 MB-per-file allowance (ModelPrep hardcodes 100 MiB);
+- Archive Mode: up to 25 archives around 5 GB each, no generated 3D viewer
+  (ModelPrep always submits normal `fileMode=0`).
+
+The normal Chrome profile was signed out during this pass; the isolated
+ModelPrep account still reported connected. This is documentation/product-code
+comparison, not a fresh authenticated form capture or live mutation. The
+private core and prior advanced receipt remain historical live evidence, but
+“comprehensively mapped” is withdrawn. Public review, premium store/archive,
+and capability-specific limits remain open.
 
 ## 2026-08-04 afternoon supplement — Creality file-staged pass and re-verification
 
@@ -420,3 +492,35 @@ Verification: renderer 43 files / 253 tests passing (new: release-plan lib
 suite and ReleasePlanControls persistence/validation UI tests) plus production
 build. Desktop and backend are untouched by this feature. No live upload was
 performed.
+
+## 2026-08-08 remaining-platform continuation
+
+- **Nexprint:** signed-in blank and retained-editor inspection. Current
+  attachment help omits `.gcode`/`.goo`; no profile editor appears for the
+  retained 3MF; `settingList` is always empty; rich media/table controls are
+  unmapped; receipt verification checks only object presence and optional state.
+- **Creality Cloud:** signed-in full FlowPrint form confirms structured source,
+  Boost Me and the separate parsed-3MF media/description/printer branch. These
+  are not sent. Retained evidence shows the 3MF was dropped, and readback is
+  only a small optional subset rather than fail-closed parity.
+- **MakerRoad:** normal Chrome was signed out, so the authenticated form could
+  not be refreshed. August 7 remains the latest live evidence: seven rejected
+  saves. Local print-method/rejection fixes are not live-certified and readback
+  still omits most metadata and optional choices.
+
+No upload, save, publication, deletion or terms acceptance occurred. This
+closes the requested ten-platform audit pass, not the implementation or
+live-certification gaps.
+
+## 2026-08-08 Thangs upload-flow correction
+
+A signed-in read-only pass through My Thangs, Add new → Upload, and retained
+editor `1585793` found that Thangs is not option-complete or fail-closed
+verified. Live Audience has six modes; four print-compatibility flags, video
+embed URL, inspiration/remix attribution, and dynamic/addable licences are not
+mapped. Units, structure, access type, plans, dependencies, version notes and
+feedback are exposed by ModelPrep but dropped by the adapter. Retained
+`1585793` still shows empty Images, ten JPG Attachments and size `-`, so the
+newer local v4 correction is not live-certified. Current verification checks
+response presence rather than field equality. Historical private single-part
+evidence remains; no mutation occurred in this pass.

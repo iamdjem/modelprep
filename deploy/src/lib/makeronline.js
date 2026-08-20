@@ -26,6 +26,7 @@ export const MAKERONLINE_LICENSE_MAP = {
   ccbync: 3,
   ccbyncsa: 4,
   ccbynd: 5,
+  ccbyncnd: 6,
   cc0: 7,
   standard: 8,
 };

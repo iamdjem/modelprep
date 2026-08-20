@@ -273,6 +273,14 @@ function createNexprintDirectClient({ fetchImpl = fetch, now = Date.now } = {}) 
     if (!response.ok) {
       throw new Error(`Nexprint ${label} returned HTTP ${response.status}: ${envelope.msg || envelope.message || text.slice(0, 200)}`);
     }
+    // Expired sessions come back as HTTP 200 with {code:401, msg:"账号未登录"}
+    // (live-probed, stays Chinese even with User-Lang: en). Surface a typed
+    // reconnect error instead of the raw Chinese envelope string.
+    if (Number(envelope?.code) === 401) {
+      const error = new Error('Nexprint session expired. Reconnect Nexprint and try again.');
+      error.code = 'reconnect_required';
+      throw error;
+    }
     return assertEnvelope(envelope, label);
   }
 

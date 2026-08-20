@@ -70,8 +70,21 @@ function exactStringArray(actual, expected) {
   return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 
-export function verifyMyMiniFactoryReadback({ object, title, publication, categoryIds, imageNames, fileNames, advanced }) {
+export function verifyMyMiniFactoryReadback({ object, title, publication, categoryIds, imageNames, fileNames, description, tags, advanced }) {
   if (!object || typeof object !== 'object') throw new Error('MyMiniFactory returned no object read-back.');
+
+  // Description and tags were previously never read back, so format defects
+  // shipped as "verified" (audit X6). Compare when the parser returned them.
+  const collapse = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  if (description != null && Object.prototype.hasOwnProperty.call(object, 'description') && collapse(description) !== collapse(object.description)) {
+    throw new Error('MyMiniFactory read-back returned a different description.');
+  }
+  if (Array.isArray(tags) && tags.length && Array.isArray(object.tags)) {
+    const normalize = (values) => values.map((tag) => String(tag).trim().toLowerCase()).sort();
+    if (JSON.stringify(normalize(tags)) !== JSON.stringify(normalize(object.tags))) {
+      throw new Error('MyMiniFactory read-back returned a different tag set.');
+    }
+  }
 
   const expectedTitle = String(title || '').trim();
   const actualTitle = String(object.title || '').trim();

@@ -98,6 +98,7 @@ describe('STL thumbnail rendering', () => {
   it('draws the model into the frame', () => {
     const result = stlThumbnailFromBuffer(binaryCube(), { size: 64 });
     expect(result.size).toBe(64);
+    expect(result.bounds).toMatchObject({ minX: 0, minY: 0, minZ: 0, maxX: 1, maxY: 1, maxZ: 1 });
     expect(result.data.length).toBe(64 * 64 * 4);
     const painted = opaquePixels(result);
     // A cube at this camera covers a good share of the frame but never all of it.

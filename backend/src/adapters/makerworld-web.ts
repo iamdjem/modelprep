@@ -397,6 +397,7 @@ export interface MakerWorldPublishInput {
   license?: string; // e.g. "Standard Digital File License" (default)
   visibility?: 'public' | 'private';
   nsfw?: boolean;
+  isAIGC?: boolean;
   modelSource?: ModelSource;
 
   // media (urls from mwUploadFile)
@@ -527,7 +528,14 @@ export function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'ne
     // --- files ---
     modelFiles,
     model3Mf: input.model3mf ?? { name: '', size: 0, url: '' },
-    designPictures: (input.galleryUrls ?? []).map((url) => ({ url })),
+    // Same doc-confirmed item shape as auxiliaryPictures ({isRealLifePhoto,
+    // name, url}); sending {url} alone is the suspected trigger for the
+    // "System detected no real life photo" (resultType 6401) rejection.
+    designPictures: (input.galleryUrls ?? []).map((url) => ({
+      isRealLifePhoto: 0,
+      name: url.split('/').pop() ?? '',
+      url,
+    })),
     designVideo: input.designVideo ?? [],
 
     // --- documentation ---
@@ -597,7 +605,9 @@ export function buildDraftPayload(input: MakerWorldPublishInput, clickWhich: 'ne
     // --- monetization / misc ---
     paidSetting: input.paidSetting ?? { isPaid: false, crowdfunding: 0 },
     exclusive: input.exclusive ?? 0,
-    isAIGC: false,
+    // Never declare on the user's behalf: the AI answer comes from the shared
+    // project declaration (X7); false only when the user actually said no.
+    isAIGC: input.isAIGC ?? false,
     syncToMWGlobal: true,
     cyberBrick: buildCyberBrickPayload(input.cyberBrick),
     details: [],
@@ -843,6 +853,7 @@ export interface LaserCutPublishInput {
   modelSource?: ModelSource;
   visibility?: 'public' | 'private';
   nsfw?: boolean;
+  isAIGC?: boolean;
   tags?: string[];
   modelFiles?: DraftModelFile[];         // raw .lac/.svg/.dxf/.ai/image source files
   lacFile?: MwFileRef;                   // Bambu Suite package (separate from raw files)
@@ -908,7 +919,8 @@ export function buildLaserCutPayload(input: LaserCutPublishInput, clickWhich: 'n
     nsfw: input.nsfw ?? false,
     boms: { needed: false, makersSupplies: [], filaments: [], otherParts: [], materials: [] },
     steps: { needed: false, steps: [] },
-    isAIGC: false,
+    // Never declare on the user's behalf (X7): wired to the shared AI answer.
+    isAIGC: input.isAIGC ?? false,
     cyberBrick: buildCyberBrickPayload(input.cyberBrick),
     relateDesignInfo: input.relatedModel
       ? { needRelate: true, id: input.relatedModel.id, designType: input.relatedModel.designType, title: input.relatedModel.title ?? '', cover: input.relatedModel.cover ?? '', status: input.relatedModel.status ?? 1 }

@@ -394,3 +394,41 @@ Original and Remix remain selectable while Share is disabled for this account.
 The cover/gallery control still states JPG/GIF/PNG at no more than **30 MB per
 image**. ModelPrep previously mapped that rule but did not enforce it in publish
 preflight; the implementation correction is tracked in the shared live audit.
+
+## 2026-08-08 signed-in upload-flow re-audit
+
+This pass re-opened the current original 3D and Laser & Cut entry pages, both
+raw/profile selectors, retained 3MF draft `9053658`, the live 70-leaf category
+picker, the draft's `__NEXT_DATA__`, and the active Next.js Laser serializers.
+No upload input was populated and nothing was saved or submitted.
+
+Regular 3D remains close to parity. The retained draft confirms separate
+`designSetting`/`instanceSetting` privacy, profile title/summary, and named
+real-photo `auxiliaryPictures`. The category snapshot matches the bundled tree.
+The retained content predates the 2026-08-07 newline fix, so that fix still
+requires a fresh authorized private upload/readback.
+
+Laser & Cut is not complete:
+
+- current first-party base shape includes `designVideo`, `design.boms`,
+  `design.steps`, and `designSetting.postNeeded/postContent`; ModelPrep currently
+  drops or disables all four branches for Laser;
+- first-party profile state uses sibling `instanceSetting.submitAsPrivate`, but
+  `buildLaserCutPayload` currently writes privacy inside `instance`;
+- CyberBrick live validation includes framework, firmware version, creation
+  protection, controller cover, and switch covers in addition to the four file
+  groups ModelPrep exposes;
+- first-party LAC profile-description placement and `design.pictures` item shape
+  remain unproven. The current builder's URL-only pictures contradict the
+  2026-08-07 note claiming both builders gained real-photo/name metadata;
+- printer compatibility needs recapture because A1 is `N2S` in code and `N2`
+  in the older captured list;
+- the renderer's platform summary still advertises a 250 MB aggregate cap even
+  though the current validation deliberately treats raw/aggregate limits as
+  undocumented.
+
+Treat the regular 3D safe core as locally implemented but awaiting one private
+certification upload. Treat LAC/CyberBrick as **mapped only in part** and do not
+submit them until the serializer/UI gaps have payload tests and a current
+first-party step-3 capture. See the 2026-08-08 follow-up in
+`live-ui-verification-2026-08-07.md` for the concise verdict.

@@ -23,6 +23,201 @@ broader extensions/attachments and high-count ordering remain separate.
 That contract is **undocumented and changeable**. A passing unit test proves the
 mapped contract, not that the current production account still accepts it.
 
+## 2026-08-08 signed-in continuation audit
+
+The blank upload page, Single/Batch switch, and retained draft
+`2083625532272496640` were reopened read-only as `U0037149840`. No file was
+selected and no item was changed.
+
+- The visible model list still matches ModelPrep's 30 unique formats (the page
+  prints `.fcstd` twice).
+- The retained editor shows three raw files, Original, NSFW, cover, nine ordered
+  photos, metadata, current events, rich description, eight tags, one BOM row,
+  CC BY-NC, attachments, collection, and both final actions.
+- Current attachment help omits `.gcode` and `.goo`, which ModelPrep still
+  accepts. Treat both as drift-risk until staged upload or bundle evidence proves
+  the current contract.
+- The retained 3MF has no visible print-profile section. ModelPrep always sends
+  `settingList: []`; parsed profile name, cover mode, plates and introduction are
+  unimplemented.
+- The live rich editor exposes image/media/table/code and other controls that
+  ModelPrep cannot explicitly author or upload.
+
+Receipt verification requires a readback object and checks only status when it
+is present. It does not compare metadata, source, assets/order, description,
+tags, NSFW, BOM, licence, collections, activities or print settings. `verified`
+is therefore not a field-level persisted receipt.
+
+## 2026-08-08 profile-selection slice — destination established, not assumed
+
+The 3MF was absent from calibration draft `2086068343743848448` for the same
+reason as on Printables: ModelPrep's automatic file selection unticks a profile
+sliced by another vendor's slicer, and Nexprint's native slicer is Elegoo while
+the fixture profile is Bambu. Nothing was mis-routed. But Nexprint's **semantics
+are not Printables' semantics**, so the destination was established from
+Nexprint's own contract rather than carried over.
+
+### Where a `.3mf` actually belongs here
+
+- **Model file, not attachment.** `.3mf` is in the model-extension list and is
+  absent from the attachment list, and the submit places it in `modelFileList`.
+- **Flagged, not plain.** The submit adds `fileExtension: { is3MF: true }` to
+  that record, which an `.stl` does not carry.
+- **Nexprint does have a real print-profile concept** — `settingList` on submit,
+  `settingInfoList` on readback, plus profile name, plate previews, profile
+  cover and a 1,000-character introduction. ModelPrep always sends
+  `settingList: []`, so a retained 3MF is an ordinary model file and the listing
+  shows `Print Profile (0)`.
+
+This is the opposite shape from Printables, which has no profile concept at all.
+Do not unify them.
+
+### What the readback authoritatively exposes
+
+Read-only re-inspection of retained draft `2086068343743848448` (2026-08-08, no
+mutation) shows `model-base-info/getEditInfo` returning per model file:
+
+```text
+fileId  fileName  fileSize  fileUrl  fileExt  extra
+isCreator  creator  createTime  thumbnailFileId  thumbnailFileUrl
+msgDigest  multiViews
+```
+
+Both retained STLs came back at their exact source byte counts (36,084 and
+54,084), so `fileSize` is an authoritative integrity signal. That draft holds
+exactly the two STLs, no 3MF, `settingInfoList: []`, zero attachments, one
+`coverImgFileId` and nine `modelPicList` entries — Nexprint splits the gallery
+into one cover plus up to nine photos.
+
+**`fileExtension` / `is3MF` is not echoed back.** The corresponding readback
+field `extra` was `null`. The new checks therefore assert filename, count,
+`fileSize` and `fileExt` only, and deliberately do not assert the `is3MF`
+marker: there is no evidence it round-trips, and asserting it would fail closed
+on an unproven contract.
+
+### Implemented
+
+1. `nexprintReadbackIssues` / `nexprintExpectedFiles`
+   (`deploy/src/lib/nexprint-upload.js`) fail closed on model-file count, exact
+   filename, positive and exact retained `fileSize` and `fileExt`; on the
+   **exact cover `fileId`**; on **ordered gallery identity** (fileId, fileName,
+   fileExt, bytes per position, so an equal-length reordering fails); on
+   **exact attachment identity and order**, including the zero-attachment state;
+   on `settingInfoList` being **present and empty** (a missing array fails
+   separately from a populated one); and on **contradictory `status` /
+   `isPublished`** in either direction plus a draft/published mismatch against
+   what was requested. Previously the receipt checked only `status`, which the
+   doc already conceded was "not a field-level persisted receipt".
+2. Preflight now separates two facts that were conflated: a profile that is not
+   ticked never uploads at all (named-omission warning, with filenames), versus
+   a profile that does upload but arrives without Nexprint's profile block. The
+   old warning asserted the second even when the first was true.
+3. The demo fixture opts the Bambu profile into Nexprint explicitly
+   (`fileSelection: 'manual'`), and its coverage claim now reads
+   `ordinary-3mf` **plus** `empty-print-profile-block` so it states what is
+   actually exercised.
+
+The shared auto-exclusion default is unchanged, and the profile was not enabled
+on any other platform.
+
+### Evidence and status
+
+Deploy **417/417**, desktop **207/207**, backend **31/31**, `tsc` clean,
+package rebuilt and strict-codesign verified, `git diff --check` clean. No
+upload, publish, retry or deletion occurred; draft `2086068343743848448` was
+opened read-only and is unchanged.
+
+Model files are now compared by **upload identity and position**, not by name:
+expectations carry the `fileId` Nexprint registered for each uploaded file,
+while the source filename and byte count are still asserted against that record
+so a wrong or mis-sized upload fails before any retained state is consulted.
+Because Nexprint truncates an upload's base name to 80 characters, the retained
+name expectation comes from the record and `nexprintUploadName` mirrors that
+truncation. Both publication fields are now required to be present: a missing
+`status` or `isPublished` fails on its own, in addition to the contradiction
+checks.
+
+The final checks were replayed read-only against retained draft
+`2086143258366976000` through the rebuilt package: positions 0–2 are
+`…-S.stl` (`2086143256625868800`, 36,084 B), `…-M.stl`
+(`2086143257158537216`, 54,084 B) and `…-bambu.3mf`
+(`2086143257657663488`, 30,787 B); cover `2086143249717846016`; nine gallery
+photos in `gallery-01`…`gallery-09` order; zero attachments; `settingInfoList`
+present and empty; `status 0` / `isPublished false` in agreement — **zero
+issues**. The `uploadNexprintFile` transport and error-detail tests that an
+earlier edit overwrote have been restored from git, alongside new negatives for
+an HTTP-200 response with an incomplete file record and a non-ok response.
+
+`uploadNexprintFile` now rejects any success response missing `fileId`,
+`fileUrl`, `fileName`, `fileExt` or a positive `fileSize`. This was confirmed
+against `desktop/nexprint-direct.js` before being enforced: `validateUpload`
+rejects an absent or unknown extension for every role before an upload starts
+(so `fileExt` is always present and already lower-cased) and `trimUploadName`
+always yields a name, but the adapter checks only an **upper** size bound — a
+zero-byte upload would otherwise have passed, and that is the one field this
+boundary genuinely tightens. `sourceRecordIssues` additionally compares the
+record's `fileExt` against the source extension, case-normalized, so a Bambu
+`.3mf` registered as an `.stl`, or with no extension at all, fails before any
+retained state is consulted.
+
+### Retained certification — unpublished draft `2086143258366976000`
+
+Edit route: `https://www.nexprint.com/en/editUpload/2086143258366976000`
+
+The user authorized exactly one new unpublished draft. The exact signed package
+was driven through its own UI: demo fixture loaded via `TRY DEMO`, the other
+nine platforms toggled off (`1/10 SELECTED`), all three files confirmed ticked
+for Nexprint, `Save draft`, `Original`, `3D Printer › Testing Models` and
+`CC BY-NC` confirmed in the options panel, then the per-platform
+`SAVE UNPUBLISHED DRAFT` action. Preflight reported one warning — the
+`Print Profile (0)` notice, correctly fired because the profile *is* being sent.
+Existing draft `2086068343743848448` was not touched.
+
+Authenticated `getEditInfo` readback:
+
+| Concern | Retained |
+|---|---|
+| `modelFileList` | **All three source files, in order** |
+| names / ext / bytes | `…-S.stl` stl 36,084 · `…-M.stl` stl 54,084 · `…-bambu.3mf` **3mf 30,787** — every byte count exact |
+| 3MF metadata | distinct `msgDigest`; `thumbnailFileId`, `multiViews` null |
+| `extra` / `is3MF` | **`null` even for the real 3MF** |
+| `settingInfoList` | `[]` — Print Profile count 0 |
+| cover + gallery | `coverImgFileId` present + 9 `modelPicList` entries |
+| attachments | 0 |
+| title / description | exact; description retained as HTML with `<h1>` + `<p>` |
+| category | `3D Printer` → Testing Models (`1422473859022859`) |
+| tags | `calibration, test-model, 3d-printer, support-free, fdm, upload-test` |
+| licence / originality / NSFW | `licenseType 2` (CC BY-NC) · `originalityType 1` (Original) · false |
+| BOM | one row: PLA filament ×1, "Any color" |
+| state | `status 0`, `isPublished false` — unpublished |
+
+Three findings worth carrying forward:
+
+1. **`extra` is null even for a genuine retained 3MF.** The `fileExtension:
+   { is3MF: true }` marker the submit sends does not round-trip in any readback
+   field. Not asserting it was correct; do not add such a check later.
+2. **Nexprint preserves hyphenated tags verbatim** (`test-model`, `3d-printer`),
+   unlike Printables which strips separators. Do not share tag normalization
+   between them.
+3. **An unpublished Nexprint draft is not a private object.** `status 0` and
+   `isPublished false`, but `isPrivate false` and `open true`. Draft state here
+   is publication status, not visibility.
+
+### Rendered DOM boundary
+
+Rendered edit-UI verification was **not** achieved this pass and is not claimed.
+ModelPrep drives Nexprint through a REST gateway from Electron main, so there is
+no Nexprint page session to inspect, and loading the edit route in a separate
+browser redirects to `account.elegoo.com` (ELEGOO Unified Sign-In). No sign-in
+was attempted. Every field above therefore comes from Nexprint's own
+authenticated `getEditInfo` — the same record its editor renders from — and the
+`Print Profile (0)` display is inferred from `settingInfoList: []` rather than
+read off the page. A rendered pass needs a separately signed-in browser.
+
+Still uncertified: populated `settingList` print profiles (name, plates, profile
+cover, introduction), attachments, public publish, activities/world-first
+eligibility, collections, remix/reprint originality, and high-count ordering.
+
 ## Evidence and verification boundary
 
 - **LIVE DOM**: inspected on the signed-in upload page.

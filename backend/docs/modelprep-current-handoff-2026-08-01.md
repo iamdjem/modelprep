@@ -1,9 +1,226 @@
 # ModelPrep current implementation handoff
 
-Current as of: **2026-08-04**
+> **CURRENT PICKUP POINT — 2026-08-09:** Start with
+> `platform-current-state-2026-08-08.md`. It reconciles the completed ten-platform
+> exploration, the coherent calibration-puck upload run, the Cults3D/MakerRoad
+> repairs, exact retained evidence, current test/package baseline and remaining
+> work. The detailed historical sections below remain useful for architecture
+> and platform-specific context, but any older claim that all ten safe-core paths
+> are certified or that the dragon fixture is current is superseded.
+
+> **HISTORICAL MATERIAL BELOW (updated 2026-08-08).** Live real-browser verification found this file's
+> status and retained-evidence claims outdated: MMF objects 828462/829039/
+> 829043/829056 are deleted, Printables public model 1797774 is gone, all seven
+> MakerRoad "private" saves were review-REJECTED (never validly certified), a
+> Nexprint model went PUBLIC (G9526987), and a 2026-08-07 run added
+> undocumented items on six platforms. Read
+> `live-ui-verification-2026-08-07.md` (findings, same-day fixes, and the
+> 2026-08-08 MakerWorld upload-flow follow-up) and
+> `platform-audit-2026-08-07.md` before trusting anything below.
+
+Current status ledger as of: **2026-08-08**
 Repository: `/Users/alex/modelprep`
 Canonical packaged app: `/Users/alex/modelprep/desktop/dist/mac-arm64/ModelPrep.app`
 Last runtime marker verified: **BUILD 570A8DD - AUG 4, 11:06 AM**
+
+## 2026-08-09 MakerOnline override
+
+This section supersedes older MakerOnline and Creality continuation statements
+below. Printables, Nexprint and settled Creality safe-core file retention are
+certified at the boundaries recorded in `platform-current-state-2026-08-08.md`.
+The active platform is MakerOnline.
+
+**Later 2026-08-09 result:** the explicitly authorized exact-package attempt
+uploaded the safe fixture assets but stopped before `save-draft`. MakerOnline's
+`parse-info` response omitted printers, nozzle, layer, plates and parseType for
+the Bambu 3MF, and the pre-save gate correctly created no object. It was not
+retried. `App.jsx`'s missing `buildMakerOnlineExpectation` import and the demo's
+automatic exclusion of the Bambu 3MF were fixed first; focused renderer tests,
+desktop MakerOnline tests, production build/package and strict codesign passed.
+
+Same-day read-only browser follow-up: Thingiverse draft `7393174` still had the
+wrong `Toys & Games / Mechanical Toys` category; `3D Printing / 3D Printing
+Tests` was selected locally but not saved pending final browser confirmation.
+Exactly one of its 12 gallery thumbnails remained 0x0 (the second uploaded
+image); the original retained asset and the other 11 thumbnails rendered.
+Cults secret design `4759509` is now rendered-certified on its detail page with
+ten images, three files, metadata and secret/free state. Normal Chrome still
+redirects MMF `831756` to login and shows not-found for Thangs `1586259`.
+The rebuilt exact package subsequently re-read MMF `831756` through its isolated
+owner session: private, ten position-ordered images with the expected cover,
+three files and categories `60/462`. This is retained/API evidence in ModelPrep,
+not native MMF DOM. The corresponding Thangs read-only recheck ended once with
+`net::ERR_CONNECTION_CLOSED`; it was not retried and changed nothing.
+
+MakerOnline's read-only contract is mapped as a fourth distinct 3MF shape: a
+`.3mf` can be an ordinary raw model and the platform also exposes a separate
+server-parsed print-profile branch. Local archive inspection now proves the
+calibration fixture's Bambu 3MF is unsliced: its printer model and G-code
+reference are empty and slice-info has no plate. ModelPrep no longer fabricates
+demo parser values and keeps this file raw-only. Simultaneous retention needs a
+genuinely sliced truthful 3MF and remains unproved.
+
+Implemented and package-verified:
+
+- `deploy/src/lib/makeronline-verify.js` builds expectations from native upload
+  records and checks ordered raw files/images, exact native bytes and keys,
+  positive or authoritative-exact geometry, profile identity, structural parser
+  output, profile media, metadata, flags and live-confirmed draft status `3`;
+- `desktop/makeronline-direct.js` separates native filename/size from local
+  convenience fallbacks so missing transport evidence cannot certify itself;
+- incomplete `parse-info` output stops before `save-draft`;
+- the save happens exactly once, retained id/state/URL are captured immediately,
+  and bounded polling rechecks only that id;
+- focused and full evidence is deploy `452/452`, desktop `208/208`, backend
+  `31/31`, TypeScript/build/package/codesign/diff checks clean.
+
+No new MakerOnline object was created. The next smallest action first requires
+a genuinely sliced compatible 3MF and then the user's action-time authorization
+for one private MakerOnline-only `save-draft` through the exact signed package,
+with no retry. Verify the same 3MF in both `files` and `print_files`, parser
+values, images/cover, description, category, tags, licence, permission, source,
+print method, flags and draft state. Rendered UI/DOM is a separate evidence
+level.
+
+Final exact-package UI QA also caught and fixed a shared presentation/state
+leak: the unsliced 3MF was still grouped and counted as a print profile after
+the MakerOnline toggle was disabled. Scanned unsliced 3MFs now move into Model
+files, their auto-generated profile records are removed, and the packaged
+Publish summary shows three files and zero print profiles.
+
+## 2026-08-08 continuation override
+
+The newest read-only, signed-in upload-flow audit started with MakerWorld. Use
+this section ahead of the older implementation ledger below.
+
+> **Newest live result:** `demo-upload-live-verification-2026-08-08.md` records
+> an authorized exact-package upload to all ten targets and retained UI checks.
+> Eight adapters reported success, but multiple receipts are false positives and
+> the fixture itself is invalid: both named dragon STLs are cubes and the Bambu
+> 3MF depicts an electronics enclosure. Do not retry or publicly publish it.
+
+- Regular MakerWorld 3D is substantially mapped. Its live 70-leaf category
+  picker exactly matches `deploy/src/data/makerworld-categories.json`; raw-file
+  controls, dual covers, video, 16-picture gallery, remix/linking, license,
+  visibility, rich description, docs, BOM, Exclusive, and 3MF profile state are
+  present. The August 7 line-break and picture-shape fixes still require one
+  authorized private upload/readback before certification.
+- MakerWorld Laser & Cut and CyberBrick are **not fully mapped**. Current gaps:
+  LAC profile visibility is serialized inside `instance` instead of sibling
+  `instanceSetting`; Laser video is disabled; Laser BOM/steps/community post are
+  hardcoded empty/off; CyberBrick omits framework, firmware, creation protection,
+  controller cover and switch covers; LAC picture item shape and profile
+  description are unproven; A1 compatibility is `N2S` in code versus `N2` in
+  the flow doc; and the platform card still displays an invented 250 MB total.
+- Do not run a LAC certification upload yet. First correct and locally test the
+  serializer/UI gaps, then capture the first-party LAC step-3 request. A later
+  private 3MF/LAC transmission still needs action-time authorization.
+- The platform-by-platform continuation order requested on 2026-08-08 is:
+  MakerWorld audit/documentation (done), Printables upload-flow audit (done),
+  then the remaining popular platforms one at a time.
+- Printables safe core is substantially mapped for a free original listing, and
+  its live accepted file list matches ModelPrep. It is **not fully mapped for
+  G-code**: the live editor requires one main 3D printer, ModelPrep has no such
+  picker/payload, and retained draft `1797772` again hides the API-retained
+  G-code while showing only its SL1 print file. Per-G-code material is also not
+  selectable. Rich images/tables/video embeds and Store/Club remain uncertified;
+  the audited account exposes no paid controls. Do not treat the UI's “typically
+  $5–$150” price hint as a verified contract.
+- The next smallest implementation slice for Printables is a server-driven main
+  printer picker plus model-level `printer` serialization/readback, followed by
+  optional per-G-code material. That work should be locally tested before asking
+  for an authorized draft upload. The next platform audit should continue only
+  after preserving this boundary.
+- Thingiverse upload-flow audit is now complete. All 80 current category labels
+  and 13 licences match the snapshots, and the ordinary unpublished safe core
+  remains the strongest branch. Do **not** rely on the older “no safe-core gap”
+  or “complete readback” wording for optional parity.
+- Current Thingiverse gaps: the general platform link uses `/create` (another
+  user's profile) instead of `/thing:0/edit`; the UI exposes only four of the
+  structured print-setting fields; rich and Education sections are raw JSON
+  without image/video/asset upload; Handouts & Assets has no explicit default
+  mapping; 68 live design tools and account groups are not exposed or sent; and
+  readback checks existence rather than field/order equality.
+- The Thingiverse body fix (summary plus full Markdown description) passes all
+  eight direct-adapter tests but has not been uploaded after the fix. Retained
+  draft `7390480` still demonstrates the old one-line body. Correct the entry
+  link, complete print-setting UI/payload mapping, and implement fail-closed
+  readback comparisons before requesting a new authorized draft verification.
+- Cults3D upload-flow audit is now complete read-only. The live create form and
+  retained edit still support the documented safe core, but ModelPrep hardcodes
+  only 3D-printing usage, sends no subcategory, and offers no exact Cults
+  category/licence picker. Its price UI is free/fixed USD only; the live CZK
+  editor also exposes open price (0–26,000 CZK), fixed price (14–26,000 CZK),
+  currency-specific bounds, and discounts. Current receipt verification compares
+  only title, visibility, and ordered file/media IDs/names—not the rest of the
+  metadata, taxonomy, AI/comments, price/currency, or licence.
+- Do not call Cults fully mapped or fully read back. The next safe code slice is
+  exact category/subcategory/usage controls, currency-aware fixed/open pricing,
+  and complete metadata/price readback. No Cults mutation was authorized. The
+  next platform in the popular-platform queue is **MyMiniFactory**.
+- MyMiniFactory continuation audit is complete at a mixed evidence boundary:
+  normal Chrome was signed out, while the ModelPrep-managed account still
+  reported connected as `iamdjem`. The historical private free-account core and
+  advanced metadata readback remain strong, but the current first-party creator
+  guides invalidate the older “comprehensively mapped” claim.
+- Missing MyMiniFactory branches: Premium **Sell STL Files** (price, purchase
+  message, post-purchase message), capability-driven 500 MB Premium file limits,
+  and Archive Mode (25 archives around 5 GB; no 3D viewer). ModelPrep hardcodes
+  100 MiB, always sends `fileMode=0`, and has no store/archive payload or
+  readback. Remix parents are raw IDs without native-style lookup validation;
+  category-at-create remains undocumented platform behavior.
+- No MyMiniFactory mutation was authorized. Before another certification upload,
+  implement capability discovery, premium/store/archive branches, and matching
+  readback. Public submit remains review acceptance rather than proof of a live
+  listing. The next popular-platform audit is **Thangs**.
+- Thangs continuation audit is complete signed-in/read-only. The live editor has
+  six audience modes, four print-compatibility flags, video embeds, distinct
+  inspiration/remix attribution, and dynamic licences.
+- Units, bulk/multipart/assembly, access type, plans, dependencies, version notes
+  and feedback are phantom ModelPrep UI: the adapter drops them. Save creates one
+  draft; it does not implement separate bulk models, assembly, or versions.
+- Retained `1585793` still has empty Images, ten JPG Attachments and size `-`;
+  corrected local v4 association is not live-certified. Verification checks
+  response presence rather than submitted/persisted equality.
+- Do not call Thangs fully mapped, fully read back, or corrected-v4 certified.
+  No mutation occurred. The next popular-platform audit is **MakerOnline**.
+- MakerOnline continuation audit is complete signed-in/read-only. The current
+  create form still matches the documented ordinary and conditional Step 1
+  controls; the account is Exclusive-ineligible and China sync is unavailable.
+  Its Draft tab contains eight retained drafts. Draft `316221` shows 20 images,
+  three raw files including the 3MF, expected metadata/category/licence, and zero
+  Print Profile Files.
+- MakerOnline is not completely mapped or verified: inline Quill description
+  images are not authorable in ModelPrep, while receipt logic accepts absent
+  fields and checks only title/category plus minimum image/raw-file counts. It
+  does not certify exact order/names or the rest of the metadata, optional docs,
+  profiles, kits, sync, or Exclusive branches. Exclusive should also be gated on
+  its actual-print-photo and applicable assembly-instruction requirements.
+- No MakerOnline mutation occurred. Do not call optional branches certified and
+  do not remove any of the eight retained drafts. The next popular-platform
+  audit is **Nexprint**.
+- Nexprint continuation audit is complete signed-in/read-only. Single/Batch and
+  the 30 unique raw formats remain current. Draft `2083625532272496640` retains
+  the core assets/metadata, but its 3MF has no visible profile section and the
+  adapter always sends `settingList: []`. Current attachment help omits `.gcode`
+  and `.goo` although ModelPrep accepts both; treat them as drift-risk. The rich
+  editor also has asset/media/table controls ModelPrep cannot author. Receipt
+  logic verifies only object presence and optional status—not persisted fields.
+- Creality Cloud continuation audit is complete signed-in/read-only. Its full
+  file-gated form confirms the raw/core fields plus structured Remix/
+  Non-original, instruction files, Boost Me, and the separate parsed-3MF Print
+  Settings media/description/printer branch. ModelPrep sends only Original core
+  metadata/assets/instructions; retained evidence shows its 3MF was dropped.
+  Receipt logic checks only an optional subset and is not fail-closed.
+- MakerRoad continuation is complete at a mixed boundary: normal Chrome is
+  signed out, so current authenticated UI could not be refreshed. The August 7
+  live evidence still controls: all seven saves are rejected. The print-method
+  resolver and rejection checks are local-only and need a newly authorized save;
+  exact metadata/options remain outside readback. “Save private draft” is still
+  misleading because MakerRoad sends saved items through review.
+- No platform mutation occurred in these three passes. The requested ten-platform
+  upload-flow continuation audit is now complete, with the gaps above remaining
+  implementation and separately authorized live-certification work.
 
 This is the canonical pickup point for the next agent. When another document
 disagrees with this file, use this file for current status and use the
@@ -753,6 +970,150 @@ launchctl list | rg 'io\.makerstats\.modelprep\.(local|qa|preview)' || true
 
 Do not run a live upload merely because tests pass. Inspect the rendered preflight
 and request authority immediately before each account mutation.
+
+## 2026-08-08 demo-certification continuation
+
+The latest live retained-object audit and the local fixture replacement are in
+`demo-upload-live-verification-2026-08-08.md`. Start there before using the demo.
+The old desk-dragon assets were semantically invalid (cube STLs plus an unrelated
+PCB/enclosure 3MF) and have been replaced by one coherent calibration-puck
+fixture. The exact rebuilt/signed app has now run the authorized private/draft
+pairwise batch: seven retained successes, Cults S3 failure, MakerRoad
+`status=1`, and MakerWorld truthfully blocked for lack of a physical-print photo.
+
+Independent retained-page inspection confirms that all ten supplied images and
+the rich listing metadata render on Printables, Nexprint, Creality and
+MakerOnline. Thingiverse retained both STLs, the Bambu 3MF, all uploads and its
+structured print settings. The principal current defect is now concrete:
+Printables, Nexprint, Creality and MakerOnline retain only the two STLs and drop
+or misclassify the same 3MF/profile; MakerOnline explicitly says it has no print
+profile. Printables also falls back to `Action Figures & Statues`, and several
+fresh Thingiverse resize-service thumbnails fail even though source uploads are
+present. MMF and Thangs passed exact-app readback but normal Chrome could not
+render their private results, so their visual parity remains partial.
+
+Do not run another broad batch or click failed-only retry. Implement
+platform-specific 3MF/profile routing plus exact file-role/count readback first,
+fix the Printables category, then recertify one affected platform at a time.
+Cults transport, MakerRoad rejection, isolated-session MMF/Thangs rendering and
+MakerWorld real-photo eligibility remain separate blockers. Exact receipts and
+field-level evidence are in `demo-upload-live-verification-2026-08-08.md`.
+
+The subsequent two-failure repair separated transport from review. Cults signed
+S3 uploads now bypass page CORS through the Electron partition session while
+Cloudflare-protected first-party calls remain paced in-page. Secret calibration
+fixture `modelprep-calibration-puck-upload-test-fixture-b01addf327b6843d212e`
+was created and its retained editor shows all three files, ten media records and
+the expected metadata. MakerRoad demo transport is allowed to use disclosed
+synthetic imagery, but the resulting save still returns `status=1`; ordinary
+projects remain real-photo-gated and the rejected demo is never called
+certified. Error receipts now preserve its retained edit URL for visual audit.
+
+## 2026-08-08 correction: the 3MF gap was ours, not the platforms'
+
+The work order above ("implement platform-specific 3MF/profile routing") rested
+on a wrong diagnosis and should not be followed as written.
+
+The supplied Bambu 3MF never reached Printables, Nexprint, Creality Cloud,
+MakerOnline or MakerRoad because ModelPrep's automatic per-platform file
+selection unticks a print profile sliced by another vendor's slicer
+(`deploy/src/lib/platform-files.js`). Those five platforms' native slicers are
+Prusa, Elegoo, Creality Print, Anycubic and Elegoo. The five platforms that did
+retain the 3MF are exactly the ones whose native slicer is Bambu or none. No
+routing was wrong and no transport failed.
+
+Printables specifically has **no print-profile surface**: live public readback
+of model `1472993` returns a `.3mf` inside the `stls` bucket, so a profile is an
+ordinary model file there. Printables' nearest equivalent is the model-level
+main 3D printer plus per-G-code metadata, still unimplemented.
+
+Fixed for Printables only: the fixture now opts the profile in and selects
+category `12` (`3D Printers › Test Models`, was `36` = Action Figures &
+Statues); preflight and both receipts name any profile that is not being sent;
+and readback fails closed against the **selected source files** rather than
+against a payload derived from the platform's own processing response, which
+could never detect a dropped file. Deploy 371/371, desktop 207/207, backend
+31/31, `tsc` clean, package rebuilt and strict-codesign verified.
+
+Retained-certified by authorized unpublished draft `1803724`: the exact signed
+package, driven through its own UI with the other nine platforms toggled off,
+produced the first Printables listing that retains the supplied 3MF (filed in
+`stls` beside both STLs) and the `Test Models` category, with ten ordered images
+all fetched at 200/non-zero bytes. Draft `1803506` is untouched as the
+before-state.
+
+Printables byte retention is also closed. Introspection is disabled upstream, so
+a negative-validation probe established that `STLType` exposes no file-path or
+URL field and `fileSize` is the only authoritative byte signal; both status
+queries now select it via a readback-only `PrintablesRetainedFile` type kept
+apart from the mutation input. Re-reading `1803724` showed byte-for-byte
+retention (36,084 / 54,084 / 30,787 exact), so readback fails closed on positive
+size, exact source-size equality and a missing size. That is Printables
+integrity only and is unrelated to Thingiverse's zero-sized resize thumbnails,
+which are a separate pipeline and a separate open item.
+
+Creality Cloud is a third distinct shape and was mapped from its own contract on
+2026-08-08. A `.3mf` belongs in `modelList` as an ordinary model; Creality's
+parsed Print Configuration mode is separate and needs a real `.3mf` parser, so
+`model3mfCount`/`include3mf` stay `0`/`false`. Two contract details would break
+a naive check: `fileName` is stored **without** the extension (`fileFormat`
+carries the dotted extension), and Creality **translates tags and category names
+server-side** (English tags came back as `3D打印机`, `校准`, `测试模型`), so
+neither is asserted and the stable `categoryId` is checked instead. A stale claim
+that ModelPrep excludes profile-linked `.3mf` files from `modelFiles` was
+corrected: that exclusion was removed on 2026-08-07, leaving only the shared
+auto-exclusion default. `isOriginal` read false on a `modelSource: 1` model and
+is an open ambiguity. Creality's verifier was then hardened: `fileFormat` and `totalFileSize` must be
+present as well as equal, `isShared` must be explicitly `false` for a private
+upload, `modelCount` is exact, gallery identity and order are compared by
+cover-URL basename with `pcCovers`/`appCovers` checked independently,
+`model3mfList`/`model3mfCount`/`include3mf` must be present-and-empty/0/false,
+instruction files are checked by count and total bytes (identity is not
+retained), `fileMd5` is checked against the md5 embedded in the upload
+`fileKey`, and parsed geometry (`x`/`y`/`z`/`volume`) must be positive so
+usable geometry is never inferred from name and size alone. One authorized private create then ran on 2026-08-08 and **failed closed**:
+Creality retained the object, but its immediate readback reported no parsed
+geometry on either STL and no `.3mf` in `modelList`. The pre-existing object has
+parsed geometry, so Creality populates it asynchronously and ModelPrep judges
+too early — the next slice is polling until processing settles, then resolving
+whether the Bambu `.3mf` is merely unprocessed or actually rejected. The run
+also exposed a lost-object-id defect (the fail-closed throw discarded the new
+model's id and URL, and no allow-listed route can enumerate private models);
+that is now fixed by recording the retained id/state/URL as soon as `submit`
+returns and preserving it in the error receipt. Certification was also replaced
+with bounded polling of the same saved id (3 s interval, 120 s timeout, never a
+resubmit): still-settling fields keep polling, hard contradictions fail at once,
+and a timeout reports the exact unresolved fields. Both are **locally tested,
+not live-proven** — nothing has been created since. The first object's id is
+**unrecoverable from ModelPrep**: only `whoami`/`upload`/`submit`/`status`/
+`drafts` are allow-listed, `my-models` is 404, and `creality:connect` opens no
+page session when a session exists, so the id must come from the user's own
+Creality model list. The object is **`6a777ac80389871f0cd5e0c0`** (id supplied by the user from their
+own Creality model list) and, once settled, it is **API-certified**: all three
+files present, the Bambu `.3mf` ingested as an ordinary `modelList` entry with
+real parsed geometry (34 × 34 × 4.4, volume 3960.40), `modelCount 3`,
+`totalFileSize 120955`, `isShared false`, category `1645`, CC BY-NC, 9+1+1
+covers, Print Configuration empty, zero instructions — the corrected verifier
+returns zero issues. Two contract findings came out of it: Creality settles
+asynchronously (the first readback was simply too early), and it **masks
+filtered words in retained filenames** (`bambu` → `*****`, character for
+character), so files are matched by `fileMd5` and names checked mask-tolerantly.
+Rendered UI/DOM remains unmet. Do not retry or delete the object. Creality is
+**retained/API-certified once settled**; private model
+`6a77222f75286de2e7e68468` is untouched as the before-state.
+
+Direction set by the user on 2026-08-08: **keep the auto-exclusion default** and
+give Nexprint, then Creality Cloud, then MakerOnline, then MakerRoad the same
+per-platform treatment Printables received (correct the false fixture coverage
+claim, explicit fixture opt-in, preflight warning naming the unsent profile,
+fail-closed source-file readback), one platform at a time. Each platform's own
+contract decides whether a `.3mf` is an ordinary model file, an attachment or a
+real profile role; do not bulk enable it everywhere. All four still omit the
+profile today. This sentence is historical for Nexprint/Creality: both have now
+completed their safe-core retained slices. MakerOnline is implemented and awaits
+one authorized dual-role draft; MakerRoad remains pending. Detail:
+`printables-web-flow.md`, `nexprint-web-flow.md`, `creality-web-flow.md`, and
+`makeronline-web-flow.md`.
 
 ## Documentation authority map
 

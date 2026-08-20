@@ -9,14 +9,16 @@
 const { app, BrowserWindow, dialog, ipcMain, session, shell, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { validateWorkerUrl } = require('./auth-bridge');
 const { resolveRendererTarget, isRendererNavigation } = require('./renderer-target');
 const { handlePrintablesRequest, printablesWhoamiDirect } = require('./printables-direct');
 const { createPrintablesSessionCache } = require('./printables-session-cache');
 const { CULTS_BASE, createCultsDirectClient } = require('./cults-direct');
-const { createWindowFetch } = require('./cults-window-fetch');
+const { createWindowFetch, createCultsFetchRouter, createPacedFetch } = require('./cults-window-fetch');
 const { createReleaseScheduler, hasPendingUnattended, mergeSyncedPlans } = require('./release-scheduler');
+const { createSessionKeepAlive } = require('./session-keepalive');
 const errorLog = require('./error-log');
 let autoUpdater = null;
 try { ({ autoUpdater } = require('electron-updater')); } catch { /* dev without the dep */ }
@@ -36,6 +38,14 @@ const { claudeStatus, generateClaudeListing } = require('./claude-listing');
 const { geminiStatus, generateGeminiListing } = require('./gemini-listing');
 const { detectLocalAi, localChat } = require('./local-ai');
 const { runLoginCapture } = require('./login-capture');
+const { createAssetLibrary } = require('./asset-library');
+
+let assetLibrary = null;
+const assetFolderWatchers = new Map();
+function localAssetLibrary() {
+  if (!assetLibrary) assetLibrary = createAssetLibrary(path.join(app.getPath('userData'), 'modelprep-assets.sqlite'));
+  return assetLibrary;
+}
 
 // Local CLI agents that can write a listing on the maker's own subscription. Each entry owns
 // its status probe (installed? signed in? which models?) and its generation call; everything
@@ -69,10 +79,18 @@ if (process.env.MODELPREP_USER_DATA_DIR) {
 }
 
 // The app renders multiple <canvas> cover previews; GPU-accelerated canvas can crash the
-// renderer with EXC_BAD_ACCESS/SIGBUS on some Macs. Software rendering is plenty fast here
-// and avoids the crash. Cults' current Cloudflare challenge also rejects a hardware-enabled
-// Electron 43 window, so enabling GPU is not a viable sign-in repair.
+// renderer with EXC_BAD_ACCESS/SIGBUS on some Macs. Keep hardware acceleration disabled,
+// but explicitly allow Chromium's software WebGL implementation for the trusted, bundled
+// ModelPrep renderer so interactive model previews still work. Every remote platform
+// BrowserWindow disables WebGL below; third-party pages therefore cannot invoke the
+// less-isolated SwiftShader path. Cults' current Cloudflare challenge also rejects a
+// hardware-enabled Electron 43 window, so enabling the GPU is not a viable repair.
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.disableHardwareAcceleration();
+
+function remotePagePreferences(partition) {
+  return { partition, contextIsolation: true, nodeIntegration: false, webgl: false };
+}
 // Windows shows a toast only if the process declares the same AppUserModelID
 // the installer registered. Without this, every notification is silently
 // dropped on Windows while working fine on macOS.
@@ -127,7 +145,7 @@ const cultsPageWindows = new Map(); // accountId -> BrowserWindow
 function createCultsWindow(accountId, { show } = {}) {
   const win = new BrowserWindow({
     show: !!show, width: 980, height: 900, title: 'Sign in to Cults3D',
-    webPreferences: { partition: cultsPartition(accountId), contextIsolation: true, nodeIntegration: false },
+    webPreferences: remotePagePreferences(cultsPartition(accountId)),
   });
   // Social sign-in (Google/Apple/…) opens popups; keep them in the same
   // partition so the session cookie lands where requests read it. UA is left
@@ -136,7 +154,7 @@ function createCultsWindow(accountId, { show } = {}) {
     action: 'allow',
     overrideBrowserWindowOptions: {
       parent: win, width: 620, height: 780,
-      webPreferences: { partition: cultsPartition(accountId), contextIsolation: true, nodeIntegration: false },
+      webPreferences: remotePagePreferences(cultsPartition(accountId)),
     },
   }));
   win.on('closed', () => { if (cultsPageWindows.get(accountId) === win) cultsPageWindows.delete(accountId); });
@@ -160,7 +178,11 @@ function cultsFetchForAccount(accountId) {
       return win.webContents.executeJavaScript(code, true);
     },
   });
-  return (url, options) => runInPage(url, options);
+  const pacedPageFetch = createPacedFetch(runInPage, 250);
+  return createCultsFetchRouter({
+    pageFetch: pacedPageFetch,
+    storageFetch: (...args) => cultsBrowserSession(accountId).fetch(...args),
+  });
 }
 const cultsDirectClient = createCultsDirectClient({
   fetchImplForAccount: (accountId) => cultsFetchForAccount(accountId),
@@ -486,6 +508,15 @@ async function readPrintablesBrowserCookie() {
   return relevant.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
 }
 
+// Printables session longevity note: auth lives in expiring access/refresh
+// token cookies that rotate only through the site's own client-side refresh
+// inside a real page. Routing GraphQL through session.fetch was tried and is
+// impossible here: net-level fetches on these partitions fail with
+// net::ERR_BLOCKED_BY_CLIENT (verified 2026-08-13 against the live
+// partition). Plain fetch with the captured cookie is correct for API calls;
+// rotation is handled by the keep-alive's hidden page warm
+// (warmPersistentSession).
+
 async function validatePrintablesCookie(cookie) {
   if (!cookie) return null;
   try {
@@ -778,7 +809,7 @@ async function readThangsStorageContext(webContents) {
   return { accessToken: String(storage.accessToken), ...(cookie ? { cookie } : {}) };
 }
 async function readThangsPersistentStorageContext() {
-  const probe = new BrowserWindow({ show: false, webPreferences: { partition: THANGS_PARTITION, contextIsolation: true, nodeIntegration: false } });
+  const probe = new BrowserWindow({ show: false, webPreferences: remotePagePreferences(THANGS_PARTITION) });
   try {
     await probe.loadURL(THANGS_LOGIN_URL);
     return await readThangsStorageContext(probe.webContents);
@@ -874,7 +905,7 @@ async function readThingiverseStorageContext(webContents) {
   return { apiToken: String(storage.apiToken), ...(storage.accessToken ? { accessToken: String(storage.accessToken) } : {}), ...(cookie ? { cookie } : {}) };
 }
 async function readThingiversePersistentSessionCapture() {
-  const probe = new BrowserWindow({ show: false, webPreferences: { partition: THINGIVERSE_PARTITION, contextIsolation: true, nodeIntegration: false } });
+  const probe = new BrowserWindow({ show: false, webPreferences: remotePagePreferences(THINGIVERSE_PARTITION) });
   try {
     let timeout;
     await Promise.race([
@@ -933,15 +964,28 @@ async function validateMakerWorldCookie(cookie) {
 }
 
 async function warmPersistentSession(browserSession, url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  // A real hidden first-party page load, not session.fetch: net-level fetches
+  // on these partitions fail with net::ERR_BLOCKED_BY_CLIENT (verified
+  // 2026-08-13), which silently made this warm a no-op, and sliding sessions
+  // rotate through each site's own client-side auth refresh, which only runs
+  // in a page anyway. The window is hidden, locked down like every remote
+  // platform window, and destroyed after the load plus a short grace period
+  // for the site's token refresh to run. No upload/mutation endpoint is
+  // touched.
+  let win = null;
   try {
-    // A normal first-party GET lets sites apply sliding-cookie/session rotation
-    // inside their own persistent Electron partition. No renderer sees the
-    // response or credentials, and no upload/mutation endpoint is touched.
-    await browserSession.fetch(url, { method: 'GET', redirect: 'follow', signal: controller.signal });
+    win = new BrowserWindow({
+      show: false,
+      webPreferences: { session: browserSession, contextIsolation: true, nodeIntegration: false, webgl: false },
+    });
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 15000);
+      win.webContents.once('did-finish-load', () => { clearTimeout(timer); resolve(); });
+      win.loadURL(url).catch(() => { clearTimeout(timer); resolve(); });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 3000));
   } catch { /* an interactive sign-in may still be required */ }
-  finally { clearTimeout(timer); }
+  finally { try { win?.destroy(); } catch { /* already gone */ } }
 }
 
 async function recoverMakerWorldSession() {
@@ -1041,7 +1085,7 @@ function openLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 460, height: 800, parent, modal: false, title: 'Sign in to MakerWorld',
-      webPreferences: { partition: MW_PARTITION, contextIsolation: true, nodeIntegration: false },
+      webPreferences: remotePagePreferences(MW_PARTITION),
     });
     login.webContents.setUserAgent(WORKER_UA);
     login.loadURL(MW_LOGIN_URL, { userAgent: WORKER_UA });
@@ -1053,7 +1097,7 @@ function openLoginAndCapture(parent) {
       action: 'allow',
       overrideBrowserWindowOptions: {
         parent: login, width: 480, height: 700,
-        webPreferences: { partition: MW_PARTITION, contextIsolation: true, nodeIntegration: false },
+        webPreferences: remotePagePreferences(MW_PARTITION),
       },
     }));
     login.webContents.on('did-create-window', (child) => { try { child.webContents.setUserAgent(WORKER_UA); } catch { /* */ } });
@@ -1070,22 +1114,14 @@ function openPrintablesLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 720, height: 860, parent, modal: false, title: 'Sign in to Printables',
-      webPreferences: {
-        partition: PRINTABLES_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+      webPreferences: remotePagePreferences(PRINTABLES_PARTITION),
     });
     login.loadURL(PRINTABLES_LOGIN_URL);
     login.webContents.setWindowOpenHandler(() => ({
       action: 'allow',
       overrideBrowserWindowOptions: {
         parent: login, width: 560, height: 760,
-        webPreferences: {
-          partition: PRINTABLES_PARTITION,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
+        webPreferences: remotePagePreferences(PRINTABLES_PARTITION),
       },
     }));
 
@@ -1207,22 +1243,14 @@ function openNexprintLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 920, height: 860, parent, modal: false, title: 'Sign in to Nexprint',
-      webPreferences: {
-        partition: NEXPRINT_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+      webPreferences: remotePagePreferences(NEXPRINT_PARTITION),
     });
     login.loadURL(NEXPRINT_LOGIN_URL);
     login.webContents.setWindowOpenHandler(() => ({
       action: 'allow',
       overrideBrowserWindowOptions: {
         parent: login, width: 560, height: 760,
-        webPreferences: {
-          partition: NEXPRINT_PARTITION,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
+        webPreferences: remotePagePreferences(NEXPRINT_PARTITION),
       },
     }));
 
@@ -1243,22 +1271,14 @@ function openCrealityLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 1040, height: 900, parent, modal: false, title: 'Sign in to Creality Cloud',
-      webPreferences: {
-        partition: CREALITY_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+      webPreferences: remotePagePreferences(CREALITY_PARTITION),
     });
     login.loadURL(CREALITY_LOGIN_URL);
     login.webContents.setWindowOpenHandler(() => ({
       action: 'allow',
       overrideBrowserWindowOptions: {
         parent: login, width: 620, height: 780,
-        webPreferences: {
-          partition: CREALITY_PARTITION,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
+        webPreferences: remotePagePreferences(CREALITY_PARTITION),
       },
     }));
 
@@ -1279,22 +1299,14 @@ function openMakerOnlineLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 1120, height: 900, parent, modal: false, title: 'Sign in to MakerOnline',
-      webPreferences: {
-        partition: MAKERONLINE_PARTITION,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+      webPreferences: remotePagePreferences(MAKERONLINE_PARTITION),
     });
     login.loadURL(MAKERONLINE_LOGIN_URL);
     login.webContents.setWindowOpenHandler(() => ({
       action: 'allow',
       overrideBrowserWindowOptions: {
         parent: login, width: 620, height: 780,
-        webPreferences: {
-          partition: MAKERONLINE_PARTITION,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
+        webPreferences: remotePagePreferences(MAKERONLINE_PARTITION),
       },
     }));
 
@@ -1315,14 +1327,14 @@ function openMyMiniFactoryLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 1120, height: 900, parent, modal: false, title: 'Sign in to MyMiniFactory',
-      webPreferences: { partition: MYMINIFACTORY_PARTITION, contextIsolation: true, nodeIntegration: false },
+      webPreferences: remotePagePreferences(MYMINIFACTORY_PARTITION),
     });
     login.loadURL(MYMINIFACTORY_LOGIN_URL);
     login.webContents.setWindowOpenHandler(() => ({
       action: 'allow',
       overrideBrowserWindowOptions: {
         parent: login, width: 620, height: 780,
-        webPreferences: { partition: MYMINIFACTORY_PARTITION, contextIsolation: true, nodeIntegration: false },
+        webPreferences: remotePagePreferences(MYMINIFACTORY_PARTITION),
       },
     }));
     let done = false;
@@ -1365,7 +1377,7 @@ function openMakerRoadLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
     const login = new BrowserWindow({
       width: 1120, height: 900, parent, modal: false, title: 'Sign in to MakerRoad',
-      webPreferences: { partition: MAKEROAD_PARTITION, contextIsolation: true, nodeIntegration: false },
+      webPreferences: remotePagePreferences(MAKEROAD_PARTITION),
     });
     login.loadURL(MAKEROAD_LOGIN_URL);
     return runLoginCapture({
@@ -1384,7 +1396,7 @@ function openMakerRoadLoginAndCapture(parent) {
 
 function openThangsLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
-    const login = new BrowserWindow({ width: 1120, height: 900, parent, modal: false, title: 'Sign in to Thangs', webPreferences: { partition: THANGS_PARTITION, contextIsolation: true, nodeIntegration: false } });
+    const login = new BrowserWindow({ width: 1120, height: 900, parent, modal: false, title: 'Sign in to Thangs', webPreferences: remotePagePreferences(THANGS_PARTITION) });
     login.loadURL(THANGS_LOGIN_URL);
     // Thangs keeps its session in page storage, not in the partition's cookies, so
     // the read needs a live webContents. Remember the last one seen: the attempt
@@ -1408,7 +1420,7 @@ function openThangsLoginAndCapture(parent) {
 }
 function openThingiverseLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
-    const login = new BrowserWindow({ width: 1120, height: 900, parent, modal: false, title: 'Sign in to Thingiverse', webPreferences: { partition: THINGIVERSE_PARTITION, contextIsolation: true, nodeIntegration: false } }); login.loadURL(THINGIVERSE_LOGIN_URL); let done = false;
+    const login = new BrowserWindow({ width: 1120, height: 900, parent, modal: false, title: 'Sign in to Thingiverse', webPreferences: remotePagePreferences(THINGIVERSE_PARTITION) }); login.loadURL(THINGIVERSE_LOGIN_URL); let done = false;
     const finish = (fn, value) => { if (done) return; done = true; clearInterval(poll); clearTimeout(timer); if (!login.isDestroyed()) login.close(); fn(value); };
     let capturing = false;
     const attempt = async () => {
@@ -1649,6 +1661,26 @@ ipcMain.handle('makeroad:status', async () => {
 });
 ipcMain.handle('thangs:status', async () => { const context = await readThangsContext({ force: true }); return { connected: !!context, user: context?.identity || null }; });
 ipcMain.handle('thingiverse:status', async () => { const context = await readThingiverseContext({ force: true }); return { connected: !!context, user: context?.identity || null, legalApproved: !!context?.identity?.legalApproved }; });
+
+ipcMain.handle('assets:index', async (_event, assets = []) => localAssetLibrary().upsertAssets(Array.isArray(assets) ? assets : []));
+ipcMain.handle('assets:search', async (_event, query = '', limit = 100) => localAssetLibrary().search(query, limit));
+ipcMain.handle('assets:watched-folders', async () => localAssetLibrary().listWatchedFolders());
+ipcMain.handle('assets:choose-watched-folder', async (event) => {
+  const owner = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(owner, { title: 'Watch a 3D asset folder', properties: ['openDirectory', 'createDirectory'] });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const folderPath = path.resolve(result.filePaths[0]);
+  localAssetLibrary().addWatchedFolder(folderPath);
+  if (!assetFolderWatchers.has(folderPath)) {
+    try {
+      const watcher = fsSync.watch(folderPath, { recursive: true }, (_type, changed) => {
+        if (!owner.isDestroyed()) owner.webContents.send('assets:folder-changed', { path: folderPath, changed: changed ? String(changed) : '' });
+      });
+      assetFolderWatchers.set(folderPath, watcher);
+    } catch { /* The folder remains indexed even if this OS cannot watch it. */ }
+  }
+  return { canceled: false, path: folderPath };
+});
 
 ipcMain.handle('telemetry:resource-snapshot', async (_event, state = {}) => {
   const sample = await captureResourceTelemetry({ electronApp: app, electronProcess: process, state });
@@ -2061,6 +2093,55 @@ const releaseScheduler = createReleaseScheduler({
     if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send); else send();
   },
 });
+// Sliding cookie sessions (Printables, MyMiniFactory, MakerRoad in
+// particular) only rotate when their site is touched. Between publishes
+// nothing used to touch them, so they were the platforms that kept signing
+// out. This reuses the exact silent-recovery ladder the Reconnect button
+// runs (validate -> first-party page warm inside the platform's own
+// partition -> revalidate and re-mirror into the encrypted blob), on a slow
+// timer, only for platforms with stored session material, and never touches
+// account status on failure. Cults is excluded: its recovery can open a
+// visible sign-in window.
+const SESSION_KEEPALIVE_PLATFORMS = ['makerworld', ...Object.keys(RECOVERY_TARGETS)];
+const SESSION_BLOB_PATHS = {
+  makerworld: encryptedSessionPath,
+  printables: encryptedPrintablesSessionPath,
+  nexprint: encryptedNexprintSessionPath,
+  creality: encryptedCrealitySessionPath,
+  makeronline: encryptedMakerOnlineSessionPath,
+  mmf: encryptedMyMiniFactorySessionPath,
+  makeroad: encryptedMakerRoadSessionPath,
+  thangs: encryptedThangsSessionPath,
+  thingiverse: encryptedThingiverseSessionPath,
+};
+async function hasStoredSessionMaterial(platform) {
+  const blobPath = SESSION_BLOB_PATHS[platform];
+  if (!blobPath) return false;
+  try { await fs.access(blobPath()); return true; } catch { /* no blob; check the partition */ }
+  try {
+    if (platform === 'makerworld') return !!(await readMwCookie());
+    const target = RECOVERY_TARGETS[platform];
+    if (!target) return false;
+    const cookies = await target.browserSession().cookies.get({});
+    return cookies.length > 0;
+  } catch { return false; }
+}
+const sessionKeepAlive = createSessionKeepAlive({
+  platforms: SESSION_KEEPALIVE_PLATFORMS,
+  hasSession: hasStoredSessionMaterial,
+  refresh: async (platform) => (await recoverDesktopAccount(platform))?.ok === true,
+  log: (line) => { try { console.log(line); } catch { /* logging is best-effort */ } },
+});
+
+// Read-only keep-alive observability for the Settings Diagnostics panel:
+// which platforms the background refresh touched, when, and whether the
+// silent ladder succeeded. Platform ids and booleans only; no credentials.
+ipcMain.handle('session-keepalive:status', () => ({
+  results: [...sessionKeepAlive.lastResults.entries()].map(([platform, result]) => ({
+    platform, at: result.at, ok: result.ok,
+  })),
+}));
+
 ipcMain.handle('release-plans:sync', async (_event, plans) => {
   const merged = mergeSyncedPlans(readMainReleasePlans(), Array.isArray(plans) ? plans : []);
   writeMainReleasePlans(merged);
@@ -2183,6 +2264,7 @@ app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   mainWindow = createMainWindow();
   releaseScheduler.start();
+  sessionKeepAlive.start();
   initAutoUpdater();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow();

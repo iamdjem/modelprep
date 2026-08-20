@@ -41,3 +41,18 @@ test('main declares an AppUserModelID so Windows notifications appear', () => {
   const appId = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).build.appId;
   assert.equal(appId, 'io.makerstats.modelprep', 'the declared id must match the installer appId');
 });
+
+test('packaged previews use software WebGL without exposing it to remote platform pages', () => {
+  const fs = require('node:fs');
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+
+  assert.match(main, /appendSwitch\(['"]enable-unsafe-swiftshader['"]\)/);
+  assert.match(main, /app\.disableHardwareAcceleration\(\)/);
+  assert.match(main, /function remotePagePreferences[\s\S]*webgl:\s*false/);
+  assert.match(main, /function createMainWindow[\s\S]*preload:[\s\S]*contextIsolation:\s*true[\s\S]*nodeIntegration:\s*false/);
+  assert.doesNotMatch(
+    main.match(/function createMainWindow[\s\S]*?return win;/)?.[0] || '',
+    /webgl:\s*false/,
+    'the trusted bundled renderer must retain software WebGL access',
+  );
+});

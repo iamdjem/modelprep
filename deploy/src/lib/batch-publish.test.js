@@ -14,10 +14,13 @@ import {
   publishBatchResourceSummary,
   publishBatchSummary,
   publishReceiptLabel,
+  publishRetryDisposition,
   publishVisibility,
   RESOURCE_REPORT_STORAGE_KEY,
   retainPublishBatchResourceReport,
   retryFailedPublishBatch,
+  safeRetryFailedPublishIds,
+  VERIFY_EXISTING_PLATFORM_IDS,
 } from './batch-publish.js';
 
 describe('multi-platform publish batches', () => {
@@ -88,6 +91,31 @@ describe('multi-platform publish batches', () => {
     expect(batchPublishIntent('mmf', { __demo: true, platforms: { mmf: { publication: 'public' } } })).toEqual({ action: 'private', visibility: 'private' });
   });
 
+  it('describes MakerRoad public submission as review without changing the upload trigger', () => {
+    const intent = batchPublishIntent('makeroad', {
+      platforms: { makeroad: { publication: 'publish' } },
+    });
+    expect(intent).toEqual({ action: 'publish', visibility: 'pending', nativeOutcome: 'review' });
+
+    const batch = createPublishBatch([
+      { id: 'makeroad', name: 'MakerRoad', mode: 'real', ...intent },
+    ], 'makeroad-review', 1);
+    expect(batch.results.makeroad).toMatchObject({
+      action: 'publish',
+      visibility: 'pending',
+      nativeOutcome: 'review',
+      detail: 'Starting…',
+    });
+
+    expect(batchPublishIntent('makeroad', {
+      platforms: { makeroad: { publication: 'draft' } },
+    })).toEqual({ action: 'draft', visibility: 'pending', nativeOutcome: 'review' });
+    expect(batchPublishIntent('makeroad', {
+      __demo: true,
+      platforms: { makeroad: { publication: 'publish' } },
+    })).toEqual({ action: 'draft', visibility: 'pending', nativeOutcome: 'review' });
+  });
+
   it('honors an explicit concurrency of two and continues after one platform fails', () => {
     let batch = createPublishBatch(targets, 'run-1', 2);
     expect(batch.currentId).toBe('makerworld');
@@ -140,6 +168,100 @@ describe('multi-platform publish batches', () => {
     expect(retried.results.makerworld).toMatchObject({ state: 'done', url: 'https://example.test/1' });
     expect(retried.results.cults).toMatchObject({ state: 'done', url: 'https://example.test/3' });
     expect(publishBatchSummary(retried)).toEqual({ total: 3, succeeded: 2, failed: 0, running: 1 });
+  });
+
+  it('retries only safe failures and leaves ambiguous create outcomes for verification', () => {
+    expect(VERIFY_EXISTING_PLATFORM_IDS).toEqual(['mmf', 'creality', 'makeronline', 'makeroad']);
+    let batch = createPublishBatch([
+      { id: 'printables', name: 'Printables', mode: 'real' },
+      { id: 'mmf', name: 'MyMiniFactory', mode: 'real' },
+    ], 'mixed-retry', 2);
+    batch = advancePublishBatch(batch, {
+      runId: 'mixed-retry', platformId: 'printables', state: 'error', detail: 'Request rejected before create',
+    });
+    batch = advancePublishBatch(batch, {
+      runId: 'mixed-retry', platformId: 'mmf', state: 'error', detail: 'Connection ended during create',
+      retryDisposition: 'safe-retry',
+    });
+
+    expect(batch.results.printables.retryDisposition).toBe('safe-retry');
+    expect(batch.results.mmf.retryDisposition).toBe('verify-existing');
+    expect(safeRetryFailedPublishIds(batch)).toEqual(['printables']);
+    expect(publishReceiptLabel(batch.results.mmf)).toBe('Check existing upload');
+
+    const retried = retryFailedPublishBatch(batch, 'mixed-retry-2');
+    expect(retried.activeIds).toEqual(['printables']);
+    expect(retried.results.printables.state).toBe('publishing');
+    expect(retried.results.mmf).toMatchObject({ state: 'error', retryDisposition: 'verify-existing' });
+  });
+
+  it('does not retry non-risky platforms when the failure contains a retained receipt', () => {
+    let batch = createPublishBatch([
+      { id: 'cults', name: 'Cults3D', mode: 'real' },
+    ], 'retained-cults', 1);
+    batch = advancePublishBatch(batch, {
+      runId: 'retained-cults',
+      platformId: 'cults',
+      state: 'error',
+      detail: 'Created, but readback could not certify the listing',
+      url: 'https://example.test/retained-listing',
+      retryDisposition: 'safe-retry',
+    });
+
+    expect(batch.results.cults.retryDisposition).toBe('verify-existing');
+    expect(safeRetryFailedPublishIds(batch)).toEqual([]);
+    expect(retryFailedPublishBatch(batch, 'unsafe-retry')).toBe(batch);
+    expect(publishReceiptLabel(batch.results.cults)).toBe('Saved · Verify existing');
+  });
+
+  it('preserves terminal outcome provenance and remote identifiers', () => {
+    let batch = createPublishBatch([
+      { id: 'creality', name: 'Creality Cloud', mode: 'real' },
+    ], 'provenance-run', 1);
+    batch = advancePublishBatch(batch, {
+      runId: 'provenance-run',
+      platformId: 'creality',
+      state: 'error',
+      detail: 'Processing timed out after the object was retained',
+      publicationState: 'private',
+      url: 'https://example.test/model/42',
+      id: '42',
+      objectId: 'object-42',
+      modelIds: ['model-42'],
+      retained: { id: '42', state: 'private' },
+      verified: false,
+      uncertified: true,
+      timedOut: true,
+      issues: ['model processing is still pending'],
+      verification: 'retained-uncertified',
+      observedOutcome: 'private object retained',
+      evidence: { level: 'retained', source: 'create receipt' },
+      evidenceLevel: 'retained',
+      evidenceLabel: 'Retained; readback incomplete',
+      retryDisposition: 'verify-existing',
+    });
+
+    expect(batch.results.creality).toMatchObject({
+      id: 'creality',
+      remoteId: '42',
+      objectId: 'object-42',
+      modelIds: ['model-42'],
+      retained: { id: '42', state: 'private' },
+      verified: false,
+      uncertified: true,
+      timedOut: true,
+      issues: ['model processing is still pending'],
+      verification: 'retained-uncertified',
+      observedOutcome: 'private object retained',
+      evidence: { level: 'retained', source: 'create receipt' },
+      evidenceLevel: 'retained',
+      evidenceLabel: 'Retained; readback incomplete',
+      retryDisposition: 'verify-existing',
+    });
+    expect(publishReceiptLabel(batch.results.creality)).toBe('Saved · Verify existing');
+    expect(publishRetryDisposition('printables', {
+      state: 'error', retryDisposition: 'manual-check',
+    })).toBe('manual-check');
   });
 
   it('defaults desktop batches to four active platforms and fills the next open slot', () => {
@@ -258,6 +380,7 @@ describe('multi-platform publish batches', () => {
       state: 'success',
       publicationState: 'draft',
       detail: 'Unpublished draft saved',
+      verified: true,
     });
     batch = advancePublishBatch(batch, {
       runId: 'receipt-run',
@@ -266,12 +389,20 @@ describe('multi-platform publish batches', () => {
       detail: 'The server returned a long authentication failure that should remain readable without taking over the whole results card.',
     });
 
-    expect(publishReceiptLabel(batch.results.makerworld)).toBe('Not published · Draft');
-    expect(publishReceiptLabel(batch.results.printables)).toBe('Failed');
+    expect(publishReceiptLabel(batch.results.makerworld)).toBe('Draft saved · Verified');
+    expect(publishReceiptLabel(batch.results.printables)).toBe('Failed · Safe to retry');
     expect(publishBatchSummary(batch)).toEqual({ total: 2, succeeded: 1, failed: 1, running: 0 });
     expect(concisePublishDetail('one   two\nthree', 20)).toBe('one two three');
     expect(concisePublishDetail('x'.repeat(200), 20)).toHaveLength(20);
     expect(concisePublishDetail('x'.repeat(200), 20).endsWith('…')).toBe(true);
+  });
+
+  it('does not claim native publication without verification evidence', () => {
+    expect(publishReceiptLabel({ state: 'done', publicationState: 'public' })).toBe('Publish request complete');
+    expect(publishReceiptLabel({ state: 'done', publicationState: 'public', verified: true })).toBe('Published · Verified');
+    expect(publishReceiptLabel({ state: 'done', publicationState: 'private' })).toBe('Private save complete');
+    expect(publishReceiptLabel({ state: 'done', publicationState: 'pending' })).toBe('Submitted · Review pending');
+    expect(publishReceiptLabel({ state: 'done', publicationState: 'draft', uncertified: true })).toBe('Saved · Verification needed');
   });
 
   it('puts the selected cover first and enforces each platform image cap', () => {

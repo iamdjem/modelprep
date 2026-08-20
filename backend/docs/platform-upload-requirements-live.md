@@ -1,5 +1,9 @@
 # Live upload requirements for all ten ModelPrep publishers
 
+> Retained-result verification from the authorized 2026-08-08 exact-package
+> demo batch is in `demo-upload-live-verification-2026-08-08.md`. Do not treat
+> older safe-core receipt wording as stronger than that newer UI evidence.
+
 Last live audit: **2026-08-02** (Printables read-only mapping plus authorized
 specialist-draft and normal-public closeout; MyMiniFactory current-form and
 retained-editor refresh; other platform dates remain in their sections)
@@ -56,6 +60,14 @@ object `829284` with advanced print data, CC BY-NC-SA and remix parent `829056`.
 The app failed closed at readback because the current hydrated editor names the
 checked remix control `remix-checkbox`; the parser now accepts that current name
 and the older submitted form.
+
+2026-08-08 correction: “mapped” here applies only to the captured free-account
+core and advanced print/remix/licence surface. Current first-party Creator
+Portal documentation confirms unimplemented premium branches: Sell STL Files
+(price plus purchase and post-purchase messages), Premium 500 MB-per-file
+limits, and Archive Mode (25 archives around 5 GB each, without generated 3D
+viewers). ModelPrep hardcodes 100 MiB and `fileMode=0`; it does not expose,
+serialize, or read back those premium/store/archive options.
 
 On 2026-08-03 the corrected exact package re-read `829284` **read-only** and the
 receipt succeeded (`private · 10 images · 3 files · categories 60/462 · remix of
@@ -1123,7 +1135,7 @@ crop previews, but the upload contract preserves the ordered original media.
 
 ## 3.6 Price, license, and visibility
 
-**LIVE DOM, USD price page**
+**LIVE DOM, USD and CZK price pages**
 
 Pricing values:
 
@@ -1144,6 +1156,19 @@ For the USD page audited:
 
 Currency-specific bounds may differ. Read `min`, `max`, and `step` from the
 current price page for the selected currency.
+
+The signed-in CZK page rechecked on 2026-08-08 reports:
+
+- fixed price minimum: **14 CZK**
+- fixed price maximum: **26,000 CZK**
+- open-price minimum: **0 CZK**
+- open-price maximum: **26,000 CZK**
+- step: **0.01**
+- the paid branch exposes a separate **Add discount** flow
+
+ModelPrep currently exposes only free/fixed **USD** pricing. It does not expose
+open price, a currency selector, or the discount flow, and its persisted
+readback does not compare price, currency, or licence.
 
 License values:
 
@@ -1329,6 +1354,14 @@ payload unchanged to all sites.
 | publication | draft/publish and complete readback | private/public/access/plans and details/attachments/license readback | save/preview/publish, public/private, schedule, review, edit readback |
 | current code | complete draft/publish adapter, UI, session bridge and readback; exact-app draft `7390480` live-certified | complete encrypted-token adapter, UI, signed uploads and three-part readback; exact-app private model `1583272` live-certified | complete `X-Token` adapter, UI, four upload roles and readback; exact-app private draft `M2134222528` live-certified; video explicitly unsupported because the current form has no field |
 
+2026-08-08 Thangs correction: the table records intended schema breadth, not
+implemented parity. The adapter drops renderer-provided units, access type,
+plans, dependencies, version notes and feedback; bulk/multipart/assembly do not
+have distinct implemented workflows. The live editor also exposes six Audience
+modes, four print-compatibility flags, video embed URL, inspiration attribution,
+and dynamic licences that ModelPrep does not map. Readback fetches three
+surfaces but does not compare submitted and persisted state.
+
 All three now have their own encrypted persistent desktop partition, account
 marker, options card, adapter, IPC/preload route namespace, request ordering,
 error normalization, per-platform receipt, safe default, canonical readback, and
@@ -1467,7 +1500,9 @@ Rules for the coordinator:
 16. **Thangs' private single-part safe core is live-certified.** Exact-app model
     `1583272` passed details, attachments, license and metadata readback. Multipart,
     bulk/assembly, versions, plans, paid/membership, public/access and other
-    optional structures remain; see `thangs-web-flow.md`.
+    optional structures remain; see `thangs-web-flow.md`. The later v4 Images/
+    part-association correction is local-only, and “passed readback” must not be
+    expanded into exact field-by-field equality.
 17. **MakerRoad's private Save core is live-certified.** Exact-app draft
     `M2134222528` passed authenticated create and required `uploadType=1` edit
     readback. A subsequent full form/bundle audit added local fail-closed
@@ -1526,6 +1561,13 @@ Repeat this audit before a public release and whenever a platform upload breaks.
 
 ## Nexprint
 
+2026-08-08: signed-in read-only inspection confirms the raw/core editor, but
+current attachment help omits `.gcode` and `.goo` while ModelPrep accepts them.
+The retained 3MF has no visible profile section and ModelPrep always sends an
+empty `settingList`. Rich editor asset/media/table branches are unmapped.
+Receipt verification checks only object presence and optional status, not the
+submitted fields or ordered assets.
+
 - record the current production build fingerprint and re-check the signed-in
   `/en/upload`, `/en/editUpload/{id}`, Publish manager Draft tab, taxonomy,
   activity, and collection surfaces
@@ -1543,6 +1585,19 @@ Repeat this audit before a public release and whenever a platform upload breaks.
   future compatibility from the 2026-07-31 fixture
 
 ## MakerOnline
+
+2026-08-08 signed-in correction: the blank production create form still matches
+the detailed visible option map, and retained draft `316221` visibly contains 20
+images, three raw files, its metadata/category/licence, and zero Print Profile
+Files. The account now has eight retained drafts; the pass changed none of them.
+
+This does not establish complete parity. ModelPrep has no control for native
+inline Quill description images. Its current receipt tolerates absent fields and
+checks only title/category plus minimum image/raw-file counts; it does not verify
+exact order/names, description, tags, licence, permission/state, print method,
+AI/NSFW, documentation, kits/sync/Exclusive, or print-profile metadata/media.
+Exclusive was unavailable to this account and also requires actual printed
+photos plus applicable assembly instructions. Keep all optional branches open.
 
 - re-open `/en/upload` and `/en/importThirdPartyModel` in a signed-in account
 - diff all file `accept` attributes, count/size limits, two-step conditional
@@ -1581,6 +1636,13 @@ Repeat this audit before a public release and whenever a platform upload breaks.
 
 ## Creality Cloud
 
+2026-08-08: the signed-in full FlowPrint form confirms structured Remix/
+Non-original attribution, Boost Me, instruction files, and a separate parsed
+3MF profile with cover/gallery/description/printer compatibility. ModelPrep
+does not serialize those source/profile/editor branches; retained evidence shows
+the 3MF was dropped. Its receipt conditionally checks only title, visibility,
+category and minimum raw-model count, leaving most persisted fields unverified.
+
 - inspect the signed-in create iframe, current production bundle, category and
   license data, source/originality branches, cover slots, file/media roles, and
   account-gated controls
@@ -1611,10 +1673,21 @@ Repeat this audit before a public release and whenever a platform upload breaks.
   Electron `session.fetch`
 - preserve first-party signed PUT content types: binary model uploads use
   `application/octet-stream`; text/Markdown/PDF use explicit textual types
-- verify presign, PUT, validatefiles, `v2/models`, assets, and
-  details/attachments/license readback for each certified structure
+- verify current create → signed PUT → `v4/models/validate-files` → draft part
+  readback → `PUT v4/models/{id}/details`; do not restore retired `v2/models`
+  all-in-one create or nonexistent assets routes
+- compare intended and persisted details, images/order, references, parts/
+  primary, audience, print compatibility, attribution and licence; response
+  presence alone is not certification
 
 ## MakerRoad
+
+2026-08-08: normal Chrome redirected to Log In, so this pass could not refresh
+the authenticated form. The August 7 signed-in evidence remains controlling:
+all seven saves were rejected. Local print-method and rejection handling fixes
+have no corrected live save. Readback remains conditional and omits exact asset
+identity/order and most metadata/optional fields; a Save must not be described
+as a safely retained private draft because MakerRoad sends it through review.
 
 - check fresh service availability before inspecting or mutating; a cached old
   page is not proof that the production route has returned

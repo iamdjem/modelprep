@@ -108,6 +108,13 @@ function fileEntry(name, field = 'illustration', mimeType = field === 'model' ? 
   };
 }
 
+const explicitFreeCultsFields = [
+  { name: 'categoryId', kind: 'text', value: '23' },
+  { name: 'licenseType', kind: 'text', value: 'cc_by' },
+  { name: 'free', kind: 'text', value: 'true' },
+  { name: 'price', kind: 'text', value: '0' },
+];
+
 test('desktop direct Cults publish completes a 19-file demo without a Worker subrequest ceiling', async () => {
   const { fetchImpl, requests } = buildSuccessfulFetch();
   const client = createCultsDirectClient({ fetchImpl });
@@ -167,6 +174,7 @@ test('desktop Cults publish rejects an unknown current-form meta tag before auth
   const result = await client.handleRequest({
     url: 'https://modelprep-backend.iamdjem.workers.dev/api/v1/cults3d/web/publish', method: 'POST', bodyType: 'form-data',
     body: [
+      ...explicitFreeCultsFields,
       { name: 'metaTags', kind: 'text', value: '["invented_tag"]' },
       fileEntry('cover.webp'), fileEntry('dragon.stl', 'model'),
     ],
@@ -185,6 +193,7 @@ test('desktop Cults publish retains the receipt but fails certification when edi
     method: 'POST',
     bodyType: 'form-data',
     body: [
+      ...explicitFreeCultsFields,
       { name: 'name', kind: 'text', value: 'Demo dragon' },
       { name: 'visibility', kind: 'text', value: 'secret' },
       fileEntry('cover.webp'),
@@ -196,6 +205,36 @@ test('desktop Cults publish retains the receipt but fails certification when edi
   assert.equal(result.status, 200);
   assert.equal(payload.designUrl, 'https://cults3d.com/en/3d-model/art/demo-dragon');
   assert.match(payload.readbackIssues.join(' '), /illustration IDs/i);
+});
+
+test('desktop Cults publish rejects missing or incompatible mappings before authentication', async () => {
+  let authenticationAttempts = 0;
+  const client = createCultsDirectClient({ fetchImpl: async () => {
+    authenticationAttempts += 1;
+    throw new Error('must not authenticate');
+  } });
+  const request = (fields) => client.handleRequest({
+    url: 'https://modelprep-backend.iamdjem.workers.dev/api/v1/cults3d/web/publish',
+    method: 'POST',
+    bodyType: 'form-data',
+    body: [...fields, fileEntry('cover.webp'), fileEntry('dragon.stl', 'model')],
+  }, { email: 'test@example.com', password: 'secret' }, 'account-1');
+
+  const missingCategory = await request([
+    { name: 'licenseType', kind: 'text', value: 'cc_by' },
+    { name: 'free', kind: 'text', value: 'true' },
+  ]);
+  assert.equal(missingCategory.status, 400);
+  assert.equal(JSON.parse(missingCategory.body).error, 'invalid_category');
+
+  const incompatibleLicense = await request([
+    { name: 'categoryId', kind: 'text', value: '23' },
+    { name: 'licenseType', kind: 'text', value: 'cc_by' },
+    { name: 'price', kind: 'text', value: '5' },
+  ]);
+  assert.equal(incompatibleLicense.status, 400);
+  assert.equal(JSON.parse(incompatibleLicense.body).error, 'invalid_license');
+  assert.equal(authenticationAttempts, 0);
 });
 
 test('connect rejects credentials when Cults returns the sign-in form', async () => {
@@ -290,7 +329,7 @@ test('typed Cults media accepts a GIF cover before authentication', async () => 
     url: 'https://modelprep-backend.iamdjem.workers.dev/api/v1/cults3d/web/publish',
     method: 'POST',
     bodyType: 'form-data',
-    body: [fileEntry('dragon.stl', 'model'), fileEntry('animated-cover.gif', 'illustration', 'image/gif')],
+    body: [...explicitFreeCultsFields, fileEntry('dragon.stl', 'model'), fileEntry('animated-cover.gif', 'illustration', 'image/gif')],
   }, { email: 'test@example.com', password: 'secret' }, 'account-1');
   assert.equal(result.status, 502);
   assert.match(JSON.parse(result.body).message, /must not authenticate/);
@@ -341,7 +380,7 @@ test('Cults publish accepts an ordinary file name through the same guard', async
     url: 'https://modelprep-backend.iamdjem.workers.dev/api/v1/cults3d/web/publish',
     method: 'POST',
     bodyType: 'form-data',
-    body: [fileEntry('dragon-wing.stl', 'model'), fileEntry('cover.webp')],
+    body: [...explicitFreeCultsFields, fileEntry('dragon-wing.stl', 'model'), fileEntry('cover.webp')],
   }, { email: 'test@example.com', password: 'secret' }, 'account-1');
   assert.equal(result.status, 502);
   assert.match(JSON.parse(result.body).message, /must not authenticate/);

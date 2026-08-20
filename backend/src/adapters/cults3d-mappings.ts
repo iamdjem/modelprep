@@ -28,13 +28,14 @@ export const CULTS_CATEGORY_MAP: Record<string, string> = {
   'Other':                  'Q2F0ZWdvcnkvMjk', // Various
 };
 
-/** Default category when the lookup fails — Cults's catch-all bucket. */
+/** Legacy catch-all identifier retained for compatibility with old fixtures.
+ *  Strict resolvers below never select it implicitly. */
 export const CULTS_DEFAULT_CATEGORY_ID = 'Q2F0ZWdvcnkvMjk'; // Various
 
 /** ModelPrep license id (lowercase, no separators) → Cults licenseCode.
  *  Cults imposes free/paid restrictions on licenses (CC = free-only,
  *  cults_cu = paid-only). Use {@link resolveCultsLicense} which enforces
- *  those rules and falls back sensibly. */
+ *  those rules and rejects missing, unknown, or incompatible choices. */
 export const CULTS_LICENSE_MAP: Record<string, string> = {
   cc0:       'cc_pddc',     // CC0 - Creative Commons public domain
   ccby:      'cc_by',       // CC BY - Attribution
@@ -65,16 +66,21 @@ const LICENSE_RULES: Record<string, { free: boolean; paid: boolean }> = {
   mit:         { free: true,  paid: false },
 };
 
-/** Pick a Cults category id from the frontend's category string. Unknown
- *  values fall back to "Various" so a publish never blocks on a missing map. */
+/** Resolve either a ModelPrep category label or an explicit Cults Relay ID.
+ *  Missing and unknown values fail closed so publishing never silently moves
+ *  a creation into Cults's "Various" category. */
 export function resolveCultsCategory(modelprepCategory?: string): {
   categoryId: string;
   substituted: boolean;
-} {
-  if (!modelprepCategory) return { categoryId: CULTS_DEFAULT_CATEGORY_ID, substituted: true };
-  const id = CULTS_CATEGORY_MAP[modelprepCategory];
-  if (id) return { categoryId: id, substituted: false };
-  return { categoryId: CULTS_DEFAULT_CATEGORY_ID, substituted: true };
+} | null {
+  const requested = String(modelprepCategory || '').trim();
+  if (!requested) return null;
+  const mapped = CULTS_CATEGORY_MAP[requested];
+  if (mapped) return { categoryId: mapped, substituted: false };
+  if (new Set(Object.values(CULTS_CATEGORY_MAP)).has(requested)) {
+    return { categoryId: requested, substituted: false };
+  }
+  return null;
 }
 
 /** Web flow uses INTEGER category IDs (`category_id=25`) in its form POSTs,
@@ -94,29 +100,32 @@ export function relayCategoryToInt(relayId: string): number {
 export function resolveCultsCategoryInt(modelprepCategory?: string): {
   categoryId: number;
   substituted: boolean;
-} {
+} | null {
+  const requested = String(modelprepCategory || '').trim();
+  const direct = Number(requested);
+  const validIds = new Set(Object.values(CULTS_CATEGORY_MAP).map(relayCategoryToInt));
+  if (Number.isInteger(direct) && validIds.has(direct)) {
+    return { categoryId: direct, substituted: false };
+  }
   const r = resolveCultsCategory(modelprepCategory);
+  if (!r) return null;
   return { categoryId: relayCategoryToInt(r.categoryId), substituted: r.substituted };
 }
 
-/** Pick a Cults license code, enforcing the free/paid compatibility rules.
- *  If the requested license isn't valid for the chosen price tier, falls back
- *  to:
- *    - free creation → cults_pu (works for both)
- *    - paid creation → cults_cu (commercial-use, works for paid)
- *  Returns `substituted=true` whenever the original choice wasn't honored. */
+/** Resolve either a ModelPrep license id or a direct Cults license code while
+ *  enforcing free/paid compatibility. Missing, unknown, and incompatible
+ *  choices fail closed instead of being replaced with a Cults default. */
 export function resolveCultsLicense(
   modelprepLicense: string | undefined,
   isPaid: boolean,
-): { licenseCode: string; substituted: boolean } {
-  const requested = modelprepLicense ? CULTS_LICENSE_MAP[modelprepLicense] : undefined;
-  const fallback = isPaid ? 'cults_cu' : 'cults_pu';
-
-  if (!requested) return { licenseCode: fallback, substituted: true };
+): { licenseCode: string; substituted: boolean } | null {
+  const value = String(modelprepLicense || '').trim();
+  const requested = LICENSE_RULES[value] ? value : CULTS_LICENSE_MAP[value];
+  if (!requested) return null;
   const rules = LICENSE_RULES[requested];
-  if (!rules) return { licenseCode: fallback, substituted: true };
+  if (!rules) return null;
 
   const compatible = isPaid ? rules.paid : rules.free;
   if (compatible) return { licenseCode: requested, substituted: false };
-  return { licenseCode: fallback, substituted: true };
+  return null;
 }

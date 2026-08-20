@@ -93,7 +93,17 @@ The current form sends `category` (numeric ID), `description` (summary), pending
 
 ## ModelPrep parity requirements
 
-The enabled implementation covers isolated session storage; ordered files/images; Markdown metadata; AI/WIP/customizable/remix/source/NSFW; print settings; custom and education sections; draft-first safety; publish as a separate explicit action; edit/files/images readback; and independent receipts. The current 80-value production taxonomy is stored by ID (never picker position). The unpublished core path is browser-proven and exact-packaged-app live-certified; public and optional branches remain separate evidence gaps.
+The enabled implementation covers isolated session storage; ordered files/images;
+Markdown metadata; AI/WIP/customizable/remix/source/NSFW; draft-first safety;
+publish as a separate explicit action; and edit/files/images endpoint readback. The
+current 80-value production taxonomy is stored by ID (never picker position).
+The unpublished core path is browser-proven and exact-packaged-app
+live-certified; public and optional branches remain separate evidence gaps.
+
+Do not describe all print settings, rich sections, education, groups, design
+tools, or complete field-by-field readback as implemented parity. The adapter
+has payload slots for several of them, but the current product UI and upload
+lifecycle do not expose or verify the complete live form.
 
 ## 2026-08-04 independent browser revalidation
 
@@ -104,3 +114,94 @@ Others Customize** unless at least one `.SCAD` model file exists. Therefore
 ModelPrep must disable that option without SCAD, fail preflight if stale saved
 state still requests it, and repeat the same validation in the desktop adapter
 before constructing a Thing payload.
+
+## 2026-08-08 signed-in upload-flow re-audit
+
+This pass inspected the current signed-in `thing:0/edit` flow, all normal Thing
+sections, the separate Education Project mode, every category label, all
+licences, the Remix branch, design tools, account group state, and retained
+draft `7390480`. Only unsaved local form state changed. No file was selected or
+uploaded and no Thing was saved, published, accepted, or deleted.
+
+### Confirmed current parity
+
+- The entry point remains `https://www.thingiverse.com/thing:0/edit`. The live
+  create menu links there. ModelPrep's direct adapter uses the correct URL.
+- All 80 current category labels match `THINGIVERSE_CATEGORIES`, and all 13
+  current licence choices match `THINGIVERSE_LICENSES`.
+- Core fields are represented: ordered model files and gallery images, name,
+  Markdown body, category, tags, AI, WIP, SCAD-gated Customizer, Remix plus
+  source Thing ID, NSFW tag, licence, draft/publish separation, and publish-time
+  terms acknowledgement.
+- The 2026-08-07 local fix now builds the Thing body from the explicit summary
+  plus the full project Markdown description. Eight direct-adapter tests pass,
+  including the body and SCAD gates. This is **locally verified only**: retained
+  draft `7390480` still contains only its one-line summary and proves the old
+  content-loss behavior, not the fix.
+
+## 2026-08-09 retained category and thumbnail follow-up
+
+Rendered inspection of draft `7393174` proved that category `124` is
+`Toys & Games › Mechanical Toys`, not a suitable calibration-fixture category.
+The correct current taxonomy entry is category `129`, rendered as
+`3D Printing › 3D Printing Tests` in the native editor. The demo fixture now
+uses `129` and a regression test pins that mapping. The existing draft has the
+correct category selected locally, but it has not been saved pending the final
+browser mutation confirmation.
+
+The gallery contains the ten ordered source images plus two platform-generated
+STL renders. Eleven of the twelve rendered thumbnails have positive dimensions.
+Only the second source image remains `0 × 0`; its generated resize URL contains
+an anomalous `h=1`, while the original CDN asset remains retained. This is a
+Thingiverse resize-derivative defect, not missing source-image persistence, and
+must not be generalized to other platforms or repaired by re-uploading the
+draft without separate authorization.
+
+### Newly bounded gaps
+
+1. **The general platform link was wrong and is now fixed locally.**
+   `PLATFORM_URLS.thingiverse` used to point to
+   `https://www.thingiverse.com/create`, which resolves to the profile of a user
+   named `create` (`/create/designs`), not the uploader. It now uses
+   `/thing:0/edit`, matching the authenticated adapter.
+2. **Structured print settings are only partially exposed.** The live form has
+   printer brand and dependent model selectors; tri-state rafts and supports;
+   resolution; infill; filament material (PLA, Tough PLA, ABS, TPU, PETG, CPE,
+   PC, PVA, or Other); filament brand; color; other-material name; and Markdown
+   notes. ModelPrep exposes only free-text printer/model, material, resolution,
+   and infill. The adapter accepts several hidden keys, but users cannot select
+   them through ModelPrep and no live readback proves them.
+3. **Rich sections are not end-to-end mapped.** Post Printing, How I Designed
+   This, and arbitrary custom sections each accept ordered text, uploaded images,
+   and video. ModelPrep provides a raw JSON textarea and does not upload/finalize
+   detail images, attachments, or video URLs as structured section content.
+4. **Education Project is schema-shaped, not product-mapped.** The live mode has
+   grades (Kindergarten through Higher Education), subjects, NGSS/CCSS standards,
+   Overview & Background, Lesson Plan & Activity, Materials Needed, Skills,
+   Duration, Preparation, Handouts & Assets, Rubric & Assessment, and References;
+   its content sections also accept text/image/video. ModelPrep exposes one raw
+   JSON textarea. Its default detail-type list has no explicit Handouts & Assets
+   entry, and there is no live metadata picker, section builder, asset uploader,
+   validation, or persisted branch proof.
+5. **Design tools and groups are absent from the product flow.** The current
+   form offers 68 design tools. This account has no group choices, and group
+   sharing requires publication. The adapter has `thing_programs` and
+   `thing_groups` fields, but the renderer neither exposes nor sends
+   `programIds`/`groupIds`.
+6. **Readback is not complete verification.** ModelPrep requests edit, files,
+   and images, but the renderer currently checks only that a readback object
+   exists. It does not compare title/body, category, tags, licence, flags,
+   sources, sections, education data, file order, or gallery order against the
+   intended payload. A partial save can therefore report “verified.”
+
+### Current verdict
+
+- **Normal unpublished Thing, safe core:** live-certified historically. The
+  full-description repair is locally tested but still needs one separately
+  authorized draft/readback to become live evidence.
+- **Structured print settings, rich sections, Education Project, design tools,
+  groups, Remix, Customizer, and public publish:** not fully mapped or not
+  separately live-certified. Do not call Thingiverse fully certified.
+- The smallest safe implementation slice is: correct the platform link, expose
+  the missing print-setting controls, and make readback field-by-field before
+  requesting any account-backed draft verification.

@@ -129,8 +129,10 @@ describe('shared section navigation layout', () => {
     expect(header).toHaveClass('flex', 'items-center');
     expect(header.contains(toggle)).toBe(true);
     expect(header.contains(heading)).toBe(true);
+    // Two pills now share the row: the connection state and the destination
+    // readiness summary.
     const pills = header.querySelectorAll('.mp-pill');
-    expect(pills).toHaveLength(1);
+    expect(pills).toHaveLength(2);
     pills.forEach((pill) => expect(pill).toHaveClass('flex-shrink-0', 'whitespace-nowrap'));
 
     // The description sits after the row, not indented inside the name column.

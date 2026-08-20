@@ -10,6 +10,46 @@ Nuxt bundles, and read-only request/response inspection. Discovery did not uploa
 a file, save a draft, publish a model, link a third-party profile, or expose the
 account's token/verification phrase in this document.
 
+## 2026-08-08 signed-in continuation audit
+
+The blank production create form, its conditional Remix/Creative Kit/licence
+controls, the account Draft tab, and retained draft `316221` were reopened in
+the user's normal signed-in Chrome. This pass was read-only: no file was chosen,
+no form was saved or submitted, and no retained item was changed.
+
+- The visible Step 1 map below remains current, including the eight licences,
+  Original/Remix URL branch, AI declaration, 20 ordered images, two-level model
+  type, 20 tags, Public/Private, FDM/Resin/Both, rich description,
+  documentation, NSFW, and Creative Kits.
+- The current account is not Exclusive-eligible. The live gate says account-wide
+  downloads `>=50` **or** online prints `>=20`, and also calls for print-profile
+  settings, actual printed photos, and assembly instructions when applicable.
+- Creative Kits still exposes the same 11 server-provided choices recorded
+  below. China sync was not rendered for this ineligible/unlinked account.
+- The account now has **eight retained drafts**, not only the two older evidence
+  ids emphasized by this document. They were left untouched.
+- Draft `316221` visibly retains the title, `Toys&Games / Characters` category,
+  20 images, three raw files (`desk-dragon-S.stl`, `desk-dragon-M.stl`, and
+  `desk-dragon-bambu.3mf`), rich description, eight tags, and CC BY-NC. It shows
+  zero Print Profile Files. This confirms the ordinary retained core only.
+
+The audit also found two important implementation/certification gaps:
+
+1. ModelPrep does not offer MakerOnline's inline rich-description image upload
+   even though the native Quill editor supports it through image scene `2`.
+2. ModelPrep labels a receipt `verified` after optional title/category checks
+   and minimum image/raw-file counts. Missing readback fields pass silently, and
+   it does not compare exact image order/cover, filenames, description, tags,
+   licence, permissions/draft state, printing method, AI/NSFW, documentation,
+   kits, sync, Exclusive, or any print-profile metadata/media. “Saved and read
+   back” therefore must not be interpreted as complete persisted parity.
+
+Parsed profiles, documentation, Remix, public, Creative Kit, China sync,
+Exclusive, Resin-only, paid, inline description images, and high-count/large-file
+cases remain unverified. Exclusive also needs an explicit product-level gate for
+its printed-photo/assembly requirements before ModelPrep should offer a live
+submission to an eligible account.
+
 ## API choice and trust boundary
 
 No documented public third-party model-upload API was found. MakerOnline's current
@@ -326,7 +366,8 @@ Implemented locally:
 - every audited upload role and server 3MF parsing;
 - ordered images, raw models, documentation, print-profile images/metadata;
 - draft-first one-click batch integration plus explicit public action;
-- edit-info title/category/image/file readback checks;
+- partial edit-info title/category/minimum image-count/minimum raw-file-count
+  checks (not complete field/order verification);
 - demo safety, payload/transport tests, UI option tests, account-marker tests, and
   production frontend build.
 
@@ -349,3 +390,102 @@ matrix certification.
 
 The exact continuation procedure and reusable next-agent prompt are in
 `modelprep-current-handoff-2026-08-01.md`.
+
+## 2026-08-09 dual-role 3MF certification slice — ready, not yet uploaded
+
+Read-only inspection of retained draft `317477` established MakerOnline's
+authoritative edit-info shape. A `.3mf` is accepted by the raw-model uploader
+(`scene_type: 1`, retained under `files`) and MakerOnline also exposes a real
+server-parsed print-profile branch (`scene_type: 5`, `/api/file/parse-info`,
+retained under `print_files`). Whether the **same physical Bambu 3MF** persists
+correctly in both roles at once remains the hypothesis for one separately
+authorized draft; it is not yet retained proof.
+
+The previous receipt checked only title/category and minimum asset counts. The
+current implementation adds `deploy/src/lib/makeronline-verify.js` and wires it
+through `MakerOnlineUploadFlow`:
+
+- expectations come from MakerOnline upload records, not a payload derived from
+  the saved object;
+- raw files compare ordered storage key, native filename/extension, native byte
+  count and positive parsed `model_size`; dimensions compare exactly only when
+  the upload response itself supplied an authoritative `model_size`;
+- images compare ordered keys and require exactly one `is_main`, on the first
+  uploaded image;
+- profile state distinguishes absent, empty and populated `print_files`, and
+  checks `print_file_type`, ordered profile key/name/bytes, title, description
+  and profile images;
+- retained parser values (`printers`, `nozzle`, `layer`, `plates`,
+  `parse_type`) compare structurally against `/api/file/parse-info` rather than
+  merely being non-empty;
+- title, HTML description, category, tags, licence, permission, source,
+  `print_types`, AI/NSFW flags, docs, `is_offline` and live-confirmed draft
+  `status: 3` fail closed;
+- FDM/Resin/Both expectations mirror the adapter (`3` becomes `[1,2]`);
+- certification polls the same saved id every 3 seconds for at most 120 seconds
+  and never resubmits;
+- id/state/URL are captured immediately after `save-draft` and survive later
+  readback or verification failure.
+
+The desktop upload adapter now separates convenient source fallbacks from
+native response evidence. `name`/`size` may still fall back for payload
+construction, but certification requires `key`, `nativeFileName`, positive
+`nativeFileSize` and `url`. Missing native fields cannot be hidden by source
+values. An incomplete parser expectation is rejected **before** `save-draft`,
+so no object is created that ModelPrep already knows it cannot certify.
+
+Verification baseline after this slice: deploy **450/450**, desktop **208/208**,
+backend **31/31**, TypeScript clean, production build complete, package rebuilt,
+strict deep codesign and designated requirement valid, and `git diff --check`
+clean. The signed-URL scan finds only the synthetic redaction test. The worktree
+remains intentionally unstaged.
+
+### Next authorized action
+
+Exactly one unpublished `POST /api/mold/save-draft` through the exact signed
+package, MakerOnline only, with the other nine platforms disabled. The fixture
+keeps all three raw files and intentionally sends the Bambu 3MF again through
+the print-profile parser. Expected safe configuration: private permission `2`,
+free, FDM `[1]`, Original, CC BY-NC (`3`), category `36`, no Exclusive, kits,
+China sync, paid state or agreements. Do not retry automatically if parsing,
+save or retained certification fails.
+
+Still unknown until that run: dual-role retention, whether MakerOnline's parser
+accepts the Bambu profile, whether it rewrites `bambu` in the filename, and
+whether upload responses supply `model_size` for exact rather than merely
+positive geometry comparison. Rendered edit UI/DOM remains a separate evidence
+level even after API readback.
+
+## 2026-08-09 authorized package attempt — stopped before save
+
+The exact rebuilt and Developer-ID-signed `desktop/dist/mac-arm64/ModelPrep.app`
+was driven through its own UI with MakerOnline as the only enabled platform.
+Both STLs and the Bambu 3MF were selected as raw files, and the same 3MF was
+enabled as a print profile. The safe settings were Private, FDM, Original,
+CC BY-NC, Test Models, free, and no AI/NSFW/kits/sync/Exclusive options.
+
+MakerOnline accepted the file and image uploads, but `/api/file/parse-info`
+returned none of the required structural profile values: `printers`, `nozzle`,
+`layer`, `plates`, or `parseType`. The pre-save expectation gate therefore
+stopped before `POST /api/mold/save-draft`. **No draft was created and the
+action was not retried.** Dual-role retention, filename masking, upload-time
+`model_size`, and retained API/rendered certification remain unknown.
+
+Two local wiring defects were corrected before the attempt: `App.jsx` now
+imports the expectation builder it calls, and the certification demo explicitly
+uses manual MakerOnline file selection so its Bambu 3MF is actually selected.
+Focused renderer coverage passed 54/54, the desktop MakerOnline suite passed
+6/6, the production renderer/package rebuilt, and strict codesign passed.
+
+Local archive inspection subsequently established the cause without another
+upload or slicer launch. The bundled 3MF is a Bambu Studio project containing
+the correct puck mesh and preview images, but `printer_model` is empty,
+`gcode_file` is empty, and `slice_info.config` contains only a header with no
+plate. ModelPrep's old demo bootstrap also fabricated plausible printer, layer,
+plate, time and material values, which prevented the real scanner from replacing
+them. That fabrication is removed. Header-only Bambu projects now remain
+`sliced: false`; MakerOnline keeps the same 3MF eligible as an ordinary raw model
+file but disables its print-profile role unless real embedded printer and sliced
+plate metadata are present. A truthful dual-role certification therefore still
+requires a genuinely sliced user-supplied 3MF and a newly authorized one-draft
+attempt.

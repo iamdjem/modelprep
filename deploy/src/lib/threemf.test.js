@@ -86,6 +86,18 @@ describe('3mf slicer detection', () => {
     });
     const parsed = await parseThreeMF(blob, loadZip);
     expect(parsed.slicer).toBe('bambu');
+    expect(parsed.sliced).toBe(false);
+  });
+
+  it('does not treat a header-only Bambu slice-info file as sliced', async () => {
+    const blob = await makeZip({
+      '3D/3dmodel.model': '<model><metadata name="Application">BambuStudio-02.07.01.62</metadata></model>',
+      'Metadata/slice_info.config': '<config><header><header_item key="X-BBL-Client-Type" value="slicer"/></header></config>',
+      'Metadata/project_settings.config': JSON.stringify({ printer_model: '', layer_height: '0.2' }),
+    });
+    const parsed = await parseThreeMF(blob, loadZip);
+    expect(parsed).toMatchObject({ slicer: 'bambu', sliced: false, printer: null });
+    expect(parsed).not.toHaveProperty('plates');
   });
 
   it('marks a plain CAD-exported 3mf as unknown and unsliced', async () => {
@@ -140,6 +152,22 @@ describe('3mf embedded thumbnail', () => {
     const parsed = await parseThreeMF(blob, loadZip);
     // plate_1.png encodes to a distinct payload; the small variant must not win.
     expect(parsed.thumbnail).toBe(`data:image/png;base64,${Buffer.from(PNG_BYTES).toString('base64')}`);
+  });
+
+  it('indexes every build plate and extracts part and geometry metadata', async () => {
+    const blob = await makeZip({
+      '3D/3dmodel.model': '<model unit="millimeter"><resources><object id="7" name="Body"><mesh><vertices><vertex x="0" y="0" z="0"/></vertices><triangles><triangle v1="0" v2="0" v3="0"/></triangles></mesh></object><object id="8" name="Lid"/></resources></model>',
+      'Metadata/slice_info.config': '<config><plate/><plate/></config>',
+      'Metadata/plate_1.png': PNG_BYTES,
+      'Metadata/plate_2.png': Uint8Array.from([2, 2, 2]),
+      'Metadata/model_settings.config': '<config><plate><metadata key="plater_id" value="1"/><model_instance><metadata key="object_id" value="7"/></model_instance></plate><plate><metadata key="plater_id" value="2"/><metadata key="plater_name" value="Lid plate"/><model_instance><metadata key="object_id" value="8"/></model_instance></plate></config>',
+    });
+    const parsed = await parseThreeMF(blob, loadZip);
+    expect(parsed).toMatchObject({ plates: 2, triangles: 1, vertices: 1, shells: 2, units: 'millimeter' });
+    expect(parsed.parts).toEqual([{ id: '7', name: 'Body', type: 'model' }, { id: '8', name: 'Lid', type: 'model' }]);
+    expect(parsed.plateDetails.map((plate) => plate.index)).toEqual([1, 2]);
+    expect(parsed.plateDetails[1]).toMatchObject({ name: 'Lid plate', objectIds: ['8'] });
+    expect(parsed.plateDetails.every((plate) => plate.thumbnail?.startsWith('data:image/png'))).toBe(true);
   });
 
   it('falls back to the OPC standard location', async () => {

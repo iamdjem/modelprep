@@ -53,7 +53,7 @@ describe('one-click multi-platform publishing', () => {
     };
 
     render(<BatchPublishPanel targets={targets} batch={batch} onPublish={vi.fn()} onRetryFailed={onRetryFailed} onOpenConnections={vi.fn()} />);
-    const retry = screen.getByRole('button', { name: /retry 1 failed only/i });
+    const retry = screen.getByRole('button', { name: /verify existing upload/i });
     await user.click(retry);
     expect(onRetryFailed).toHaveBeenCalledOnce();
     expect(screen.getByRole('status')).toHaveTextContent('1 succeeded');
@@ -201,14 +201,14 @@ describe('one-click multi-platform publishing', () => {
     await user.click(publishNav);
 
     const publishAll = await screen.findByRole('button', {
-      name: /upload sample to 10 platforms/i,
+      name: /upload sample to 10 ready destinations/i,
     });
     expect(publishAll).toBeEnabled();
     expect(screen.getAllByText('live')).toHaveLength(10);
     expect(screen.getByText(/sends the bundled sample files/i)).toBeInTheDocument();
     expect(screen.getByText(/up to four at a time in the desktop app/i)).toBeInTheDocument();
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('Thangs private');
-    expect(screen.getByText(/No public listings:/i)).toHaveTextContent('MakerRoad draft');
+    expect(screen.getByText(/No public listings:/i)).toHaveTextContent('MakerRoad review pending');
     expect(screen.getByText(/No public listings:/i)).toHaveTextContent('Thingiverse draft');
     expect(screen.queryByText(/Skipped until its requirements are fixed:/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /expand every platform package/i })).toBeInTheDocument();
@@ -223,7 +223,7 @@ describe('one-click multi-platform publishing', () => {
 
     await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
-    expect(await screen.findByRole('button', { name: /upload sample to 1 platform/i })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: /upload sample to 1 ready destination/i })).toBeEnabled();
     expect(screen.getByText(/Skipped until connected:/i)).toHaveTextContent('Printables');
     expect(fetch.mock.calls.some(([, init]) => String(init?.method || 'GET').toUpperCase() !== 'GET')).toBe(false);
   });

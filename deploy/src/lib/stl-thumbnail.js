@@ -205,5 +205,5 @@ function normalise(v) {
 export function stlThumbnailFromBuffer(buffer, options = {}) {
   const tris = parseStlTriangles(buffer, options);
   if (!tris.length) return null;
-  return renderStlThumbnail(tris, options);
+  return { ...renderStlThumbnail(tris, options), bounds: meshBounds(tris) };
 }

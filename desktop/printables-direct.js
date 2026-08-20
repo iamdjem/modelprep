@@ -77,6 +77,7 @@ async function printablesWhoamiDirect(cookie, fetchImpl = fetch) {
       storeActive
       storeFee
       maxStoreModels: maxPaidModels
+      tiers { id name }
       user {
         id
         handle
@@ -92,7 +93,7 @@ async function printablesWhoamiDirect(cookie, fetchImpl = fetch) {
     ...capabilities,
     ...user,
     id: user?.id ?? data.me.id,
-    tiers: [],
+    tiers: Array.isArray(data.me.tiers) ? data.me.tiers : [],
   };
 }
 
@@ -241,14 +242,14 @@ async function modelStatus(cookie, id, fetchImpl) {
       tags { id name }
       image { id filePath order }
       images { id filePath order }
-      stls { id name folder note order }
-      slas { id name folder note order layerHeight printDuration }
+      stls { id name folder note order fileSize }
+      slas { id name folder note order layerHeight printDuration fileSize }
       gcodes {
-        id name folder note order weight layerHeight nozzleDiameter printDuration excludeFromTotalSum
+        id name folder note order weight layerHeight nozzleDiameter printDuration excludeFromTotalSum fileSize
         material { id name }
         printer { id name }
       }
-      otherFiles { id name folder note order }
+      otherFiles { id name folder note order fileSize }
       remixParents { id parentPrintId url }
       remixDescription
       publishRequests { id status created }

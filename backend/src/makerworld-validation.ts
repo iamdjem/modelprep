@@ -33,11 +33,11 @@ export function validateMakerWorldPublish(input: MakerWorldPublishInput): string
   if (!input.model3mf && !(input.modelFiles?.length)) errors.push('at least one model file is required');
   for (const file of input.modelFiles ?? []) {
     if (!MW_REGULAR_FORMATS.has(file.modelType.toLowerCase())) errors.push(`${file.modelName} has unsupported format .${file.modelType}`);
-    if (file.modelSize > 200 * MB) errors.push(`${file.modelName} exceeds the 200MB per-file limit`);
   }
-  if (input.model3mf && input.model3mf.size > 150 * MB) errors.push(`${input.model3mf.name} exceeds the 150MB 3MF limit`);
-  const totalBytes = (input.modelFiles ?? []).reduce((sum, file) => sum + file.modelSize, input.model3mf?.size ?? 0);
-  if (totalBytes > 250 * MB) errors.push('model files exceed the 250MB total limit');
+  // Documented caps only: .3mf 200 MiB (current live spec; 150 rejected
+  // legitimate 150-200 MiB Bambu files). Raw-file and aggregate caps are
+  // documented UNKNOWN and are not enforced (house rule: no invented caps).
+  if (input.model3mf && input.model3mf.size > 200 * MB) errors.push(`${input.model3mf.name} exceeds the 200MB 3MF limit`);
   if ((input.tags?.length ?? 0) > 50) errors.push('at most 50 tags are allowed');
   if ((input.galleryUrls?.length ?? 0) > 16) errors.push('at most 16 model pictures are allowed');
   if ((input.designVideo?.length ?? 0) > 1) errors.push('at most one model video is allowed');
@@ -71,7 +71,8 @@ export function validateLaserCutPublish(input: LaserCutPublishInput): string[] {
   if (!input.lacFile && !(input.modelFiles?.length)) errors.push('provide one .lac file or at least one raw Laser & Cut file');
   if (input.lacFile) {
     if (!/\.lac$/i.test(input.lacFile.name)) errors.push('lacFile must be a .lac file');
-    if (input.lacFile.size > 200 * MB) errors.push(`${input.lacFile.name} exceeds the 200MB per-file limit`);
+    // Documented .lac cap is 100 MiB.
+    if (input.lacFile.size > 100 * MB) errors.push(`${input.lacFile.name} exceeds the 100MB per-file limit`);
     if (!input.lacInfo?.plates?.length) errors.push('lacInfo.plates is required for .lac uploads');
     if (!input.lacInfo?.machineName?.trim()) errors.push('lacInfo.machineName is required for .lac uploads');
     if (!input.lacInfo?.processTypes?.length) errors.push('lacInfo.processTypes is required for .lac uploads');
@@ -82,10 +83,7 @@ export function validateLaserCutPublish(input: LaserCutPublishInput): string[] {
   }
   for (const file of input.modelFiles ?? []) {
     if (!MW_LASER_FORMATS.has(file.modelType.toLowerCase())) errors.push(`${file.modelName} has unsupported Laser & Cut format .${file.modelType}`);
-    if (file.modelSize > 200 * MB) errors.push(`${file.modelName} exceeds the 200MB per-file limit`);
   }
-  const totalBytes = (input.modelFiles ?? []).reduce((sum, file) => sum + file.modelSize, input.lacFile?.size ?? 0);
-  if (totalBytes > 250 * MB) errors.push('Laser & Cut files exceed the 250MB total limit');
   if ((input.tags?.length ?? 0) > 50) errors.push('at most 50 tags are allowed');
   if (input.cyberBrick && !input.cyberBrick.controlConfig?.length) errors.push('CyberBrick requires at least one control configuration');
   if (input.modelSource === 'remix' && !input.remixDescription?.trim()) errors.push('remixDescription is required');

@@ -1,25 +1,55 @@
 const assert = require('node:assert/strict'); const test = require('node:test');
-const { buildModelPayload, createThangsDirectClient, extractCreatedModelId, findLicenseReadback, validateUpload } = require('./thangs-direct');
-const input = { name: 'Dragon', structure: 'single', units: 'mm', parts: [{ name: 'dragon.stl', uploadedName: 'u/dragon.stl', size: 5, primary: true }], images: [], references: [], isPublic: false };
+const { buildModelPayload, createThangsDirectClient, extractCreatedModelId, findLicenseReadback, matchPartRequests, validateUpload } = require('./thangs-direct');
+const input = { name: 'Dragon', parts: [{ name: 'dragon.stl', uploadedName: 'u/dragon.stl', size: 5, primary: true }], images: [], references: [], isPublic: false };
 test('Thangs validates filenames, formats and hard size thresholds', () => { assert.throws(() => validateUpload('model', { name: 'bad#name.stl', bytes: Buffer.alloc(1) }), /characters/); assert.throws(() => validateUpload('model', { name: 'x.zip', bytes: Buffer.alloc(1) }), /does not accept/); });
-test('Thangs payload preserves private default and uses the live part field names', () => { const [payload] = buildModelPayload(input); assert.equal(payload.isPublic, false); assert.equal(payload.modelType, 'single'); assert.deepEqual(payload.parts[0], { originalFileName: 'dragon.stl', originalPartName: 'dragon.stl', filename: 'u/dragon.stl', size: 5, isPrimary: true }); });
-test('Thangs details use attachment objects and omit absent folder identifiers', () => {
+test('Thangs payload preserves private default via the visibility string and carries no parts array', () => { const [payload] = buildModelPayload(input); assert.equal(payload.visibility, 'private'); assert.equal(Object.hasOwn(payload, 'isPublic'), false); assert.equal(Object.hasOwn(payload, 'parts'), false); assert.equal(payload.isInitialUpload, true); });
+test('Thangs ignores renderer-only fields that are absent from the native details contract', () => {
+  const [payload] = buildModelPayload({
+    ...input,
+    structure: 'assembly',
+    units: 'in',
+    accessTypeId: 'phantom-access',
+    planIds: ['phantom-plan'],
+    dependencies: ['phantom-dependency'],
+    versionNotes: 'phantom notes',
+    feedbackEnabled: true,
+  });
+  for (const key of ['structure', 'modelType', 'units', 'accessTypeId', 'planIds', 'dependencies', 'versionNotes', 'feedbackEnabled']) {
+    assert.equal(Object.hasOwn(payload, key), false, `${key} must not be sent to Thangs`);
+  }
+});
+test('Thangs derives one multipart model from part count without structure or units', () => {
+  const payloads = buildModelPayload({
+    ...input,
+    parts: [input.parts[0], { name: 'wing.stl', uploadedName: 'u/wing.stl', size: 4 }],
+  });
+  assert.equal(payloads.length, 1);
+});
+test('Thangs details put photos in images and only non-image references in attachments', () => {
   const [payload] = buildModelPayload({
     ...input,
     images: [{ name: 'hero.jpg', uploadedName: 'u/hero.jpg', size: 11 }],
     references: [{ name: 'notes.txt', uploadedName: 'u/notes.txt', size: 12 }],
   });
-  assert.deepEqual(payload.attachments, [{ name: 'hero.jpg', filename: 'u/hero.jpg', size: 11 }]);
-  assert.deepEqual(payload.referenceFiles, [{ name: 'notes.txt', filename: 'u/notes.txt', size: 12 }]);
+  assert.deepEqual(payload.images, [{ filename: 'u/hero.jpg' }]);
+  assert.deepEqual(payload.attachments, [{ name: 'notes.txt', filename: 'u/notes.txt' }]);
+  assert.equal(Object.hasOwn(payload, 'referenceFiles'), false);
   assert.equal(Object.hasOwn(payload, 'folderId'), false);
   assert.equal(Object.hasOwn(payload, 'workspaceId'), false);
 });
+test('Thangs names validated parts and picks the primary from the draft partRequests', () => {
+  const info = matchPartRequests([{ partIdentifier: 'p-1', filename: 'u/dragon.stl' }], input.parts);
+  assert.deepEqual(info, { partNames: [{ partIdentifier: 'p-1', name: 'dragon.stl' }], primaryPart: 'p-1' });
+  assert.equal(matchPartRequests([], input.parts), null);
+  assert.equal(matchPartRequests(undefined, input.parts), null);
+});
 test('Thangs upload uses presign, raw PUT and validation before create/readback', async () => {
   const calls = []; const response = (body) => new Response(JSON.stringify(body), { status: 200 });
-  const fetchImpl = async (url, init = {}) => { calls.push([String(url), init.method || 'GET', init.body, init]); if (String(url) === 'https://storage.test/u') return new Response('', { status: 200 }); if (String(url).includes('upload-urls')) return response([{ signedUrl: 'https://storage.test/u', newFileName: 'u/dragon.stl' }]); if (String(url).endsWith('/v4/models')) return response(8); if (String(url).endsWith('/models/8/details') && (init.method || 'GET') === 'GET') return response({ draftModel: { license_path: 'CC BY-NC' } }); return response({ ok: true }); };
+  const fetchImpl = async (url, init = {}) => { calls.push([String(url), init.method || 'GET', init.body, init]); if (String(url) === 'https://storage.test/u') return new Response('', { status: 200 }); if (String(url).includes('upload-urls')) return response([{ signedUrl: 'https://storage.test/u', newFileName: 'u/dragon.stl' }]); if (String(url).endsWith('/users/current?likes=false')) return response({ id: 7, username: 'fixture-owner' }); if (String(url).endsWith('/v4/models')) return response(8); if (String(url).endsWith('/models/8/details') && (init.method || 'GET') === 'GET') return response({ draftModel: { license_path: 'CC BY-NC' } }); return response({ ok: true }); };
   const client = createThangsDirectClient({ fetchImpl, apiOrigin: 'https://api.test', now: () => new Date('2026-08-01T12:00:00.000Z') }); const context = { cookie: 'session=x', accessToken: 'access-token' };
   const part = await client.upload(context, 'model', { name: 'dragon.stl', bytes: Buffer.from('x') }); const saved = await client.save(context, { ...input, parts: [{ ...part, primary: true }] }); await client.status(context, saved.id);
-  assert.equal(saved.id, '8'); assert.deepEqual(calls.slice(0, 3).map((v) => [new URL(v[0]).pathname, v[1]]), [['/models/upload-urls', 'POST'], ['/u', 'PUT'], ['/models/validatefiles', 'POST']]);
+  assert.equal(saved.id, '8'); assert.equal(saved.url, 'https://thangs.com/designer/fixture-owner/3d-model/8'); assert.deepEqual(calls.slice(0, 5).map((v) => [new URL(v[0]).pathname, v[1]]), [['/models/upload-urls', 'POST'], ['/u', 'PUT'], ['/v4/models', 'POST'], ['/v4/models/validate-files', 'POST'], ['/v4/models/8', 'GET']]);
+  assert.deepEqual(JSON.parse(calls.find(([url]) => url.endsWith('/v4/models/validate-files'))[2]), { files: ['u/dragon.stl'] });
   assert.equal(calls[1][3]?.headers?.['Content-Length'], undefined);
   assert.equal(calls[1][3]?.headers?.['Content-Type'], 'application/octet-stream');
   assert.equal(calls[0][3]?.headers?.Authorization, 'Bearer access-token');
@@ -29,7 +59,10 @@ test('Thangs upload uses presign, raw PUT and validation before create/readback'
   assert.deepEqual(JSON.parse(draft[2]), { name: 'dragon.stl', termsAcceptedAt: '2026-08-01T12:00:00.000Z' });
   const details = calls.find(([url]) => url.endsWith('/v4/models/8/details'));
   assert.equal(details[1], 'PUT');
-  assert.deepEqual(JSON.parse(details[2]).parts[0], { originalFileName: 'dragon.stl', originalPartName: 'dragon.stl', filename: 'u/dragon.stl', size: 1, isPrimary: true });
+  const body = JSON.parse(details[2]);
+  assert.equal(Object.hasOwn(body, 'parts'), false);
+  assert.equal(body.visibility, 'private');
+  assert.equal(calls.some(([url]) => url.includes('/models/validatefiles')), false);
   assert.equal(calls.some(([url]) => url.includes('/v2/models/8/license')), false);
 });
 test('Thangs accepts current primitive create ids plus older envelopes', () => {
@@ -46,12 +79,12 @@ test('Thangs finds the persisted license in current and nested editor readbacks'
 });
 test('Thangs resumes an existing private draft without creating a duplicate', async () => {
   const calls = [];
-  const fetchImpl = async (url, init = {}) => { calls.push([String(url), init.method || 'GET', init.body]); return new Response(JSON.stringify({ ok: true }), { status: 200 }); };
+  const fetchImpl = async (url, init = {}) => { calls.push([String(url), init.method || 'GET', init.body]); return new Response(JSON.stringify(String(url).endsWith('/users/current?likes=false') ? { id: 7, username: 'fixture-owner' } : { ok: true }), { status: 200 }); };
   const client = createThangsDirectClient({ fetchImpl, apiOrigin: 'https://api.test' });
   const saved = await client.save({ accessToken: 'access-token' }, { ...input, existingId: '1583177' });
   assert.equal(saved.id, '1583177');
   assert.equal(calls.some(([url, method]) => url.endsWith('/v4/models') && method === 'POST'), false);
-  assert.equal(calls[0][0], 'https://api.test/v4/models/1583177/details');
+  assert.deepEqual(calls.map(([url, method]) => [url.replace('https://api.test', ''), method]), [['/v4/models/validate-files', 'POST'], ['/v4/models/1583177', 'GET'], ['/v4/models/1583177/details', 'PUT'], ['/users/current?likes=false', 'GET']]);
 });
 test('Thangs falls back to the owner model projection for license readback', async () => {
   const fetchImpl = async (url) => {
@@ -59,14 +92,22 @@ test('Thangs falls back to the owner model projection for license readback', asy
     if (path === '/models/12/details') return new Response(JSON.stringify({ name: 'Dragon' }), { status: 200 });
     if (path === '/models/12/attachments') return new Response(JSON.stringify([{ filename: 'hero.jpg' }]), { status: 200 });
     if (path === '/models/12') return new Response(JSON.stringify({ license_path: 'CC BY-NC' }), { status: 200 });
+    if (path === '/users/current') return new Response(JSON.stringify({ id: 7, username: 'fixture-owner' }), { status: 200 });
     return new Response('{}', { status: 404 });
   };
   const client = createThangsDirectClient({ fetchImpl, apiOrigin: 'https://api.test' });
   const readback = await client.status({ accessToken: 'access-token' }, '12');
   assert.equal(readback.license, 'CC BY-NC');
+  assert.equal(readback.url, 'https://thangs.com/designer/fixture-owner/3d-model/12');
 });
 test('Thangs rejects single-part-only formats inside multipart structures', () => {
-  assert.throws(() => buildModelPayload({ ...input, structure: 'multipart', parts: [{ ...input.parts[0], name: 'dragon.3mf' }] }), /single-part models/);
+  assert.throws(() => buildModelPayload({
+    ...input,
+    parts: [
+      { ...input.parts[0], name: 'dragon.3mf' },
+      { name: 'wing.stl', uploadedName: 'u/wing.stl', size: 4 },
+    ],
+  }), /single-part models/);
 });
 test('Thangs standalone files use the dedicated presign contract', async () => {
   const calls = []; const fetchImpl = async (url, init = {}) => { calls.push([String(url), init.method || 'GET', init.body]); if (String(url) === 'https://storage.test/s') return new Response('', { status: 200 }); return new Response(JSON.stringify([{ signedUrl: 'https://storage.test/s', newFileName: 's/readme.pdf' }]), { status: 200 }); };

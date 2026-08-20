@@ -1,12 +1,48 @@
 # MakerRoad upload flow map
 
+> **CORRECTION (2026-08-07).** The "live-certified private draft M2134222528"
+> claim is wrong in effect: a private Save still enters MakerRoad review, and
+> ALL seven retained drafts sit under Drafts > Rejected Models ("cover is not a
+> real photo"). The required Print Method was empty on every draft because the
+> server drops English labels (`FDM`); ModelPrep now resolves print methods to
+> live `printerType` catalog ids and the readback fails on status-looking
+> fields, lost descriptions, and lost printType. See
+> `live-ui-verification-2026-08-07.md`.
+
+## 2026-08-08 continuation audit boundary
+
+MakerRoad redirected normal Chrome to Log In, so its current create/edit form
+could not be re-inspected authenticated. No credential was entered and no item
+changed. The latest live evidence remains the 2026-08-07 signed-in inspection
+of all seven rejected saves; the code comparison is current as of 2026-08-08.
+
+The newer print-method resolver and rejection/status checks are locally
+implemented but have no corrected live save. Readback remains conditional and
+partial: it checks title, visibility, plan, pay type, status-looking fields,
+non-empty description/print type and role counts only when present. It does not
+compare exact names/order, categories, tags, licence, AI/NSFW, printers,
+materials, colors, attribution, schedule timestamp, price value, or terms.
+
+All seven retained saves remain rejected historical artifacts. “Save private
+draft” is misleading because saved items enter review. No optional or corrected
+print-method branch is live-certified.
+
 Audit date: **2026-08-02** (refreshed against the current production page and bundles)
 Surface: authenticated production upload page `https://www.makeroad.com/printable_3D_model/upload`, live English DOM, current Nuxt bundles, and first-party request definitions
 Mutation update: on **2026-08-01** an early packaged attempt transmitted private-test assets but `/api/models/info` rejected the final Save because the `X-Token` login cookie was not mirrored into the required `X-Token` header. ModelPrep now mirrors it and validates sessions through authenticated `GET /api/user` instead of the public taxonomy endpoint. After the service returned, exact-app private draft `M2134222528` saved successfully and passed edit readback through `/api/models/getEdit?id=M2134222528&uploadType=1`, completing safe-core certification. Recheck authenticated availability after future service outages. On **2026-08-02**, the live upload DOM and the current route bundle (`COhJdF3H.js`, SHA-256 `1ff4c2d8ba040c8380a1c6535012e543d653e34c92f06866eeabf7f087b08f35`; application bundle `BZUL9akC.js`, SHA-256 `7b2e368859cd0dff8f4a9dbd915ad6e15813c54f5fb361b0f31557ae0d541578`) showed no native video input, upload role, or `/api/models/info` serializer field.
 
 ## Integration decision
 
-**NO PUBLIC DEVELOPER UPLOAD API FOUND; EXPERIMENTAL DESKTOP PATH IMPLEMENTED AND SAFE CORE LIVE-CERTIFIED.** The production site exposes a complete first-party JSON/multipart contract under `https://www.makeroad.com/api`. Treat it as a **REQUEST CONTRACT**, not a supported public API. ModelPrep has a tested UI, isolated-session transport, dynamic metadata, four upload roles, token-aware save/review submission, and edit-readback path. Private Save is live-certified; public/review, paid, remix, schedule and other optional branches remain separate. The current native upload form has no video input or save serializer field, so ModelPrep must warn and not send video media rather than guessing a contract.
+**NO PUBLIC DEVELOPER UPLOAD API FOUND; EXPERIMENTAL DESKTOP PATH IMPLEMENTED,
+BUT THE FORMER SAFE-CORE CERTIFICATION IS WITHDRAWN.** The production site
+exposes a complete first-party JSON/multipart contract under
+`https://www.makeroad.com/api`. Treat it as a **REQUEST CONTRACT**, not a
+supported public API. ModelPrep has a tested UI, isolated-session transport,
+dynamic metadata, four upload roles, token-aware save/review submission, and
+edit-readback path. Public/review, paid, remix, schedule and other optional
+branches remain separate. The current native upload form has no video input or
+save serializer field, so ModelPrep must warn and not send video media rather
+than guessing a contract.
 
 ## Live workflow
 

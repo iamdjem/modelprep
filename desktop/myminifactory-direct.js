@@ -264,6 +264,11 @@ function parseEditPage(html, objectId) {
     // forms fail-closed: a remix must be explicitly checked in read-back.
     remix: inputChecked(html, 'threedobject_type[remix]') || inputChecked(html, 'remix-checkbox'),
     remixParentIds: (matchValue(html, 'threedobject_type[remix_parents]') || matchValue(html, 'threedObjectRemixParents')).split(',').map((id) => id.trim()).filter(Boolean),
+    // Description and tags are the fields most likely to be wrong (format
+    // defects survive silently), and both are present on the edit page, so the
+    // read-back must return them instead of certifying blind (audit X6).
+    description: matchTextareaValue(html, 'threedobject_type[description]'),
+    tags: (matchValue(html, 'threedObjectTags') || matchValue(html, 'threedobject_type[tags]')).split(',').map((tag) => tag.trim()).filter(Boolean),
   };
 }
 
@@ -467,9 +472,12 @@ function createMyMiniFactoryDirectClient({ fetchImpl = fetch, uuid = randomUUID,
       add('threedobject_temp_type[remix]', '1');
       add('threedobject_temp_type[remix_parents]', input.remixParentIds.join(','));
     }
-    add('no_derivatives', flags.noDerivatives ? '1' : '0');
-    add('non_commercial', flags.nonCommercial ? '1' : '0');
-    add('exclusive', flags.exclusive ? '1' : '0');
+    // The native form submits these three empty and `license_id` is
+    // authoritative (live-confirmed 2026-08-07: our computed 0/1 values did not
+    // persist into the licence radios). Match the native form exactly.
+    add('no_derivatives', '');
+    add('non_commercial', '');
+    add('exclusive', '');
     add('license_id', licenseId);
     add('threedobject_temp_type[not_ai]', '1');
     input.images.forEach((image) => add('imgnames[]', image.name));

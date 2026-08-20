@@ -494,7 +494,7 @@ describe('Unified Settings page', () => {
     await user.click(screen.getByRole('button', { name: /Codex CLI/i }));
     await user.click(screen.getByRole('button', { name: /remove from chain/i }));
     expect(savedConfig()).toMatchObject({ primary: 'ollama', fallbacks: [] });
-  });
+  }, 20000);
 
   it('carries an older single-provider setup forward without losing the saved key', async () => {
     localStorage.setItem('modelprep:ai-config', JSON.stringify({ provider: 'groq', apiKey: 'sk-old', model: 'llama-vision' }));

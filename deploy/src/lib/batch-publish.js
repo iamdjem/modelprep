@@ -57,8 +57,13 @@ export function batchPublishIntent(platformId, project) {
   }
   if (platformId === 'makeroad') {
     const publication = project.platforms?.makeroad?.publication === 'publish' ? 'publish' : 'draft';
-    return safeDemo ? { action: 'draft', visibility: 'draft' } : {
-      action: publication, visibility: publication === 'publish' ? 'pending' : 'draft',
+    // Keep the existing action values because the adapter uses them to choose
+    // MakerRoad's Save or Publish endpoint. Both native actions enter review,
+    // so neither may be represented as a retained private draft.
+    return {
+      action: safeDemo ? 'draft' : publication,
+      visibility: 'pending',
+      nativeOutcome: 'review',
     };
   }
   if (platformId === 'thangs') {
@@ -86,6 +91,8 @@ export function orderedPlatformImages(platform, project) {
 }
 
 export const DESKTOP_PUBLISH_CONCURRENCY = 4;
+export const VERIFY_EXISTING_PLATFORM_IDS = ['mmf', 'creality', 'makeronline', 'makeroad'];
+const VERIFY_EXISTING_PLATFORM_ID_SET = new Set(VERIFY_EXISTING_PLATFORM_IDS);
 const MAX_RESOURCE_TELEMETRY_SAMPLES = 32;
 export const RESOURCE_REPORT_STORAGE_KEY = 'modelprep:resource-telemetry-reports:v1';
 const RESOURCE_REPORT_LIMIT = 10;
@@ -100,11 +107,12 @@ export function createPublishBatch(targets, runId, requestedConcurrency = DESKTO
       state: 'pending',
       action: target.action,
       visibility: target.visibility,
+      nativeOutcome: target.nativeOutcome,
       publicationState: target.visibility,
       simulated: target.mode === 'simulation',
       detail: target.mode === 'simulation'
-        ? `${target.action === 'draft' ? 'Draft save' : `${target.visibility} publish`} simulation queued`
-        : `${target.action === 'draft' ? 'Draft save' : `${target.visibility} publish`} queued`,
+        ? `${target.nativeOutcome === 'review' ? 'Review submission' : target.action === 'draft' ? 'Draft save' : `${target.visibility} publish`} simulation queued`
+        : `${target.nativeOutcome === 'review' ? 'Review submission' : target.action === 'draft' ? 'Draft save' : `${target.visibility} publish`} queued`,
     },
   ]));
   const concurrency = Math.max(1, Math.min(Number(requestedConcurrency) || 1, targets.length || 1));
@@ -124,6 +132,87 @@ export function createPublishBatch(targets, runId, requestedConcurrency = DESKTO
   };
 }
 
+const OUTCOME_PROVENANCE_FIELDS = [
+  'retained',
+  'verified',
+  'uncertified',
+  'timedOut',
+  'issues',
+  'evidence',
+  'evidenceLevel',
+  'evidenceLabel',
+  'verification',
+  'observedOutcome',
+];
+
+function copyOutcomeValue(value) {
+  if (Array.isArray(value)) return [...value];
+  if (value && typeof value === 'object') return { ...value };
+  return value;
+}
+
+function outcomeRemoteIdentity(outcome) {
+  const identity = {};
+  for (const [key, value] of Object.entries(outcome || {})) {
+    if (value == null || key === 'runId' || key === 'platformId') continue;
+    if (key === 'id') {
+      // `result.id` is the destination id used by the scheduler. Preserve a
+      // publisher's generic object id without replacing that stable key.
+      identity.remoteId = copyOutcomeValue(value);
+    } else if (key === 'ids' || /(?:Id|Ids)$/.test(key)) {
+      identity[key] = copyOutcomeValue(value);
+    }
+  }
+  return identity;
+}
+
+function outcomeProvenance(outcome) {
+  const provenance = outcomeRemoteIdentity(outcome);
+  for (const key of OUTCOME_PROVENANCE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(outcome || {}, key)) {
+      provenance[key] = copyOutcomeValue(outcome[key]);
+    }
+  }
+  return provenance;
+}
+
+function outcomeHasRetainedReceipt(outcome) {
+  if (!outcome) return false;
+  if (outcome.retained || outcome.uncertified || outcome.timedOut || outcome.url) return true;
+  return Object.keys(outcomeRemoteIdentity(outcome)).length > 0;
+}
+
+function resultHasRetainedReceipt(result) {
+  if (!result) return false;
+  if (result.retained || result.uncertified || result.timedOut || result.url || result.remoteId) return true;
+  return Object.keys(result).some((key) => (
+    key !== 'id'
+    && key !== 'runId'
+    && key !== 'platformId'
+    && (key === 'ids' || /(?:Id|Ids)$/.test(key))
+  ));
+}
+
+export function publishRetryDisposition(platformId, outcome) {
+  if (outcome?.state === 'success') return outcome.retryDisposition || 'not-needed';
+
+  // These adapters can fail after a remote create has started, including
+  // before a complete receipt reaches the renderer. Repeating the create is
+  // never the safe default, even when the outcome lacks an id or URL.
+  if (VERIFY_EXISTING_PLATFORM_ID_SET.has(platformId)) return 'verify-existing';
+
+  if (outcomeHasRetainedReceipt(outcome)) return 'verify-existing';
+  return outcome?.retryDisposition || 'safe-retry';
+}
+
+export function safeRetryFailedPublishIds(batch) {
+  if (!batch) return [];
+  return batch.targetIds.filter((id) => (
+    batch.results[id]?.state === 'error'
+    && batch.results[id]?.retryDisposition === 'safe-retry'
+  ));
+}
+
 export function advancePublishBatch(batch, outcome) {
   if (!batch || batch.status !== 'running') return batch;
   const activeIds = batch.activeIds || (batch.currentId ? [batch.currentId] : []);
@@ -139,6 +228,8 @@ export function advancePublishBatch(batch, outcome) {
       publicationState: outcome.publicationState || batch.results[outcome.platformId].publicationState,
       simulated: outcome.simulated ?? batch.results[outcome.platformId].simulated,
       url: outcome.url || '',
+      ...outcomeProvenance(outcome),
+      retryDisposition: publishRetryDisposition(outcome.platformId, outcome),
     },
   };
   const remainingActive = activeIds.filter((id) => id !== outcome.platformId);
@@ -160,7 +251,7 @@ export function advancePublishBatch(batch, outcome) {
 
 export function retryFailedPublishBatch(batch, runId) {
   if (!batch || batch.status !== 'done') return batch;
-  const failedIds = batch.targetIds.filter((id) => batch.results[id]?.state === 'error');
+  const failedIds = safeRetryFailedPublishIds(batch);
   if (!failedIds.length) return batch;
 
   const results = { ...batch.results };
@@ -192,7 +283,14 @@ export function publishReceiptLabel(result) {
   if (!result) return 'Ready';
   if (result.state === 'publishing') return 'Working';
   if (result.state === 'pending') return 'Queued';
-  if (result.state === 'error') return 'Failed';
+  if (result.state === 'error') {
+    if (result.retryDisposition === 'verify-existing') {
+      return resultHasRetainedReceipt(result) ? 'Saved · Verify existing' : 'Check existing upload';
+    }
+    if (result.retryDisposition === 'manual-check') return 'Manual check needed';
+    if (result.retryDisposition === 'safe-retry') return 'Failed · Safe to retry';
+    return 'Failed';
+  }
   if (result.state !== 'done') return 'Ready';
 
   const publicationState = result.publicationState || result.visibility;
@@ -203,12 +301,21 @@ export function publishReceiptLabel(result) {
       : 'Publish';
     return `Simulated · ${simulatedLabel}`;
   }
-  if (publicationState === 'draft') return 'Not published · Draft';
-  if (publicationState === 'pending') return 'Pending approval';
-  if (publicationState === 'private') return 'Published · Private';
-  if (publicationState === 'secret') return 'Published · Secret';
-  if (publicationState === 'live' || publicationState === 'public') return 'Published';
-  if (publicationState === 'submitted') return 'Submitted';
+
+  const verification = String(result.verification || '').toLowerCase();
+  const needsVerification = result.uncertified
+    || result.retained
+    || result.verified === false
+    || ['retained-uncertified', 'unverified', 'unknown'].includes(verification);
+  if (needsVerification) return 'Saved · Verification needed';
+
+  const verified = result.verified === true || verification === 'verified';
+  if (publicationState === 'draft') return verified ? 'Draft saved · Verified' : 'Draft save complete';
+  if (publicationState === 'pending' || publicationState === 'pending-review') return 'Submitted · Review pending';
+  if (publicationState === 'private') return verified ? 'Private save · Verified' : 'Private save complete';
+  if (publicationState === 'secret') return verified ? 'Secret listing · Verified' : 'Secret listing request complete';
+  if (publicationState === 'live' || publicationState === 'public') return verified ? 'Published · Verified' : 'Publish request complete';
+  if (publicationState === 'submitted') return verified ? 'Submitted · Verified' : 'Submission complete';
   return 'Complete';
 }
 
