@@ -25,7 +25,8 @@ working tree is clean.
   collapsible AI panel; Images is a filmstrip + full-width editor with drag reorder;
   Profiles is a single column with a selector only when >1 profile; Platforms is a
   single-column destination list with readiness pills and accordion panels; Publish is
-  stacked (review → destination readiness → preflight → batch panel → accordions).
+  stacked (project review, one publish action, then one destination list whose rows
+  expand to that platform's listing preview and its own upload controls).
 - **Merged features** (from the redesign worktree, via a symbol-level three-way merge):
   calibration-puck demo, worker hashing + STL preview pre-generation, file role model,
   shared category/license auto-mapping with AutoMatchNote, sliced-3MF profile gating,
