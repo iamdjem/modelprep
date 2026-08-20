@@ -70,25 +70,55 @@ function pointsAttribute(THREE, points, y = 0.11) {
   return new THREE.BufferAttribute(values, 3);
 }
 
-function makePlateGrid(THREE, profile) {
-  const segments = buildPlateGridSegments(profile);
-  const group = new THREE.Group();
-  const add = (points, color, opacity) => {
-    if (!points.length) return;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', pointsAttribute(THREE, points));
-    group.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false })));
+// The grid used to be hairline GL lines, which cannot anti-alias at grazing
+// angles: they break into dashes and z-fight with the plate as the camera
+// moves. Baking the same 10 mm/50 mm grid into a mipmapped, anisotropically
+// filtered texture gives smooth lines from every angle and replaces hundreds
+// of line segments with one quad.
+function makePlateGrid(THREE, profile, renderer) {
+  const width = profile.printable.width;
+  const depth = profile.printable.depth;
+  const size = 2048;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  const sx = size / width;
+  const sy = size / depth;
+  const line = (x1, y1, x2, y2, cssWidth, style) => {
+    ctx.strokeStyle = style;
+    ctx.lineWidth = cssWidth;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
   };
-  add(segments.minor, '#A8ABB4', 0.14);
-  add(segments.major, '#BFC2CA', 0.29);
-  const border = [
-    [-profile.printable.width / 2, -profile.printable.depth / 2], [profile.printable.width / 2, -profile.printable.depth / 2],
-    [profile.printable.width / 2, -profile.printable.depth / 2], [profile.printable.width / 2, profile.printable.depth / 2],
-    [profile.printable.width / 2, profile.printable.depth / 2], [-profile.printable.width / 2, profile.printable.depth / 2],
-    [-profile.printable.width / 2, profile.printable.depth / 2], [-profile.printable.width / 2, -profile.printable.depth / 2],
-  ];
-  add(border, '#D0D2D7', 0.34);
-  return group;
+  const minorPx = Math.max(1.5, sx * 0.28);
+  const majorPx = Math.max(2.5, sx * 0.5);
+  for (let index = 0, x = 0; x <= width + 1e-6; index += 1, x += 10) {
+    const px = Math.min(size - 1, x * sx);
+    line(px, 0, px, size, index % 5 === 0 ? majorPx : minorPx, index % 5 === 0 ? 'rgba(191,194,202,0.55)' : 'rgba(168,171,180,0.30)');
+  }
+  for (let index = 0, y = 0; y <= depth + 1e-6; index += 1, y += 10) {
+    const py = Math.min(size - 1, y * sy);
+    line(0, py, size, py, index % 5 === 0 ? majorPx : minorPx, index % 5 === 0 ? 'rgba(191,194,202,0.55)' : 'rgba(168,171,180,0.30)');
+  }
+  ctx.strokeStyle = 'rgba(208,210,215,0.7)';
+  ctx.lineWidth = majorPx * 1.2;
+  ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, size - ctx.lineWidth, size - ctx.lineWidth);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, depth),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.62, depthWrite: false, toneMapped: false }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.12;
+  mesh.renderOrder = 1;
+  return mesh;
 }
 
 function canvasTexture(THREE, renderer, width, height, draw) {
@@ -110,6 +140,7 @@ function decalPlane(THREE, texture, width, height, x, z) {
   );
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.set(x, 0.14, z);
+  mesh.renderOrder = 2;
   return mesh;
 }
 
@@ -330,7 +361,11 @@ export default function InteractiveBuildPlate({
         sceneRoot = new THREE.Group();
         scene.add(sceneRoot);
 
-        const camera = new THREE.PerspectiveCamera(38, 1, 0.1, Math.max(2000, worldSize * 20));
+        // Depth precision is the whole ballgame for a plate whose grid and
+        // decals sit fractions of a millimetre above the surface: a 0.1..2000
+        // range spent almost all its bits far away and let coplanar layers
+        // z-fight at grazing angles. Size the range to the scene instead.
+        const camera = new THREE.PerspectiveCamera(38, 1, Math.max(1, worldSize * 0.02), worldSize * 8);
         camera.up.set(0, 1, 0);
         cameraRef.current = camera;
         controls = new OrbitControls(camera, canvas);
@@ -368,7 +403,7 @@ export default function InteractiveBuildPlate({
         plateBase.position.y = -plateDepth;
         plateBase.receiveShadow = true;
         sceneRoot.add(plateBase);
-        sceneRoot.add(makePlateGrid(THREE, profile));
+        sceneRoot.add(makePlateGrid(THREE, profile, renderer));
         sceneRoot.add(makePlateDecals(THREE, profile, renderer));
 
         const controlsTexture = makePlateControlsTexture(THREE, renderer);
@@ -378,6 +413,7 @@ export default function InteractiveBuildPlate({
         );
         plateControls.rotation.x = -Math.PI / 2;
         plateControls.position.set(profile.physical.width * 0.58, 0.16, -profile.printable.depth * 0.20);
+        plateControls.renderOrder = 2;
         sceneRoot.add(plateControls);
 
         const numberTexture = makePlateNumberTexture(THREE, renderer);
@@ -387,6 +423,7 @@ export default function InteractiveBuildPlate({
         );
         plateNumber.rotation.x = -Math.PI / 2;
         plateNumber.position.set(profile.physical.width * 0.56, 0.17, profile.physical.depth * 0.55);
+        plateNumber.renderOrder = 2;
         sceneRoot.add(plateNumber);
 
         let modelRoot;
