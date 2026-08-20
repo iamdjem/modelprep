@@ -149,12 +149,13 @@ describe('shared section navigation layout', () => {
     await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
 
-    for (const heading of ['Direct publishing', 'Export & future connections']) {
-      const grid = screen.getByRole('heading', { name: heading }).parentElement.parentElement.nextElementSibling;
-      // Destinations are a single-column row list now, prototype-style.
-      expect(grid).toHaveClass('grid-cols-1');
-      expect(grid).not.toHaveClass('xl:grid-cols-2', '2xl:grid-cols-3');
-    }
+    // One list, not a direct/export split: every platform publishes from a
+    // connected account, so the second group was always empty.
+    const grid = screen.getByTestId('destination-list');
+    // Destinations are a single-column row list now, prototype-style.
+    expect(grid).toHaveClass('grid-cols-1');
+    expect(grid).not.toHaveClass('xl:grid-cols-2', '2xl:grid-cols-3');
+    expect(screen.queryByRole('heading', { name: /export & future connections/i })).toBeNull();
   });
 
   it('collapses and restores the desktop project sidebar', async () => {
