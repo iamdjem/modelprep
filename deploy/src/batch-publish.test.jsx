@@ -211,7 +211,7 @@ describe('one-click multi-platform publishing', () => {
     await user.click(publishNav);
 
     const publishAll = await screen.findByRole('button', {
-      name: /upload sample to 10 ready destinations/i,
+      name: /upload sample to 10 ready platforms/i,
     });
     expect(publishAll).toBeEnabled();
     expect(screen.getAllByText('live')).toHaveLength(10);
@@ -225,7 +225,7 @@ describe('one-click multi-platform publishing', () => {
     expect(screen.getByRole('heading', { name: /project review/i })).toBeInTheDocument();
     // The destination list is the single status surface; it no longer needs a
     // heading of its own competing with the step title.
-    expect(screen.getByText(/Each row is that destination's whole status/i)).toBeInTheDocument();
+    expect(screen.getByText(/One row per platform, carrying everything about it/i)).toBeInTheDocument();
   }, 15000);
 
   it('does not upload on load and skips disconnected destinations without blocking ready ones', async () => {
@@ -239,7 +239,7 @@ describe('one-click multi-platform publishing', () => {
 
     await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
-    expect(await screen.findByRole('button', { name: /upload sample to 1 ready destination/i })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: /upload sample to 1 ready platform/i })).toBeEnabled();
     // The destination row is the single status surface now: Printables carries
     // its own "will skip" pill and its own Connect action.
     expect(screen.getAllByText('Not connected · will skip').length).toBeGreaterThan(0);

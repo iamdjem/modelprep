@@ -19,7 +19,7 @@ describe('new direct-platform option parity', () => {
       images: [{ id: 'cover' }], coverImageId: 'cover', title: 'Dragon', description: 'A dragon', category: 'toys', tags: [],
       platforms: { makeroad: { visibility: 'private' } },
     });
-    expect(result.warnings).toContain('MakerRoad’s current upload form has no native video field; video media will not upload.');
+    expect(result.warnings).toContain("MakerRoad's current upload form has no native video field; video media will not upload.");
   });
   // The attestation is unverifiable, so it is asked for at publish time rather
   // than kept as a standing error. Nothing uploads until it is ticked.
@@ -140,7 +140,7 @@ describe('new direct-platform option parity', () => {
       title: 'Dragon', description: 'A dragon', category: 'toys', tags: [],
       platforms: { creality: { categoryId: '1575', license: 'CC BY-NC', excludedFileIds: ['f1'] } },
     });
-    expect(result.errors).toContain('No model or print-profile role is selected for Creality Cloud; assign at least one compatible file in Package.');
+    expect(result.errors).toContain('No model or print-profile role is selected for Creality Cloud; give at least one compatible file a role in Files.');
   });
   it('lets per-platform file exclusions drop a slicer-specific variant', () => {
     const files = [

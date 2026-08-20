@@ -270,3 +270,29 @@ describe('Details layout', () => {
     expect(screen.queryByText(/Each platform has its own category tree/i)).toBeNull();
   });
 });
+
+describe('the listing writer', () => {
+  it('offers one button, in the header when collapsed and by the hint when open', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /step 2: details/i }));
+
+    // Collapsed: one button, and pressing it does not open the panel.
+    expect(screen.getAllByRole('button', { name: /write it/i })).toHaveLength(1);
+    expect(screen.queryByPlaceholderText(/anything the photos do not show/i)).toBeNull();
+
+    await user.click(screen.getByText(/write the listing for me/i));
+    expect(screen.getByPlaceholderText(/anything the photos do not show/i)).toBeInTheDocument();
+    // Open: still one, next to the hint field rather than doubled up.
+    expect(screen.getAllByRole('button', { name: /write it/i })).toHaveLength(1);
+  });
+});
+
+describe('copy', () => {
+  it('uses straight quotes and names screens rather than step numbers', () => {
+    render(<App />);
+    const text = document.body.textContent;
+    expect(text).not.toMatch(/[‘’“”]/);
+    expect(text).not.toMatch(/step 0\d/i);
+  });
+});

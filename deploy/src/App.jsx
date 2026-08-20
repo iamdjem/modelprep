@@ -209,12 +209,12 @@ import {
 // Lets any component open the Connections (accounts) modal without prop-threading.
 const FORMAT_FILTERED_PLATFORM_IDS = new Set(['printables', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs']);
 const SECTIONS = [
-  { id: 'files',     label: 'Files',     icon: Folder,    description: 'Upload your STL and 3MF files' },
-  { id: 'details',   label: 'Details',   icon: FileText,  description: 'Title, description, tags, category, license' },
-  { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover, gallery photos and compatible model videos' },
-  { id: 'profiles',  label: 'Profiles',  icon: Layers,    description: 'Print profile per 3MF, with own description' },
-  { id: 'platforms', label: 'Platforms', icon: Globe,     description: 'Choose where to publish and platform-specific options' },
-  { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Publish once to selected platforms or individually' },
+  { id: 'files',     label: 'Files',     icon: Folder,    description: 'Model files, print profiles and photos' },
+  { id: 'details',   label: 'Details',   icon: FileText,  description: 'The listing you write once' },
+  { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover, gallery and video' },
+  { id: 'profiles',  label: 'Profiles',  icon: Layers,    description: 'Settings for each sliced 3MF' },
+  { id: 'platforms', label: 'Platforms', icon: Globe,     description: 'Where it goes, and how each one publishes it' },
+  { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Send it everywhere at once, or one at a time' },
 ];
 
 const ConnectionsCtx = createContext(() => {});
@@ -442,7 +442,7 @@ export const PLATFORMS = [
     descFormat: 'html', maxImages: null, maxFileMb: 1024, maxTotalMb: null,
     formats: PRINTABLES_FORMATS,
     hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Uploads through Printables’ own upload form. Drafts stay private until you hit Publish there.',
+    fields: [], note: `Uploads through Printables' own upload form. Drafts stay private until you hit Publish there.`,
     limits: { titleMax: 255, tagCharMax: 25, tagPattern: /^[a-z0-9\s]+$/, tagHint: 'lowercase letters, numbers and spaces' },
   },
   {
@@ -457,7 +457,7 @@ export const PLATFORMS = [
     // flat_keywords documented as 20 tags / 300 chars total; total-chars is
     // checked in the Cults preflight block below.
     limits: { tagMax: 20 },
-    fields: ['price'], note: 'Uploads through Cults3D’s own upload flow. Paid marketplace (you keep 80%). Accepts video (mp4/webm). Put real print photos first in the gallery.',
+    fields: ['price'], note: `Uploads through Cults3D's own upload flow. Paid marketplace (you keep 80%). Accepts video (mp4/webm). Put real print photos first in the gallery.`,
   },
   {
     id: 'mmf', name: 'MyMiniFactory', org: 'SoulCrafted', dot: '#4FB286',
@@ -470,7 +470,7 @@ export const PLATFORMS = [
     // 100 MiB object-file cap, but do not invent a gallery limit.
     descFormat: 'html', maxImages: null, maxFileMb: 100, maxTotalMb: null,
     formats: MYMINIFACTORY_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Uploads through MyMiniFactory’s own upload form. Stays private by default; going public sends it into MyMiniFactory review.',
+    fields: [], note: `Uploads through MyMiniFactory's own upload form. Stays private by default; going public sends it into MyMiniFactory review.`,
     limits: { tagMax: 20 },
   },
   {
@@ -493,7 +493,7 @@ export const PLATFORMS = [
     preserveOriginalImages: true,
     descFormat: 'markdown', maxImages: null, maxFileMb: null, maxTotalMb: null,
     formats: ['stl', '3mf', 'step', 'stp', 'obj', 'glb', 'fbx', 'blend', 'usdz', 'gltf'], hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Uploads through Thangs’ own upload flow. New uploads stay private unless you choose public.',
+    fields: [], note: `Uploads through Thangs' own upload flow. New uploads stay private unless you choose public.`,
   },
   {
     id: 'nexprint', name: 'Nexprint', org: 'Elegoo', dot: '#FFB627',
@@ -503,7 +503,7 @@ export const PLATFORMS = [
     preserveGalleryImages: true,
     descFormat: 'html', maxImages: 10, maxFileMb: 2048, maxTotalMb: null,
     formats: NEXPRINT_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Uploads through Nexprint’s own upload form. Starts as a draft; Nexprint does not accept videos yet.',
+    fields: [], note: `Uploads through Nexprint's own upload form. Starts as a draft; Nexprint does not accept videos yet.`,
     // Verified against the signed-in upload page and production front-end bundle on 2026-07-31.
     limits: { titleMax: 80, tagMax: 20, tagCharMax: 50, descMax: 10000 },
   },
@@ -518,7 +518,7 @@ export const PLATFORMS = [
     // invented and produced hard blocking errors (house rule: no unverified caps).
     descFormat: 'html', maxImages: 10, maxFileMb: null, maxTotalMb: null,
     formats: CREALITY_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Uploads through Creality Cloud’s own upload flow. New uploads stay private; you can also update an existing draft. Going public is your call.',
+    fields: [], note: `Uploads through Creality Cloud's own upload flow. New uploads stay private; you can also update an existing draft. Going public is your call.`,
     limits: { titleMax: 60, tagMax: 20 },
   },
   {
@@ -528,7 +528,7 @@ export const PLATFORMS = [
     preserveOriginalImages: true,
     descFormat: 'html', maxImages: 20, maxFileMb: 500, maxTotalMb: null,
     formats: MAKERONLINE_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
-    fields: [], note: 'Uploads through MakerOnline’s own upload flow. Starts as a draft. Takes model files, documentation, and optional .3mf print profiles.',
+    fields: [], note: `Uploads through MakerOnline's own upload flow. Starts as a draft. Takes model files, documentation, and optional .3mf print profiles.`,
     // Verified against the signed-in upload page and production Nuxt bundle on 2026-07-31.
     limits: { titleMax: 100, tagMax: 20, tagCharMax: 20, descMax: 9000 },
   },
@@ -1603,7 +1603,7 @@ async function importFolderToProject(fileList) {
   const consumed  = new Set([descFile, titleFile, tagsFile, licFile, catFile].filter(Boolean));
 
   patch.title = (titleFile ? (await readFileText(titleFile)).trim().split('\n')[0] : '') || prettifyFolderName(rootName);
-  summary.found.push(`Title: “${patch.title}”${titleFile ? '' : ' (from folder name)'}`);
+  summary.found.push(`Title: "${patch.title}"${titleFile ? '' : ' (from folder name)'}`);
 
   if (descFile) { patch.description = (await readFileText(descFile)).trim(); summary.found.push(`Description (${patch.description.length} chars)`); }
   else summary.missing.push('Description: add description.md');
@@ -1619,7 +1619,7 @@ async function importFolderToProject(fileList) {
     const want = (await readFileText(catFile)).trim().toLowerCase();
     const match = CATEGORIES.find(c => c.toLowerCase() === want) || CATEGORIES.find(c => want && c.toLowerCase().includes(want));
     if (match) { patch.category = match; summary.found.push(`Category: ${match}`); }
-    else if (want) summary.warnings.push(`Category “${want}” didn't match: pick one in Details`);
+    else if (want) summary.warnings.push(`Category "${want}" didn't match: pick one in Details`);
   }
   if (!patch.category) summary.missing.push('Category: pick one in Details');
 
@@ -1659,7 +1659,7 @@ function buildImportSummaryText(s) {
   if (s.missing.length)  parts.push('Still needed:\n• ' + s.missing.join('\n• '));
   // If the text fields are missing but photos came in, point at the AI generator.
   if (s.missing.some(m => /description|tags|title/i.test(m)) && s.found.some(f => /photo/i.test(f))) {
-    parts.push('Tip: click “✨ Generate with AI” on the Details step to write the title, description and tags from your photos.');
+    parts.push(`Tip: click "✨ Generate with AI" on the Details step to write the title, description and tags from your photos.`);
   }
   return parts.join('\n\n');
 }
@@ -2207,7 +2207,7 @@ export default function App() {
   }, [project.files, project.platforms]);
 
   // Every phase and final preflight reads the same structured readiness. A
-  // partial batch remains reviewable; “Destinations complete” is stricter and
+  // partial batch remains reviewable; "Destinations complete" is stricter and
   // means every selected destination has zero blocking requirements.
   const readiness = useMemo(() => deriveProjectReadiness(project), [project]);
   const completion = useMemo(() => ({
@@ -2267,7 +2267,7 @@ export default function App() {
       setDialog({
         kind: 'confirm',
         title: 'Start a new project?',
-        message: 'This clears everything: files, images, description and platform choices. This can’t be undone.',
+        message: `This clears everything: files, images, description and platform choices. This can't be undone.`,
         confirmLabel: 'Discard & start fresh',
         danger: true,
         onConfirm: reset,
@@ -2306,7 +2306,7 @@ export default function App() {
         >
           <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'rgba(38,42,35,0.8)' }}>
             <strong>Restore text &amp; settings?</strong>{' '}
-            Restore{restoreOffer.saved?.title ? ` “${restoreOffer.saved.title}”` : ' your last session'}: title, description, tags, category, license and platform settings, plus any model files and photos still held on this computer.
+            Restore{restoreOffer.saved?.title ? ` "${restoreOffer.saved.title}"` : ' your last session'}: title, description, tags, category, license and platform settings, plus any model files and photos still held on this computer.
           </span>
           <button
             onClick={() => { restoreOffer.onRestore(); setRestoreOffer(null); }}
@@ -2956,7 +2956,7 @@ export function platformPreflight(platform, project) {
 
   if (!primaryFiles.length) {
     errors.push(candidateFiles.length
-      ? `No model or print-profile role is selected for ${platform.name}; assign at least one compatible file in Package.`
+      ? `No model or print-profile role is selected for ${platform.name}; give at least one compatible file a role in Files.`
       : 'No model file to upload (add an .stl/.3mf in Files).');
   }
   for (const f of modelFiles) {
@@ -3011,7 +3011,7 @@ export function platformPreflight(platform, project) {
     // but never renders in Printables' own edit UI (rows group by printer), so
     // the user cannot see, edit, or delete it there.
     if (project.files.some((file) => ['gcode', 'bgcode'].includes(fileExt(file.name)))) {
-      adaptations.push('Printables groups print files by printer and ModelPrep does not send one: your G-code will be stored but invisible in Printables’ editor until you set the model’s Main 3D printer on Printables.');
+      adaptations.push(`Printables groups print files by printer and ModelPrep does not send one: your G-code will be stored but invisible in Printables' editor until you set the model's Main 3D printer on Printables.`);
     }
     errors.push(...printablesFileSettingIssues(modelFiles));
     errors.push(...printablesPaidIssues(printables));
@@ -3040,7 +3040,7 @@ export function platformPreflight(platform, project) {
     }
     if (printables.zipMode === 'archive') {
       for (const file of modelFiles.filter((entry) => fileExt(entry.name) === 'zip')) {
-        if (file.size > 256 * MB) errors.push(`${file.name} exceeds Printables’ 256MB retained-ZIP limit.`);
+        if (file.size > 256 * MB) errors.push(`${file.name} exceeds Printables' 256MB retained-ZIP limit.`);
       }
     }
   }
@@ -3070,10 +3070,10 @@ export function platformPreflight(platform, project) {
     if (project.tags.some((tag) => [...String(tag)].length > 50)) errors.push('Nexprint tags may not exceed 50 characters.');
     if ([...mdToHtml(project.description)].length > 10000) errors.push('The rendered Nexprint description exceeds 10,000 characters.');
     if (projectHasVideo(project)) {
-      adaptations.push('Nexprint’s current upload form has no video field; video files will not upload.');
+      adaptations.push(`Nexprint's current upload form has no video field; video files will not upload.`);
     }
     if (nexprint.aiGenerated && !project.tags.some((tag) => /ai[-\s]?generated/i.test(tag))) {
-      adaptations.push('ModelPrep will add the required “AI-generated” tag to the Nexprint listing.');
+      adaptations.push(`ModelPrep will add the required "AI-generated" tag to the Nexprint listing.`);
     }
     // Two different facts, and conflating them is what made a selection
     // default look like a platform defect: a profile that is not ticked never
@@ -3084,7 +3084,7 @@ export function platformPreflight(platform, project) {
       adaptations.push(`${nexprintSkippedProfiles.length === 1 ? 'This print profile is' : `These ${nexprintSkippedProfiles.length} print profiles are`} not ticked for Nexprint and will not upload: ${nexprintSkippedProfiles.join(', ')}. Tick ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'} in this platform's file list to include ${nexprintSkippedProfiles.length === 1 ? 'it' : 'them'}.`);
     }
     if (modelFiles.some((file) => file.isProfile)) {
-      adaptations.push('Nexprint print-profile blocks (per-3MF name, intro and plate previews) are not transmitted yet; your 3MF uploads as a plain model file and the listing shows “Print Profile (0)”. Add the profile on Nexprint after publishing if you want the profile card.');
+      adaptations.push(`Nexprint print-profile blocks (per-3MF name, intro and plate previews) are not transmitted yet; your 3MF uploads as a plain model file and the listing shows "Print Profile (0)". Add the profile on Nexprint after publishing if you want the profile card.`);
     }
   }
   const creality = project.platforms?.creality;
@@ -3142,7 +3142,7 @@ export function platformPreflight(platform, project) {
     if (documentation.length > 50) errors.push('MakerOnline accepts at most 50 documentation files.');
     if (makeronline.relatedKits && !(makeronline.storeKitIds || []).length) errors.push('Choose at least one MakerOnline Creative Kit.');
     if (projectHasVideo(project)) {
-      adaptations.push('MakerOnline’s current upload form has no video field; video media will not upload.');
+      adaptations.push(`MakerOnline's current upload form has no video field; video media will not upload.`);
     }
     if (makeronline.syncChina && (Number(makeronline.permission || 2) !== 1 || makeronline.nsfw)) {
       errors.push('MakerOnline China sync requires a public, non-NSFW model.');
@@ -3163,7 +3163,7 @@ export function platformPreflight(platform, project) {
   }
   if (platform.id === 'makeroad') {
     if (projectHasVideo(project)) {
-      adaptations.push('MakerRoad’s current upload form has no native video field; video media will not upload.');
+      adaptations.push(`MakerRoad's current upload form has no native video field; video media will not upload.`);
     }
     // Documented caps (X5): previously checked only inside buildSubmitPayload,
     // after every byte had already uploaded.
@@ -3183,7 +3183,7 @@ export function platformPreflight(platform, project) {
     // for once at publish time rather than shown as a standing red row.
     if (!mmf.confirmOriginalNoAi) confirmations.push({
       id: 'mmf-original-no-ai',
-      message: 'I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory’s Terms and Conditions.',
+      message: `I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory's Terms and Conditions.`,
       field: { kind: 'platform-option', platformId: 'mmf', key: 'confirmOriginalNoAi' },
     });
     if (mmf.remix && !(mmf.remixParentIds || []).length) errors.push('MyMiniFactory remixes require at least one parent object ID.');
@@ -3226,7 +3226,7 @@ export function platformPreflight(platform, project) {
     if (Number(makeroad.uploadType || 1) === 2 && !String(makeroad.referUrl || '').trim()) errors.push('MakerRoad remixes require the original model URL; add it in Details.');
     if (makeroad.scheduled && !makeroad.planTime) errors.push('Choose a MakerRoad scheduled publication time.');
     if (makeroad.payType !== 'free' && !(Number(makeroad.payValue) > 0)) errors.push('MakerRoad paid downloads require a positive value.');
-    if (makeroad.publication === 'publish' && !makeroad.termsAccepted) errors.push('Accept MakerRoad’s current terms before public submission.');
+    if (makeroad.publication === 'publish' && !makeroad.termsAccepted) errors.push(`Accept MakerRoad's current terms before public submission.`);
   }
   const thangs = project.platforms?.thangs;
   if (platform.id === 'thangs' && thangs) {
@@ -3250,7 +3250,7 @@ export function platformPreflight(platform, project) {
     if (!THINGIVERSE_LICENSES.includes(thingiverse.license)) errors.push('Choose a Thingiverse license.');
     if (thingiverse.remix && !String(thingiverse.sourceThingId || '').trim()) errors.push('Thingiverse remixes require a source Thing ID.');
     if (thingiverse.customizable && !modelFiles.some((file) => fileExt(file.name) === 'scad')) errors.push('Thingiverse Customizer requires at least one .SCAD model file.');
-    if (thingiverse.publication === 'publish' && !thingiverse.termsAccepted) errors.push('Accept Thingiverse’s current terms before publish.');
+    if (thingiverse.publication === 'publish' && !thingiverse.termsAccepted) errors.push(`Accept Thingiverse's current terms before publish.`);
     if (projectHasVideo(project)) {
       adaptations.push('Thingiverse has no video upload; video media will not upload.');
     }
@@ -3455,7 +3455,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
     } else if (renamed.length) {
       setNotice({ kind: 'renamed', detail: renamed.join(', ') });
     } else if (additions.some(a => a.isImage)) {
-      // #3: images are accepted as reference files, but gallery photos belong in step 03.
+      // #3: images are accepted as reference files, but gallery photos belong in Images.
       setNotice({ kind: 'image', detail: null });
     } else {
       setNotice(null);
@@ -3521,7 +3521,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
       <SectionHeader
         number="01"
         title="Drop your files"
-        subtitle="Add model files, print profiles, and source files. Platform-specific settings stay attached."
+        subtitle="Model files, print profiles, photos. A file's role tells every platform what to do with it."
         actions={(
           <div className="flex items-center gap-2">
             {/* Import used to sit in the top bar next to nothing it related to.
@@ -3615,7 +3615,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
               <>
                 <div className="mp-display font-bold mb-1">Added an image as a model file</div>
                 <div style={{ color: 'rgba(38,42,35,0.7)' }}>
-                  Kept it (handy for print diagrams). But if these are gallery photos, add them in <strong>step 03 · Images</strong> instead: that's where per-platform crops happen.
+                  Kept it, which is what you want for a print diagram. If these are gallery photos, add them in <strong>Images</strong> instead, where the per-platform crops happen.
                 </div>
               </>
             )}
@@ -3732,7 +3732,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
           )}
           {matchCount === 0 && (
             <p className="text-xs py-6 text-center" style={{ color: 'rgba(38,42,35,0.6)' }}>
-              No file matches “{fileQuery}”.{' '}
+              No file matches "{fileQuery}".{' '}
               <button onClick={() => setFileQuery('')} className="underline" style={{ color: 'var(--accent-text)' }}>Clear search</button>
             </p>
           )}
@@ -4522,7 +4522,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
             {onChangeRole ? (
               <select
                 aria-label={`Role for ${file.name}`}
-                title="What this file is for; destinations route files by role"
+                title="What this file is for. Each platform routes files by role."
                 className="mp-input-sm text-xs"
                 style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto', backgroundColor: role === 'profile' ? 'var(--primary-tint)' : undefined }}
                 value={role}
@@ -4982,7 +4982,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
               className="mp-mono text-[11px] uppercase tracking-[0.12em] shrink-0 hover:text-[#5A7430] transition"
               style={{ color: aiMuted }}
             >
-              {meta.kind === 'cloud' ? 'Add key' : state === 'setup' ? 'Finish setup' : 'What’s needed'}
+              {meta.kind === 'cloud' ? 'Add key' : state === 'setup' ? 'Finish setup' : `What's needed`}
             </button>
           )}
         </div>
@@ -5144,7 +5144,7 @@ function AiSettings() {
           <p className="text-[13px] mt-1 break-words">
             {chain.length
               ? <>ModelPrep asks <strong>{AI_PROVIDERS[chain[0]].name}</strong>{chain.length > 1 ? <>, then {chain.slice(1).map((id) => AI_PROVIDERS[id].name).join(', ')} if that fails</> : null}.</>
-              : <>No AI picked yet, so ModelPrep writes a basic draft from your hint. Choose one below to write from your photos.</>}
+              : <>No AI picked yet. Until you choose one, the writer works from your hint alone; with one, it works from your photos.</>}
           </p>
         </div>
         <button
@@ -5263,7 +5263,7 @@ function CategorySelect({ value, onChange, options }) {
           </div>
           <div className="max-h-56 overflow-y-auto py-1" role="listbox" aria-label="Categories">
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-[13px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No match for “{query}”.</div>
+              <div className="px-3 py-2 text-[13px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No match for "{query}".</div>
             )}
             {filtered.map(o => (
               <button
@@ -5304,6 +5304,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [aiHint, setAiHint] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const openSettings = useOpenConnections();
   const aiPrimary = readAiConfig().primary;
   const selectedLicense = LICENSES.find((license) => license.id === project.license);
@@ -5321,7 +5322,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const runGenerate = async () => {
     if (aiBusy) return;
     if (!project.images.length && !aiHint.trim()) {
-      setAiMsg({ kind: 'warn', text: 'Add photos in step 03 (or type a one-line hint) first.' });
+      setAiMsg({ kind: 'warn', text: 'Add photos in Images, or type a hint here first.' });
       return;
     }
     setAiBusy(true); setAiMsg(null);
@@ -5405,56 +5406,85 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="02"
         title="Project details"
-        subtitle="Set shared metadata; ModelPrep adapts it for each publishing platform."
+        subtitle="Write the listing once. ModelPrep reshapes it for each platform you publish to."
       />
 
-      {/* ✨ AI generate: reads the photos (+ an optional one-line hint) and fills in
-          Title, Description, Tags and Category. The most you ever type is one line. */}
-      <details className="mp-card mt-6 max-w-6xl" style={{ backgroundColor: 'var(--primary-tint)', borderColor: 'var(--primary-tint-border)' }}>
-        <summary className="mp-disclosure min-h-[48px] px-4 flex items-center gap-2 cursor-pointer">
-          <Sparkles size={15} style={{ color: 'var(--primary)' }} />
-          <span className="text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>Generate with AI</span>
-          <span className="text-xs" style={{ color: 'var(--ink-65)' }}>
-            from your {project.images.length} photo{project.images.length === 1 ? '' : 's'} and an optional hint
-          </span>
+      {/* Reads the photos and the optional one-line hint, then fills in the
+          title, description, tags and category. Collapsed is the common case,
+          so the button sits in the header; the panel only opens when you want
+          to add a hint. A plain button and a conditional body rather than
+          <details>, because a controlled <details open> desyncs whenever the
+          native toggle event does not reach React. */}
+      <div className="mp-card mt-6 max-w-6xl" style={{ backgroundColor: "var(--primary-tint)", borderColor: "var(--primary-tint-border)" }}>
+        <div className="min-h-[48px] px-4 flex items-center gap-2">
           <button
-            onClick={(e) => { e.preventDefault(); openSettings('ai'); }}
-            className="ml-auto text-xs flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[rgba(255,255,255,0.7)]"
-            style={{ color: 'var(--ink-65)' }}
-            title="Configure the AI provider in Settings"
+            type="button"
+            onClick={() => setAiPanelOpen((open) => !open)}
+            aria-expanded={aiPanelOpen}
+            className="flex items-center gap-2 min-w-0 flex-1 text-left py-2"
           >
-            <Settings size={12} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : 'Set up AI'}
+            {aiPanelOpen ? <ChevronDown size={14} style={{ color: "var(--ink-50)" }} /> : <ChevronRight size={14} style={{ color: "var(--ink-50)" }} />}
+            <Sparkles size={15} className="flex-shrink-0" style={{ color: "var(--primary)" }} />
+            <span className="text-[14px] font-semibold flex-shrink-0" style={{ color: "var(--ink)" }}>Write the listing for me</span>
+            <span className="text-xs truncate" style={{ color: "var(--ink-65)" }}>
+              {project.images.length
+                ? `Reads your ${project.images.length} photo${project.images.length === 1 ? "" : "s"}`
+                : "Add photos, or open this and type a hint"}
+            </span>
           </button>
-        </summary>
+          {/* Only while collapsed. Open, the button beside the hint field is
+              the one to press, and two at once is just noise. */}
+          {!aiPanelOpen && (
+            <button
+              onClick={runGenerate}
+              disabled={aiBusy}
+              className="mp-btn text-xs py-1.5 px-3 disabled:opacity-50 flex-shrink-0"
+            >
+              {aiBusy ? <><Loader size={12} className="animate-spin" /> Writing…</> : <><Sparkles size={12} /> Write it</>}
+            </button>
+          )}
+          <button
+            onClick={() => openSettings("ai")}
+            className="text-xs flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[rgba(255,255,255,0.7)] flex-shrink-0"
+            style={{ color: "var(--ink-65)" }}
+            title="Choose which AI writes it, in Settings"
+          >
+            <Settings size={12} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || "AI") : "Set up AI"}
+          </button>
+        </div>
+        {aiPanelOpen && (
         <div className="px-4 pb-4">
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input
-            className="mp-input flex-1"
-            placeholder="Optional one-line hint, e.g. “articulating desk dragon, PLA, no supports”"
-            value={aiHint}
-            onChange={(e) => setAiHint(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') runGenerate(); }}
-            disabled={aiBusy}
-          />
-          <button
-            onClick={runGenerate}
-            disabled={aiBusy}
-            className="mp-btn text-[13px] py-2 px-4 disabled:opacity-50 flex items-center gap-1.5 justify-center"
-          >
-            {aiBusy ? <><Loader size={13} className="animate-spin" /> Generating…</> : <><Sparkles size={13} /> Generate</>}
-          </button>
-        </div>
-        {aiMsg && (
-          <p className="text-xs mt-2" style={{ color: aiMsg.kind === 'warn' ? '#c83f10' : 'rgba(38,42,35,0.66)' }}>
-            {aiMsg.text}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              className="mp-input flex-1"
+              placeholder="Anything the photos do not show, e.g. articulating, PLA, no supports"
+              value={aiHint}
+              onChange={(e) => setAiHint(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runGenerate(); }}
+              disabled={aiBusy}
+            />
+            <button
+              onClick={runGenerate}
+              disabled={aiBusy}
+              className="mp-btn text-[13px] py-2 px-4 disabled:opacity-50 flex items-center gap-1.5 justify-center"
+            >
+              {aiBusy ? <><Loader size={13} className="animate-spin" /> Writing…</> : <><Sparkles size={13} /> Write it</>}
+            </button>
+          </div>
+          {aiMsg && (
+            <p className="text-xs mt-2" style={{ color: aiMsg.kind === "warn" ? "var(--warn-text)" : "var(--ink-65)" }}>
+              {aiMsg.text}
+            </p>
+          )}
+          {/* One line here. How the writer works is explained once, in
+              Settings, instead of in a paragraph you read past every project. */}
+          <p className="text-xs mt-2" style={{ color: "var(--ink-65)" }}>
+            Fills the title, description, tags and category. You can edit all of it.
+            {!aiPrimary && " No AI is set up yet, so it writes from your hint alone."}
           </p>
-        )}
-        <p className="text-[11px] mt-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
-          Looks at your print photos to write everything, then you review and tweak below. Respects each platform's length and tag limits.
-          {!aiPrimary && ' Right now it writes from your hint alone. Connect an AI assistant in Settings to write from the photos themselves.'}
-        </p>
         </div>
-      </details>
+        )}
+      </div>
 
       {/* The listing copy on the left, everything that classifies it on the
           right. Both are filled at the same moment: you pick a category and
@@ -5975,7 +6005,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="03"
         title="Cover, gallery and video"
-        subtitle="Add ordered media. Only platforms with verified crop rules are cropped."
+        subtitle="Order here is upload order. ModelPrep crops only where a platform documents its crop."
       />
 
       {imgNotice && (
@@ -6388,7 +6418,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
         <div className="mt-6 p-8 text-center mp-card">
           <Layers size={32} className="mx-auto mb-3 opacity-30" />
           <h3 className="mp-display font-bold text-lg mb-1">No 3MF files yet</h3>
-          <p className="text-sm mb-4" style={{ color: 'rgba(38,42,35,0.66)' }}>Add 3MF files in step 01 to define print profiles. STL-only models skip this step.</p>
+          <p className="text-sm mb-4" style={{ color: 'rgba(38,42,35,0.66)' }}>Add a sliced 3MF in Files to set up print profiles. An STL-only model skips this step.</p>
           <button onClick={() => setCurrentSection('files')} className="mp-btn mp-btn-ghost text-xs">
             <ChevronRight size={12} className="rotate-180" /> Back to Files
           </button>
@@ -6414,7 +6444,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="04"
         title="Print profiles"
-        subtitle="Configure print profiles and choose the initial MakerWorld profile."
+        subtitle="Name each profile and pick the one MakerWorld starts with."
       />
 
 
@@ -6547,7 +6577,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               <div>
                 <Label>Print profile photos <span style={{ opacity: 0.6, fontWeight: 400 }}>· photos of the printed model (MakerWorld requires ≥1)</span></Label>
                 {project.images.length === 0 ? (
-                  <p className="text-xs" style={{ color: '#B23A1A' }}>Add images in step 03 first: at least one printed-model photo is required.</p>
+                  <p className="text-xs" style={{ color: '#B23A1A' }}>Add photos in Images first. At least one has to show the printed model.</p>
                 ) : (
                   <div className="mp-card p-3">
                     <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -6707,7 +6737,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
       <SectionHeader
         number="05"
         title="Choose your platforms"
-        subtitle={`${enabledCount} of ${PLATFORMS.length} destinations selected. Adjust platform-specific options.`}
+        subtitle={`${enabledCount} of ${PLATFORMS.length} selected. Open one to change how it publishes.`}
       />
 
       <div className="flex flex-wrap items-center gap-2 mt-5">
@@ -6835,13 +6865,13 @@ export function ReleasePlanControls({ platform, project }) {
                 onChange={(e) => apply({ unattended: e.target.checked })}
                 style={{ accentColor: '#5A7430', marginTop: 2 }}
               />
-              <span>Publish even if ModelPrep is closed (unattended). ModelPrep reopens at the set time and publishes only if this account's session is still valid; otherwise it becomes an overdue reminder.</span>
+              <span>Publish even if ModelPrep is closed. It reopens at the set time and publishes, as long as this account is still signed in. If the session has expired it waits for you instead, as an overdue reminder.</span>
             </label>
           )}
           <p className="text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
             {current.unattended
-              ? 'Runs in the background at the set time using this platform’s saved action and visibility, after a session pre-flight.'
-              : 'Publishes through the normal pipeline at the set time while ModelPrep is open, using this platform’s saved action and visibility. If the app is closed it becomes an overdue reminder instead.'}
+              ? `Runs in the background at the set time using this platform's saved action and visibility, after a session pre-flight.`
+              : `Publishes through the normal pipeline at the set time while ModelPrep is open, using this platform's saved action and visibility. If the app is closed it becomes an overdue reminder instead.`}
           </p>
         </>
       )}
@@ -6883,7 +6913,7 @@ export function DestinationFileRoleRow({ platform, file, opts, onChange, onReset
         {!choice.automatic && <button type="button" onClick={onReset} className="text-[10px] underline whitespace-nowrap">Reset to Auto</button>}
       </div>
       <p className="text-[10px] mt-1 leading-snug" style={{ color: unsupported ? '#B91C1C' : 'rgba(38,42,35,0.60)' }}>
-        {unsupported ? `.${ext || 'file'} is not accepted by this destination.` : choice.reason}
+        {unsupported ? `.${ext || 'file'} is not a format this platform accepts.` : choice.reason}
         {choice.suggestedRole && choice.role !== choice.suggestedRole ? ` Suggested role: ${choice.suggestedRole === 'profile' ? 'Print profile' : choice.suggestedRole}.` : ''}
       </p>
     </div>
@@ -7272,7 +7302,7 @@ export function CultsOptions({ opts, onUpdate }) {
           <AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" />
         </div>
       </div>
-      <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>Both mappings are resolved before any file upload. ModelPrep no longer substitutes a generic category or license after bytes are sent.</p>
+      <p className="text-xs" style={{ color: 'var(--ink-65)' }}>Both are settled before a single file uploads, so nothing is swapped for a generic value after the bytes are gone.</p>
       <div>
         <Label>Visibility</Label>
         <div className="flex items-center gap-3 text-xs">
@@ -7343,7 +7373,7 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
             {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
           </select>
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
-          <p className="text-[11px] mt-1 opacity-70">{categorySource === 'live' ? 'Loaded from MyMiniFactory’s current taxonomy.' : 'Using the audited taxonomy snapshot; reconnect to refresh it live.'}</p>
+          <p className="text-[11px] mt-1 opacity-70">{categorySource === 'live' ? `Loaded from MyMiniFactory's current taxonomy.` : 'Using the audited taxonomy snapshot; reconnect to refresh it live.'}</p>
         </div>
         <div>
           <Label>Visibility</Label>
@@ -7409,7 +7439,7 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
       </div>
       <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', backgroundColor: 'rgba(79,178,134,0.08)' }}>
         <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: '#4FB286' }} />
-        <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory’s Terms and Conditions.</span>
+        <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory's Terms and Conditions.</span>
       </label>
     </div>
   );
@@ -7570,7 +7600,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
             ))}
           </select>
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
-          {!categories.length && <p className="text-[11px] mt-1 opacity-70">Category tree loads from Nexprint’s current live taxonomy.</p>}
+          {!categories.length && <p className="text-[11px] mt-1 opacity-70">Category tree loads from Nexprint's current live taxonomy.</p>}
         </div>
         <div>
           <Label>License</Label>
@@ -7586,7 +7616,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       </div>
       {opts.aiGenerated && (
         <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
-          ModelPrep adds “AI-generated” to the listing tags to satisfy Nexprint’s disclosure rule.
+          ModelPrep adds "AI-generated" to the listing tags to satisfy Nexprint's disclosure rule.
         </p>
       )}
 
@@ -7680,7 +7710,7 @@ export function CrealityOptions({ opts, project, onUpdate }) {
             <option value={2}>Non-original</option>
           </select>
           {Number(opts.modelSource || 1) !== 1 && (
-            <p className="text-[11px] mt-1" style={{ color: '#b45309' }}>Creality requires a native source-model object and, for some cases, proof images. ModelPrep maps these fields but intentionally sends only Original uploads until source attribution can be verified without guesswork.</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--warn-text)' }}>Creality wants its own source-model record, and sometimes proof images. ModelPrep fills the fields but only ever uploads as Original, because guessing at attribution is worse than asking you to finish it on Creality.</p>
           )}
         </div>
       </div>
@@ -7709,7 +7739,7 @@ export function CrealityOptions({ opts, project, onUpdate }) {
       </div>
 
       <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(230,57,70,0.06)', border: '1px solid rgba(230,57,70,0.32)' }}>
-        ModelPrep sends the web and app cover crops, up to 9 gallery images, every compatible model file, compatible instruction files, tags, rich description, category, license, source type, maturity rating, and draft/private/public state. Creality’s optional paid-model controls are account-gated and are not exposed to this new account.
+        ModelPrep sends the web and app cover crops, up to 9 gallery images, every compatible model file, compatible instruction files, tags, rich description, category, license, source type, maturity rating, and draft/private/public state. Creality's optional paid-model controls are account-gated and are not exposed to this new account.
       </div>
     </div>
   );
@@ -7803,7 +7833,7 @@ export function MakerRoadOptions({ opts, onUpdate }) {
         <div><Label>Upload type</Label><select aria-label="MakerRoad upload type" className="mp-input" value={Number(opts.uploadType || 1)} onChange={(e) => onUpdate('uploadType', Number(e.target.value))}><option value={1}>Original</option><option value={2}>Remix</option></select></div>
       </div>
       {Number(opts.uploadType || 1) === 2 && <div><Label>Original model URL</Label><input className="mp-input" value={opts.referUrl || ''} onChange={(e) => onUpdate('referUrl', e.target.value)} placeholder="https://…" /></div>}
-      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: '#24634f' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad’s live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
+      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: '#24634f' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad's live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
       <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><select aria-label="MakerRoad license" className="mp-input" value={Number(opts.licenseIndex || 0)} onChange={(e) => onUpdate({ licenseIndex: Number(e.target.value), licenseAuto: false })}>{MAKEROAD_LICENSES.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div><div><Label>Visibility</Label><select className="mp-input" value={opts.visibility || 'private'} onChange={(e) => onUpdate('visibility', e.target.value)}><option value="private">Private</option><option value="public">Public</option></select></div></div>
       <div><Label>Print methods</Label><div className="flex gap-4 text-xs">{['FDM', 'LCD', 'Others'].map((value) => <label key={value}><input type="checkbox" checked={(opts.printMethods || []).includes(value)} onChange={() => toggle('printMethods', value)} /> {value}</label>)}</div></div>
       {!!meta.printers.length && <div><Label>Compatible printers (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('printerIds', e.target.value); e.target.value = ''; }}><option value="">Add printer…</option>{meta.printers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.printerIds || []).length} selected</p></div>}
@@ -7815,8 +7845,8 @@ export function MakerRoadOptions({ opts, onUpdate }) {
       <div className="grid md:grid-cols-2 gap-3"><div><Label>Download price</Label><select className="mp-input" value={opts.payType || 'free'} onChange={(e) => onUpdate('payType', e.target.value)}><option value="free">Free</option><option value="points">Points</option><option value="cash">Cash</option></select></div>{opts.payType !== 'free' && <div><Label>Value</Label><input className="mp-input" type="number" min="0" value={opts.payValue || 0} onChange={(e) => onUpdate('payValue', Number(e.target.value))} /></div>}</div>
       <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.scheduled} onChange={(e) => onUpdate('scheduled', e.target.checked)} /> Schedule public availability</label>
       {opts.scheduled && <input aria-label="MakerRoad schedule" className="mp-input" type="datetime-local" value={opts.planTime || ''} onChange={(e) => onUpdate('planTime', e.target.value)} />}
-      {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><span>I agree to MakerRoad’s current Terms and Privacy Policy for this public submission.</span></label>}
-      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3–10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and price. MakerRoad’s current native form has no video field, so video media is not sent.</p>
+      {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><span>I agree to MakerRoad's current Terms and Privacy Policy for this public submission.</span></label>}
+      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3–10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and price. MakerRoad's current native form has no video field, so video media is not sent.</p>
     </div>
   );
 }
@@ -7838,7 +7868,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
         if (!response.ok || !data.ok) throw new Error(thangsResponseError(data, response.status, 'Thangs categories failed'));
         const values = flattenThangsCategories(data.meta?.categories || []);
         if (alive) { setCategories(values.length ? values : THANGS_CATEGORIES); setCategorySource(values.length ? 'live' : 'snapshot'); setCategoryError(''); }
-      }).catch((error) => { if (alive) { setCategories(THANGS_CATEGORIES); setCategorySource('snapshot'); setCategoryError(`${error.message} Using today’s verified taxonomy snapshot.`); } });
+      }).catch((error) => { if (alive) { setCategories(THANGS_CATEGORIES); setCategorySource('snapshot'); setCategoryError(`${error.message} Using today's verified taxonomy snapshot.`); } });
     return () => { alive = false; };
   }, [secret]);
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
@@ -7853,25 +7883,24 @@ export function ThangsOptions({ opts, project, onUpdate }) {
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={opts.allowRemix !== false} onChange={(e) => onUpdate('allowRemix', e.target.checked)} /> Allow remix</label><label><input type="checkbox" checked={opts.feedbackEnabled !== false} onChange={(e) => onUpdate('feedbackEnabled', e.target.checked)} /> Enable feedback</label></div>
     <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.marketplace} onChange={(e) => onUpdate('marketplace', e.target.checked)} /> Paid marketplace listing (account eligibility required)</label>{opts.marketplace && <input aria-label="Thangs price" className="mp-input" type="number" min="0" value={opts.price || 0} onChange={(e) => onUpdate('price', Number(e.target.value))} />}
     <div><Label>License</Label><input className="mp-input" value={opts.license || ''} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })} /><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div>
-    <p className="text-[11px] opacity-60">Model files over 250 MB must be reference files. ModelPrep verifies details, attachments, and license after creation. Plans and paid access remain account-gated.</p>
+    <p className="text-xs" style={{ color: 'var(--ink-65)' }}>A model file over 250 MB has to go up as a reference file. After Thangs creates the model, ModelPrep reads back the details, attachments and license to check they stuck.</p>
   </div>;
 }
 
 export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) {
   const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-    <div className="p-2.5 text-[11px]" style={{ backgroundColor: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse’s current terms.</div>
+    <div className="p-2.5 text-[11px]" style={{ backgroundColor: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse's current terms.</div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div></div>
     <div><Label>Summary</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /><p className="text-[11px] mt-1" style={{ color: 'var(--ink-50)' }}>Leave blank to derive it from the description, the way Printables does.</p></div>
     <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate({ categoryId: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label></div>
     {!hasScad && <p className="text-[11px] opacity-60">Thingiverse enables Customizer only when the upload includes a .SCAD model file.</p>}
     <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
-    {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /> Accept Thingiverse’s current publishing terms at action time</label>}
+    {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /> Accept Thingiverse's current publishing terms at action time</label>}
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Printer / model</Label><input className="mp-input" value={opts.printSettings?.printer || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), printer: e.target.value })} /></div><div><Label>Material</Label><input className="mp-input" value={opts.printSettings?.material || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), material: e.target.value })} /></div><div><Label>Resolution</Label><input className="mp-input" value={opts.printSettings?.resolution || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), resolution: e.target.value })} /></div><div><Label>Infill</Label><input className="mp-input" value={opts.printSettings?.infill || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), infill: e.target.value })} /></div></div>
     <div><Label>Custom sections (JSON)</Label><textarea className="mp-input" value={JSON.stringify(opts.sections || [])} onChange={(e) => { try { onUpdate('sections', JSON.parse(e.target.value)); } catch { /* retain last valid value */ } }} /></div>
     <div><Label>Education project data (JSON, optional)</Label><textarea className="mp-input" value={opts.education ? JSON.stringify(opts.education) : ''} onChange={(e) => { if (!e.target.value.trim()) onUpdate('education', null); else { try { onUpdate('education', JSON.parse(e.target.value)); } catch { /* retain last valid value */ } } }} /></div>
-    <p className="text-[11px] opacity-60">Print settings, custom rich sections, education fields, ordered uploads, remix attribution, draft/publish separation, and complete readback are represented in the saved project and adapter contract.</p>
   </div>;
 }
 
@@ -8452,7 +8481,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
                       Publish now
                     </button>
                   )}
-                  {!mine && <span className="text-[11px]" style={{ opacity: 0.55 }}>open “{plan.projectTitle}” to publish</span>}
+                  {!mine && <span className="text-[11px]" style={{ opacity: 0.55 }}>open "{plan.projectTitle}" to publish</span>}
                   <button
                     className="mp-btn mp-btn-ghost text-[11px] py-1 px-2"
                     aria-label={`Dismiss ${plan.platformName} plan`}
@@ -8487,7 +8516,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
             `${reviewReadyCount} ready`,
             reviewConfirmCount ? `${reviewConfirmCount} awaiting a confirmation` : '',
             `${reviewBlockedCount} need attention`,
-          ].filter(Boolean).join(' · ') + '. Upload the ready destinations now or fix the blocked ones first.'
+          ].filter(Boolean).join(' · ') + '. Upload the ready ones, or fix the rest.'
           : 'Add files to get started.'}
       />
 
@@ -8518,8 +8547,8 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
       {hasFiles && directEnabled.length > 0 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Destinations</span>
-            <p className="text-xs mt-1" style={{ color: 'var(--ink-50)' }}>Each row is that destination's whole status. Expand one for its listing preview and its own upload controls.</p>
+            <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Platforms</span>
+            <p className="text-xs mt-1" style={{ color: 'var(--ink-50)' }}>One row per platform, carrying everything about it. Open one for its listing preview and its own upload buttons.</p>
           </div>
           <button
             onClick={toggleAll}
@@ -8751,7 +8780,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             ? <><Loader size={14} className="mp-spin" /> Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete</>
             : readyTargets.length === 0
               ? <><Send size={14} /> Connect an account to publish</>
-              : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload sample' : safeDemo ? 'Practice upload' : 'Upload'} to {readyTargets.length} ready destination{readyTargets.length === 1 ? '' : 's'}</>}
+              : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload sample' : safeDemo ? 'Practice upload' : 'Upload'} to {readyTargets.length} ready platform{readyTargets.length === 1 ? '' : 's'}</>}
         </button>
       </div>
 
@@ -8779,7 +8808,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
 
       {publicTargets.length > 0 && (
         <div className="mt-3 p-2 text-xs mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.1)', color: '#8A4B08' }}>
-          This single action creates real public listings on {publicTargets.map((target) => target.name).join(', ')}. Every other destination uses the outcome shown on its row.
+          This single action creates real public listings on {publicTargets.map((target) => target.name).join(', ')}. Every other platform uses the outcome shown on its row.
         </div>
       )}
     </div>
@@ -9085,8 +9114,8 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       const preflight = platformPreflight(platform, project);
       const blocking = publishBlockers(preflight);
       if (blocking.length) throw new Error(blocking.join(' '));
-      if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
-      if (!modelFiles.length) throw new Error('Add at least one model file in step 01 before publishing.');
+      if (!coverImg) throw new Error('Pick a cover image in Images before publishing.');
+      if (!modelFiles.length) throw new Error('Add at least one model file in Files before publishing.');
 
       setProgressMsg('Packing files…');
 
@@ -10242,7 +10271,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
         {status === 'idle' && (
           <>
             <p className="text-[13px] mb-2.5" style={{ color: 'rgba(38,42,35,0.65)' }}>
-              Connect through Nexprint’s own sign-in window. Your sign-in stays on this computer.
+              Connect through Nexprint's own sign-in window. Your sign-in stays on this computer.
             </p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Nexprint</button>
           </>
@@ -10580,7 +10609,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
 
-        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through Creality Cloud’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Creality Cloud</button></>}
+        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through Creality Cloud's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Creality Cloud</button></>}
         {status === 'connected' && (
           <>
             <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
@@ -10720,7 +10749,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
           return liveCategories.find((category) => normalizeMakerRoadCategoryPath(category.name) === wanted)?.id || '';
         }).filter(Boolean);
         if (resolvedCategoryIds.length !== options.categoryPaths.length) {
-          throw new Error('MakerRoad’s live category taxonomy no longer contains the prepared test category. Choose a current category in Platforms.');
+          throw new Error(`MakerRoad's live category taxonomy no longer contains the prepared test category. Choose a current category in Platforms.`);
         }
       }
       // MakerRoad's serializer takes taxonomy ids, not UI labels: a live check
@@ -10736,7 +10765,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
           return hit?.id || '';
         }).filter(Boolean);
         if (resolvedPrintMethods.length !== (options.printMethods || []).length) {
-          throw new Error('MakerRoad’s live print-method catalog does not contain the selected method(s). Re-pick the print method in Platforms.');
+          throw new Error(`MakerRoad's live print-method catalog does not contain the selected method(s). Re-pick the print method in Platforms.`);
         }
       }
       const orderedImages = orderedPlatformImages(platform, project).slice(0, 10);
@@ -11052,7 +11081,7 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
           <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
-        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MakerOnline’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MakerOnline</button></>}
+        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MakerOnline's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MakerOnline</button></>}
         {status === 'connected' && (
           <>
             <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
@@ -11268,8 +11297,8 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
     <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="mp-card p-3" style={{ backgroundColor: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
-        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory’s real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
-        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : 'Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory’s review flow.'}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
+        {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
+        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : `Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory's review flow.`}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
         {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : result?.readOnly ? `Existing ${result.state} MyMiniFactory object ${result.id} re-read and verified.` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{result?.readOnly && result?.detail && <p className="mp-mono text-xs mb-2 break-all opacity-70">{result.detail}</p>}{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : result?.readOnly ? 'Done' : 'Upload another'}</button></>}
         {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
@@ -11390,7 +11419,7 @@ function SettingsModal({ open, onClose, tab, setTab }) {
         <div className="p-4 space-y-3 max-h-[68vh] overflow-auto">
           {tab === 'accounts' && (
             <>
-              <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform’s session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
+              <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform's session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
               {!!missingDesktopPlatforms.length && (
                 <div role="alert" className="mp-card p-3 text-xs leading-relaxed" style={{ backgroundColor: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: '#991b1b' }}>
                   <strong>Desktop app update required.</strong> This page is newer than the running ModelPrep desktop shell, so {missingDesktopPlatforms.map((id) => meta(id).name).join(', ')} cannot connect. Quit every ModelPrep window and launch the current app build.
@@ -11453,8 +11482,26 @@ function SettingsHelp() {
           <li>Pick the platforms to publish to. ModelPrep adapts images, text, tags and categories to each platform's rules.</li>
           <li>Publish to all of them in one go, or one at a time. Everything starts private or as a draft; nothing goes public unless you choose it.</li>
         </ol>
-        <p className="text-xs mt-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
-          Not sure where to start? Use <strong>Try demo</strong> in the header to walk the whole flow with a sample project.
+        <p className="text-xs mt-2" style={{ color: 'var(--ink-65)' }}>
+          To walk the whole flow with a sample project, open the project name menu and pick <strong>Try demo</strong>.
+        </p>
+      </div>
+      {/* The long version of what the Details writer does. It used to sit in a
+          paragraph under the button, where you read past it on every project. */}
+      <div>
+        <div className="text-[13px] font-medium mb-1.5" style={{ color: 'var(--ink)' }}>Writing the listing for you</div>
+        <p className="text-xs leading-relaxed" style={{ color: 'var(--ink-65)' }}>
+          Details has a writer that fills the title, description, tags and category. It reads
+          your photos and the one-line hint you can type next to it, and nothing else: not the
+          model files, not the sliced 3MF. It keeps inside the shortest title and tag limits of
+          the platforms you have selected, and picks the category from ModelPrep's own list, so
+          the per-platform mapping still applies. Everything it writes is yours to edit, and it
+          never publishes anything.
+        </p>
+        <p className="text-xs leading-relaxed mt-1.5" style={{ color: 'var(--ink-65)' }}>
+          Without an AI configured in the AI tab, it writes from your hint alone and the result
+          is thin. With one, it works from the photos. Choose the AI in the AI tab; the writer
+          falls back to a backup if the first one is out of quota, and says which one wrote it.
         </p>
       </div>
       <div>
@@ -11892,7 +11939,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         onConnect={connect}
         buttonDisabled={busy || !desktop?.connectMakerRoad}
         buttonLabel={busy ? 'Waiting for MakerRoad sign-in…' : 'Sign in to MakerRoad'}
-        note="Signs in through MakerRoad’s own window. Your sign-in stays on this computer, encrypted."
+        note="Signs in through MakerRoad's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -11906,7 +11953,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         onConnect={connect}
         buttonDisabled={busy || !desktop?.connectThangs}
         buttonLabel={busy ? 'Waiting for Thangs sign-in…' : 'Sign in to Thangs'}
-        note="Signs in through Thangs’ own window. Your sign-in stays on this computer, encrypted."
+        note="Signs in through Thangs' own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -11920,7 +11967,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         onConnect={connect}
         buttonDisabled={busy || !desktop?.connectThingiverse}
         buttonLabel={busy ? 'Waiting for Thingiverse sign-in…' : 'Sign in to Thingiverse'}
-        note="Signs in through Thingiverse’s own window. Uploads arrive as drafts; publishing publicly is always your explicit choice."
+        note="Signs in through Thingiverse's own window. Uploads arrive as drafts; publishing publicly is always your explicit choice."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -11980,7 +12027,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectMyMiniFactory}
         buttonLabel={busy ? 'Waiting for MyMiniFactory sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in to MyMiniFactory'}
         hint={!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
-        note="Signs in through MyMiniFactory’s own window. Your sign-in stays on this computer, encrypted."
+        note="Signs in through MyMiniFactory's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -12025,7 +12072,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectMakerOnline}
         buttonLabel={busy ? 'Waiting for MakerOnline sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in to MakerOnline'}
         hint={!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
-        note="Signs in through MakerOnline’s own window. Your sign-in stays on this computer, encrypted."
+        note="Signs in through MakerOnline's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -12073,7 +12120,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
             Open this project in ModelPrep Desktop to connect Creality Cloud.
           </p>
         )}
-        note="Signs in through Creality Cloud’s own window. Your sign-in stays on this computer, encrypted."
+        note="Signs in through Creality Cloud's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -12121,7 +12168,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
             Open this project in ModelPrep Desktop to connect Nexprint.
           </p>
         )}
-        note="Signs in through Nexprint’s own window. Your sign-in stays on this computer, encrypted."
+        note="Signs in through Nexprint's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -12170,7 +12217,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
             Open this project in ModelPrep Desktop to sign in through Prusa Account. ModelPrep does not ask for or store your Printables password.
           </p>
         )}
-        note="Signs in through Printables’ own Prusa sign-in page. Your sign-in stays on this computer, encrypted."
+        note="Signs in through Printables' own Prusa sign-in page. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -12204,7 +12251,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
             Open this project in ModelPrep Desktop. Browser builds intentionally do not collect or forward a Cults3D password.
           </p>
         )}
-        note="Signs in through Cults3D’s own window and publishes from that same session. Complete any security check there; ModelPrep never sees your password."
+        note="Signs in through Cults3D's own window and publishes from that same session. Complete any security check there; ModelPrep never sees your password."
         err={err} canCancel={canCancel} onDone={onDone}
       />
     );
@@ -12272,8 +12319,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
       buttonDisabled={busy}
       buttonLabel={busy ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}
       note={desktop
-        ? 'Signs in through MakerWorld’s own window. Your sign-in stays on this computer, encrypted.'
-        : 'Open this project in ModelPrep Desktop to sign in through MakerWorld’s own window.'}
+        ? `Signs in through MakerWorld's own window. Your sign-in stays on this computer, encrypted.`
+        : `Open this project in ModelPrep Desktop to sign in through MakerWorld's own window.`}
       err={err} canCancel={canCancel} onDone={onDone}
     >
       <details>
@@ -12686,7 +12733,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
     setStatus('publishing'); setErrorMsg(''); setResult(null);
     try {
       const coverImg = project.images.find(i => i.id === project.coverImageId);
-      if (!coverImg) throw new Error('Pick a cover image in step 03 before publishing.');
+      if (!coverImg) throw new Error('Pick a cover image in Images before publishing.');
       let effectiveLacMetadata = null;
       if (isLC && opts.laserMode === 'lac') {
         const source = primaryLacProjectFile;
@@ -13105,7 +13152,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
                     liveCheck.failed ? (
                       <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'rgba(185,28,28,0.08)', borderColor: 'rgba(185,28,28,0.35)', color: '#B91C1C' }}>
                         <strong>❌ Rejected by MakerWorld:</strong> {liveCheck.reason}
-                        {liveCheck.profileTitle ? <span style={{ opacity: 0.8 }}> (print profile “{liveCheck.profileTitle}”)</span> : null}
+                        {liveCheck.profileTitle ? <span style={{ opacity: 0.8 }}> (print profile "{liveCheck.profileTitle}")</span> : null}
                         <div className="mt-1" style={{ opacity: 0.85 }}>Fix the issue and re-publish, or <button onClick={del} className="underline" style={{ color: '#B91C1C' }}>delete this draft</button>.{result.kind === 'laser-cut' ? ' Re-save the source in the current Bambu Suite if package metadata was rejected.' : ' The 3mf must be sliced/exported by Bambu Studio.'}</div>
                       </div>
                     )

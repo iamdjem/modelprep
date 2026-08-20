@@ -20,7 +20,7 @@ export const AI_PROVIDERS = {
     cost: 'Included in your ChatGPT plan',
     blurb: 'Uses the Codex CLI you are already signed in to. No API key, nothing billed per listing.',
     setupUrl: 'https://openai.com/codex',
-    setupHint: 'Install Codex, then run `codex login` and choose “Sign in with ChatGPT”.',
+    setupHint: 'Install Codex, then run `codex login` and choose "Sign in with ChatGPT".',
   },
   claudecode: {
     id: 'claudecode',

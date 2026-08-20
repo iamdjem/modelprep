@@ -52,6 +52,6 @@ describe('MakerWorld desktop real upload test', () => {
 
     expect(screen.getAllByText('@direct-test').length).toBeGreaterThan(0);
     expect(screen.queryByText(/simulation only/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /upload sample to 1 ready destination/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /upload sample to 1 ready platform/i })).toBeEnabled();
   });
 });
