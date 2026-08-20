@@ -25,13 +25,29 @@ web (Electron renderer; desktop-first, minimum useful width around 1000 px)
 
 ## Core flow
 
-Package (files and print profiles) → Listing (details and media) → Destinations (platforms
-and per-platform options) → Review and publish (preflight, queue, receipts). A Library holds
-past projects. Connections manages platform accounts. Publishing must never fabricate data:
-blocked destinations are skipped and reported, never retried silently.
+Six steps, named the way the sidebar names them: Files, Details, Images, Profiles,
+Platforms, Publish. Files takes model files, print profiles and photos and gives each a
+role. Details is the listing, written once: title, description, category, licence, tags,
+and the shared origin and disclosure answers ModelPrep adapts into every platform's own
+fields. Images is the cover, gallery and video. Profiles appears only when a sliced 3MF
+is present. Platforms is where each destination is turned on and customised. Publish is
+one row per platform carrying its outcome, what is blocking it and its receipt.
+
+Platform accounts live in Settings, a panel on the right edge; a "Connect X" button
+anywhere in the app opens that one platform's sign-in. Publishing must never fabricate
+data: blocked platforms are skipped and reported, never retried silently, and nothing
+uploads while a publish-time confirmation is outstanding.
+
+A project library is the main thing the flow still lacks; it is what "duplicate this
+project" would be built on.
 
 ## Constraints
 
 - Platform brand dot colors appear next to platform names and must stay recognizable.
-- Dense evidence-heavy states (preflight, queue) need tabular numbers and clear semantics.
+- Dense evidence-heavy states (the publish queue and receipts) need tabular numbers and
+  clear semantics.
+- Three severities, not two. A blocker is something the platform would reject. An
+  adaptation is something ModelPrep changes by itself and never colours a card. An
+  optional gap is invisible outside that platform's own panel. A note must never read as
+  a problem.
 - The app runs offline except during publishing; fonts must have real fallbacks.

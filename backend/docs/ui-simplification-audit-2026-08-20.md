@@ -1,5 +1,16 @@
 # UI simplification audit — 2026-08-20
 
+> **Status: fully implemented, 2026-08-20.** All five stages shipped on
+> `codex/clean-design-system` (`3c1257d`, `135b966`, `c7dd7f2`, `010a20b`, `8de4b43`),
+> along with six follow-up changes from Alex reviewing the running app. Alex's answers
+> to the four open questions are at the end of this document. What is left over from
+> the audit, and what to do next, is in
+> `backend/docs/clean-design-system-handoff-2026-08-20.md`. Everything below is the
+> original analysis, kept as the record of why each change was made. The numbers in it
+> describe the app **before** the work, not now: the 37-alarm empty project, the ten
+> places one problem appeared, the six severity vocabularies and the ~300 lines of dead
+> UI are all gone.
+
 Goal restated: a creator drops model files, print profiles, and photos; ModelPrep maps
 everything to ten platforms' differing requirements as automatically as possible; shared
 metadata is written once and adapted per platform; per-platform customization is opt-in;

@@ -1,8 +1,14 @@
 # ModelPrep design system
 
-Prototype lives at `deploy/prototype.html` (run the deploy dev server and open
-`/prototype.html`). Tokens and component classes: `deploy/src/prototype/tokens.css`.
-The production app does not use this yet; the prototype exists to evaluate the direction.
+The whole renderer runs on this. Tokens live in `GlobalStyles` inside
+`deploy/src/App.jsx` as `:root` variables; older names like `--accent` are aliases kept
+for code that has not been touched yet. The standalone prototype that started it is
+still at `deploy/prototype.html` (run the deploy dev server and open `/prototype.html`),
+with its own copy of the tokens in `deploy/src/prototype/tokens.css`. The prototype is
+history now, not the source of truth: when the two disagree, App.jsx wins.
+
+Most rules below were written before the app was built. The ones marked with a screen
+name are the ones a real screen has since proved or corrected.
 
 ## What it replaces
 
@@ -33,13 +39,17 @@ token-driven, in the register of Mews and Linear.
 
 ## Navigation (the flow rethink)
 
-The wizard sidebar ("phase 01 of 04") becomes a plain project sidebar:
+The wizard sidebar ("phase 01 of 04") became a plain project sidebar. What shipped:
 
-- Top: project switcher, then search (⌘K).
-- Prepare group: Package, Listing, Destinations, Publish. Each row carries live status at
-  the right edge (file count, checkmark, 6/10, "1 blocked") instead of step numbers, so it
-  reads as a checklist you can enter in any order, not a locked wizard.
-- Workspace group: Library, Connections, Settings. Connections stops being a modal.
+- Six rows, named for what they hold: Files, Details, Images, Profiles, Platforms,
+  Publish. Each carries live status at the right edge (file count, checkmark, 6/10)
+  instead of a step number, so it reads as a checklist you can enter in any order.
+- Settings is a panel on the right edge rather than a modal, and a "Connect X" button
+  opens that one platform rather than the whole list.
+
+Still only a plan: the project switcher and search (⌘K), and a Workspace group holding
+a Library. A library is the piece the flow most obviously lacks; Templates were removed
+in favour of duplicating a project, and nothing offers that yet.
 - Top bar: the brand sits over the sidebar column, the same width as it and divided by
   the same border, so the two read as one rail rather than a logo floating inside a nav.
   The collapse control lives at the bottom of that block, at the seam it actually moves,
@@ -116,6 +126,17 @@ class in `tokens.css` defines default, hover, focus-visible, active, and disable
 ## Rules
 
 - No raw hex in screens; platform brand dots are the one exception.
-- Warnings render as a tinted inline panel with an icon, never a side stripe.
-- Empty states teach (the Package dropzone says what formats it takes).
-- Blocked and skipped destinations are always visible in the queue with the reason.
+- Inline colour is `backgroundColor`, never the `background` shorthand, and hover is a
+  class rather than a style mutation. React writing the shorthand leaves a serialization
+  jsdom cannot re-parse, which crashes any test that clones the node.
+- **Three severities, not two.** A blocker is red, counted, and shown once at the
+  platform that owns it. An adaptation is something ModelPrep does by itself: collapsed,
+  quiet, never colours a card. An optional gap is invisible outside that platform's own
+  panel. Nothing that is not a problem may look like one.
+- An empty project says one thing ("Add files to get started"), not the same missing
+  title once per platform.
+- Empty states teach (the Files dropzone says what formats it takes).
+- Blocked and skipped platforms are always visible in the queue with the reason, and
+  nothing uploads while a publish-time confirmation is outstanding.
+- Straight quotes, sentence case, no em dashes, in interface copy as much as in prose.
+  Name the screen a user can see, never "step 03".
