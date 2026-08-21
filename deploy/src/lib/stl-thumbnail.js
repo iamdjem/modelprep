@@ -148,7 +148,13 @@ export function renderStlThumbnail(tris, options = {}) {
     // Two-sided: STL winding is often inconsistent, and a thumbnail showing
     // holes where a normal points the wrong way looks like a broken model.
     const lambert = Math.abs(normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2]);
-    const shade = 0.30 + 0.70 * lambert;
+    // Ambient floor. At the old 0.30 the darkest face landed on tone 70 against
+    // a tile of 38, so a 32/255 separation had to carry the silhouette at 28px.
+    // 0.45 puts it at 104, which doubles that. The cost is 0.15 of range on the
+    // lit end, and a model with real form still spends it: a faceted test shape
+    // puts only 38% of its pixels on one tone. A flat-topped puck reads flat at
+    // any floor, because it is flat.
+    const shade = 0.45 + 0.55 * lambert;
 
     rasterise(data, depthBuffer, size, a, b, c, ink, shade);
   }

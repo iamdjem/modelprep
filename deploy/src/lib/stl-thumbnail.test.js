@@ -145,3 +145,29 @@ describe('STL thumbnail rendering', () => {
     expect(data.length).toBe(size * size * 4);
   });
 });
+
+describe('shading keeps the model off the tile', () => {
+  // The tile behind an STL render is #262A23, tone 38. The darkest face has to
+  // clear it by enough to hold a silhouette at 28px.
+  const TILE_TONE = 38;
+  const tri = (a, b, c) => [...a, ...b, ...c];
+
+  it('never draws a face darker than the tile it sits on', () => {
+    // A closed shape with faces pointing every which way, so some face is
+    // always near-perpendicular to the light.
+    const pts = [[0, 0, 12], [9, 0, 0], [0, 9, 0], [-9, 0, 0], [0, -9, 0], [0, 0, -6]];
+    const idx = [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1], [5, 2, 1], [5, 3, 2], [5, 4, 3], [5, 1, 4]];
+    const mesh = idx.map(([i, j, k]) => tri(pts[i], pts[j], pts[k])).flat();
+
+    const { data } = renderStlThumbnail(mesh, { size: 64 });
+    let darkest = 255;
+    let drawn = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 128) continue;
+      drawn += 1;
+      if (data[i] < darkest) darkest = data[i];
+    }
+    expect(drawn).toBeGreaterThan(0);
+    expect(darkest).toBeGreaterThan(TILE_TONE + 50);
+  });
+});
