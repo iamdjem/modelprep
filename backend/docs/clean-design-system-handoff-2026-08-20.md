@@ -7,12 +7,17 @@ document covers the `codex/clean-design-system` branch only.
 ## Status in one paragraph
 
 The redesign is done and so is the whole UI simplification audit, all five stages, plus
-a copy pass and a header and settings rework on top. `deploy/src/App.jsx` is 13,885
-lines, down from 14,727 at the start of the audit, while gaining the shared-disclosures
-block, the severity tiers and a rebuilt Publish screen. Everything is committed and
-pushed to `origin/codex/clean-design-system`; the working tree is clean. There is no
-half-finished work to pick up. The next agent is choosing what to do next, not
-finishing something.
+a copy pass and a header and settings rework on top. On 2026-08-21 nine more changes
+landed from Alex reviewing the running app: four desktop faults around sign-in and
+transport, four UI rules, and two publish rules that were stricter than the platforms
+themselves. `deploy/src/App.jsx` is 14,406 lines. Everything is committed and pushed to
+`origin/codex/clean-design-system`; the working tree is clean. There is no half-finished
+work to pick up. The next agent is choosing what to do next, not finishing something.
+
+Read "What happened after the audit" before touching waiting states, dropdowns, file
+previews or the MakerWorld and MyMiniFactory publish rules. Each entry names the fault
+and the evidence, and several were caused by a rule of ours being stricter than the
+platform it was modelling.
 
 ## What this branch is
 
@@ -76,9 +81,16 @@ redesign worktree's versions; reconcile deliberately if certification work resum
 
 - Dev server: launch config `prototype` in /Users/alex/modelprep/.claude/launch.json →
   port 5199 (serves the real app at `/` and the old prototype at `/prototype.html`).
-- Tests: `cd deploy && npx vitest run` (538 tests; `settings.test.jsx` "fallback chain"
-  is timing-sensitive, has a 20s timeout, rare flake), `cd desktop && npm test` (222),
+- Tests: `cd deploy && npx vitest run` (569 tests; `settings.test.jsx` "fallback chain"
+  is timing-sensitive, has a 20s timeout, rare flake), `cd desktop && npm test` (245),
   `cd backend && npm test` (33) plus `npm run typecheck`.
+- Tests that drive a dropdown go through `deploy/src/select-harness.js`. Ours is a
+  listbox, so `fireEvent.change` with a value does nothing: `chooseOption` opens it and
+  clicks, `optionLabels` reads what is on offer, `expectFieldValue` reads `data-value`
+  where a native select answered `toHaveValue`.
+- `renderer-target.test.js` fails if `main.js` requires a module the build does not
+  ship. A missing one only shows up as "Cannot find module" at launch, which is how
+  `printables-session.js` first shipped broken.
 - Package: `cd desktop && CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist` →
   `desktop/dist/mac-arm64/ModelPrep.app` (plus DMG). Signed with the local identity,
   notarization skipped. The packaged renderer lives at
@@ -140,7 +152,8 @@ Six more changes, all from Alex reviewing the running app.
 - **Details is an editor** (`6f5783b`). The licence card opened an inline chooser inside
   half a row, whose height changed on every filter click and shoved the fields below it
   around. It is a grouped `<select>` now. The page became a content column plus a 340px
-  metadata rail, capped at `max-w-6xl`, collapsing below `lg`.
+  metadata rail, collapsing below `lg`. The grid was capped at `max-w-6xl`; it now grows
+  to 1600px and fills the leftover height from `lg` up (see "Details fills the step" below).
 - **Column baselines** (`9b69ef7`). Title/Category and Description/Licence were 8px and
   32px out of line. Every field opens with one `FieldHeader` (28px row, then 8px to the
   control) and the category hint that restated the page subtitle is gone.
@@ -164,6 +177,77 @@ Six more changes, all from Alex reviewing the running app.
   rail's divider stopping 8px short at each end, the header not sharing the content
   row's max width (100px out at 2400px), the two bottom bars' rules landing 26px apart,
   and full-width notices cutting the rail in half.
+- **Details fills the step** (2026-08-20, after the audit). On a 2000px window the step
+  used 1152 of the 1680px content column and stopped 400px above the Back/Next bar, so
+  it read as broken next to Files, Images, Platforms and Publish, which all fill. The
+  grid now grows to 1600px, the rail steps to 380px at `2xl`, and from `lg` the
+  description takes the leftover height, which also makes Write, Preview and Adaptations
+  one fixed box instead of three that resize the page. Below `lg` nothing changed, so the
+  320px floor and normal scrolling stay.
+- **Printables sign-in closes itself** (2026-08-20, `desktop/`). Reported live. After
+  signing in the window stayed open, closing it by hand did not connect either, and only
+  a second open-and-close worked. The cause was that we detected sign-in by asking the
+  Printables GraphQL API, so anything that stopped the API answering (429, a stall, no
+  timeout anywhere) counted as "not signed in" over a session already sitting in the jar.
+  It is a local cookie check now. See "How Printables sign-in is detected" below.
+
+- **MakerRoad sign-in window** (2026-08-20, `desktop/`). Their login page is a hard
+  `width: 1152px`; our 1120px window clipped the card by 38px, cutting the password
+  field and the Log In button. Window is 1240x900 with `minWidth: 1180` now. The other
+  sign-in windows are fine, measured at the same time, except Thangs, which rate-limited
+  us before we could. See `makeroad-web-flow.md`.
+- **Thingiverse ran into Cloudflare** (2026-08-20, `desktop/`). A working session reported
+  "not authenticated (HTTP 403)" with the challenge page pasted into the UI, because
+  `session.fetch` gets challenged no matter what cookies or User-Agent it carries.
+  Thingiverse now uses the in-page transport Cults already had. See
+  `thingiverse-web-flow.md` for the measurements.
+- **Waiting states, app-wide** (2026-08-20). The app had two spinner idioms (four uses of
+  Tailwind's `animate-spin` bypassed the reduced-motion guard), `.mp-pulse`/`.mp-scan`
+  defined and never used, no skeletons, no progress bars, no `aria-busy`, and silence
+  during photo import and file hashing. DESIGN.md named "progress bars, skeletons" in its
+  vocabulary and gave no rule for any of it. The rule now comes from MDS
+  (mews.design): button loading state for what the person started, Spinner for what the
+  system started, Skeleton for content on its way, status indicators for rows. Primitives:
+  `LoadingButton`, `Spinner`, `Skeleton`, `SkeletonRows`, `FieldSkeleton`, `WorkingStatus`.
+  Pinned by `deploy/src/waiting-states.test.jsx`. See DESIGN.md, "Waiting".
+
+- **File previews show the file** (2026-08-20). The demo fixture pointed the two STL rows
+  at gallery photos (`images[2]`, `images[8]`), so the Files screen advertised a "TOP /
+  ISOMETRIC VIEW" card where the model goes, and because the renderer skips any file that
+  already carries a `previewDataUrl`, the demo never ran the real STL renderer at all.
+  The fixture attaches no previews now. The 3mf uses its own `Metadata/plate_1.png` and
+  the STLs get drawn from geometry, the same as a file you add yourself. Also: the raster
+  went from 96px to 256px, since the slider reaches 128px and a 2x display doubles that;
+  the ambient floor went from 0.30 to 0.45, which lifts the darkest face from tone 70 to
+  104 against a tile of 38; and the preview tile now looks like the button it always was.
+  A puck still reads flat, because 78% of its pixels are one tone. That is the model, not
+  the renderer: a faceted test shape spends only 38% on its dominant tone.
+
+- **One dropdown, everywhere** (2026-08-20). The app had 61 native `<select>`s beside one
+  hand-built category picker. On macOS a native select paints a dark OS menu, so every
+  licence, category and action picker looked foreign next to the field above it. They are
+  all `Select` now (`App.jsx`), generalised from `CategorySelect`, following MDS: search
+  from eight options, groups from `option.group`, `role="combobox"` and `data-value` on
+  the trigger so it keeps what a select gave assistive tech and tests. 17 of them gained
+  an accessible name they never had, since a bare `<Label>` names nothing. Tests drive it
+  through `src/select-harness.js` (`chooseOption`, `optionLabels`, `expectFieldValue`).
+  Watch for: the conversion was scripted, and the script got four things wrong that had to
+  be fixed by hand (a label that mixed text and an expression, a `className={expr}` turned
+  into a literal string, a dropped inline `style`, and `disabled={expr}` flattened to
+  `disabled: true`). If something looks off in a panel nobody has opened yet, suspect that
+  list first.
+
+- **Unsliced Bambu projects, and pictures one platform cannot take** (2026-08-20). Two
+  blockers with no remedy. MakerWorld's readiness demanded a configured print profile for
+  any `.3mf` while the Profiles step only created one for a file it could prove was
+  sliced, so an unsliced Bambu project was unpublishable and the step that could fix it
+  was empty. MakerWorld slices server-side (makerworld-web-flow.md line 229, live publish
+  2026-06-20), so `lib/print-profiles.js` now gives a profile to any sliced project and to
+  an unsliced Bambu one. Separately, an oversized picture blocked MyMiniFactory, and since
+  the gallery is project-wide the only fix was shrinking it for everyone;
+  `lib/platform-images.js` skips what a platform cannot take, reports it as an adaptation,
+  hands the lead to the next usable picture, and takes a per-platform cover override.
+  Every uploader inherits this through `orderedPlatformImages`.
 
 ## Rules added to DESIGN.md this session
 
@@ -182,6 +266,9 @@ Worth reading before touching layout, because each came from a bug Alex found:
   content column.
 - The top bar carries the brand over the sidebar column; sidebar rows are click targets
   first.
+- Waiting: who started the work decides the component (MDS mapping).
+- One Select for every dropdown; search from eight options; under five, MDS wants a
+  different control entirely.
 
 ## Where to go next
 
@@ -209,6 +296,41 @@ Nothing is half-done. In rough order of value:
 7. **Release packaging**: notarization needs `APPLE_TEAM_ID`; currently skipped.
 8. `backend/docs/platform-difference-matrix-ux.md` overstates shared-defaults gaps
    (it predates shared-defaults.js); update when touched.
+
+## How Printables sign-in is detected
+
+Ground truth, read off the live `persist:printables` partition on 2026-08-20: Prusa's
+OAuth hand-back writes `auth.access_token` (2 hours) and `auth.refresh_token` (30 days)
+on `.printables.com` at the moment sign-in completes. Every other cookie on the domain
+(`cookieyes-consent`, `cf_clearance`, `client-uid`, the api subdomain's `csrftoken`) is
+already there before anyone signs in and says nothing about it.
+
+So the sign-in window watches the partition, not the API:
+
+- `desktop/printables-session.js` holds the pure parts: which cookies are the session,
+  whether a non-expired one is present, the cookie header, and the three-way whoami
+  state. Unit-tested in `printables-session.test.js`.
+- `runLoginCapture` takes a `subscribe` hook. Printables subscribes to
+  `session.cookies.on('changed')`, so the window closes on the tick the cookie is
+  written rather than up to a poll later.
+- The identity read is a nicety layered on top, bounded twice (fetch timeout, then a
+  whole-check deadline). **Only a definite "signed out" keeps the window open.** A 429,
+  a timeout or an offline machine resolves on the cookie alone and the connect handler
+  stores the session anyway; the renderer runs its own whoami straight after.
+- `runLoginCapture` also releases its in-flight lock after `attemptTimeoutMs` (20s), so
+  one hung attempt can no longer silence every later poll.
+
+Verified under real Electron with a throwaway partition and synthetic cookies (no
+account, no network): API answers → closes in ~300ms; API rate-limited → closes, session
+kept; API never answers → closes on the budget; Printables says signed out → stays open;
+no sign-in → stays open; closed by hand → still captured.
+
+**The same shape of bug is still live on the other platforms.** Nexprint, Creality,
+MakerOnline, MyMiniFactory, MakerRoad and Thangs all gate their sign-in window on a
+network validation, so any of them can hold a window open over a session that already
+exists. MakerWorld is the one that was always right: `readMwCookie` decides on
+`token`/`refreshToken` being present. Each needs its own cookie ground truth before
+being converted.
 
 ## Traps worth knowing about
 
