@@ -197,3 +197,41 @@ describe('MakerWorld upload contracts', () => {
     expect(issues.errors.join(' ')).not.toMatch(/only accepts Bambu Studio/);
   });
 });
+
+describe('unsliced Bambu projects are publishable', () => {
+  // MakerWorld's .3mf path takes a Bambu Studio project and slices it
+  // server-side; its publish requirements are a profile name, one photo and the
+  // guidelines tick (makerworld-web-flow.md). Requiring plates in the file made
+  // the blocker unclearable, because the Profiles step created nothing.
+  const bambuProject = {
+    id: 'f1',
+    name: 'latch.3mf',
+    isModel: true,
+    isProfile: true,
+    size: 48 * 1024,
+    threemf: { scanned: true, slicer: 'bambu', sliced: false },
+  };
+
+  it('asks only for what MakerWorld asks for, once the profile exists', () => {
+    const project = {
+      title: 'Latch', description: 'x', tags: [], images: [{ id: 'i1', dataUrl: 'data:,', size: 10 }],
+      files: [bambuProject],
+      profiles: [{
+        id: 'p1', fileId: 'f1', name: '0.2mm layer, 9 walls, 15% infill',
+        photoIds: ['i1'], useMainCover: true, realPhotoConfirmed: true, guidelinesAccepted: true,
+      }],
+    };
+    const { errors } = makerWorldPublishIssues(project, { enabled: true, categoryId: 1, visibility: 'private' }, {});
+    expect(errors.filter((error) => /print profile/i.test(error))).toEqual([]);
+  });
+
+  it('names the file when the profile is missing, instead of a step with nothing in it', () => {
+    const project = {
+      title: 'Latch', description: 'x', tags: [], images: [{ id: 'i1', dataUrl: 'data:,', size: 10 }],
+      files: [bambuProject],
+      profiles: [],
+    };
+    const { errors } = makerWorldPublishIssues(project, { enabled: true, categoryId: 1, visibility: 'private' }, {});
+    expect(errors.some((error) => error.startsWith('latch.3mf has no print profile yet'))).toBe(true);
+  });
+});

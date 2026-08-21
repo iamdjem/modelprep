@@ -283,7 +283,11 @@ export function makerWorldPublishIssues(project, opts = {}, runtime = {}) {
       errors.push(`${primaryFile.name} was sliced in ${slicerLabel(detected)}; MakerWorld only accepts Bambu Studio print profiles. Pick a Bambu 3MF as the profile or exclude this file from the profile slot.`);
     }
     const profile = (project?.profiles || []).find((item) => item.fileId === primaryFile.id);
-    if (!profile) errors.push('Configure the selected Bambu Studio print profile.');
+    // The old message sent people to a Profiles step that had nothing in it: a
+    // profile record only existed for a 3MF we could prove was sliced, while
+    // this check fired on the extension. Name the file, so the sentence points
+    // at something the person can act on.
+    if (!profile) errors.push(`${primaryFile.name} has no print profile yet. Open Profiles and give it a name and a photo of the printed model.`);
     else {
       if (!String(profile.name || '').trim()) errors.push('Add a print-profile name.');
       if (String(profile.name || '').length > 60) errors.push('MakerWorld print-profile names are limited to 60 characters.');

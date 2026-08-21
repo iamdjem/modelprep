@@ -1,3 +1,4 @@
+import { platformImagePlan } from './platform-images.js';
 export const LIVE_PUBLISH_PLATFORM_IDS = ['makerworld', 'printables', 'cults', 'nexprint', 'creality', 'makeronline', 'mmf', 'makeroad', 'thangs', 'thingiverse'];
 
 export function batchPublishIntent(platformId, project) {
@@ -81,13 +82,19 @@ export function publishVisibility(platformId, project) {
   return batchPublishIntent(platformId, project).visibility;
 }
 
+/**
+ * The pictures this platform receives, cover first.
+ *
+ * Every uploader goes through here, so the per-platform cover and the pictures
+ * a platform cannot take are honoured once rather than in ten adapters. The
+ * per-platform settings come off the project so the call sites stay as they
+ * were.
+ */
 export function orderedPlatformImages(platform, project) {
-  const cover = project.images.find((image) => image.id === project.coverImageId) || project.images[0];
-  if (!cover) return [];
-  return [
-    cover,
-    ...project.images.filter((image) => image.id !== cover.id),
-  ].slice(0, platform.maxImages || project.images.length);
+  const opts = project?.platforms?.[platform.id] || {};
+  const plan = platformImagePlan(platform, project, opts);
+  if (!plan.cover) return [];
+  return [plan.cover, ...plan.gallery].slice(0, platform.maxImages || (project.images || []).length);
 }
 
 export const DESKTOP_PUBLISH_CONCURRENCY = 4;
