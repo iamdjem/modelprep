@@ -15,6 +15,44 @@ Sources:
 - **OFFICIAL:** `https://www.thingiverse.com/developers/swagger`
 - **OFFICIAL:** `https://www.thingiverse.com/changelog`
 
+## Transport: requests run inside the page (2026-08-20)
+
+Thingiverse is behind Cloudflare, and Cloudflare judges the client, not the
+cookies. Measured against the live site with a throwaway partition and no
+account:
+
+| transport | `GET /api/v2/users/me` |
+|---|---|
+| `session.fetch`, plain | 403, "Just a moment..." challenge HTML |
+| `session.fetch` + Chrome User-Agent | 403, same challenge |
+| fetch from inside a page on the origin | 401 JSON from Thingiverse |
+| `session.fetch` after that page banked `cf_clearance` | 403, same challenge |
+
+So a signed-in session was reporting "Thingiverse session is not authenticated
+(HTTP 403: `<!DOCTYPE html>...Just a moment...`)" in the UI, with the challenge
+page pasted into the error. The session was fine; the request never arrived.
+
+Thingiverse now uses the transport Cults3D already had, `createWindowFetch` in
+`cults-window-fetch.js`. One hidden `BrowserWindow` sits on the `persist:thingiverse`
+partition, loaded on `/thing:0/edit`, and every request runs inside it through
+`executeJavaScript`. The direct client is unchanged, since it takes an injected
+`fetchImpl`. Verified end to end. The real client over the real transport gets a genuine
+401 for a made-up token, which is Thingiverse answering.
+
+Two consequences worth remembering:
+
+- Uploads now cross into the page as one base64 blob in a script, capped at
+  256MB by the transport (`DEFAULT_MAX_BODY_BYTES`). This is the same path Cults
+  file uploads take.
+- The browser drops `Cookie`, `Origin`, `Referer` and `User-Agent` when the client
+  sets them, because scripts may not set those headers. The page supplies its own,
+  which is why the hidden page loads the editor rather than the home page.
+
+A Cloudflare challenge is also classified separately now
+(`isCloudflareChallenge`, error code `cloudflare_challenge`). It is not evidence
+of a bad session, it does not clear the stored one, and the check retries once
+after 3 seconds in case the hidden page is still solving the interstitial.
+
 ## Live form
 
 The authenticated editor has five steps: Upload, Thing Info, Basic Info, Details, and License. Final actions are Save as Draft and Publish. Publishing requires at least one model file and acceptance of the current terms.

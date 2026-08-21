@@ -62,7 +62,7 @@ async function encodeBody(body) {
   return { bytes: Buffer.from(String(body)), contentType: null };
 }
 
-async function buildRequestDescriptor(url, options = {}, maxBodyBytes = DEFAULT_MAX_BODY_BYTES) {
+async function buildRequestDescriptor(url, options = {}, maxBodyBytes = DEFAULT_MAX_BODY_BYTES, label = 'Cults') {
   const method = String(options.method || 'GET').toUpperCase();
   const headers = {};
   const source = options.headers;
@@ -77,7 +77,7 @@ async function buildRequestDescriptor(url, options = {}, maxBodyBytes = DEFAULT_
   let bodyBase64 = null;
   if (options.body != null) {
     const { bytes, contentType } = await encodeBody(options.body);
-    if (bytes.byteLength > maxBodyBytes) throw new Error(`Cults in-app request body ${bytes.byteLength} exceeds the ${maxBodyBytes}-byte limit.`);
+    if (bytes.byteLength > maxBodyBytes) throw new Error(`${label} in-app request body ${bytes.byteLength} exceeds the ${maxBodyBytes}-byte limit.`);
     // The boundary is chosen during encoding, so the encoder's Content-Type is
     // the only correct one: a caller-supplied header would name a boundary that
     // is not in the body.
@@ -141,22 +141,25 @@ function createWindowFetch(options = {}) {
   const executeInPage = options.executeInPage;
   const ResponseImpl = options.Response || (typeof Response !== 'undefined' ? Response : null);
   const maxBodyBytes = options.maxBodyBytes || DEFAULT_MAX_BODY_BYTES;
+  // Thingiverse runs on this transport too, so an error has to name the platform
+  // the person was actually using.
+  const label = options.label || 'Cults';
   if (typeof executeInPage !== 'function') throw new Error('createWindowFetch requires an executeInPage function.');
 
   return async (url, opts = {}) => {
-    const descriptor = await buildRequestDescriptor(url, opts, maxBodyBytes);
+    const descriptor = await buildRequestDescriptor(url, opts, maxBodyBytes, label);
     let envelope;
     try {
       envelope = await executeInPage(buildFetchScript(descriptor));
     } catch (error) {
-      throw new Error(`Cults in-app window is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`${label} in-app window is unavailable: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (!envelope || envelope.error) {
       // A bare "Failed to fetch" from the page says nothing about which request
       // died or how big it was, which is exactly what you need to know: this
       // transport carries the whole upload as one base64 blob embedded in a
       // script, so large publishes fail here and nowhere else.
-      const detail = envelope?.error || 'Cults in-app request returned no response.';
+      const detail = envelope?.error || `${label} in-app request returned no response.`;
       const bytes = descriptor.bodyBase64 ? Math.round((descriptor.bodyBase64.length * 3) / 4) : 0;
       const size = bytes ? ` (${descriptor.method} ${bytes.toLocaleString()} bytes)` : ` (${descriptor.method})`;
       throw new Error(`${detail}${size} while calling ${redactUrl(descriptor.url)}`);

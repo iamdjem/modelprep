@@ -195,3 +195,18 @@ test('Cults first-party requests are serialized instead of bursting into Cloudfl
   assert.ok(starts[1] - starts[0] >= 6);
   assert.ok(starts[2] - starts[1] >= 6);
 });
+
+// The transport carries Thingiverse as well now, so its errors must not tell a
+// Thingiverse user that something called Cults is unavailable.
+test('errors name the platform the request was for', async () => {
+  const fetchImpl = createWindowFetch({
+    label: 'Thingiverse',
+    executeInPage: async () => { throw new Error('window gone'); },
+  });
+  await assert.rejects(() => fetchImpl('https://www.thingiverse.com/api/v2/users/me'), /Thingiverse in-app window is unavailable/);
+});
+
+test('and default to Cults, so the existing messages are unchanged', async () => {
+  const fetchImpl = createWindowFetch({ executeInPage: async () => { throw new Error('window gone'); } });
+  await assert.rejects(() => fetchImpl('https://cults3d.com/x'), /Cults in-app window is unavailable/);
+});
