@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const {
@@ -55,4 +56,21 @@ test('packaged previews use software WebGL without exposing it to remote platfor
     /webgl:\s*false/,
     'the trusted bundled renderer must retain software WebGL access',
   );
+});
+
+// The packaged allowlist is hand-written, so a new module is easy to add to
+// main.js and forget here. A build that omits one fails at launch with "Cannot
+// find module", which no unit test would otherwise notice: printables-session.js
+// shipped that way once.
+test('every local module main.js requires is in the packaged allowlist', () => {
+  const dir = __dirname;
+  const main = fs.readFileSync(path.join(dir, 'main.js'), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+  const shipped = new Set(pkg.build.files);
+  const required = [...main.matchAll(/require\('\.\/([\w.-]+)'\)/g)].map((match) => match[1]);
+  assert.ok(required.length > 10, 'found the requires');
+  const missing = [...new Set(required)]
+    .map((name) => (name.endsWith('.js') || name.endsWith('.cjs') ? name : `${name}.js`))
+    .filter((file) => !shipped.has(file));
+  assert.deepEqual(missing, [], `main.js requires these, but the build does not ship them: ${missing.join(', ')}`);
 });

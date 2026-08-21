@@ -112,3 +112,50 @@ test('rejects with the platform timeout message when nothing happens', async () 
     /timed out/,
   );
 });
+
+// The reported bug: sign-in finishes, and the window sits there. A platform that
+// can watch its own session (a cookie appearing in the partition) says so, and
+// the window closes on that signal rather than on the next poll.
+test('closes on a live signal without waiting for the poll', async () => {
+  const login = fakeWindow();
+  let signedIn = false;
+  let fire = null;
+  let unsubscribed = false;
+  const promise = runLoginCapture(opts(login, async () => (signedIn ? { session: 'ok' } : null), {
+    intervalMs: 60_000,                    // the poll cannot be what saves this
+    subscribe: (tryCapture) => { fire = tryCapture; return () => { unsubscribed = true; }; },
+  }));
+
+  signedIn = true;
+  fire();
+
+  assert.deepEqual(await promise, { session: 'ok' });
+  assert.equal(login.isDestroyed(), true, 'the window closes itself');
+  assert.equal(unsubscribed, true, 'and stops listening');
+});
+
+test('a subscription that throws leaves the poll in charge', async () => {
+  const login = fakeWindow();
+  let signedIn = false;
+  const promise = runLoginCapture(opts(login, async () => (signedIn ? { session: 'polled' } : null), {
+    subscribe: () => { throw new Error('no cookies API here'); },
+  }));
+
+  signedIn = true;
+  assert.deepEqual(await promise, { session: 'polled' });
+});
+
+// An attempt that hangs used to hold the in-flight lock for the whole sign-in, so
+// every later poll returned without doing anything and the window never closed.
+test('a hung attempt does not wedge the ones after it', async () => {
+  const login = fakeWindow();
+  let calls = 0;
+  const promise = runLoginCapture(opts(login, async () => {
+    calls += 1;
+    if (calls === 1) { await new Promise(() => {}); }   // first attempt never answers
+    return { session: 'recovered' };
+  }, { attemptTimeoutMs: 30 }));
+
+  assert.deepEqual(await promise, { session: 'recovered' });
+  assert.ok(calls >= 2, 'a later attempt ran');
+});

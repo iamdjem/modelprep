@@ -68,8 +68,17 @@ Printables uses Prusa Account OAuth with PKCE:
 
 ModelPrep must not imitate a password form. Desktop sign-in opens the real
 Printables page in Electron partition `persist:printables`, supports OAuth
-popups in the same partition, validates the session with a read-only `me` query,
-and stores an encrypted cookie fallback with Electron `safeStorage`.
+popups in the same partition, and stores an encrypted cookie fallback with
+Electron `safeStorage`.
+
+Sign-in is detected from the partition, not from the API. The hand-back writes
+`auth.access_token` (2 hours) and `auth.refresh_token` (30 days) on
+`.printables.com`; those two cookies are the session, and their arrival is what
+closes the sign-in window. The read-only `me` query still runs, to name the
+account and to gate "connected", but it cannot hold the window open: only a
+definite signed-out answer does. A 429, a timeout or an offline machine leaves
+the session captured and stored. Before 2026-08-20 the window waited on that
+query, so a rate limit or a stall looked exactly like a failed sign-in.
 
 The renderer receives only `desktop-managed-printables-session-v1`. It sends
 Worker-shaped `/api/v1/printables/web/*` requests to the Electron main process,

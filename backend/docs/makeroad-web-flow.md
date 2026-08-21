@@ -9,6 +9,23 @@
 > fields, lost descriptions, and lost printType. See
 > `live-ui-verification-2026-08-07.md`.
 
+## Sign-in window size (2026-08-20)
+
+MakerRoad's login page is not responsive. `.login-page-con` is a hard `width: 1152px`
+and the sign-in card is its right-hand flex child, so any narrower window cuts the card
+off. Our old window was 1120px, which leaves 1114px of content, so the card's right edge
+landed at 1152 and clipped the password field and the Log In button by 38px. Measured on
+the live page, then again in Electron at three sizes: 1120 clips by 38px, 1180 fits with
+11px to spare, 1240 fits with 41px.
+
+The sign-in window is 1240x900 now with `minWidth: 1180`, clamped to the display's work
+area. We cannot fix this from here. Only their CSS can make the page reflow, so we give
+it the width it demands.
+
+Checked at the same time, all clean at their current sizes: MakerOnline, MyMiniFactory
+and Thingiverse at 1120, Creality at 1040, Nexprint (ELEGOO sign-in) at 920. Thangs
+answered 429, so it went unmeasured.
+
 ## 2026-08-08 continuation audit boundary
 
 MakerRoad redirected normal Chrome to Log In, so its current create/edit form

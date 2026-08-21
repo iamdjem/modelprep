@@ -6,7 +6,7 @@
 // Raw cookies remain in the main process and an encrypted safeStorage fallback; the
 // renderer sees only opaque account markers.
 
-const { app, BrowserWindow, dialog, ipcMain, session, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, screen, session, shell, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -15,6 +15,14 @@ const { validateWorkerUrl } = require('./auth-bridge');
 const { resolveRendererTarget, isRendererNavigation } = require('./renderer-target');
 const { handlePrintablesRequest, printablesWhoamiDirect } = require('./printables-direct');
 const { createPrintablesSessionCache } = require('./printables-session-cache');
+const {
+  PRINTABLES_AUTH_COOKIES,
+  onPrintablesDomain,
+  printablesCookieHeader,
+  printablesSessionCookiePresent,
+  printablesWhoamiState,
+  printablesWhoamiStateWithin,
+} = require('./printables-session');
 const { CULTS_BASE, createCultsDirectClient } = require('./cults-direct');
 const { createWindowFetch, createCultsFetchRouter, createPacedFetch } = require('./cults-window-fetch');
 const { createReleaseScheduler, hasPendingUnattended, mergeSyncedPlans } = require('./release-scheduler');
@@ -171,6 +179,30 @@ function ensureCultsPageWindow(accountId) {
     win.loadURL(`${CULTS_BASE}/en/creations/new`);
   });
 }
+// One hidden page on the thingiverse.com origin, kept alive lazily and reused by
+// every request. It loads the editor page the requests belong to, the way the
+// Cults window loads Cults' uploader, so they go out with the Origin and Referer
+// that page would send. Signed out it redirects to sign-in, which is still the
+// right origin, so the transport works either way.
+let thingiversePageWindow = null;
+function ensureThingiversePageWindow() {
+  if (thingiversePageWindow && !thingiversePageWindow.isDestroyed()) return Promise.resolve(thingiversePageWindow);
+  const win = new BrowserWindow({ show: false, webPreferences: remotePagePreferences(THINGIVERSE_PARTITION) });
+  win.on('closed', () => { if (thingiversePageWindow === win) thingiversePageWindow = null; });
+  thingiversePageWindow = win;
+  return new Promise((resolve) => {
+    win.webContents.once('did-finish-load', () => resolve(win));
+    // A Cloudflare interstitial is a failed load that still leaves a usable
+    // thingiverse.com origin, and it is where the challenge gets solved.
+    win.webContents.once('did-fail-load', () => resolve(win));
+    win.loadURL(THINGIVERSE_LOGIN_URL);
+  });
+}
+function destroyThingiversePageWindow() {
+  if (thingiversePageWindow && !thingiversePageWindow.isDestroyed()) thingiversePageWindow.destroy();
+  thingiversePageWindow = null;
+}
+
 function cultsFetchForAccount(accountId) {
   const runInPage = createWindowFetch({
     executeInPage: async (code) => {
@@ -200,7 +232,24 @@ const myMiniFactoryDirectClient = createMyMiniFactoryDirectClient({
 });
 const makerRoadDirectClient = createMakerRoadDirectClient({ fetchImpl: (...args) => makerRoadSession().fetch(...args) });
 const thangsDirectClient = createThangsDirectClient({ fetchImpl: (...args) => thangsSession().fetch(...args) });
-const thingiverseDirectClient = createThingiverseDirectClient({ fetchImpl: (...args) => thingiverseSession().fetch(...args) });
+// Thingiverse sits behind the same Cloudflare wall as Cults3D, so it gets the
+// same transport. Measured against the live site on 2026-08-20 with a throwaway
+// partition and no account: `session.fetch` to /api/v2/users/me answers 403
+// "Just a moment..." (the challenge page), with or without a browser User-Agent,
+// and still does after a real page in that partition has passed the challenge
+// and banked cf_clearance. The identical request from inside a page on the
+// origin answers 401 JSON, which is Thingiverse itself talking. Cloudflare is
+// judging the client, not the cookies, so the request has to come from the page.
+//
+// The client takes an injected fetchImpl, so this is only a different fetch.
+const thingiversePageFetch = createPacedFetch(createWindowFetch({
+  label: 'Thingiverse',
+  executeInPage: async (code) => {
+    const win = await ensureThingiversePageWindow();
+    return win.webContents.executeJavaScript(code, true);
+  },
+}), 250);
+const thingiverseDirectClient = createThingiverseDirectClient({ fetchImpl: (...args) => thingiversePageFetch(...args) });
 let nexprintContextCache = null;
 let crealityContextCache = null;
 let makerOnlineContextCache = null;
@@ -498,14 +547,12 @@ async function readMwCookie() {
   return readEncryptedSession();
 }
 
+async function readPrintablesBrowserCookieRecords() {
+  return (await printablesSession().cookies.get({})).filter(onPrintablesDomain);
+}
+
 async function readPrintablesBrowserCookie() {
-  const cookies = await printablesSession().cookies.get({});
-  const relevant = cookies.filter((cookie) => {
-    const domain = String(cookie.domain || '').replace(/^\./, '').toLowerCase();
-    return domain === 'printables.com' || domain.endsWith('.printables.com');
-  });
-  if (!relevant.length) return null;
-  return relevant.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
+  return printablesCookieHeader(await readPrintablesBrowserCookieRecords());
 }
 
 // Printables session longevity note: auth lives in expiring access/refresh
@@ -517,17 +564,41 @@ async function readPrintablesBrowserCookie() {
 // rotation is handled by the keep-alive's hidden page warm
 // (warmPersistentSession).
 
+// Every identity check is bounded. An unbounded one is what turns a slow answer
+// from Printables into a sign-in window that never closes and an app that looks
+// hung: the check is what the window waits on.
+const PRINTABLES_CHECK_TIMEOUT_MS = 12000;
+const PRINTABLES_CAPTURE_CHECK_MS = 5000;
+
+function printablesTimedFetch(timeoutMs = PRINTABLES_CHECK_TIMEOUT_MS) {
+  return (url, init = {}) => fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+}
+
+function readPrintablesWhoamiState(cookie, timeoutMs = PRINTABLES_CHECK_TIMEOUT_MS) {
+  return printablesWhoamiState(
+    cookie,
+    (value) => printablesWhoamiDirect(value, printablesTimedFetch(timeoutMs)),
+  );
+}
+
+// Belt and braces for the sign-in window: the fetch has its own timeout, and this
+// caps the whole check regardless of where it stalls. Whatever holds the window
+// open, it will not be the identity read.
+function readPrintablesWhoamiStateBounded(cookie, timeoutMs) {
+  return printablesWhoamiStateWithin(
+    cookie,
+    (value) => printablesWhoamiDirect(value, printablesTimedFetch(timeoutMs)),
+    timeoutMs + 1000,
+  );
+}
+
 async function validatePrintablesCookie(cookie) {
-  if (!cookie) return null;
-  try {
-    return await printablesWhoamiDirect(cookie);
-  } catch (error) {
-    console.error(
-      '[printables-auth] direct whoami failed:',
-      error instanceof Error ? error.message : String(error),
-    );
-    return null;
+  const result = await readPrintablesWhoamiState(cookie);
+  if (result.state === 'signed-in') return result.identity;
+  if (result.state === 'unknown') {
+    console.error('[printables-auth] direct whoami failed:', result.message);
   }
+  return null;
 }
 
 async function readPrintablesContext({ force = false } = {}) {
@@ -932,6 +1003,20 @@ async function validateThingiverseContext(context) {
   try {
     return await thingiverseDirectClient.whoami(context);
   } catch (error) {
+    // A Cloudflare check means the request never reached Thingiverse, so it is
+    // not a verdict on the session. It usually means the hidden page is still
+    // solving the interstitial; give it a moment and ask once more before
+    // treating this candidate as unusable.
+    if (error?.code === 'cloudflare_challenge') {
+      console.error('[thingiverse-auth] Cloudflare check; retrying once');
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      try {
+        return await thingiverseDirectClient.whoami(context);
+      } catch (retryError) {
+        console.error('[thingiverse-auth] still challenged:', retryError instanceof Error ? retryError.message : String(retryError));
+        return null;
+      }
+    }
     console.error('[thingiverse-auth] whoami failed:', error instanceof Error ? error.message : String(error));
     return null;
   }
@@ -1125,31 +1210,40 @@ function openPrintablesLoginAndCapture(parent) {
       },
     }));
 
-    // Validating costs a GraphQL round trip, and Printables rate-limits (429).
-    // Only spend one when the partition's cookies have actually changed since the
-    // last check, so a five-minute sign-in can't exhaust the budget and miss the
-    // moment the session finally appears.
-    let knownSignedOut = null;
-    const attempt = async ({ final = false } = {}) => {
-      const cookie = await readPrintablesBrowserCookie();
-      if (!cookie) return null;
-      if (!final && cookie === knownSignedOut) return null;
-      try {
-        const identity = await printablesWhoamiDirect(cookie);
-        // Only a definite "signed out" answer is cached. A rate-limited or failed
-        // check must not look like one, or we would stop asking for good.
-        knownSignedOut = identity ? null : cookie;
-        return identity ? { cookie, identity } : null;
-      } catch {
-        knownSignedOut = null;
-        return null;
-      }
+    // What ends this window is the auth cookie landing in the partition, which is
+    // the same event that ends the sign-in. Reading it is local and instant, so the
+    // window closes on the tick Prusa hands the session back rather than on the next
+    // poll, and a slow or rate-limited API cannot keep it open over a session that
+    // plainly exists.
+    //
+    // The identity read is a nicety on top: it names the account in the connect
+    // result. It gets one bounded try, and only a definite "you are signed out"
+    // keeps the window open. Anything inconclusive (429, timeout, offline) resolves
+    // on the cookie alone, because the renderer runs its own whoami straight after
+    // and the session is stored either way.
+    const attempt = async () => {
+      const records = await readPrintablesBrowserCookieRecords();
+      if (!printablesSessionCookiePresent(records)) return null;
+      const cookie = printablesCookieHeader(records);
+      const result = await readPrintablesWhoamiStateBounded(cookie, PRINTABLES_CAPTURE_CHECK_MS);
+      if (result.state === 'signed-out') return null;
+      return { cookie, identity: result.identity ?? null };
     };
 
     return runLoginCapture({
       login,
       attempt,
       timeoutMessage: 'Printables sign-in timed out. Please try again.',
+      // Chromium tells us the moment a cookie is written. Nothing else in the
+      // window announces a completed sign-in.
+      subscribe: (tryCapture) => {
+        const cookies = printablesSession().cookies;
+        const onChanged = (_event, cookie, _cause, removed) => {
+          if (!removed && PRINTABLES_AUTH_COOKIES.includes(cookie?.name)) tryCapture();
+        };
+        cookies.on('changed', onChanged);
+        return () => cookies.removeListener('changed', onChanged);
+      },
     }).then(resolve, reject);
   });
 }
@@ -1373,10 +1467,24 @@ function openMyMiniFactoryLoginAndCapture(parent) {
   });
 }
 
+// MakerRoad's login page is not responsive: `.login-page-con` is a hard
+// `width: 1152px`, and the sign-in card is its right-hand flex child. Below that
+// the card runs off the edge of the window and the password field and Log In
+// button are cut in half. Measured on the live page 2026-08-20: at a 1120px
+// window (1114px of content) the card's right edge lands at 1152, clipped by 38px.
+// Their layout is theirs to fix; the window size is ours, so give it room.
+const MAKEROAD_LOGIN_MIN_WIDTH = 1180;
+const MAKEROAD_LOGIN_WIDTH = 1240;
+
 function openMakerRoadLoginAndCapture(parent) {
   return new Promise((resolve, reject) => {
+    const workArea = screen.getPrimaryDisplay()?.workAreaSize ?? { width: MAKEROAD_LOGIN_WIDTH, height: 900 };
     const login = new BrowserWindow({
-      width: 1120, height: 900, parent, modal: false, title: 'Sign in to MakerRoad',
+      width: Math.min(MAKEROAD_LOGIN_WIDTH, Math.max(MAKEROAD_LOGIN_MIN_WIDTH, workArea.width - 80)),
+      height: Math.min(900, Math.max(700, workArea.height - 80)),
+      // Stops the window being dragged back down into the clipping range.
+      minWidth: MAKEROAD_LOGIN_MIN_WIDTH,
+      parent, modal: false, title: 'Sign in to MakerRoad',
       webPreferences: remotePagePreferences(MAKEROAD_PARTITION),
     });
     login.loadURL(MAKEROAD_LOGIN_URL);
@@ -1536,9 +1644,22 @@ ipcMain.handle('printables:connect', async (event) => {
   const parent = BrowserWindow.fromWebContents(event.sender);
   try {
     const { cookie, identity } = await openPrintablesLoginAndCapture(parent);
+    // Store first, and store whether or not the identity read got through: the
+    // session is what the sign-in produced, and losing it here is what used to
+    // send people back through the window a second time.
     await storeEncryptedPrintablesSession(cookie);
-    await printablesAuthCache.validate(cookie, async () => identity, { force: true });
-    return { ok: true, user: identity };
+    if (identity) {
+      await printablesAuthCache.validate(cookie, async () => identity, { force: true });
+      return { ok: true, user: identity };
+    }
+    // The check did not answer while the window was open. Ask once more, on the
+    // same short budget, now that it is closed. Either way the renderer runs its
+    // own whoami next, so nothing here is the last word on whether it worked.
+    const settled = await printablesAuthCache.validate(cookie, async (value) => {
+      const result = await readPrintablesWhoamiStateBounded(value, PRINTABLES_CAPTURE_CHECK_MS);
+      return result.state === 'signed-in' ? result.identity : null;
+    }, { force: true });
+    return { ok: true, user: settled ?? null };
   } catch (err) {
     return { ok: false, error: err && err.message ? err.message : String(err) };
   }
@@ -2051,7 +2172,7 @@ ipcMain.handle('thangs:request', async (_event, request = {}) => { const context
 ipcMain.handle('thangs:disconnect', async () => { await thangsSession().clearStorageData(); await clearEncryptedThangsSession(); thangsContextCache = null; return { ok: true }; });
 ipcMain.handle('thingiverse:connect', async (event) => { const existing = await readThingiverseContext({ force: true }); if (existing) { await storeEncryptedThingiverseSession(existing); return { ok: true, user: existing.identity, legalApproved: !!existing.identity.legalApproved }; } try { const captured = await openThingiverseLoginAndCapture(BrowserWindow.fromWebContents(event.sender)); await storeEncryptedThingiverseSession(captured.context); thingiverseContextCache = { value: { ...captured.context, identity: captured.identity }, expiresAt: Date.now() + 300000 }; return { ok: true, user: captured.identity, legalApproved: !!captured.identity.legalApproved }; } catch (error) { return { ok: false, error: error.message }; } });
 ipcMain.handle('thingiverse:request', async (_event, request = {}) => { const context = await readThingiverseContext(); if (!context) return { status: 401, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ error: 'missing_thingiverse_session', message: 'Reconnect Thingiverse.' }) }; const url = validateWorkerUrl(request.url, WORKER_URL, 'thingiverse'); return thingiverseDirectClient.handleRequest({ ...request, url }, context); });
-ipcMain.handle('thingiverse:disconnect', async () => { await thingiverseSession().clearStorageData(); await clearEncryptedThingiverseSession(); thingiverseContextCache = null; return { ok: true }; });
+ipcMain.handle('thingiverse:disconnect', async () => { destroyThingiversePageWindow(); await thingiverseSession().clearStorageData(); await clearEncryptedThingiverseSession(); thingiverseContextCache = null; return { ok: true }; });
 
 let mainWindow = null;
 

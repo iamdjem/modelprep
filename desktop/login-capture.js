@@ -6,6 +6,9 @@
 //     rather than up to a poll interval later;
 //   - on a slow poll, to catch sessions established without a navigation (OAuth
 //     popups, in-page XHR logins);
+//   - whenever `subscribe` says something happened, for platforms that can watch
+//     their own session directly (a cookie appearing in the partition), so the
+//     window closes within a tick of sign-in instead of waiting for a poll;
 //   - ONE FINAL TIME when the window is closed.
 //
 // That last call is the important one. The platform writes its session into our
@@ -15,8 +18,15 @@
 // found the stored session and succeeded, which is why signing in appeared to need
 // two tries.
 //
-// Attempts never overlap: a slow validation cannot stack up behind the poll.
+// Attempts never overlap: a slow validation cannot stack up behind the poll. But
+// "never overlap" must not become "never run again": an attempt that hangs (a
+// platform API that accepts the connection and then says nothing) used to hold the
+// in-flight lock forever, so every later poll returned immediately, the window
+// never closed itself, and the close-time attempt was the only one left to save
+// the sign-in. After `attemptTimeoutMs` the lock is released and polling resumes.
+// A late answer from the abandoned attempt is still honoured if it arrives.
 const FINAL_ATTEMPT_TIMEOUT_MS = 8000;
+const ATTEMPT_TIMEOUT_MS = 20000;
 
 function runLoginCapture({
   login,
@@ -25,11 +35,20 @@ function runLoginCapture({
   timeoutMs = 5 * 60 * 1000,
   intervalMs = 2500,
   finalAttemptMs = FINAL_ATTEMPT_TIMEOUT_MS,
+  attemptTimeoutMs = ATTEMPT_TIMEOUT_MS,
+  // (tryCapture) => unsubscribe. Optional live signal from the platform's own
+  // session, for capture paths that do not have to ask the network.
+  subscribe = null,
 }) {
   return new Promise((resolve, reject) => {
     let done = false;
     let inFlight = false;
-    const stop = () => { clearInterval(poll); clearTimeout(timer); };
+    let unsubscribe = null;
+    const stop = () => {
+      clearInterval(poll);
+      clearTimeout(timer);
+      if (unsubscribe) { try { unsubscribe(); } catch { /* already gone */ } unsubscribe = null; }
+    };
     const settle = (fn, value) => {
       if (done) return;
       done = true;
@@ -40,6 +59,7 @@ function runLoginCapture({
     const tryCapture = async () => {
       if (done || inFlight) return null;
       inFlight = true;
+      const release = setTimeout(() => { inFlight = false; }, attemptTimeoutMs);
       try {
         const captured = await attempt();
         if (captured) settle(resolve, captured);
@@ -47,10 +67,18 @@ function runLoginCapture({
       } catch {
         return null;                       // keep waiting; sign-in may still be in progress
       } finally {
+        clearTimeout(release);
         inFlight = false;
       }
     };
     const poll = setInterval(tryCapture, intervalMs);
+    if (subscribe) {
+      try {
+        const off = subscribe(tryCapture) || null;
+        // A subscription that captured before it returned has already run stop().
+        if (done) { try { off?.(); } catch { /* already gone */ } } else { unsubscribe = off; }
+      } catch { /* the poll still covers it */ }
+    }
     const timer = setTimeout(() => settle(reject, new Error(timeoutMessage)), timeoutMs);
     try {
       login.webContents.on('did-navigate', tryCapture);
