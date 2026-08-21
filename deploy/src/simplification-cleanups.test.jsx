@@ -239,18 +239,23 @@ describe('Details layout', () => {
     await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
 
-    // One select, grouped by the question creators decide first. The old card
-    // opened an inline chooser whose height changed with every filter click.
+    // One control, grouped by the question creators decide first. The old card
+    // opened an inline chooser whose height changed with every filter click, and
+    // a native select painted an OS menu that looked nothing like the app.
     const license = screen.getByLabelText('License');
-    expect(license.tagName).toBe('SELECT');
-    expect([...license.querySelectorAll('optgroup')].map((group) => group.label))
-      .toEqual(['Commercial use allowed', 'Non-commercial only']);
+    expect(license.getAttribute('aria-haspopup')).toBe('listbox');
     expect(screen.queryByRole('button', { name: /^change$/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /commercial ok/i })).toBeNull();
 
-    await user.selectOptions(license, 'cc0');
-    expect(license).toHaveValue('cc0');
+    await user.click(license);
+    expect(screen.getByText('Commercial use allowed')).toBeInTheDocument();
+    expect(screen.getByText('Non-commercial only')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('option', { name: /CC0: Public Domain/ }));
+    expect(license).toHaveTextContent('CC0: Public Domain');
     expect(screen.getByText(/Commercial use allowed · Remixes allowed/)).toBeInTheDocument();
+    // The list closes on choice, so the fields below it do not move.
+    expect(screen.queryByRole('option')).toBeNull();
   });
 
   // Every field opens with the same header row, which is what puts the left

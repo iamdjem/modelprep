@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
+import { optionLabels } from './select-harness.js';
 import { FileRow, PrintablesOptions } from './App.jsx';
 
 beforeEach(() => {
@@ -23,7 +24,7 @@ describe('Printables-specific options', () => {
       onUpdate={onUpdate}
     />);
 
-    expect(await screen.findByRole('option', { name: /Action Figures/i })).toBeInTheDocument();
+    await waitFor(() => expect(optionLabels(/category/i).join('|')).toMatch(/Action Figures/i));
     await user.type(screen.getByPlaceholderText(/short listing summary/i), 'Poseable dragon');
     expect(onUpdate).toHaveBeenCalledWith('summary', expect.any(String));
     expect(screen.getByLabelText(/Unpack into model files/i)).toBeChecked();

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer, createContext, useContext, useSyncExternalStore } from 'react';
+import React, { Fragment, useId, useState, useRef, useEffect, useCallback, useMemo, useReducer, createContext, useContext, useSyncExternalStore } from 'react';
 import {
   buildListingSummary,
   mdToHtml, mdToPlain, mdToMakerWorldHtml, formatBytes,
@@ -168,6 +168,8 @@ import { resolveBuildPlateProfile } from './lib/interactive-build-plate.js';
 import InteractiveBuildPlate from './components/InteractiveBuildPlate.jsx';
 import { hashFilesInWorkers, runBoundedJobs } from './lib/asset-processing.js';
 import { deriveSharedDefaultPatches } from './lib/shared-defaults.js';
+import { fileKeepsPrintProfile, fileTakesPrintProfile } from './lib/print-profiles.js';
+import { platformImageNote, platformImagePlan } from './lib/platform-images.js';
 import {
   addFallbackProvider,
   AI_PROVIDER_IDS,
@@ -248,7 +250,7 @@ function VersionBanner() {
   if (!stale) return null;
   return (
     <button onClick={() => window.location.reload()} className="w-full text-center py-1.5 px-4 mp-mono text-xs uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ backgroundColor: '#1a7f37', color: '#fff' }}>
-      <Loader size={12} /> New build available ({latest.commit}): click to refresh
+      <RefreshCw size={12} /> New build available ({latest.commit}): click to refresh
     </button>
   );
 }
@@ -469,6 +471,9 @@ export const PLATFORMS = [
     // The authenticated form exposes no image-count cap. Keep the verified
     // 100 MiB object-file cap, but do not invent a gallery limit.
     descFormat: 'html', maxImages: null, maxFileMb: 100, maxTotalMb: null,
+    // Documented 5 MiB per-picture cap. Kept as platform data so the readiness
+    // rule, the panel and the upload all read the same number.
+    maxImageMb: 5, stillImagesOnly: true,
     formats: MYMINIFACTORY_MODEL_FORMATS, hasApi: true, apiSupport: 'oneclick', apiLive: true,
     fields: [], note: `Uploads through MyMiniFactory's own upload form. Stays private by default; going public sends it into MyMiniFactory review.`,
     limits: { tagMax: 20 },
@@ -1358,12 +1363,15 @@ async function loadDemoAssets(base) {
   if (realMf) {
     const scan = await parseThreeMF(realMf, loadJSZip);
     usablePrintProfile = !!(scan.sliced && scan.printer && Number(scan.plates) > 0);
-    files = base.files.map((f) => {
-      if (/\.3mf$/i.test(f.name)) return { ...f, blob: realMf, size: realMf.size, threemf: scan, previewDataUrl: images[9]?.dataUrl || cover.dataUrl };
-      if (/-S\.stl$/i.test(f.name)) return { ...f, previewDataUrl: images[2]?.dataUrl || cover.dataUrl };
-      if (/\.stl$/i.test(f.name)) return { ...f, previewDataUrl: images[8]?.dataUrl || cover.dataUrl };
-      return f;
-    });
+    // No previews are attached here on purpose. The 3mf carries its own plate
+    // render (Metadata/plate_1.png) and the STLs get drawn from their geometry
+    // by the thumbnail worker, the same as a file you add yourself. Pointing
+    // these at gallery photos made the demo show artwork where the model goes,
+    // and a file already carrying a preview is skipped by the renderer, so the
+    // one project everybody opens first never showed what the app really does.
+    files = base.files.map((f) => (
+      /\.3mf$/i.test(f.name) ? { ...f, blob: realMf, size: realMf.size, threemf: scan } : f
+    ));
     profiles = usablePrintProfile ? base.profiles.map((p) => ({
       ...p,
       coverImageId: images[1]?.id || cover.id,
@@ -2090,16 +2098,14 @@ export default function App() {
     // closure updateProject calls that could drop a just-added profile).
     setProject(prev => {
       const liveFiles = new Map(prev.files.map(f => [f.id, f]));
-      // A 3MF extension alone does not make a print profile. Keep a profile
-      // while its archive is still being scanned, but remove it once the real
-      // metadata proves the project has not been sliced.
-      const kept = prev.profiles.filter(p => {
-        const file = liveFiles.get(p.fileId);
-        return !!file && file.threemf?.sliced !== false;
-      });
+      // Which files own a profile lives in lib/print-profiles.js, because the
+      // answer is a platform fact, not a UI one: MakerWorld slices an unsliced
+      // Bambu project for you, so it needs a profile record even though the
+      // archive carries no plates.
+      const kept = prev.profiles.filter(p => fileKeepsPrintProfile(liveFiles.get(p.fileId)));
       const existing = new Set(kept.map(p => p.fileId));
       const added = prev.files
-        .filter(f => projectFileRole(f) === 'profile' && f.threemf?.sliced === true && !existing.has(f.id))
+        .filter(f => projectFileRole(f) === 'profile' && fileTakesPrintProfile(f) && !existing.has(f.id))
         .map(f => ({
           id: 'prof_' + f.id,
           fileId: f.id,
@@ -2339,7 +2345,7 @@ export default function App() {
               style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}
             >
               {demoLoading
-                ? <><Loader size={12} className="animate-spin" /> Loading the sample project…</>
+                ? <Spinner size={12} label="Loading the sample project…" />
                 : <><Sparkles size={12} className="flex-shrink-0" /> Sample project loaded. Nothing has been uploaded yet, and every platform is set to private, secret or draft.</>}
             </div>
           )}
@@ -2580,12 +2586,30 @@ function GlobalStyles() {
       .mp-btn:hover:not(:disabled) { background: var(--primary-hover); }
       .mp-btn:active:not(:disabled) { background: var(--primary-active); }
       .mp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      /* Button loading state (MDS): the mark replaces the label and the icon.
+         Transparent text is what hides a bare text node, which no selector can
+         reach; the mark takes its colour from the variant instead of inheriting
+         that transparency. Nothing is removed, so the button keeps its width and
+         its accessible name. */
+      .mp-btn { --mp-btn-fg: #FFFFFF; }
+      .mp-btn-ghost { --mp-btn-fg: var(--ink); }
+      .mp-loading { position: relative; color: transparent !important; cursor: progress; }
+      .mp-loading:disabled { opacity: 1; }
+      .mp-loading > svg { opacity: 0; }
+      .mp-loading .mp-loading-mark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--mp-btn-fg, var(--ink)); opacity: 1; }
       .mp-btn-ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--border-strong); box-shadow: var(--shadow-1); }
       .mp-btn-ghost:hover:not(:disabled) { background: var(--surface-hover); color: var(--ink); border-color: var(--border-strong); }
       /* Keyboard focus is visible across the whole button system (WCAG 2.4.7). */
       .mp-btn:focus-visible, .mp-btn-ghost:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       /* Interactive pills and any element opting in with .mp-focusable. */
       .mp-focusable:focus-visible, [role="button"]:focus-visible, .mp-pill[tabindex]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+      /* A preview tile is a button. Without this it was a picture that happened
+         to be clickable, which nobody discovers. */
+      .mp-thumb-btn { display: block; border-radius: 7px; transition: transform 120ms ease, box-shadow 120ms ease; }
+      .mp-thumb-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 10px rgba(38,42,35,0.18); }
+      .mp-thumb-btn:hover span { border-color: var(--border-strong) !important; }
+      .mp-thumb-btn:active { transform: translateY(0); box-shadow: none; }
 
       .mp-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
       .t-num { font-variant-numeric: tabular-nums; }
@@ -2668,6 +2692,10 @@ function GlobalStyles() {
       .mp-pulse { animation: mp-pulse 1.5s ease-in-out infinite; }
       @keyframes mp-scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
       .mp-scan { animation: mp-scan 2s linear infinite; }
+      /* Skeleton (MDS): a placeholder in the shape of the content that is
+         coming. Quiet enough to read as furniture, not as a filled field. */
+      @keyframes mp-shimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+      .mp-skeleton { background-image: linear-gradient(90deg, var(--surface-sunken) 8%, rgba(38,42,35,0.09) 24%, var(--surface-sunken) 40%); background-size: 300% 100%; animation: mp-shimmer 1.6s ease-in-out infinite; }
       /* Panels enter from the edge they are attached to. 180ms, ease-out, no
          bounce: it should feel like the panel was already there. */
       @keyframes mp-slide-in-right { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
@@ -2675,9 +2703,11 @@ function GlobalStyles() {
       @keyframes mp-fade-in { from { opacity: 0; } to { opacity: 1; } }
       .mp-fade-in { animation: mp-fade-in 140ms ease-out; }
       @media (prefers-reduced-motion: reduce) {
-        .mp-spin, .mp-pulse, .mp-scan { animation-duration: 0.01ms; animation-iteration-count: 1; }
+        .mp-spin, .mp-pulse, .mp-scan, .mp-skeleton { animation-duration: 0.01ms; animation-iteration-count: 1; }
         .mp-slide-in-right, .mp-fade-in { animation-duration: 0.01ms; }
         .mp-btn, .mp-input, .mp-input-sm, .mp-btn-ghost { transition-duration: 0.01ms; }
+        .mp-thumb-btn { transition-duration: 0.01ms; }
+        .mp-thumb-btn:hover { transform: none; }
       }
 
       /* Sidebar fills the viewport below the 57px top bar so its status
@@ -3245,10 +3275,16 @@ export function platformPreflight(platform, project) {
     if (String(mmf.dimensions || '').length > 100) errors.push('MyMiniFactory dimensions must be at most 100 characters.');
     if (String(mmf.materialQuantity || '').length > 45) errors.push('MyMiniFactory material quantity must be at most 45 characters.');
     if (project.images.some((image) => !image.dataUrl)) errors.push('Every MyMiniFactory image must be available for upload.');
-    // Documented 5 MiB per-image cap, previously enforced only mid-transfer
-    // (myminifactory-direct.js) after earlier images had already uploaded.
-    const mmfOversized = project.images.filter((image) => image.dataUrl && (image.dataUrl.length * 3) / 4 > 5 * MB);
-    if (mmfOversized.length) errors.push(`${mmfOversized.length} image${mmfOversized.length === 1 ? ' exceeds' : 's exceed'} MyMiniFactory's 5 MB image cap.`);
+    // A picture MyMiniFactory cannot take is skipped for MyMiniFactory, not a
+    // reason to stop the publish: the gallery is written once and shared, so
+    // blocking here left no remedy short of shrinking the picture for everyone.
+    // It only becomes an error when nothing is left to lead the listing.
+    const mmfImages = platformImagePlan(platform, project, mmf);
+    if (!mmfImages.cover) errors.push(platformImageNote(platform, project, mmf));
+    else {
+      const note = platformImageNote(platform, project, mmf);
+      if (note) adaptations.push(note);
+    }
   }
   const makeroad = project.platforms?.makeroad;
   if (platform.id === 'makeroad' && makeroad) {
@@ -3335,7 +3371,7 @@ const PACKAGE_PHASE_BLOCKERS = new RegExp([
   '^MakerWorld (print-profile|Laser & Cut profile) names are limited',
   '^Select (at least one|a) (print-profile|Laser & Cut profile)',
   '^MakerWorld accepts at most 37 Laser & Cut profile pictures',
-  '^Configure the selected Bambu Studio print profile',
+  'has no print profile yet',
   '^Confirm that a selected profile photo shows the real printed model',
   '^Accept the MakerWorld Print Profile Guidelines',
   '^CyberBrick is only available',
@@ -3415,6 +3451,9 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
   const [confirmClear, setConfirmClear] = useState(false);
   const [roleFilter, setRoleFilter] = useState('all');
   const hashingIdsRef = useRef(new Set());
+  // Files being hashed or previewed after an import. Background work, so it gets
+  // a quiet area spinner rather than a button state.
+  const [preparing, setPreparing] = useState(0);
   const thumbnailIdsRef = useRef(new Set());
   const [fileQuery, setFileQuery] = useState('');
   const [fileView, setFileView] = useState('list');   // 'list' reads names, 'grid' reads previews
@@ -3435,7 +3474,9 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
     const pending = project.files.filter((file) => file.blob && !file.contentHash && !hashingIdsRef.current.has(file.id));
     if (!pending.length) return undefined;
     pending.forEach((file) => hashingIdsRef.current.add(file.id));
+    setPreparing((count) => count + pending.length);
     hashFilesInWorkers(pending).then((receipts) => {
+      setPreparing((count) => Math.max(0, count - pending.length));
       receipts.forEach((receipt) => hashingIdsRef.current.delete(receipt.id));
       const hashes = Object.fromEntries(receipts.map((receipt) => [receipt.id, receipt.hash]));
       if (receipts.some((receipt) => receipt.hash)) {
@@ -3451,7 +3492,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
     const pending = project.files.filter((file) => file.blob && fileExt(file.name) === 'stl' && !file.previewDataUrl && !thumbnailIdsRef.current.has(file.id));
     if (!pending.length) return undefined;
     pending.forEach((file) => thumbnailIdsRef.current.add(file.id));
-    runBoundedJobs(pending, async (file) => [file.id, await renderStlThumb(file, THUMB_SIZES[THUMB_SIZES.length - 1])], 2).then((receipts) => {
+    runBoundedJobs(pending, async (file) => [file.id, await renderStlThumb(file, THUMB_RENDER_PX)], 2).then((receipts) => {
       receipts.forEach(([id]) => thumbnailIdsRef.current.delete(id));
       const previews = Object.fromEntries(receipts.filter(([, url]) => url));
       if (Object.keys(previews).length) updateProject((current) => ({ ...current, files: current.files.map((file) => previews[file.id] ? { ...file, previewDataUrl: previews[file.id] } : file) }));
@@ -3577,6 +3618,16 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
         subtitle="Model files, print profiles, photos. A file's role tells every platform what to do with it."
         actions={(
           <div className="flex items-center gap-2">
+            {/* Hashing and mesh previews run in workers after an import. The
+                work is the system's, not a button's, so it says so here and
+                disappears when it is done. */}
+            {!!preparing && (
+              <Spinner
+                size={13}
+                label={<span className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Preparing {preparing} file{preparing === 1 ? '' : 's'}…</span>}
+                className="mr-1"
+              />
+            )}
             {/* Import used to sit in the top bar next to nothing it related to.
                 Both buttons put files in the project; they belong side by side,
                 on the screen that shows files. */}
@@ -3712,16 +3763,13 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
               </div>
               <label className="flex items-center gap-1.5">
                 <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Sort</span>
-                <select
+                <Select
                   value={fileSort}
-                  onChange={(e) => setFileSort(e.target.value)}
-                  aria-label="Sort files"
-                  className="mp-input-sm"
-                >
-                  {Object.entries(FILE_SORTS).map(([key, { label }]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
+                  onChange={(selectValue) => setFileSort(selectValue)}
+                  options={[...Object.entries(FILE_SORTS).map(([key, { label }]) => ({ value: key, label: label }))]}
+                  ariaLabel="Sort files"
+                  size="sm"
+                />
               </label>
               {/* Density, not decoration: 25 files is a wall as rows and a
                   contact sheet as tiles, and which one helps depends on whether
@@ -3867,7 +3915,13 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
 // still fit on a screen.
 export const THUMB_MIN = 28;
 export const THUMB_MAX = 128;
-export const THUMB_SIZES = [28, 40, 64, 96];   // still used to pick the render size
+export const THUMB_SIZES = [28, 40, 64, 96];   // slider stops, for reference
+// Rasterise once, at enough pixels for the biggest tile on the densest display:
+// 128px at 2x is 256 device pixels. The old 96px render was short even for the
+// 56px default (112 device pixels) and visibly soft past the middle of the
+// slider. The mesh parse dominates the cost, not the raster, so this is one
+// parse either way.
+export const THUMB_RENDER_PX = 256;
 
 // Search across the things a creator would actually type: the name, the
 // extension, and the detected slicer, so "bambu", "3mf" and "ram" all find
@@ -4088,7 +4142,7 @@ export function FileThumb({ file, size = 40, fill = false }) {
     setPlate(file.threemf?.thumbnail || file.previewDataUrl || null);
     if (!isStl || file.previewDataUrl || file.threemf?.thumbnail) return undefined;
     let live = true;
-    renderStlThumb(file, THUMB_SIZES[THUMB_SIZES.length - 1]).then((url) => { if (live && url) setPlate(url); });
+    renderStlThumb(file, THUMB_RENDER_PX).then((url) => { if (live && url) setPlate(url); });
     return () => { live = false; };
   }, [file, isStl]);
 
@@ -4498,7 +4552,7 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
 function FileTile({ file, size, onRemove, onOpen }) {
   return (
     <div className="mp-card p-1.5 flex flex-col gap-1 group relative" style={{ width: size + 12 }} title={file.name}>
-      <button onClick={onOpen} aria-label={`Preview ${file.name}`} className="mp-focusable">
+      <button onClick={onOpen} aria-label={`Preview ${file.name}`} title="Open preview" className="mp-thumb-btn mp-focusable">
         <FileThumb file={file} size={size} />
       </button>
       <span className="text-[11px] leading-tight break-all line-clamp-2" style={{ color: 'rgba(38,42,35,0.7)' }}>
@@ -4543,7 +4597,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
       <tr>
         <td>
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={onOpen} aria-label={`Preview ${file.name}`} className="mp-focusable flex-shrink-0">
+            <button onClick={onOpen} aria-label={`Preview ${file.name}`} title="Open preview" className="mp-thumb-btn mp-focusable flex-shrink-0">
               <FileThumb file={file} size={thumbSize} />
             </button>
             <div className="min-w-0">
@@ -4573,29 +4627,32 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
         <td>
           <div className="flex items-center gap-2 flex-wrap">
             {onChangeRole ? (
-              <select
-                aria-label={`Role for ${file.name}`}
-                title="What this file is for. Each platform routes files by role."
-                className="mp-input-sm text-xs"
-                style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto', backgroundColor: role === 'profile' ? 'var(--primary-tint)' : undefined }}
+              <Select
                 value={role}
-                onChange={(e) => onChangeRole(e.target.value)}
-              >
-                <option value="model">Model</option>
-                <option value="profile">Print profile</option>
-                <option value="reference">Reference photo</option>
-                <option value="source">Source file</option>
-                <option value="document">Document</option>
-              </select>
-            ) : isProf ? (
-              <span className="mp-pill" style={{ backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>Print profile</span>
-            ) : isImg ? (
-              <span className="mp-pill" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Reference image</span>
+                onChange={(selectValue) => onChangeRole(selectValue)}
+                options={FILE_ROLE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+                ariaLabel={`Role for ${file.name}`}
+                title="What this file is for. Each platform routes files by role."
+                className="text-xs"
+                size="sm"
+                style={{ width: 'auto', minWidth: '9rem' }}
+                triggerStyle={role === 'profile' ? { backgroundColor: 'var(--primary-tint)' } : null}
+              />
             ) : (
-              <span className="mp-pill" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}>Model</span>
-            )}
-            {file.isLaserCut && (
-              <span className="mp-pill" style={{ backgroundColor: 'rgba(255,105,0,0.14)', color: '#B23A1A' }}>Laser &amp; Cut</span>
+              // Read-only rows say the role once, in the role's own words. This
+              // used to be three hand-written pills that between them could not
+              // say "Laser & Cut", so a cut file was labelled "Model" and wore a
+              // second orange pill to correct it.
+              <span
+                className="mp-pill"
+                style={role === 'profile'
+                  ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' }
+                  : role === 'laser'
+                    ? { backgroundColor: 'rgba(255,105,0,0.14)', color: '#B23A1A' }
+                    : { backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}
+              >
+                {FILE_ROLE_OPTIONS.find((option) => option.id === role)?.label || 'Model'}
+              </span>
             )}
             {/* Only a real problem earns a pill here. A per-row "Ready" badge on
                 every file said nothing and made the table look like a checklist
@@ -4606,21 +4663,16 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
               </span>
             )}
             {isProf && onUpdateFile && (
-              <select
-                aria-label={`Slicer for ${file.name}`}
-                title="Detected from the file's own metadata; override if the detection is wrong"
-                className="mp-input-sm text-xs"
-                style={{ minHeight: 26, paddingTop: 1, paddingBottom: 1, width: 'auto' }}
+              <Select
                 value={file.slicerOverride || ''}
-                onChange={(e) => onUpdateFile({ slicerOverride: e.target.value || null })}
-              >
-                <option value="">
-                  {file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…'}
-                </option>
-                {Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => (
-                  <option key={id} value={id}>{label}</option>
-                ))}
-              </select>
+                onChange={(selectValue) => onUpdateFile({ slicerOverride: selectValue || null })}
+                options={[{ value: "", label: file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…' }, ...Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => ({ value: id, label: label }))]}
+                ariaLabel={`Slicer for ${file.name}`}
+                title="Detected from the file's own metadata; override if the detection is wrong"
+                className="text-xs"
+                size="sm"
+                style={{ width: 'auto', minWidth: '10rem' }}
+              />
             )}
           </div>
         </td>
@@ -4979,10 +5031,12 @@ function AiModelField({ providerId, models, value, onChange, placeholder }) {
     <div className="min-w-0">
       <label className={aiLabelClass} htmlFor={id} style={{ color: aiMuted }}>Model</label>
       {options.length ? (
-        <select id={id} className="mp-input" value={value || ''} onChange={(e) => onChange(e.target.value)}>
-          <option value="">Recommended default</option>
-          {options.map((m) => <option key={m.slug} value={m.slug}>{m.label}</option>)}
-        </select>
+        <Select
+          value={value || ''}
+          onChange={(selectValue) => onChange(selectValue)}
+          options={[{ value: "", label: 'Recommended default' }, ...options.map((m) => ({ value: m.slug, label: m.label }))]}
+          id={id}
+        />
       ) : (
         <input id={id} className="mp-input" value={value || ''} placeholder={placeholder || 'model name'} onChange={(e) => onChange(e.target.value)} />
       )}
@@ -5060,9 +5114,9 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
                     value={settings.apiKey || ''} placeholder="sk-…"
                     onChange={(e) => onSettings({ apiKey: e.target.value })}
                   />
-                  <button type="button" className="mp-btn mp-btn-ghost text-[13px] shrink-0" style={{ minHeight: 44 }} onClick={onCheckKey} disabled={checking}>
-                    {checking ? <Loader size={13} className="mp-spin" /> : <Check size={13} />} Check key
-                  </button>
+                  <LoadingButton type="button" className="mp-btn mp-btn-ghost text-[13px] shrink-0" style={{ minHeight: 44 }} onClick={onCheckKey} loading={checking} markSize={13}>
+                    <Check size={13} /> Check key
+                  </LoadingButton>
                 </div>
                 <p className="text-[11px] mt-1" style={{ color: aiMuted }}>Stored in this browser only, and sent with each request.</p>
               </div>
@@ -5200,13 +5254,13 @@ function AiSettings() {
               : <>No AI picked yet. Until you choose one, the writer works from your hint alone; with one, it works from your photos.</>}
           </p>
         </div>
-        <button
-          type="button" onClick={scan} disabled={detected === null}
+        <LoadingButton
+          type="button" onClick={scan} loading={detected === null} markSize={11}
           className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 shrink-0 mt-1 hover:text-[#5A7430] transition disabled:opacity-50"
           style={{ color: aiMuted }}
         >
-          <RefreshCw size={11} className={detected === null ? 'mp-spin' : ''} /> {detected === null ? 'Checking' : 'Check again'}
-        </button>
+          <RefreshCw size={11} /> Check again
+        </LoadingButton>
       </div>
 
       {chain.length > 1 && (
@@ -5252,91 +5306,189 @@ function AiSettings() {
   );
 }
 
-function CategorySelect({ value, onChange, options }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// SELECT: one dropdown for the whole app
+//
+// A native <select> paints an OS menu: dark on macOS, system font, nothing to do
+// with this design system, and different again on Windows. Sixty-two of them sat
+// next to one hand-built category picker that looked like the app. This is that
+// picker, generalised, so every dropdown matches.
+//
+// MDS rules it follows:
+//   - Select is for lists of five or more. Shorter lists are better as a radio
+//     group or segmented control; the ones we still render as selects are marked
+//     in DESIGN.md rather than silently converted.
+//   - Search appears when the list is long enough to need it (SEARCH_FROM), not
+//     on every list. A search box over four options is furniture.
+//   - One size and one variant per page.
+//   - Options only. Actions do not belong in the list.
+//
+// `options` is [{ value, label, group?, disabled? }]. `groups` fall out of the
+// option order, so a caller keeps optgroup semantics without a second array.
+const SELECT_SEARCH_FROM = 8;
+
+function Select({
+  value,
+  onChange,
+  options,
+  placeholder = 'Choose…',
+  ariaLabel,
+  title,
+  id,
+  className = '',
+  style = null,
+  // For the rare control that paints itself (the profile role tints its own
+  // field). Sizing belongs on `style`, which is the wrapper.
+  triggerStyle = null,
+  disabled = false,
+  searchLabel = 'Search options',
+  size = 'md',
+}) {
+  const listId = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapRef = useRef(null);
-
   const triggerRef = useRef(null);
+
+  const items = (options || []).filter(Boolean);
+  const searchable = items.length >= SELECT_SEARCH_FROM;
+  const selected = items.find((option) => String(option.value) === String(value));
+
   useEffect(() => {
-    if (!open) return;
-    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    if (!open) return undefined;
+    const onDoc = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
+    };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  const filtered = options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()));
+  const needle = query.trim().toLowerCase();
+  const filtered = needle
+    ? items.filter((option) => String(option.label).toLowerCase().includes(needle))
+    : items;
 
-  // Keyboard: Escape closes and returns focus; arrows walk the option list.
-  const onWrapKeyDown = (e) => {
-    if (e.key === 'Escape' && open) {
-      e.stopPropagation();
+  // Escape closes and hands focus back. Arrows walk the options, which is what
+  // a native select does and what a listbox has to do for itself.
+  const onKeyDown = (event) => {
+    if (event.key === 'Escape' && open) {
+      event.stopPropagation();
       setOpen(false);
       triggerRef.current?.focus();
       return;
     }
-    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && open) {
-      const items = Array.from(wrapRef.current?.querySelectorAll('[data-category-option]') || []);
-      if (!items.length) return;
-      e.preventDefault();
-      const idx = items.indexOf(document.activeElement);
-      const next = e.key === 'ArrowDown'
-        ? items[Math.min(idx + 1, items.length - 1)] || items[0]
-        : idx <= 0 ? items[0] : items[idx - 1];
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && open) {
+      const nodes = Array.from(wrapRef.current?.querySelectorAll('[data-select-option]') || []);
+      if (!nodes.length) return;
+      event.preventDefault();
+      const index = nodes.indexOf(document.activeElement);
+      const next = event.key === 'ArrowDown'
+        ? nodes[Math.min(index + 1, nodes.length - 1)] || nodes[0]
+        : index <= 0 ? nodes[0] : nodes[index - 1];
       next?.focus();
     }
   };
 
+  const choose = (option) => {
+    if (option.disabled) return;
+    onChange(option.value);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  let lastGroup = null;
+  const pad = size === 'sm' ? 'py-1.5 text-xs' : 'py-2.5 text-[13px]';
+
   return (
-    <div className="relative" ref={wrapRef} onKeyDown={onWrapKeyDown}>
+    <div className={`relative ${className}`} style={style} ref={wrapRef} onKeyDown={onKeyDown}>
       <button
         type="button"
+        id={id}
         ref={triggerRef}
-        onClick={() => { setOpen(o => !o); setQuery(''); }}
-        className="mp-input flex items-center justify-between text-left"
-        style={{ color: value ? '#262A23' : 'rgba(38,42,35,0.66)' }}
+        disabled={disabled}
+        onClick={() => { setOpen((wasOpen) => !wasOpen); setQuery(''); }}
+        className={`${size === 'sm' ? 'mp-input-sm' : 'mp-input'} w-full flex items-center justify-between text-left disabled:opacity-45`}
+        style={{ color: selected ? 'var(--ink)' : 'var(--ink-65)', ...(triggerStyle || {}) }}
+        // A collapsed listbox trigger is a combobox, which is what a native
+        // select maps to. Keeping the role means assistive tech and tests find
+        // this the same way they found the select it replaced.
+        role="combobox"
+        // The chosen value, for anything that needs to read it off the DOM the
+        // way a native select's `value` could be read.
+        data-value={value == null ? '' : String(value)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={listId}
+        aria-label={ariaLabel}
+        title={title}
       >
-        <span className="truncate">{value || 'Choose a category…'}</span>
-        <ChevronDown size={14} style={{ color: 'rgba(38,42,35,0.66)' }} className="flex-shrink-0" />
+        <span className="truncate">{selected ? selected.label : placeholder}</span>
+        <ChevronDown size={14} style={{ color: 'var(--ink-65)' }} className="flex-shrink-0" />
       </button>
       {open && (
-        <div className="absolute z-30 left-0 right-0 mt-1 mp-card shadow-lg" style={{ backgroundColor: '#FFFFFF' }}>
-          <div className="flex items-center gap-2 px-2.5 py-2 border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
-            <Search size={13} style={{ color: 'rgba(38,42,35,0.66)' }} />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search categories"
-              placeholder="Search categories…"
-              className="bg-transparent outline-none text-xs flex-1"
-            />
-          </div>
-          <div className="max-h-56 overflow-y-auto py-1" role="listbox" aria-label="Categories">
+        <div className="absolute z-30 left-0 right-0 mt-1 mp-card shadow-lg" style={{ backgroundColor: 'var(--surface)', minWidth: 'max-content' }}>
+          {searchable && (
+            <div className="flex items-center gap-2 px-2.5 py-2 border-b" style={{ borderColor: 'var(--border)' }}>
+              <Search size={13} style={{ color: 'var(--ink-65)' }} />
+              <input
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                aria-label={searchLabel}
+                placeholder="Search…"
+                className="bg-transparent outline-none text-xs flex-1"
+              />
+            </div>
+          )}
+          <div id={listId} className="max-h-56 overflow-y-auto py-1" role="listbox" aria-label={ariaLabel}>
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-[13px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No match for "{query}".</div>
+              <div className="px-3 py-2 text-[13px]" style={{ color: 'var(--ink-65)' }}>No match for "{query}".</div>
             )}
-            {filtered.map(o => (
-              <button
-                key={o}
-                type="button"
-                data-category-option
-                role="option"
-                aria-selected={value === o}
-                onClick={() => { onChange(o); setOpen(false); triggerRef.current?.focus(); }}
-                className="w-full text-left px-3 py-2.5 text-xs hover:bg-[rgba(90,116,48,0.08)] transition flex items-center justify-between"
-                style={{ backgroundColor: value === o ? 'rgba(90,116,48,0.06)' : 'transparent' }}
-              >
-                <span>{o}</span>
-                {value === o && <Check size={12} style={{ color: '#5A7430' }} />}
-              </button>
-            ))}
+            {filtered.map((option) => {
+              const heading = option.group && option.group !== lastGroup ? option.group : null;
+              lastGroup = option.group || lastGroup;
+              const isSelected = String(option.value) === String(value);
+              return (
+                <Fragment key={`${option.group || ''}:${option.value}`}>
+                  {heading && (
+                    <div className="px-3 pt-2 pb-1 mp-mono text-[10px] uppercase tracking-[0.14em]" style={{ color: 'var(--ink-50)' }}>
+                      {heading}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    data-select-option
+                    role="option"
+                    aria-selected={isSelected}
+                    disabled={option.disabled}
+                    onClick={() => choose(option)}
+                    className={`w-full text-left px-3 ${pad} hover:bg-[rgba(90,116,48,0.08)] transition flex items-center justify-between gap-3 disabled:opacity-40`}
+                    style={{ backgroundColor: isSelected ? 'rgba(90,116,48,0.06)' : 'transparent' }}
+                  >
+                    <span className="truncate">{option.label}</span>
+                    {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: 'var(--primary)' }} />}
+                  </button>
+                </Fragment>
+              );
+            })}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+// Categories are a long flat list, so they get the searchable form for free.
+function CategorySelect({ value, onChange, options }) {
+  return (
+    <Select
+      value={value}
+      onChange={onChange}
+      options={options.map((option) => ({ value: option, label: option }))}
+      placeholder="Choose a category…"
+      ariaLabel="Category"
+      searchLabel="Search categories"
+    />
   );
 }
 
@@ -5468,7 +5620,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           to add a hint. A plain button and a conditional body rather than
           <details>, because a controlled <details open> desyncs whenever the
           native toggle event does not reach React. */}
-      <div className="mp-card mt-6 max-w-6xl" style={{ backgroundColor: "var(--primary-tint)", borderColor: "var(--primary-tint-border)" }}>
+      <div className="mp-card mt-6 w-full max-w-[1600px]" style={{ backgroundColor: "var(--primary-tint)", borderColor: "var(--primary-tint-border)" }}>
         <div className="min-h-[48px] px-4 flex items-center gap-2">
           <button
             type="button"
@@ -5488,13 +5640,14 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           {/* Only while collapsed. Open, the button beside the hint field is
               the one to press, and two at once is just noise. */}
           {!aiPanelOpen && (
-            <button
+            <LoadingButton
               onClick={runGenerate}
-              disabled={aiBusy}
+              loading={aiBusy}
+              markSize={12}
               className="mp-btn text-xs py-1.5 px-3 disabled:opacity-50 flex-shrink-0"
             >
-              {aiBusy ? <><Loader size={12} className="animate-spin" /> Writing…</> : <><Sparkles size={12} /> Write it</>}
-            </button>
+              <Sparkles size={12} /> Write it
+            </LoadingButton>
           )}
           <button
             onClick={() => openSettings("ai")}
@@ -5516,13 +5669,14 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               onKeyDown={(e) => { if (e.key === "Enter") runGenerate(); }}
               disabled={aiBusy}
             />
-            <button
+            <LoadingButton
               onClick={runGenerate}
-              disabled={aiBusy}
+              loading={aiBusy}
+              markSize={13}
               className="mp-btn text-[13px] py-2 px-4 disabled:opacity-50 flex items-center gap-1.5 justify-center"
             >
-              {aiBusy ? <><Loader size={13} className="animate-spin" /> Writing…</> : <><Sparkles size={13} /> Write it</>}
-            </button>
+              <Sparkles size={13} /> Write it
+            </LoadingButton>
           </div>
           {aiMsg && (
             <p className="text-xs mt-2" style={{ color: aiMsg.kind === "warn" ? "var(--warn-text)" : "var(--ink-65)" }}>
@@ -5542,27 +5696,37 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
       {/* The listing copy on the left, everything that classifies it on the
           right. Both are filled at the same moment: you pick a category and
           type tags while the description is in front of you. Below lg it
-          stacks back into the single column the rest of the app uses. */}
-      <div className="mt-6 max-w-6xl grid gap-6 items-start lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="space-y-5 min-w-0">
+          stacks back into the single column the rest of the app uses.
+
+          The grid grows with the window to 1600px, the readable ceiling for a
+          description line; the old 1152px cap sat in the left two thirds of a
+          large display while every other step filled the column. From lg the
+          description also takes the height left over above the Back/Next bar,
+          which keeps Write, Preview and Adaptations one box that does not
+          resize the page when you switch. Below lg: the 320px floor, and the
+          page scrolls as before. */}
+      <div className="mt-6 w-full max-w-[1600px] grid gap-6 items-stretch lg:flex-1 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-5 min-w-0 flex flex-col">
           <div>
             <FieldHeader label="Title">
-              {lim.titleMax && (titleOver || project.title.length >= lim.titleMax * 0.8) && (
+              {!aiBusy && lim.titleMax && (titleOver || project.title.length >= lim.titleMax * 0.8) && (
                 <span className="text-xs t-num flex-shrink-0" style={{ color: titleOver ? 'var(--warn-text)' : 'var(--ink-65)' }}>
                   {project.title.length}/{lim.titleMax}
                   {titleOver && ` · over ${lim.titleMaxBy}'s limit`}
                 </span>
               )}
             </FieldHeader>
-            <input
-              className="mp-input"
-              placeholder="e.g. Articulating Desk Dragon"
-              value={project.title}
-              onChange={(e) => updateProject({ title: e.target.value })}
-            />
+            {aiBusy ? <FieldSkeleton /> : (
+              <input
+                className="mp-input"
+                placeholder="e.g. Articulating Desk Dragon"
+                value={project.title}
+                onChange={(e) => updateProject({ title: e.target.value })}
+              />
+            )}
           </div>
 
-          <div>
+          <div className="flex flex-col lg:flex-1 min-h-0">
             <FieldHeader label="Description (markdown)">
               <div className="mp-segmented flex-shrink-0" role="group" aria-label="Description mode" style={{ height: 28 }}>
                 {['write', 'preview', 'formats'].map(m => (
@@ -5587,24 +5751,25 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               </div>
             </FieldHeader>
 
-            {previewMode === 'write' && (
+            {aiBusy && <Skeleton className="lg:flex-1" style={{ minHeight: 320 }} />}
+            {!aiBusy && previewMode === 'write' && (
               <textarea
-                className="mp-textarea mp-mono mp-input text-sm leading-relaxed resize-none"
+                className="mp-textarea mp-mono mp-input text-sm leading-relaxed resize-none lg:flex-1"
                 style={{ minHeight: 320 }}
                 placeholder={"# Your model title\n\nA hook about what's special.\n\n## Print settings\n\n**Layer height:** 0.2mm"}
                 value={project.description}
                 onChange={(e) => updateProject({ description: e.target.value })}
               />
             )}
-            {previewMode === 'preview' && (
-              <div className="mp-card p-5 mp-prose text-sm" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(38,42,35,0.6)">Preview shows once you write something</p>' }} />
+            {!aiBusy && previewMode === 'preview' && (
+              <div className="mp-card p-5 mp-prose text-sm lg:flex-1 overflow-auto" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(38,42,35,0.6)">Preview shows once you write something</p>' }} />
             )}
-            {previewMode === 'formats' && (
+            {!aiBusy && previewMode === 'formats' && (
               <FormatTabs description={project.description} />
             )}
 
             <div className="flex items-center justify-between mt-1.5">
-              {(descOver || (lim.descMax && project.description.length >= lim.descMax * 0.8)) && <span className="mp-mono text-xs" style={{ color: descOver ? 'var(--danger-text)' : 'var(--warn-text)' }}>
+              {!aiBusy && (descOver || (lim.descMax && project.description.length >= lim.descMax * 0.8)) && <span className="mp-mono text-xs" style={{ color: descOver ? 'var(--danger-text)' : 'var(--warn-text)' }}>
                 {project.description.length}/{lim.descMax} chars{descOver && ` · over ${lim.descMaxBy}'s limit`}
               </span>}
               <span className="mp-mono text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>
@@ -5622,7 +5787,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                 column. The auto-match note appears per platform where it
                 actually applies. */}
             <FieldHeader label="Category" />
-            <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />
+            {aiBusy ? <FieldSkeleton /> : <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />}
           </div>
 
           <div>
@@ -5632,20 +5797,17 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                 every click and shoved the rest of the form up and down the
                 page. The permissions are the option groups now, and the
                 selected licence explains itself underneath. */}
-            <select
-              className="mp-input"
-              aria-label="License"
+            <Select
+              ariaLabel="License"
               value={project.license}
-              onChange={(event) => updateProject({ license: event.target.value })}
-            >
-              {LICENSE_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.licenses.map((license) => (
-                    <option key={license.id} value={license.id}>{license.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              onChange={(license) => updateProject({ license })}
+              options={LICENSE_GROUPS.flatMap((group) => group.licenses.map((license) => ({
+                value: license.id,
+                label: license.name,
+                group: group.label,
+              })))}
+              searchLabel="Search licences"
+            />
             {selectedLicense && (
               <p className="text-xs mt-1.5" style={{ color: "var(--ink-65)" }}>
                 {selectedLicense.commercial ? "Commercial use allowed" : "Non-commercial only"}
@@ -5656,6 +5818,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           </div>
           <div>
             <FieldHeader label="Tags" />
+            {aiBusy ? <FieldSkeleton height={86} /> : (
             <div className="mp-card p-3">
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {project.tags.map(t => (
@@ -5679,9 +5842,9 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   {project.tags.length}/{lim.tagMax ?? '∞'} tags
                   {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
                 </span>
-                <button onClick={suggestTags} disabled={tagSuggestBusy} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#5A7430] transition disabled:opacity-40">
-                  {tagSuggestBusy ? <Loader size={10} className="animate-spin" /> : <Sparkles size={10} />} {tagSuggestBusy ? 'Checking MakerWorld…' : 'Suggest tags'}
-                </button>
+                <LoadingButton onClick={suggestTags} loading={tagSuggestBusy} markSize={10} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#5A7430] transition disabled:opacity-40">
+                  <Sparkles size={10} /> Suggest tags
+                </LoadingButton>
               </div>
               {tagSuggestMsg && <p className="text-[11px] mt-1.5 opacity-70">{tagSuggestMsg}</p>}
               {longTags.length > 0 && (
@@ -5690,6 +5853,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                 </p>
               )}
             </div>
+            )}
           </div>
 
           <SharedDisclosures project={project} updateProject={updateProject} />
@@ -5776,6 +5940,93 @@ export function SharedDisclosures({ project, updateProject }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WAITING: three components, one rule each (Mews Design System)
+//
+// MDS splits waiting by who started the work and how much of the screen it
+// covers, and we follow that split:
+//
+//   LoadingButton  the person pressed something. The indicator takes the place
+//                  of the label and the icon goes with it. The label stays in
+//                  the DOM, transparent, so the control keeps its width and
+//                  screen readers keep its name.
+//   Spinner        the system started it (a session check, a hash, an import).
+//                  One area of the screen, one on the page at a time, and only
+//                  once the wait passes about a second.
+//   Skeleton       content is on its way and we know its shape. Whole panes and
+//                  lists, and any field about to be written for you.
+//
+// MDS's own "Progress Indicator" is the multi-step flow component, which is our
+// step sidebar, not a loading bar. It has no determinate bar for byte-counted
+// work; where we know a percentage we say it in words next to the spinner.
+function LoadingButton({ loading = false, disabled = false, className = '', children, markSize = 14, ...rest }) {
+  return (
+    <button
+      {...rest}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={`${className}${loading ? ' mp-loading' : ''}`}
+    >
+      {children}
+      {loading && (
+        <span className="mp-loading-mark" aria-hidden="true">
+          <Loader size={markSize} className="mp-spin" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+// `label` is optional and short. MDS allows a spinner to carry a line of text;
+// it does not allow a paragraph.
+function Spinner({ size = 14, label = null, className = '' }) {
+  return (
+    <span className={`inline-flex items-center gap-2 ${className}`} role="status">
+      <Loader size={size} className="mp-spin flex-shrink-0" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
+// A list whose rows are on their way. MDS: Skeleton, not Spinner, when the whole
+// component is loading and we know the shape it will take.
+function SkeletonRows({ rows = 3, height = 30, className = '' }) {
+  return (
+    <div className={`space-y-1.5 ${className}`} role="status" aria-label="Loading">
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton key={index} style={{ height, width: index === rows - 1 ? '72%' : '100%' }} />
+      ))}
+    </div>
+  );
+}
+
+// A row inside a list reports itself with a status indicator, not a spinner. Ten
+// platforms publishing at once would otherwise put ten spinners on the screen,
+// and MDS allows one; its Contextual Feedback pattern sends row-level status to
+// the Status Indicator instead. The dot pulses, the line names the step.
+function WorkingStatus({ label, className = '', dotSize = 7 }) {
+  return (
+    <span role="status" aria-live="polite" className={`inline-flex items-center gap-2 text-xs py-1.5 ${className}`} style={{ color: 'rgba(38,42,35,0.7)' }}>
+      <span
+        className="mp-pulse flex-shrink-0"
+        style={{ width: dotSize, height: dotSize, borderRadius: 999, backgroundColor: 'var(--primary)' }}
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  );
+}
+
+function Skeleton({ className = '', style = null, rounded = 'var(--radius-sm)' }) {
+  return <span aria-hidden="true" className={`mp-skeleton block ${className}`} style={{ borderRadius: rounded, ...style }} />;
+}
+
+// The shape a field takes while something else is writing it. Same height as the
+// control it stands in for, so nothing moves when the answer lands.
+function FieldSkeleton({ height = 38, className = '' }) {
+  return <Skeleton className={className} style={{ height }} />;
+}
+
 function Label({ children, className = '' }) {
   return <label className={`text-[13px] font-medium block mb-1.5 ${className}`} style={{ color: 'var(--ink)' }}>{children}</label>;
 }
@@ -5822,8 +6073,8 @@ function FormatTabs({ description }) {
   ];
   const copyLabel = active === 'rich' ? 'Copy formatted' : `Copy ${active}`;
   return (
-    <div className="mp-card">
-      <div className="flex border-b" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+    <div className="mp-card flex flex-col lg:flex-1 min-h-0">
+      <div className="flex border-b flex-shrink-0" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
         {tabs.map(({ k, label, platforms }) => (
           <button
             key={k}
@@ -5842,7 +6093,7 @@ function FormatTabs({ description }) {
           </button>
         ))}
       </div>
-      <div className="p-3 flex items-center justify-between border-b gap-2" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+      <div className="p-3 flex items-center justify-between border-b gap-2 flex-shrink-0" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
         <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
           {active === 'rich' ? 'Rendered: paste into the visual editor, keeps formatting' : active === 'html' ? 'Raw HTML source' : active === 'md' ? 'Markdown source' : 'Plain text'}
         </span>
@@ -5851,10 +6102,10 @@ function FormatTabs({ description }) {
         </button>
       </div>
       {active === 'rich' ? (
-        <div className="mp-prose p-4 text-sm max-h-64 overflow-auto"
+        <div className="mp-prose p-4 text-sm max-h-64 lg:max-h-none lg:flex-1 lg:min-h-0 overflow-auto"
           dangerouslySetInnerHTML={{ __html: html || '<span style="color:rgba(38,42,35,0.3)">Write something in markdown to see the formatted output</span>' }} />
       ) : (
-        <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 overflow-auto" style={{ color: 'rgba(38,42,35,0.85)' }}>
+        <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 lg:max-h-none lg:flex-1 lg:min-h-0 overflow-auto" style={{ color: 'rgba(38,42,35,0.85)' }}>
           {outputs[active] || <span style={{ color: 'rgba(38,42,35,0.6)' }}>Write something in markdown to see formatted outputs</span>}
         </pre>
       )}
@@ -5873,6 +6124,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
   const [imageWorkspace, setImageWorkspace] = useState('gallery');
   const [cropPlatformId, setCropPlatformId] = useState('makerworld');
   const [imgNotice, setImgNotice] = useState(null); // string | null
+  const [importing, setImporting] = useState(0);     // photos still being read
   const [draggedImageId, setDraggedImageId] = useState(null);
   const desktop = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop)
     ? window.modelprepDesktop
@@ -5914,6 +6166,9 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
     // (drag from some sources, HEIC, renamed files, etc.).
     const candidates = all.filter(f => f.type.startsWith('image/') || isImageFile(f.name));
     const rejectedType = all.length - candidates.length;
+    // HEIC conversion and decoding a dozen photos takes seconds and used to
+    // happen in total silence.
+    setImporting(candidates.length);
     const additions = [];
     let failed = 0;
     for (const sourceFile of candidates) {
@@ -5945,6 +6200,8 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         });
       } catch (e) { failed++; }
     }
+
+    setImporting(0);
 
     // Surface what happened so a drop never silently does nothing.
     if (!additions.length) {
@@ -6061,6 +6318,11 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         subtitle="Order here is upload order. ModelPrep crops only where a platform documents its crop."
       />
 
+      {!!importing && (
+        <div className="mp-card px-3 py-2 mb-3">
+          <Spinner size={13} label={<span className="text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>Reading {importing} photo{importing === 1 ? '' : 's'}…</span>} />
+        </div>
+      )}
       {imgNotice && (
         <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
           <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
@@ -6246,11 +6508,13 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       </div>
                       <label className="min-w-[220px]">
                         <span className="sr-only">Platform to preview</span>
-                        <select className="mp-input-sm w-full" value={cropPlatformId} onChange={(event) => setCropPlatformId(event.target.value)}>
-                          {cropPlatforms.map((platform) => (
-                            <option key={platform.id} value={platform.id}>{platform.name}</option>
-                          ))}
-                        </select>
+                        <Select
+                          value={cropPlatformId}
+                          onChange={(selectValue) => setCropPlatformId(selectValue)}
+                          options={[...cropPlatforms.map((platform) => ({ value: platform.id, label: platform.name }))]}
+                          className="w-full"
+                          size="sm"
+                        />
                       </label>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -6471,7 +6735,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
         <div className="mt-6 p-8 text-center mp-card">
           <Layers size={32} className="mx-auto mb-3 opacity-30" />
           <h3 className="mp-display font-bold text-lg mb-1">No 3MF files yet</h3>
-          <p className="text-sm mb-4" style={{ color: 'rgba(38,42,35,0.66)' }}>Add a sliced 3MF in Files to set up print profiles. An STL-only model skips this step.</p>
+          <p className="text-sm mb-4" style={{ color: 'rgba(38,42,35,0.66)' }}>Add a 3MF in Files and give it the print-profile role. A sliced project from any slicer works, and so does an unsliced Bambu Studio project, which MakerWorld slices for you. An STL-only model skips this step.</p>
           <button onClick={() => setCurrentSection('files')} className="mp-btn mp-btn-ghost text-xs">
             <ChevronRight size={12} className="rotate-180" /> Back to Files
           </button>
@@ -6550,10 +6814,13 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 
               <div>
                 <Label>MakerWorld profile visibility</Label>
-                <select className="mp-input" value={active.visibility || 'private'} onChange={(e) => updateProfile(active.id, { visibility: e.target.value })}>
-                  <option value="private">Private</option>
-                  <option value="public">Public</option>
-                </select>
+                <Select
+                  value={active.visibility || 'private'}
+                  onChange={(selectValue) => updateProfile(active.id, { visibility: selectValue })}
+                  options={[{ value: "private", label: 'Private' }, { value: "public", label: 'Public' }]}
+                
+                  ariaLabel="MakerWorld profile visibility"
+/>
                 <div className="text-[11px] mt-1 opacity-70">Independent from the model visibility, matching MakerWorld's profile editor.</div>
               </div>
 
@@ -6877,16 +7144,13 @@ export function ReleasePlanControls({ platform, project }) {
         Release plan{active ? ` · ${describeDue(active, Date.now())}` : ''}
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label={`${platform.name} release plan`}
-          className="mp-input text-xs py-1 w-auto"
+        <Select
           value={current.mode}
-          onChange={(e) => apply({ mode: e.target.value })}
-        >
-          <option value="">No plan</option>
-          <option value="remind">Remind me to publish</option>
-          <option value="scheduled">Publish automatically</option>
-        </select>
+          onChange={(selectValue) => apply({ mode: selectValue })}
+          options={[{ value: "", label: 'No plan' }, { value: "remind", label: 'Remind me to publish' }, { value: "scheduled", label: 'Publish automatically' }]}
+          ariaLabel={`${platform.name} release plan`}
+          className="text-xs py-1 w-auto"
+        />
         {current.mode && (
           <input
             aria-label={`${platform.name} release date`}
@@ -6960,15 +7224,73 @@ export function DestinationFileRoleRow({ platform, file, opts, onChange, onReset
         <span className="mp-mono text-[9px] uppercase tracking-[0.1em] px-2 py-0.5 rounded-full" style={{ backgroundColor: choice.automatic ? 'rgba(58,134,255,0.10)' : 'rgba(90,116,48,0.10)', color: choice.automatic ? '#245DA8' : '#8F2D00' }}>{choice.automatic ? 'Automatic' : 'Manual'}</span>
       </div>
       <div className="mt-1.5 flex items-center gap-2">
-        <select aria-label={`${file.name} role for ${platform.name}`} className="mp-input text-xs py-1.5" value={choice.role} disabled={unsupported} onChange={(event) => onChange(event.target.value)}>
-          {DESTINATION_FILE_ROLES.map((role) => <option key={role.id} value={role.id} disabled={!availability[role.id]}>{role.label}</option>)}
-        </select>
+        <Select
+          value={choice.role}
+          onChange={(selectValue) => onChange(selectValue)}
+          options={DESTINATION_FILE_ROLES.map((role) => ({ value: role.id, label: role.label, disabled: !availability[role.id] }))}
+          ariaLabel={`${file.name} role for ${platform.name}`}
+          disabled={unsupported}
+          className="text-xs py-1.5"
+        />
         {!choice.automatic && <button type="button" onClick={onReset} className="text-[10px] underline whitespace-nowrap">Reset to Auto</button>}
       </div>
       <p className="text-[10px] mt-1 leading-snug" style={{ color: unsupported ? '#B91C1C' : 'rgba(38,42,35,0.60)' }}>
         {unsupported ? `.${ext || 'file'} is not a format this platform accepts.` : choice.reason}
         {choice.suggestedRole && choice.role !== choice.suggestedRole ? ` Suggested role: ${choice.suggestedRole === 'profile' ? 'Print profile' : choice.suggestedRole}.` : ''}
       </p>
+    </div>
+  );
+}
+
+// Which picture leads on this platform, and what it could not take.
+//
+// Silent when the platform accepts the whole gallery, which is the common case.
+// It appears when there is something to say: a picture skipped for a cap this
+// platform sets, or a cover that had to change because the project's cover is
+// one of them.
+export function PlatformImagePicker({ platform, project, opts, onUpdate }) {
+  const images = project.images || [];
+  if (!images.length) return null;
+  const plan = platformImagePlan(platform, project, opts);
+  const note = platformImageNote(platform, project, opts);
+  // Nothing skipped and no override in play: the shared gallery says it all.
+  if (!note && !opts.coverImageId) return null;
+
+  const usableIds = new Set([plan.cover?.id, ...plan.gallery.map((image) => image.id)].filter(Boolean));
+  return (
+    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
+        Pictures for {platform.name}
+      </div>
+      {note && (
+        <p className="text-[11px] mb-2" style={{ color: 'rgba(38,42,35,0.7)' }}>{note}</p>
+      )}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Select
+          ariaLabel={`${platform.name} cover picture`}
+          value={opts.coverImageId || ''}
+          onChange={(coverImageId) => onUpdate('coverImageId', coverImageId || null)}
+          options={[
+            { value: '', label: plan.coverSource === 'project' ? 'Same as the project cover' : `Automatic (${plan.cover?.name || 'none available'})` },
+            ...images
+              .filter((image) => usableIds.has(image.id))
+              .map((image, index) => ({ value: image.id, label: image.name || `Picture ${index + 1}` })),
+          ]}
+          className="text-xs"
+          size="sm"
+          style={{ width: 'auto', minWidth: '14rem' }}
+        />
+        {opts.coverImageId && (
+          <button
+            type="button"
+            onClick={() => onUpdate('coverImageId', null)}
+            className="mp-mono text-[11px] underline"
+            style={{ color: 'rgba(38,42,35,0.66)' }}
+          >
+            back to automatic
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -7269,16 +7591,13 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           {platform.fields.includes('contestEntry') && state.enabled && (
             <div className="mt-3">
               <Label>Submit to contest (optional)</Label>
-              <select
-                className="mp-input"
+              <Select
                 value={state.contestEntry || ''}
-                onChange={(e) => onUpdate('contestEntry', e.target.value)}
-              >
-                <option value="">No contest</option>
-                <option value="creator-fund">$1M Creator Fund (ongoing)</option>
-                <option value="elegoo-summer">Elegoo Summer Showcase</option>
-                <option value="best-functional">Best Functional Print 2026</option>
-              </select>
+                onChange={(selectValue) => onUpdate('contestEntry', selectValue)}
+                options={[{ value: "", label: 'No contest' }, { value: "creator-fund", label: '$1M Creator Fund (ongoing)' }, { value: "elegoo-summer", label: 'Elegoo Summer Showcase' }, { value: "best-functional", label: 'Best Functional Print 2026' }]}
+              
+                ariaLabel="Submit to contest (optional)"
+/>
               {state.contestEntry && (
                 <div className="mt-2 p-2.5 flex items-start gap-2 text-[13px]" style={{ backgroundColor: 'rgba(255,182,39,0.12)', border: '1px solid rgba(255,182,39,0.5)' }}>
                   <AlertCircle size={14} style={{ color: '#FF9500' }} className="flex-shrink-0 mt-0.5" />
@@ -7292,6 +7611,9 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
 
           {state.enabled && (
             <PlatformFilePicker platform={platform} project={project} opts={state} onUpdate={onUpdate} />
+          )}
+          {state.enabled && (
+            <PlatformImagePicker platform={platform} project={project} opts={state} onUpdate={onUpdate} />
           )}
           {state.enabled && LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id) && (
             <ReleasePlanControls platform={platform} project={project} />
@@ -7340,18 +7662,22 @@ export function CultsOptions({ opts, onUpdate }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <Label>Cults3D category (required)</Label>
-          <select aria-label="Cults3D category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
-            <option value="">Choose exact category…</option>
-            {CULTS_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
+          <Select
+            value={opts.categoryId || ''}
+            onChange={(selectValue) => onUpdate({ categoryId: selectValue, categoryAuto: false })}
+            options={[{ value: "", label: 'Choose exact category…' }, ...CULTS_CATEGORIES.map(([id, label]) => ({ value: id, label: label }))]}
+            ariaLabel="Cults3D category"
+          />
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
         </div>
         <div>
           <Label>Cults3D license (required)</Label>
-          <select aria-label="Cults3D license" className="mp-input" value={opts.licenseType || ''} onChange={(event) => onUpdate({ licenseType: event.target.value, licenseAuto: false })}>
-            <option value="">Choose compatible license…</option>
-            {CULTS_LICENSES.filter(([, , scope]) => opts.free === false ? scope !== 'free' : scope !== 'paid').map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-          </select>
+          <Select
+            value={opts.licenseType || ''}
+            onChange={(selectValue) => onUpdate({ licenseType: selectValue, licenseAuto: false })}
+            options={[{ value: "", label: 'Choose compatible license…' }, ...CULTS_LICENSES.filter(([, , scope]) => opts.free === false ? scope !== 'free' : scope !== 'paid').map(([id, label]) => ({ value: id, label: label }))]}
+            ariaLabel="Cults3D license"
+          />
           <AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" />
         </div>
       </div>
@@ -7413,40 +7739,45 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
           <Label>Category (required)</Label>
-          <select
-            aria-label="MyMiniFactory category"
-            className="mp-input"
+          <Select
             value={selectedCategoryId}
-            onChange={(event) => {
-              const selected = categories.find((category) => category.id === event.target.value);
+            onChange={(selectValue) => {
+              const selected = categories.find((category) => category.id === selectValue);
               onUpdate({ categoryIds: selected?.pathIds || [], categoryAuto: false });
             }}
-          >
-            <option value="">Choose MyMiniFactory category…</option>
-            {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
-          </select>
+            options={[{ value: "", label: 'Choose MyMiniFactory category…' }, ...categories.map((category) => ({ value: category.id, label: category.label }))]}
+            ariaLabel="MyMiniFactory category"
+          />
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
           <p className="text-[11px] mt-1 opacity-70">{categorySource === 'live' ? `Loaded from MyMiniFactory's current taxonomy.` : 'Using the audited taxonomy snapshot; reconnect to refresh it live.'}</p>
         </div>
         <div>
           <Label>Visibility</Label>
-          <select aria-label="Visibility" className="mp-input" value={opts.publication || 'private'} onChange={(event) => onUpdate('publication', event.target.value)}>
-            <option value="private">Private (recommended)</option>
-            <option value="public">Public: enters review</option>
-          </select>
+          <Select
+            value={opts.publication || 'private'}
+            onChange={(selectValue) => onUpdate('publication', selectValue)}
+            options={[{ value: "private", label: 'Private (recommended)' }, { value: "public", label: 'Public: enters review' }]}
+            ariaLabel="Visibility"
+          />
         </div>
         <div>
           <Label>License</Label>
-          <select aria-label="License" className="mp-input" value={Number(opts.licenseId || 5)} onChange={(event) => onUpdate({ licenseId: Number(event.target.value), licenseAuto: false })}>
-            {MYMINIFACTORY_LICENSES.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
-          </select>
+          <Select
+            value={Number(opts.licenseId || 5)}
+            onChange={(selectValue) => onUpdate({ licenseId: Number(selectValue), licenseAuto: false })}
+            options={[...MYMINIFACTORY_LICENSES.map((license) => ({ value: license.id, label: license.name }))]}
+            ariaLabel="License"
+          />
           <AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" />
         </div>
         <div>
           <Label>Technology</Label>
-          <select aria-label="Technology" className="mp-input" value={opts.technology || ''} onChange={(event) => onUpdate('technology', event.target.value)}>
-            <option value="">Not specified</option><option value="FDM">FDM</option><option value="DLP/SLA">DLP/SLA</option><option value="SLS">SLS</option>
-          </select>
+          <Select
+            value={opts.technology || ''}
+            onChange={(selectValue) => onUpdate('technology', selectValue)}
+            options={[{ value: "", label: 'Not specified' }, { value: "FDM", label: 'FDM' }, { value: "DLP/SLA", label: 'DLP/SLA' }, { value: "SLS", label: 'SLS' }]}
+            ariaLabel="Technology"
+          />
         </div>
         <div>
           <Label>Material quantity</Label>
@@ -7459,9 +7790,13 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
               packaged app. Inline flex sizing wins deterministically. */}
           <div className="flex gap-2">
             <input aria-label="Dimensions" className="mp-input" style={{ flex: '1 1 0%', minWidth: 0 }} maxLength={100} value={opts.dimensions || ''} onChange={(event) => onUpdate('dimensions', event.target.value)} placeholder="120 × 75 × 45" />
-            <select aria-label="Dimensions unit" className="mp-input" style={{ flex: '0 0 5rem', width: '5rem' }} value={Number(opts.dimensionsUnit || 0)} onChange={(event) => onUpdate('dimensionsUnit', Number(event.target.value))}>
-              <option value={0}>mm</option><option value={1}>cm</option><option value={2}>in</option>
-            </select>
+            <Select
+              value={Number(opts.dimensionsUnit || 0)}
+              onChange={(selectValue) => onUpdate('dimensionsUnit', Number(selectValue))}
+              options={[{ value: 0, label: 'mm' }, { value: 1, label: 'cm' }, { value: 2, label: 'in' }]}
+              ariaLabel="Dimensions unit"
+              style={{ flex: '0 0 5rem', width: '5rem' }}
+            />
           </div>
         </div>
         <div>
@@ -7615,21 +7950,26 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
-          <select className="mp-input" value={opts.publication || 'draft'} onChange={(event) => onUpdate('publication', event.target.value)}>
-            <option value="draft">Save draft (recommended)</option>
-            <option value="publish">Publish publicly</option>
-          </select>
+          <Select
+            value={opts.publication || 'draft'}
+            onChange={(selectValue) => onUpdate('publication', selectValue)}
+            options={[{ value: "draft", label: 'Save draft (recommended)' }, { value: "publish", label: 'Publish publicly' }]}
+          
+            ariaLabel="Batch action"
+/>
         </div>
         <div>
           <Label>Originality</Label>
           {/* Original vs Adapted comes from the shared provenance block in
               Details. Nexprint's third state, Reprint, has no shared
               equivalent, so it stays here as the only manual choice. */}
-          <select className="mp-input" value={Number(opts.originalityType || 1)} onChange={(event) => onUpdate('originalityType', Number(event.target.value))}>
-            <option value={1}>Original (from Details)</option>
-            <option value={2}>Adapted (from Details)</option>
-            <option value={3}>Reprint</option>
-          </select>
+          <Select
+            value={Number(opts.originalityType || 1)}
+            onChange={(selectValue) => onUpdate('originalityType', Number(selectValue))}
+            options={[{ value: 1, label: 'Original (from Details)' }, { value: 2, label: 'Adapted (from Details)' }, { value: 3, label: 'Reprint' }]}
+          
+            ariaLabel="Originality"
+/>
         </div>
       </div>
 
@@ -7644,22 +7984,25 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
-            <option value="">Choose Nexprint category…</option>
-            {opts.categoryId && !categories.some((category) => String(category.id) === String(opts.categoryId))
-              && <option value={opts.categoryId}>Saved category {opts.categoryId}</option>}
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
-            ))}
-          </select>
+          <Select
+            value={opts.categoryId || ''}
+            onChange={(selectValue) => onUpdate({ categoryId: selectValue, categoryAuto: false })}
+            options={[{ value: "", label: 'Choose Nexprint category…' }, ...(opts.categoryId && !categories.some((category) => String(category.id) === String(opts.categoryId)) ? [{ value: opts.categoryId, label: `Saved category ${opts.categoryId}` }] : []), ...categories.map((category) => ({ value: category.id, label: category.name }))]}
+          
+            ariaLabel="Category"
+/>
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
           {!categories.length && <p className="text-[11px] mt-1 opacity-70">Category tree loads from Nexprint's current live taxonomy.</p>}
         </div>
         <div>
           <Label>License</Label>
-          <select className="mp-input" value={Number(opts.licenseType ?? NEXPRINT_LICENSE_MAP[project.license] ?? 7)} onChange={(event) => onUpdate('licenseType', Number(event.target.value))}>
-            {NEXPRINT_LICENSES.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
-          </select>
+          <Select
+            value={Number(opts.licenseType ?? NEXPRINT_LICENSE_MAP[project.license] ?? 7)}
+            onChange={(selectValue) => onUpdate('licenseType', Number(selectValue))}
+            options={[...NEXPRINT_LICENSES.map((license) => ({ value: license.id, label: license.name }))]}
+          
+            ariaLabel="License"
+/>
           <AutoMatchNote active={opts.licenseType == null} kind="license" />
         </div>
       </div>
@@ -7747,21 +8090,24 @@ export function CrealityOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
-          <select aria-label="Creality batch action" className="mp-input" value={opts.publication === 'public' ? 'public' : 'private'} onChange={(event) => onUpdate('publication', event.target.value)}>
-            <option value="private">Create private model (recommended)</option>
-            <option value="public">Publish publicly (LIVE)</option>
-          </select>
+          <Select
+            value={opts.publication === 'public' ? 'public' : 'private'}
+            onChange={(selectValue) => onUpdate('publication', selectValue)}
+            options={[{ value: "private", label: 'Create private model (recommended)' }, { value: "public", label: 'Publish publicly (LIVE)' }]}
+            ariaLabel="Creality batch action"
+          />
           <p className="text-[11px] mt-1 opacity-60">Creality's new-model uploader supports Private or Public. Its draft endpoint only edits drafts that already exist.</p>
         </div>
         <div>
           <Label>Model source</Label>
           {/* Follows the shared provenance block; Creality's third state,
               Non-original, has no shared equivalent. */}
-          <select aria-label="Creality model source" className="mp-input" value={Number(opts.modelSource || 1)} onChange={(event) => onUpdate('modelSource', Number(event.target.value))}>
-            <option value={1}>Original (from Details)</option>
-            <option value={3}>Remix Models (from Details)</option>
-            <option value={2}>Non-original</option>
-          </select>
+          <Select
+            value={Number(opts.modelSource || 1)}
+            onChange={(selectValue) => onUpdate('modelSource', Number(selectValue))}
+            options={[{ value: 1, label: 'Original (from Details)' }, { value: 3, label: 'Remix Models (from Details)' }, { value: 2, label: 'Non-original' }]}
+            ariaLabel="Creality model source"
+          />
           {Number(opts.modelSource || 1) !== 1 && (
             <p className="text-xs mt-1" style={{ color: 'var(--warn-text)' }}>Creality wants its own source-model record, and sometimes proof images. ModelPrep fills the fields but only ever uploads as Original, because guessing at attribution is worse than asking you to finish it on Creality.</p>
           )}
@@ -7771,22 +8117,28 @@ export function CrealityOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select aria-label="Creality category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
-            <option value="">Choose Creality category…</option>
-            {CREALITY_CATEGORIES.map((category) => (
-              <optgroup key={category.id} label={category.label}>
-                <option value={category.id}>{category.label} (top level)</option>
-                {category.children.map(([id, label]) => <option key={id} value={id}>{category.label} › {label}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          <Select
+            ariaLabel="Creality category"
+            value={opts.categoryId || ''}
+            onChange={(categoryId) => onUpdate({ categoryId, categoryAuto: false })}
+            options={[
+              { value: '', label: 'Choose Creality category…' },
+              ...CREALITY_CATEGORIES.flatMap((category) => [
+                { value: category.id, label: `${category.label} (top level)`, group: category.label },
+                ...category.children.map(([id, label]) => ({ value: id, label: `${category.label} › ${label}`, group: category.label })),
+              ]),
+            ]}
+          />
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
         </div>
         <div>
           <Label>License</Label>
-          <select aria-label="Creality license" className="mp-input" value={opts.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL'} onChange={(event) => onUpdate('license', event.target.value)}>
-            {CREALITY_LICENSES.map((license) => <option key={license.value} value={license.value}>{license.label}</option>)}
-          </select>
+          <Select
+            value={opts.license || CREALITY_LICENSE_MAP[project.license] || 'CXY-SL'}
+            onChange={(selectValue) => onUpdate('license', selectValue)}
+            options={[...CREALITY_LICENSES.map((license) => ({ value: license.value, label: license.label }))]}
+            ariaLabel="Creality license"
+          />
           <AutoMatchNote active={!opts.license} kind="license" />
         </div>
       </div>
@@ -7882,20 +8234,65 @@ export function MakerRoadOptions({ opts, onUpdate }) {
   return (
     <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
       <div className="grid md:grid-cols-2 gap-3">
-        <div><Label>Native action</Label><select aria-label="MakerRoad batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save · enters MakerRoad review</option><option value="publish">Submit for public review (LIVE)</option></select><p className="text-[13px] mt-1" style={{ color: '#8F2D00' }}>MakerRoad does not currently retain a private draft in tested flows. Save is a review submission.</p></div>
-        <div><Label>Upload type</Label><select aria-label="MakerRoad upload type" className="mp-input" value={Number(opts.uploadType || 1)} onChange={(e) => onUpdate('uploadType', Number(e.target.value))}><option value={1}>Original</option><option value={2}>Remix</option></select></div>
+        <div><Label>Native action</Label><Select
+                                           value={opts.publication || 'draft'}
+                                           onChange={(selectValue) => onUpdate('publication', selectValue)}
+                                           options={[{ value: "draft", label: 'Save · enters MakerRoad review' }, { value: "publish", label: 'Submit for public review (LIVE)' }]}
+                                           ariaLabel="MakerRoad batch action"
+                                         /><p className="text-[13px] mt-1" style={{ color: '#8F2D00' }}>MakerRoad does not currently retain a private draft in tested flows. Save is a review submission.</p></div>
+        <div><Label>Upload type</Label><Select
+                                         value={Number(opts.uploadType || 1)}
+                                         onChange={(selectValue) => onUpdate('uploadType', Number(selectValue))}
+                                         options={[{ value: 1, label: 'Original' }, { value: 2, label: 'Remix' }]}
+                                         ariaLabel="MakerRoad upload type"
+                                       /></div>
       </div>
       {Number(opts.uploadType || 1) === 2 && <div><Label>Original model URL</Label><input className="mp-input" value={opts.referUrl || ''} onChange={(e) => onUpdate('referUrl', e.target.value)} placeholder="https://…" /></div>}
       <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: '#24634f' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad's live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
-      <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><select aria-label="MakerRoad license" className="mp-input" value={Number(opts.licenseIndex || 0)} onChange={(e) => onUpdate({ licenseIndex: Number(e.target.value), licenseAuto: false })}>{MAKEROAD_LICENSES.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div><div><Label>Visibility</Label><select className="mp-input" value={opts.visibility || 'private'} onChange={(e) => onUpdate('visibility', e.target.value)}><option value="private">Private</option><option value="public">Public</option></select></div></div>
+      <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><Select
+                                                                              value={Number(opts.licenseIndex || 0)}
+                                                                              onChange={(selectValue) => onUpdate({ licenseIndex: Number(selectValue), licenseAuto: false })}
+                                                                              options={[...MAKEROAD_LICENSES.map((item, index) => ({ value: index, label: item.label }))]}
+                                                                              ariaLabel="MakerRoad license"
+                                                                            /><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div><div><Label>Visibility</Label><Select
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        value={opts.visibility || 'private'}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        onChange={(selectValue) => onUpdate('visibility', selectValue)}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        options={[{ value: "private", label: 'Private' }, { value: "public", label: 'Public' }]}
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                               ariaLabel="Visibility"
+/></div></div>
       <div><Label>Print methods</Label><div className="flex gap-4 text-xs">{['FDM', 'LCD', 'Others'].map((value) => <label key={value}><input type="checkbox" checked={(opts.printMethods || []).includes(value)} onChange={() => toggle('printMethods', value)} /> {value}</label>)}</div></div>
-      {!!meta.printers.length && <div><Label>Compatible printers (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('printerIds', e.target.value); e.target.value = ''; }}><option value="">Add printer…</option>{meta.printers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.printerIds || []).length} selected</p></div>}
+      {!!meta.printers.length && <div><Label>Compatible printers (optional)</Label><Select
+                                                                                     value=""
+                                                                                     onChange={(selectValue) => { toggle('printerIds', selectValue); selectValue = ''; }}
+                                                                                     options={[{ value: "", label: 'Add printer…' }, ...meta.printers.map((item) => ({ value: item.id, label: item.name }))]}
+                                                                                   
+                                                                                     ariaLabel="Compatible printers (optional)"
+/><p className="text-[11px] opacity-70">{(opts.printerIds || []).length} selected</p></div>}
       <div className="grid md:grid-cols-2 gap-3">
-        <div><Label>Materials (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('materialIds', e.target.value); e.target.value = ''; }}><option value="">Add material…</option>{meta.materials.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.materialIds || []).length} selected</p></div>
-        <div><Label>Colors (optional)</Label><select className="mp-input" value="" onChange={(e) => { toggle('colorIds', e.target.value); e.target.value = ''; }}><option value="">Add color…</option>{meta.colors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><p className="text-[11px] opacity-70">{(opts.colorIds || []).length} selected</p></div>
+        <div><Label>Materials (optional)</Label><Select
+                                                  value=""
+                                                  onChange={(selectValue) => { toggle('materialIds', selectValue); selectValue = ''; }}
+                                                  options={[{ value: "", label: 'Add material…' }, ...meta.materials.map((item) => ({ value: item.id, label: item.name }))]}
+                                                
+                                                  ariaLabel="Materials (optional)"
+/><p className="text-[11px] opacity-70">{(opts.materialIds || []).length} selected</p></div>
+        <div><Label>Colors (optional)</Label><Select
+                                               value=""
+                                               onChange={(selectValue) => { toggle('colorIds', selectValue); selectValue = ''; }}
+                                               options={[{ value: "", label: 'Add color…' }, ...meta.colors.map((item) => ({ value: item.id, label: item.name }))]}
+                                             
+                                               ariaLabel="Colors (optional)"
+/><p className="text-[11px] opacity-70">{(opts.colorIds || []).length} selected</p></div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-3"><div><Label>Download price</Label><select className="mp-input" value={opts.payType || 'free'} onChange={(e) => onUpdate('payType', e.target.value)}><option value="free">Free</option><option value="points">Points</option><option value="cash">Cash</option></select></div>{opts.payType !== 'free' && <div><Label>Value</Label><input className="mp-input" type="number" min="0" value={opts.payValue || 0} onChange={(e) => onUpdate('payValue', Number(e.target.value))} /></div>}</div>
+      <div className="grid md:grid-cols-2 gap-3"><div><Label>Download price</Label><Select
+                                                                                     value={opts.payType || 'free'}
+                                                                                     onChange={(selectValue) => onUpdate('payType', selectValue)}
+                                                                                     options={[{ value: "free", label: 'Free' }, { value: "points", label: 'Points' }, { value: "cash", label: 'Cash' }]}
+                                                                                   
+                                                                                     ariaLabel="Download price"
+/></div>{opts.payType !== 'free' && <div><Label>Value</Label><input className="mp-input" type="number" min="0" value={opts.payValue || 0} onChange={(e) => onUpdate('payValue', Number(e.target.value))} /></div>}</div>
       <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.scheduled} onChange={(e) => onUpdate('scheduled', e.target.checked)} /> Schedule public availability</label>
       {opts.scheduled && <input aria-label="MakerRoad schedule" className="mp-input" type="datetime-local" value={opts.planTime || ''} onChange={(e) => onUpdate('planTime', e.target.value)} />}
       {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><span>I agree to MakerRoad's current Terms and Privacy Policy for this public submission.</span></label>}
@@ -7925,9 +8322,36 @@ export function ThangsOptions({ opts, project, onUpdate }) {
     return () => { alive = false; };
   }, [secret]);
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-    <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><select aria-label="Thangs visibility" className="mp-input" value={opts.publication || 'private'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="private">Private (recommended)</option><option value="public">Public (LIVE)</option></select></div><div><Label>Structure</Label><select aria-label="Thangs structure" className="mp-input" value={opts.structure || 'single'} onChange={(e) => onUpdate('structure', e.target.value)}><option value="single">Single model</option><option value="bulk">Separate bulk models</option><option value="multipart">Multipart model</option><option value="assembly">Assembly</option></select></div></div>
-    <div className="grid md:grid-cols-2 gap-3"><div><Label>Units</Label><select className="mp-input" value={opts.units || 'mm'} onChange={(e) => onUpdate('units', e.target.value)}><option value="mm">Millimeters</option><option value="cm">Centimeters</option><option value="m">Meters</option><option value="in">Inches</option></select></div><div><Label>Primary part</Label><select className="mp-input" value={opts.primaryFileId || modelFiles[0]?.id || ''} onChange={(e) => onUpdate('primaryFileId', e.target.value)}>{modelFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}</select></div></div>
-    <div><Label>Category path</Label><select aria-label="Thangs category" className="mp-input" value={opts.category || ''} onChange={(e) => onUpdate({ category: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" />{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><Select
+                                                                               value={opts.publication || 'private'}
+                                                                               onChange={(selectValue) => onUpdate('publication', selectValue)}
+                                                                               options={[{ value: "private", label: 'Private (recommended)' }, { value: "public", label: 'Public (LIVE)' }]}
+                                                                               ariaLabel="Thangs visibility"
+                                                                             /></div><div><Label>Structure</Label><Select
+                                                                                                                                                                                                                                                                                                                                                                                          value={opts.structure || 'single'}
+                                                                                                                                                                                                                                                                                                                                                                                          onChange={(selectValue) => onUpdate('structure', selectValue)}
+                                                                                                                                                                                                                                                                                                                                                                                          options={[{ value: "single", label: 'Single model' }, { value: "bulk", label: 'Separate bulk models' }, { value: "multipart", label: 'Multipart model' }, { value: "assembly", label: 'Assembly' }]}
+                                                                                                                                                                                                                                                                                                                                                                                          ariaLabel="Thangs structure"
+                                                                                                                                                                                                                                                                                                                                                                                        /></div></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Units</Label><Select
+                                                                          value={opts.units || 'mm'}
+                                                                          onChange={(selectValue) => onUpdate('units', selectValue)}
+                                                                          options={[{ value: "mm", label: 'Millimeters' }, { value: "cm", label: 'Centimeters' }, { value: "m", label: 'Meters' }, { value: "in", label: 'Inches' }]}
+                                                                        
+                                                                          ariaLabel="Units"
+/></div><div><Label>Primary part</Label><Select
+                                                                                                                                                                                                                                                                                                                                                                                      value={opts.primaryFileId || modelFiles[0]?.id || ''}
+                                                                                                                                                                                                                                                                                                                                                                                      onChange={(selectValue) => onUpdate('primaryFileId', selectValue)}
+                                                                                                                                                                                                                                                                                                                                                                                      options={[...modelFiles.map((file) => ({ value: file.id, label: file.name }))]}
+                                                                                                                                                                                                                                                                                                                                                                                    
+                                                                                                                  ariaLabel="Primary part"
+/></div></div>
+    <div><Label>Category path</Label><Select
+                                       value={opts.category || ''}
+                                       onChange={(selectValue) => onUpdate({ category: selectValue, categoryAuto: false })}
+                                       options={[{ value: "", label: 'Choose category…' }, ...categories.map((category) => ({ value: category.value, label: category.label }))]}
+                                       ariaLabel="Thangs category"
+                                     /><AutoMatchNote active={opts.categoryAuto === true} kind="category" />{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Folder ID (optional)</Label><input className="mp-input" value={opts.folderId || ''} onChange={(e) => onUpdate('folderId', e.target.value)} /></div><div><Label>Workspace ID (optional)</Label><input className="mp-input" value={opts.workspaceId || ''} onChange={(e) => onUpdate('workspaceId', e.target.value)} /></div></div>
     <div><Label>Resume existing private draft ID (recovery only)</Label><input aria-label="Thangs resume draft ID" className="mp-input" value={opts.resumeDraftId || ''} onChange={(e) => onUpdate('resumeDraftId', e.target.value.trim())} placeholder="Leave empty for a new model" /><p className="text-[11px] opacity-70">Use only after Thangs created a private draft but rejected its details; ModelPrep will update that draft instead of creating a duplicate.</p></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Access type ID (optional)</Label><input className="mp-input" value={opts.accessTypeId || ''} onChange={(e) => onUpdate('accessTypeId', e.target.value)} /></div><div><Label>Plan IDs (comma-separated)</Label><input className="mp-input" value={(opts.planIds || []).join(', ')} onChange={(e) => onUpdate('planIds', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div></div>
@@ -7944,9 +8368,19 @@ export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) 
   const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     <div className="p-2.5 text-[11px]" style={{ backgroundColor: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse's current terms.</div>
-    <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><select aria-label="Thingiverse action" className="mp-input" value={opts.publication || 'draft'} onChange={(e) => onUpdate('publication', e.target.value)}><option value="draft">Save draft (recommended)</option><option value="publish">Publish publicly (LIVE)</option></select></div><div><Label>License</Label><select aria-label="Thingiverse license" className="mp-input" value={opts.license || 'cc-nc'} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })}>{THINGIVERSE_LICENSES.map((value) => <option key={value}>{value}</option>)}</select><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div></div>
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><Select
+                                                                           value={opts.publication || 'draft'}
+                                                                           onChange={(selectValue) => onUpdate('publication', selectValue)}
+                                                                           options={[{ value: "draft", label: 'Save draft (recommended)' }, { value: "publish", label: 'Publish publicly (LIVE)' }]}
+                                                                           ariaLabel="Thingiverse action"
+                                                                         /></div><div><Label>License</Label><Select ariaLabel="Thingiverse license" value={opts.license || 'cc-nc'} onChange={(license) => onUpdate({ license, licenseAuto: false })} options={THINGIVERSE_LICENSES.map((value) => ({ value, label: value }))} /><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div></div>
     <div><Label>Summary</Label><textarea className="mp-input" value={opts.summary || ''} onChange={(e) => onUpdate('summary', e.target.value)} /><p className="text-[11px] mt-1" style={{ color: 'var(--ink-50)' }}>Leave blank to derive it from the description, the way Printables does.</p></div>
-    <div><Label>Category (required)</Label><select aria-label="Thingiverse category" className="mp-input" value={String(opts.categoryId ?? '')} onChange={(e) => onUpdate({ categoryId: e.target.value, categoryAuto: false })}><option value="">Choose category…</option>{THINGIVERSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
+    <div><Label>Category (required)</Label><Select
+                                             value={String(opts.categoryId ?? '')}
+                                             onChange={(selectValue) => onUpdate({ categoryId: selectValue, categoryAuto: false })}
+                                             options={[{ value: "", label: 'Choose category…' }, ...THINGIVERSE_CATEGORIES.map((category) => ({ value: category.id, label: category.label }))]}
+                                             ariaLabel="Thingiverse category"
+                                           /><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label></div>
     {!hasScad && <p className="text-[11px] opacity-60">Thingiverse enables Customizer only when the upload includes a .SCAD model file.</p>}
     <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
@@ -8027,17 +8461,21 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
-          <select aria-label="MakerOnline batch action" className="mp-input" value={opts.publication || 'draft'} onChange={(event) => onUpdate(event.target.value === 'public' ? { publication: 'public', permission: 1 } : { publication: 'draft' })}>
-            <option value="draft">Save unpublished draft (recommended)</option>
-            <option value="public">Publish publicly (LIVE)</option>
-          </select>
+          <Select
+            value={opts.publication || 'draft'}
+            onChange={(selectValue) => onUpdate(selectValue === 'public' ? { publication: 'public', permission: 1 } : { publication: 'draft' })}
+            options={[{ value: "draft", label: 'Save unpublished draft (recommended)' }, { value: "public", label: 'Publish publicly (LIVE)' }]}
+            ariaLabel="MakerOnline batch action"
+          />
         </div>
         <div>
           <Label>Model source</Label>
-          <select aria-label="MakerOnline model source" className="mp-input" value={source} onChange={(event) => onUpdate('source', Number(event.target.value))}>
-            <option value={1}>Original</option>
-            <option value={2}>Remix</option>
-          </select>
+          <Select
+            value={source}
+            onChange={(selectValue) => onUpdate('source', Number(selectValue))}
+            options={[{ value: 1, label: 'Original' }, { value: 2, label: 'Remix' }]}
+            ariaLabel="MakerOnline model source"
+          />
         </div>
       </div>
 
@@ -8052,18 +8490,23 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select aria-label="MakerOnline category" className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
-            <option value="">{meta.loading ? 'Loading live taxonomy…' : 'Choose MakerOnline category…'}</option>
-            {categoryOptions.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
-          </select>
+          <Select
+            value={opts.categoryId || ''}
+            onChange={(selectValue) => onUpdate({ categoryId: selectValue, categoryAuto: false })}
+            options={[{ value: "", label: meta.loading ? 'Loading live taxonomy…' : 'Choose MakerOnline category…' }, ...categoryOptions.map((category) => ({ value: category.id, label: category.label }))]}
+            ariaLabel="MakerOnline category"
+          />
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
           {!secret && <p className="text-[11px] mt-1 opacity-70">Connect MakerOnline to load its live category tree.</p>}
         </div>
         <div>
           <Label>License</Label>
-          <select aria-label="MakerOnline license" className="mp-input" value={license} onChange={(event) => onUpdate('license', Number(event.target.value))}>
-            {MAKERONLINE_LICENSES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
+          <Select
+            value={license}
+            onChange={(selectValue) => onUpdate('license', Number(selectValue))}
+            options={[...MAKERONLINE_LICENSES.map((item) => ({ value: item.value, label: item.label }))]}
+            ariaLabel="MakerOnline license"
+          />
           <AutoMatchNote active={opts.license == null} kind="license" />
         </div>
       </div>
@@ -8190,10 +8633,13 @@ export function PrintablesOptions({ opts, onUpdate }) {
     <div className="mt-3 space-y-3">
       <div>
         <Label>Batch action</Label>
-        <select className="mp-input" value={opts.publication || 'draft'} onChange={(event) => onUpdate('publication', event.target.value)}>
-          <option value="draft">Save unpublished draft (recommended)</option>
-          <option value="publish">Publish publicly</option>
-        </select>
+        <Select
+          value={opts.publication || 'draft'}
+          onChange={(selectValue) => onUpdate('publication', selectValue)}
+          options={[{ value: "draft", label: 'Save unpublished draft (recommended)' }, { value: "publish", label: 'Publish publicly' }]}
+        
+          ariaLabel="Batch action"
+/>
       </div>
       <div>
         <Label>Printables summary (required, 120 characters)</Label>
@@ -8211,22 +8657,24 @@ export function PrintablesOptions({ opts, onUpdate }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <Label>Printables category (required)</Label>
-          <select className="mp-input" value={opts.categoryId || ''} onChange={(event) => onUpdate({ categoryId: event.target.value, categoryAuto: false })}>
-            <option value="">Choose from live taxonomy…</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.path?.length > 1 ? `${category.path[0].name} › ` : ''}{category.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={opts.categoryId || ''}
+            onChange={(selectValue) => onUpdate({ categoryId: selectValue, categoryAuto: false })}
+            options={[{ value: "", label: 'Choose from live taxonomy…' }, ...categories.map((category) => ({ value: category.id, label: `${category.path?.length > 1 ? `${category.path[0].name} › ` : ''}${category.name}` }))]}
+          
+            ariaLabel="Printables category (required)"
+/>
           <AutoMatchNote active={opts.categoryAuto === true} kind="category" />
         </div>
         <div>
           <Label>Printables license (required)</Label>
-          <select className="mp-input" value={opts.licenseId || ''} onChange={(event) => onUpdate('licenseId', event.target.value)}>
-            <option value="">Use mapped project license</option>
-            {licenses.map((license) => <option key={license.id} value={license.id}>{license.name}</option>)}
-          </select>
+          <Select
+            value={opts.licenseId || ''}
+            onChange={(selectValue) => onUpdate('licenseId', selectValue)}
+            options={[{ value: "", label: 'Use mapped project license' }, ...licenses.map((license) => ({ value: license.id, label: license.name }))]}
+          
+            ariaLabel="Printables license (required)"
+/>
           <AutoMatchNote active={!opts.licenseId} kind="license" />
         </div>
       </div>
@@ -8242,11 +8690,13 @@ export function PrintablesOptions({ opts, onUpdate }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div>
           <Label>Authorship</Label>
-          <select className="mp-input" value={opts.authorship || 'author'} onChange={(event) => onUpdate('authorship', event.target.value)}>
-            <option value="author">I am the original author (from Details)</option>
-            <option value="remix">This is a remix (from Details)</option>
-            <option value="reupload">This is a reupload</option>
-          </select>
+          <Select
+            value={opts.authorship || 'author'}
+            onChange={(selectValue) => onUpdate('authorship', selectValue)}
+            options={[{ value: "author", label: 'I am the original author (from Details)' }, { value: "remix", label: 'This is a remix (from Details)' }, { value: "reupload", label: 'This is a reupload' }]}
+          
+            ariaLabel="Authorship"
+/>
         </div>
       </div>
       {(opts.authorship === 'remix' || opts.authorship === 'reupload') && (
@@ -8823,18 +9273,28 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             </div>
           )}
         </div>
-        <button
-          onClick={onPublish}
-          disabled={disabled}
-          title={blocking.length ? blocking.join(' ') : missing.length ? `Connect ${missing.map((target) => target.name).join(', ')}` : ''}
-          className="mp-btn text-[13px] py-3 px-5 disabled:opacity-40 lg:min-w-[260px]"
-        >
-          {running
-            ? <><Loader size={14} className="mp-spin" /> Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete</>
-            : readyTargets.length === 0
+        {/* The button acknowledges the press; the count is progress, and it
+            belongs beside the control rather than inside a label the loading
+            mark covers. This is the one place on the page that counts a batch,
+            so it is also the one spinner MDS allows at a time. */}
+        <div className="flex flex-col items-stretch gap-1.5 lg:min-w-[260px]">
+          <LoadingButton
+            onClick={onPublish}
+            loading={running}
+            disabled={disabled}
+            title={blocking.length ? blocking.join(' ') : missing.length ? `Connect ${missing.map((target) => target.name).join(', ')}` : ''}
+            className="mp-btn text-[13px] py-3 px-5 disabled:opacity-40 w-full"
+          >
+            {readyTargets.length === 0
               ? <><Send size={14} /> Connect an account to publish</>
               : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload sample' : safeDemo ? 'Practice upload' : 'Upload'} to {readyTargets.length} ready platform{readyTargets.length === 1 ? '' : 's'}</>}
-        </button>
+          </LoadingButton>
+          {running && (
+            <p role="status" aria-live="polite" className="text-[11px] text-center t-num" style={{ color: 'rgba(38,42,35,0.7)' }}>
+              Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete
+            </p>
+          )}
+        </div>
       </div>
 
       {batch?.status === 'done' && (
@@ -8900,19 +9360,24 @@ function BatchZipButton({ enabled, project, cover }) {
     }
   };
 
+  // Zipping counts its own work ("[2/6] Printables · Compressing 45%"), which is
+  // worth reading, so it sits under the button instead of behind the mark.
   return (
-    <button
-      onClick={downloadAllPlatforms}
-      disabled={busy || !cover || enabled.length === 0}
-      className="mp-btn text-[13px] py-2.5 px-4 whitespace-nowrap disabled:opacity-40"
-      title={!cover ? 'Add at least one image first' : `Download ${enabled.length} zip(s), one per platform`}
-    >
-      {busy ? (
-        <><Loader size={13} className="mp-spin" /> <span className="mp-mono text-[13px] tracking-normal normal-case">{msg || 'Working'}</span></>
-      ) : (
-        <><Download size={13} /> {enabled.length} .zip files</>
+    <span className="inline-flex flex-col items-stretch gap-1">
+      <LoadingButton
+        onClick={downloadAllPlatforms}
+        loading={busy}
+        markSize={13}
+        disabled={!cover || enabled.length === 0}
+        className="mp-btn text-[13px] py-2.5 px-4 whitespace-nowrap disabled:opacity-40"
+        title={!cover ? 'Add at least one image first' : `Download ${enabled.length} zip(s), one per platform`}
+      >
+        <Download size={13} /> {enabled.length} .zip files
+      </LoadingButton>
+      {busy && msg && (
+        <span role="status" aria-live="polite" className="mp-mono text-[11px] text-center normal-case tracking-normal" style={{ color: 'rgba(38,42,35,0.7)' }}>{msg}</span>
       )}
-    </button>
+    </span>
   );
 }
 
@@ -8988,7 +9453,9 @@ function PlatformPackageCard({
             )}
           </div>
         </div>
-        {state === 'publishing' && <Loader size={14} className="mp-spin flex-shrink-0" style={{ color: 'var(--primary)' }} />}
+        {state === 'publishing' && (
+          <span className="mp-pulse flex-shrink-0" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: 'var(--primary)' }} />
+        )}
         <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={pillStyle}>{pill}</span>
         {batchResult?.state === 'done' && batchResult.url && !batchResult.simulated && (
           <a href={batchResult.url} target="_blank" rel="noopener noreferrer" className="mp-btn mp-btn-ghost text-xs flex-shrink-0" style={{ minHeight: 30, padding: '0 10px' }}>Open ↗</a>
@@ -9375,9 +9842,12 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
             <div className="flex items-center gap-2 text-xs mb-2.5 flex-wrap" style={{ color: '#3a8d68' }}>
               <StatusDot status={active?.status || 'connected'} /> Publishing as
               {cultsAccounts.length > 1 ? (
-                <select value={active?.id} onChange={(e) => acc.setActive('cults', e.target.value)} className="mp-card text-xs p-1 max-w-[180px]">
-                  {cultsAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-                </select>
+                <Select
+                  value={active?.id}
+                  onChange={(selectValue) => acc.setActive('cults', selectValue)}
+                  options={[...cultsAccounts.map((a) => ({ value: a.id, label: a.label }))]}
+                  className="mp-card text-xs p-1 max-w-[180px]"
+                />
               ) : <span className="mp-mono">{simulate ? 'Demo account (simulation only)' : realActive?.label}</span>}
               <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#5A7430] transition ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
               {!simulate && <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>}
@@ -9423,11 +9893,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                   </div>
                 )}
 
-                {listingsLoading && listings === null && (
-                  <div className="flex items-center gap-2 text-xs py-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
-                    <Loader size={13} className="mp-spin" /> Loading your listings…
-                  </div>
-                )}
+                {listingsLoading && listings === null && <SkeletonRows rows={3} height={34} className="py-2" />}
 
                 {listings !== null && listings.length === 0 && !listingsLoading && (
                   <p className="text-xs py-1" style={{ color: 'rgba(38,42,35,0.66)' }}>No listings yet: publish one above and they'll appear here.</p>
@@ -9478,16 +9944,10 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
         )}
 
         {status === 'publishing' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
-            <Loader size={14} className="mp-spin" /> {progressMsg || `Publishing to ${platform.name}…`}
-          </div>
+          <WorkingStatus label={progressMsg || `Publishing to ${platform.name}…`} />
         )}
 
-        {status === 'deactivating' && (
-          <div className="flex items-center gap-2 text-xs py-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
-            <Loader size={14} className="mp-spin" /> Deactivating listing…
-          </div>
-        )}
+        {status === 'deactivating' && <WorkingStatus label="Deactivating listing…" />}
 
         {status === 'done' && (
           <>
@@ -9977,7 +10437,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
                   </button>
                 </div>
                 {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
-                {modelsLoading && models === null && <div className="text-[11px]"><Loader size={11} className="mp-spin inline mr-1" />Loading…</div>}
+                {modelsLoading && models === null && <SkeletonRows rows={3} height={26} />}
                 {models && models.drafts.length === 0 && models.published.length === 0 && !modelsLoading && (
                   <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No models found.</div>
                 )}
@@ -10005,7 +10465,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
           </>
         )}
         {status === 'uploading' && (
-          <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>
+          <WorkingStatus label={progress || 'Working…'} />
         )}
         {status === 'done' && (
           <>
@@ -10355,7 +10815,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
                   </button>
                 </div>
                 {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
-                {modelsLoading && models === null && <div className="text-[11px]"><Loader size={11} className="mp-spin inline mr-1" />Loading…</div>}
+                {modelsLoading && models === null && <SkeletonRows rows={3} height={26} />}
                 {models && models.length === 0 && !modelsLoading && <div className="text-[11px] opacity-70">No models found.</div>}
                 {(models || []).map((item) => {
                   const id = String(item.id ?? item.modelId ?? '');
@@ -10380,7 +10840,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
         )}
 
         {status === 'uploading' && (
-          <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>
+          <WorkingStatus label={progress || 'Working…'} />
         )}
 
         {status === 'done' && (
@@ -10686,7 +11146,7 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
             )}
           </>
         )}
-        {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
+        {status === 'uploading' && <WorkingStatus label={progress || 'Working…'} />}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} Creality model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
         {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
@@ -10715,7 +11175,7 @@ function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult 
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handled.current === batchRequest.runId) return; handled.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
-  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thingiverse</button>}{status === 'uploading' && <p className="text-xs"><Loader size={14} className="inline mp-spin" /> {progress}</p>}{(status === 'connected' || status === 'error') && <div className="flex gap-2"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Save draft</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thingiverse result saved and verified.'}</p>}</div>;
+  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thingiverse</button>}{status === 'uploading' && <WorkingStatus label={progress} />}{(status === 'connected' || status === 'error') && <div className="flex gap-2"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Save draft</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thingiverse result saved and verified.'}</p>}</div>;
 }
 
 function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
@@ -10756,7 +11216,7 @@ function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handled.current === batchRequest.runId) return; handled.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
-  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thangs</button>}{status === 'uploading' && <p className="text-xs"><Loader size={14} className="inline mp-spin mr-2" />{progress}</p>}{(status === 'connected' || status === 'error') && <div className="flex flex-wrap gap-2">{options.resumeDraftId && <button className="mp-btn mp-btn-ghost text-xs" onClick={verifyExisting}>Verify existing draft</button>}<button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Create private</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish public (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thangs model saved and verified.'} {result?.url && <a href={result.url} target="_blank" rel="noreferrer" className="underline">Open result</a>}</p>}</div>;
+  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thangs</button>}{status === 'uploading' && <WorkingStatus label={progress} />}{(status === 'connected' || status === 'error') && <div className="flex flex-wrap gap-2">{options.resumeDraftId && <button className="mp-btn mp-btn-ghost text-xs" onClick={verifyExisting}>Verify existing draft</button>}<button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Create private</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish public (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thangs model saved and verified.'} {result?.url && <a href={result.url} target="_blank" rel="noreferrer" className="underline">Open result</a>}</p>}</div>;
 }
 
 function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult }) {
@@ -10877,7 +11337,7 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
   useEffect(() => { if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return; handledBatchRun.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
   return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
     {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts', 'makeroad')}>Connect MakerRoad</button>}
-    {status === 'uploading' && <div className="text-xs flex gap-2"><Loader size={14} className="mp-spin" />{progress}</div>}
+    {status === 'uploading' && <WorkingStatus label={progress} />}
     {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate Save to review' : 'Save to MakerRoad review'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate public review submit' : 'Submit for public review (LIVE)'}</button></div>}
     {error && <p className="text-xs text-red-700">{error}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open retained save</a>}</p>}
     {status === 'done' && <div className="text-xs" style={{ color: '#247255' }}><Check size={14} className="inline mr-1" />{result?.demo ? 'Simulation complete: nothing uploaded.' : 'Saved and read back; MakerRoad review is pending.'}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open result</a>}</div>}
@@ -11146,7 +11606,7 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
             </div>
           </>
         )}
-        {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
+        {status === 'uploading' && <WorkingStatus label={progress || 'Working…'} />}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} MakerOnline model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
         {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
@@ -11352,7 +11812,7 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
         <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
         {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : `Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory's review flow.`}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
-        {status === 'uploading' && <div className="flex items-center gap-2 text-xs py-1.5"><Loader size={14} className="mp-spin" /> {progress || 'Working…'}</div>}
+        {status === 'uploading' && <WorkingStatus label={progress || 'Working…'} />}
         {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : result?.readOnly ? `Existing ${result.state} MyMiniFactory object ${result.id} re-read and verified.` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{result?.readOnly && result?.detail && <p className="mp-mono text-xs mb-2 break-all opacity-70">{result.detail}</p>}{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : result?.readOnly ? 'Done' : 'Upload another'}</button></>}
         {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
@@ -11958,18 +12418,19 @@ function PlatformConnections({ platform, hideName = false }) {
             ? <span className="mp-pill text-[11px]" style={{ backgroundColor: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
             : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>Use</button>}
           {['reconnect', 'error', 'unknown'].includes(a.status) && (
-            <button
+            <LoadingButton
               onClick={() => reconnectAccount(a)}
-              disabled={refreshingId === a.id}
+              loading={refreshingId === a.id}
+              markSize={11}
               className="mp-btn text-[11px] py-1 px-2 min-h-[32px] disabled:opacity-40"
             >
-              {refreshingId === a.id ? <><Loader size={11} className="mp-spin" /> Checking…</> : <><RefreshCw size={11} /> Reconnect</>}
-            </button>
+              <RefreshCw size={11} /> Reconnect
+            </LoadingButton>
           )}
           {platform.id === 'makerworld' && typeof a.secret === 'string' && a.secret.includes('refreshToken=') && (
-            <button onClick={() => refreshMakerWorld(a)} disabled={refreshingId === a.id} className="mp-mono text-[11px] underline disabled:opacity-40" style={{ color: 'rgba(38,42,35,0.66)' }}>
-              {refreshingId === a.id ? 'refreshing…' : 'refresh session'}
-            </button>
+            <LoadingButton onClick={() => refreshMakerWorld(a)} loading={refreshingId === a.id} markSize={11} className="mp-mono text-[11px] underline disabled:opacity-40" style={{ color: 'rgba(38,42,35,0.66)' }}>
+              refresh session
+            </LoadingButton>
           )}
           <button onClick={() => removePlatformAccount(a)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
         </div>
@@ -11995,7 +12456,7 @@ const CONNECT_BTN_CLS = 'mp-btn text-sm py-2 px-4 w-full disabled:opacity-40';
 
 function ConnectShell({
   label, setLabel, placeholder = 'Account name (optional)',
-  onConnect, buttonLabel, buttonDisabled = false,
+  onConnect, buttonLabel, buttonDisabled = false, buttonLoading = false,
   hint, note, err, canCancel, onDone, children,
 }) {
   return (
@@ -12008,7 +12469,14 @@ function ConnectShell({
         onChange={(event) => setLabel(event.target.value)}
       />
       {onConnect && (
-        <button disabled={buttonDisabled} onClick={onConnect} className={CONNECT_BTN_CLS}>{buttonLabel}</button>
+        <LoadingButton
+          loading={!!buttonLoading}
+          disabled={buttonDisabled}
+          onClick={onConnect}
+          className={CONNECT_BTN_CLS}
+        >
+          {buttonLabel}
+        </LoadingButton>
       )}
       {hint}
       {note && <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{note}</p>}
@@ -12056,7 +12524,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connect}
         buttonDisabled={busy || !desktop?.connectMakerRoad}
-        buttonLabel={busy ? 'Waiting for MakerRoad sign-in…' : 'Sign in to MakerRoad'}
+        buttonLabel="Sign in to MakerRoad"
+        buttonLoading={busy}
         note="Signs in through MakerRoad's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -12070,7 +12539,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connect}
         buttonDisabled={busy || !desktop?.connectThangs}
-        buttonLabel={busy ? 'Waiting for Thangs sign-in…' : 'Sign in to Thangs'}
+        buttonLabel="Sign in to Thangs"
+        buttonLoading={busy}
         note="Signs in through Thangs' own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -12084,7 +12554,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connect}
         buttonDisabled={busy || !desktop?.connectThingiverse}
-        buttonLabel={busy ? 'Waiting for Thingiverse sign-in…' : 'Sign in to Thingiverse'}
+        buttonLabel="Sign in to Thingiverse"
+        buttonLoading={busy}
         note="Signs in through Thingiverse's own window. Uploads arrive as drafts; publishing publicly is always your explicit choice."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -12143,7 +12614,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connectMyMiniFactory}
         buttonDisabled={busy || !desktop?.connectMyMiniFactory}
-        buttonLabel={busy ? 'Waiting for MyMiniFactory sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in to MyMiniFactory'}
+        buttonLabel={desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in to MyMiniFactory'}
+        buttonLoading={busy}
         hint={!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
         note="Signs in through MyMiniFactory's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
@@ -12188,7 +12660,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connectMakerOnline}
         buttonDisabled={busy || !desktop?.connectMakerOnline}
-        buttonLabel={busy ? 'Waiting for MakerOnline sign-in…' : desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in to MakerOnline'}
+        buttonLabel={desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in to MakerOnline'}
+        buttonLoading={busy}
         hint={!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
         note="Signs in through MakerOnline's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
@@ -12232,7 +12705,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connectCreality}
         buttonDisabled={busy || !desktop?.connectCreality}
-        buttonLabel={busy ? 'Waiting for Creality Cloud sign-in…' : 'Sign in to Creality Cloud'}
+        buttonLabel="Sign in to Creality Cloud"
+        buttonLoading={busy}
         hint={!desktop?.connectCreality && (
           <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop to connect Creality Cloud.
@@ -12280,7 +12754,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connectNexprint}
         buttonDisabled={busy || !desktop?.connectNexprint}
-        buttonLabel={busy ? 'Waiting for Nexprint sign-in…' : 'Sign in to Nexprint'}
+        buttonLabel="Sign in to Nexprint"
+        buttonLoading={busy}
         hint={!desktop?.connectNexprint && (
           <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop to connect Nexprint.
@@ -12329,7 +12804,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connectPrintables}
         buttonDisabled={busy || !desktop?.connectPrintables}
-        buttonLabel={busy ? 'Waiting for Printables sign-in…' : 'Sign in to Printables'}
+        buttonLabel="Sign in to Printables"
+        buttonLoading={busy}
         hint={!desktop?.connectPrintables && (
           <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop to sign in through Prusa Account. ModelPrep does not ask for or store your Printables password.
@@ -12363,7 +12839,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
         label={label} setLabel={setLabel}
         onConnect={connectCults}
         buttonDisabled={busy || !desktop?.connectCults}
-        buttonLabel={busy ? 'Waiting for Cults3D sign-in…' : 'Sign in to Cults3D'}
+        buttonLabel="Sign in to Cults3D"
+        buttonLoading={busy}
         hint={!desktop && (
           <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
             Open this project in ModelPrep Desktop. Browser builds intentionally do not collect or forward a Cults3D password.
@@ -12435,7 +12912,8 @@ function ConnectForm({ platform, onDone, canCancel }) {
       label={label} setLabel={setLabel}
       onConnect={desktop ? connectMakerWorldWindow : null}
       buttonDisabled={busy}
-      buttonLabel={busy ? 'Waiting for sign-in…' : 'Sign in to MakerWorld'}
+      buttonLabel="Sign in to MakerWorld"
+      buttonLoading={busy}
       note={desktop
         ? `Signs in through MakerWorld's own window. Your sign-in stays on this computer, encrypted.`
         : `Open this project in ModelPrep Desktop to sign in through MakerWorld's own window.`}
@@ -12535,7 +13013,7 @@ function mwCatalogItem(node, parentIds, quantity) {
 }
 
 // Cascade picker over one catalog tree (kits | filaments | materials). Drills down
-// via chained <select>s; a node with a non-empty sku is an addable leaf.
+// via chained pickers; a node with a non-empty sku is an addable leaf.
 function MwBomPicker({ roots, onAdd }) {
   const [path, setPath] = useState([]); // selected node objects, root → leaf
 
@@ -12561,10 +13039,18 @@ function MwBomPicker({ roots, onAdd }) {
   return (
     <div className="space-y-1.5">
       {levels.map((opts, depth) => (
-        <select key={depth} className={sel} value={path[depth]?.value || ''} onChange={(e) => pick(depth, e.target.value)}>
-          <option value="">{depth === 0 ? 'Choose…' : '— choose —'}</option>
-          {opts.map(n => <option key={n.value} value={n.value}>{n.label || n.title}{n.sku ? ` · ${n.sku}` : ''}</option>)}
-        </select>
+        <Select
+          key={depth}
+          ariaLabel={depth === 0 ? 'Bill of materials category' : `Bill of materials level ${depth + 1}`}
+          className={sel}
+          value={path[depth]?.value || ''}
+          onChange={(value) => pick(depth, value)}
+          placeholder={depth === 0 ? 'Choose…' : 'Choose…'}
+          options={[
+            { value: '', label: depth === 0 ? 'Choose…' : 'Choose…' },
+            ...opts.map((n) => ({ value: n.value, label: `${n.label || n.title}${n.sku ? ` · ${n.sku}` : ''}` })),
+          ]}
+        />
       ))}
       {canAdd && (
         <div className="flex items-center gap-2">
@@ -13193,9 +13679,12 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
             <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'rgba(38,42,35,0.7)' }}>
               <StatusDot status={active.status} /> Publishing as
               {mwAccounts.length > 1 ? (
-                <select value={active.id} onChange={(e) => acc.setActive('makerworld', e.target.value)} className="mp-card text-xs p-1 max-w-[160px]">
-                  {mwAccounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
-                </select>
+                <Select
+                  value={active.id}
+                  onChange={(selectValue) => acc.setActive('makerworld', selectValue)}
+                  options={[...mwAccounts.map((a) => ({ value: a.id, label: a.label }))]}
+                  className="mp-card text-xs p-1 max-w-[160px]"
+                />
               ) : <strong className="truncate">{active.label}{simulate ? ' (simulation only)' : ''}</strong>}
             </span>
             <span className="flex items-center gap-2 flex-shrink-0">
@@ -13386,19 +13875,24 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
       </div>
       {isLC && (
         <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Laser &amp; Cut upload mode</span>
-          <select className={inputCls} value={o.laserMode || 'raw'} onChange={(e) => onUpdate('laserMode', e.target.value)}>
-            <option value="raw">Raw .lac, SVG, DXF, image, or AI source files</option>
-            <option value="lac">Bambu Suite .lac file + print profile</option>
-          </select>
+          <Select
+            value={o.laserMode || 'raw'}
+            onChange={(selectValue) => onUpdate('laserMode', selectValue)}
+            options={[{ value: "raw", label: 'Raw .lac, SVG, DXF, image, or AI source files' }, { value: "lac", label: 'Bambu Suite .lac file + print profile' }]}
+            className={inputCls}
+          />
         </label>
       )}
       {isLC && o.laserMode === 'lac' && (
         <MwSection title="Bambu Suite profile metadata" hint="auto-read · optional overrides" defaultOpen>
           {lacFiles.length > 0 && (
             <label className="text-xs space-y-1 block"><span>Primary Bambu Suite profile package</span>
-              <select className={inputCls} value={o.primaryLacFileId || lacFiles[0].id} onChange={(e) => onUpdate('primaryLacFileId', e.target.value)}>
-                {lacFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
-              </select>
+              <Select
+                value={o.primaryLacFileId || lacFiles[0].id}
+                onChange={(selectValue) => onUpdate('primaryLacFileId', selectValue)}
+                options={[...lacFiles.map((file) => ({ value: file.id, label: file.name }))]}
+                className={inputCls}
+              />
               <span className="text-[11px] opacity-70">Other Laser files, including additional .lac files, are uploaded as raw model files.</span>
             </label>
           )}
@@ -13426,9 +13920,12 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               <textarea className={`${inputCls} min-h-20`} value={laserProfile.description} onChange={(e) => setLaserProfile('description', e.target.value)} />
             </label>
             <label className="text-xs space-y-1 block"><span>Profile visibility</span>
-              <select className={inputCls} value={laserProfile.visibility} onChange={(e) => setLaserProfile('visibility', e.target.value)}>
-                <option value="private">Private</option><option value="public">Public</option>
-              </select>
+              <Select
+                value={laserProfile.visibility}
+                onChange={(selectValue) => setLaserProfile('visibility', selectValue)}
+                options={[{ value: "private", label: 'Private' }, { value: "public", label: 'Public' }]}
+                className={inputCls}
+              />
             </label>
             <label className="flex items-start gap-2 text-xs">
               <input type="checkbox" className="mt-0.5" checked={!!laserProfile.useMainCover} onChange={(e) => setLaserProfile('useMainCover', e.target.checked)} />
@@ -13469,50 +13966,72 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         {!isLC ? (
           <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Category</span>
             <input className={`${inputCls} mb-1`} value={categoryQuery} onChange={(e) => setCategoryQuery(e.target.value)} placeholder="Search categories…" />
-            <select className={inputCls} value={o.categoryId} onChange={(e) => onUpdate({ categoryId: Number(e.target.value) || '', categoryAuto: false })}>
-              {!o.categoryId && <option value="">Choose MakerWorld category…</option>}
-              {visibleCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-            </select>
+            <Select
+              ariaLabel="MakerWorld category"
+              value={o.categoryId}
+              onChange={(categoryId) => onUpdate({ categoryId: Number(categoryId) || '', categoryAuto: false })}
+              options={[
+                ...(!o.categoryId ? [{ value: '', label: 'Choose MakerWorld category…' }] : []),
+                ...visibleCategories.map((c) => ({ value: c.id, label: c.label })),
+              ]}
+            />
             <AutoMatchNote active={o.categoryAuto === true} kind="category" />
           </label>
         ) : (
           <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Source</span>
-            <select className={inputCls} value={o.modelSource} onChange={(e) => changeModelSource(e.target.value)}>
-              <option value="original">Original</option><option value="remix">Remix</option>
-            </select>
+            <Select
+              value={o.modelSource}
+              onChange={(selectValue) => changeModelSource(selectValue)}
+              options={[{ value: "original", label: 'Original' }, { value: "remix", label: 'Remix' }]}
+              className={inputCls}
+            />
           </label>
         )}
         <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Visibility</span>
-          <select className={inputCls} value={o.visibility} onChange={(e) => onUpdate('visibility', e.target.value)}>
-            <option value="private">Private</option><option value="public">Public</option>
-          </select>
+          <Select
+            value={o.visibility}
+            onChange={(selectValue) => onUpdate('visibility', selectValue)}
+            options={[{ value: "private", label: 'Private' }, { value: "public", label: 'Public' }]}
+            className={inputCls}
+          />
         </label>
       </div>
 
       {!isLC && profileFiles.length > 0 && (
         <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Initial Bambu Studio print profile</span>
-          <select className={inputCls} value={o.primaryProfileFileId || profileFiles[0].id} onChange={(e) => onUpdate('primaryProfileFileId', e.target.value)}>
-            {profileFiles.map((file) => <option key={file.id} value={file.id}>{file.name}</option>)}
-          </select>
+          <Select
+            value={o.primaryProfileFileId || profileFiles[0].id}
+            onChange={(selectValue) => onUpdate('primaryProfileFileId', selectValue)}
+            options={[...profileFiles.map((file) => ({ value: file.id, label: file.name }))]}
+            className={inputCls}
+          />
           <span className="text-[11px] opacity-70">MakerWorld's new-design flow accepts one initial 3MF profile. Other 3MF files remain raw model files.</span>
         </label>
       )}
 
       <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>License</span>
-        <select className={inputCls} value={o.license || ''} onChange={(e) => onUpdate('license', e.target.value)}>
-          <option value="">Same as Details step</option>
-          {MW_LICENSE_OPTIONS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
-        </select>
+        <Select
+          ariaLabel="MakerWorld license"
+          className={inputCls}
+          value={o.license || ''}
+          onChange={(license) => onUpdate('license', license)}
+          options={[
+            { value: '', label: 'Same as Details step' },
+            ...MW_LICENSE_OPTIONS.map((l) => ({ value: l.value, label: l.label })),
+          ]}
+        />
         <span className="text-[11px] block" style={{ color: 'rgba(38,42,35,0.66)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
       </label>
 
       <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
         {!isLC && (
           <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Model source</span>
-            <select className={inputCls} value={o.modelSource} onChange={(e) => changeModelSource(e.target.value)}>
-              <option value="original">Original design</option>
-              <option value="remix">Remix of another model</option>
-            </select>
+            <Select
+              value={o.modelSource}
+              onChange={(selectValue) => changeModelSource(selectValue)}
+              options={[{ value: "original", label: 'Original design' }, { value: "remix", label: 'Remix of another model' }]}
+              className={inputCls}
+            />
           </label>
         )}
         {o.modelSource === 'remix' && (
@@ -13525,10 +14044,12 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                 label="Search your MakerWorld designs…" />
               {!o.remixModel && (
                 <label className="text-xs space-y-1 block"><span>Original model license</span>
-                  <select className={inputCls} value={o.remixLicense || ''} onChange={(e) => onUpdate('remixLicense', e.target.value)}>
-                    <option value="">Choose the source license…</option>
-                    {MW_LICENSE_OPTIONS.map((licenseOption) => <option key={licenseOption.value} value={licenseOption.value}>{licenseOption.label}</option>)}
-                  </select>
+                  <Select
+                    value={o.remixLicense || ''}
+                    onChange={(selectValue) => onUpdate('remixLicense', selectValue)}
+                    options={[{ value: "", label: 'Choose the source license…' }, ...MW_LICENSE_OPTIONS.map((licenseOption) => ({ value: licenseOption.value, label: licenseOption.label }))]}
+                    className={inputCls}
+                  />
                 </label>
               )}
               {o.remixLicense && !makerWorldLicenseAllowsRemix(o.remixLicense) && (

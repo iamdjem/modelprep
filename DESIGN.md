@@ -15,7 +15,9 @@ name are the ones a real screen has since proved or corrected.
 The current UI (paper `#EDE9DE` ground, orange `#FF5722`, Big Shoulders Display uppercase
 labels, mono tracked eyebrows, numbered phases, ASCII job-sheet framing). Those are the
 saturated AI-industrial defaults and they fight legibility. The replacement is calm and
-token-driven, in the register of Mews and Linear.
+token-driven, in the register of Mews and Linear. Mews is more than a register for
+component semantics: where MDS documents a rule (see "Waiting"), we follow it and record
+the mapping rather than inventing a parallel one.
 
 ## Foundations
 
@@ -79,10 +81,16 @@ panes are used at the same moment.
 - **Content plus a metadata rail** is the shape for an editor: one long-form field the
   screen is about, and short fields that classify it. Details uses it, because you pick
   the category and type tags with the description in front of you. The main column
-  takes the remaining width, the rail is a fixed 340 px, the pair collapses to one
-  column below `lg`, and the whole grid caps at `max-w-6xl` so the description does not
-  stretch to unreadable line lengths on a wide display. The rail does not scroll
-  independently and is not sticky: you fill it, you do not consult it.
+  takes the remaining width, the rail is 340 px (380 px from `2xl`), and the pair
+  collapses to one column below `lg`. The grid grows with the window up to 1600 px,
+  which is the point where the description stops being a readable line length. A cap
+  the window routinely beats is worse than no cap: at 1152 px the step sat in the left
+  two thirds of a large display with a dead band down the right, while every other step
+  filled the column. From `lg` the description also takes whatever height the step has
+  left over, so Write, Preview and Adaptations are one box that does not resize when you
+  switch between them, and the void between the last field and the Back/Next bar is
+  gone. Below `lg` it keeps its 320 px floor and the page scrolls. The rail does not
+  scroll independently and is not sticky: you fill it, you do not consult it.
 - **Every field opens with the same header row.** One 28 px row holding the label, plus
   whatever sits at its right edge (a character counter, a segmented control), then 8 px
   to the control. Without it a plain label carrying its own margin puts one column's
@@ -90,7 +98,18 @@ panes are used at the same moment.
   grid. Keep hint text out of the first field of a column: two lines of it knock every
   row below out of step with the other side.
 - **A control that only ever holds one of a fixed list is a select**, not a card with a
-  chooser behind it.
+  chooser behind it. One `Select` serves every one of them: a native `<select>` paints an
+  OS menu, dark on macOS and different again on Windows, so sixty-one of them looked
+  nothing like the app they sat in. Following MDS: search appears from eight options
+  (`SELECT_SEARCH_FROM`), never on a short list; groups come from each option's `group`;
+  the trigger keeps the semantics a select had (`role="combobox"`, `aria-expanded`,
+  `aria-controls`, and the chosen value in `data-value`). `select-consistency.test.jsx`
+  fails if a native one comes back.
+- **Under five options, a dropdown is the wrong control.** MDS sends those to a radio
+  group or a segmented control, and we have twenty-seven of them: Visibility, Technology,
+  Dimensions unit, the batch actions, the model sources, Thangs structure, Thingiverse
+  action. They are all one `Select` today, which is at least consistent. Converting them
+  is a separate decision, because it changes what the control is, not how it looks.
 - **Open the thing that was asked for.** A button that names one platform opens that
   platform, not the list it belongs to. "Connect Printables" used to open the whole
   Accounts list at the top, nine sign-ins above the one you wanted. The list is still
@@ -118,10 +137,39 @@ panes are used at the same moment.
 
 ## Component vocabulary
 
-Buttons (primary, secondary, ghost, danger, small, disabled), inputs with hint and error
-lines below the field, selects, tag input, switches, segmented control, badges (neutral and
-semantic), cards, tables with hover rows, progress bars, skeletons, kbd. Every interactive
-class in `tokens.css` defines default, hover, focus-visible, active, and disabled.
+Buttons (primary, secondary, ghost, danger, small, disabled, loading), inputs with hint and
+error lines below the field, selects, tag input, switches, segmented control, badges
+(neutral and semantic), cards, tables with hover rows, skeletons, spinners, status
+indicators, kbd. Every interactive class in `tokens.css` defines default, hover,
+focus-visible, active, and disabled.
+
+## Waiting
+
+Taken from the Mews Design System, the register this app is built in. MDS splits waiting
+by who started the work, and so do we. `LoadingButton`, `Spinner`, `Skeleton` and
+`WorkingStatus` live in `App.jsx`, and `waiting-states.test.jsx` pins the rules below.
+
+- **The person pressed it, so the button shows it.** The mark takes the place of the label
+  and the icon goes with it. Nothing is removed. The label turns transparent, which keeps
+  the control's width and its accessible name. It carries `aria-busy`, refuses a second
+  press, and stays at full opacity, because working is not the same as unavailable.
+- **A label names the action, never the wait.** "Sign in to Printables", not "Waiting for
+  Printables sign-in…". The mark is what says we are waiting.
+- **The system started it, so a spinner sits where it happens.** Session checks, hashing,
+  a photo import. One area, one on the page at a time, and only once the wait passes about
+  a second. A line of text beside it is welcome. A paragraph is not.
+- **Content on its way gets a skeleton in its shape.** Lists of listings, and any field
+  something else is about to write. That is why the writer's four fields turn into
+  skeletons. A live input you are about to overwrite invites typing that gets thrown away.
+- **A row in a list reports status, it does not spin.** Ten platforms publishing at once
+  would otherwise be ten spinners. A pulsing dot and the current step.
+- **If you know the count, say the count.** MDS has no determinate bar, since its Progress
+  Indicator is the step flow, which for us is the sidebar. Counted work says so in words
+  next to the control: "[2/6] Printables · Compressing 45%", "3/10 complete".
+- **One idiom for motion.** `.mp-spin`, never Tailwind's `animate-spin`, because the
+  `prefers-reduced-motion` block only covers the first. That block lists everything we
+  animate.
+- **Under a second, show nothing.** A mark that flashes is noise.
 
 ## Rules
 

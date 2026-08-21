@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { chooseOption, expectFieldValue } from './select-harness.js';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { MakerOnlineOptions } from './App.jsx';
@@ -30,13 +31,13 @@ describe('MakerOnline-specific upload options', () => {
       onUpdate={vi.fn()}
     />);
 
-    expect(screen.getByLabelText(/batch action/i)).toHaveValue('draft');
-    expect(screen.getByLabelText(/model source/i)).toHaveValue('2');
-    expect(screen.getByLabelText(/original work URL/i)).toHaveValue('https://example.com/original');
-    expect(screen.getByLabelText(/category/i)).toHaveValue('104');
-    expect(screen.getByLabelText(/license/i)).toHaveValue('4');
-    expect(screen.getByLabelText(/print profile title/i)).toHaveValue('A1 profile');
-    expect(screen.getByLabelText(/print profile description/i)).toHaveValue('0.2 mm PLA');
+    expectFieldValue(screen.getByLabelText(/batch action/i), 'draft');
+    expectFieldValue(screen.getByLabelText(/model source/i), '2');
+    expectFieldValue(screen.getByLabelText(/original work URL/i), 'https://example.com/original');
+    expectFieldValue(screen.getByLabelText(/category/i), '104');
+    expectFieldValue(screen.getByLabelText(/license/i), '4');
+    expectFieldValue(screen.getByLabelText(/print profile title/i), 'A1 profile');
+    expectFieldValue(screen.getByLabelText(/print profile description/i), '0.2 mm PLA');
     // AI assistance and NSFW are answered once in Details now.
     expect(screen.queryByText(/Created with AI assistance/i)).not.toBeInTheDocument();
     expect(screen.getByText(/This model uses MakerOnline Creative Kits/i)).toBeInTheDocument();

@@ -406,8 +406,9 @@ describe('Unified Settings page', () => {
     await user.click(screen.getByRole('button', { name: /Codex CLI/i }));
 
     const model = await screen.findByRole('combobox', { name: /model/i });
-    expect(within(model).getByRole('option', { name: 'GPT-5.4' })).toBeInTheDocument();
-    await user.selectOptions(model, 'gpt-5.4');
+    await user.click(model);
+    expect(screen.getByRole('option', { name: 'GPT-5.4' })).toBeInTheDocument();
+    await user.click(screen.getByRole('option', { name: 'GPT-5.4' }));
     expect(savedConfig().providers.codex.model).toBe('gpt-5.4');
   });
 
@@ -467,7 +468,8 @@ describe('Unified Settings page', () => {
     await user.click(screen.getByRole('button', { name: /check key/i }));
 
     const model = await screen.findByRole('combobox', { name: /model/i });
-    expect(within(model).getByRole('option', { name: 'Vision A' })).toBeInTheDocument();
+    await user.click(model);
+    expect(screen.getByRole('option', { name: 'Vision A' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /use for listings/i }));
     expect(savedConfig()).toMatchObject({ primary: 'openrouter', providers: { openrouter: { apiKey: 'sk-good', model: 'vision-a:free' } } });
   });

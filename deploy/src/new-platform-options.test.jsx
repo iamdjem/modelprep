@@ -2,6 +2,7 @@
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import { chooseOption, expectFieldValue } from './select-harness.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MakerRoadOptions, PlatformFilePicker, ThangsOptions, ThingiverseOptions, makerRoadReadbackIssues, platformPreflight, publishBlockers } from './App.jsx';
 
@@ -174,18 +175,17 @@ describe('new direct-platform option parity', () => {
     />);
     expect(screen.getByText('Elegoo Slicer')).toBeInTheDocument();
     const role = screen.getByLabelText('dragon-E.3mf role for Creality Cloud');
-    expect(role).toHaveValue('model');
-    role.value = 'not-sent';
-    role.dispatchEvent(new Event('change', { bubbles: true }));
+    expectFieldValue(role, 'model');
+    chooseOption('dragon-E.3mf role for Creality Cloud', /not sent|Not sent/i);
     expect(onUpdate).toHaveBeenCalledWith('fileSelection', 'manual');
   });
   it('renders Thangs privacy and structure controls', () => {
     render(<ThangsOptions opts={{ publication: 'private', structure: 'single', units: 'mm' }} project={{ files: [] }} onUpdate={noop} />);
-    expect(screen.getByLabelText('Thangs visibility')).toHaveValue('private'); expect(screen.getByLabelText('Thangs structure')).toHaveValue('single');
+    expectFieldValue(screen.getByLabelText('Thangs visibility'), 'private'); expectFieldValue(screen.getByLabelText('Thangs structure'), 'single');
   });
   it('renders Thingiverse as draft-first and upload-ready with license choices', () => {
     render(<ThingiverseOptions opts={{ publication: 'draft', license: 'cc-nc' }} project={{ files: [] }} onUpdate={noop} />);
-    expect(screen.getByText(/Direct upload ready:/)).toBeInTheDocument(); expect(screen.getByLabelText('Thingiverse action')).toHaveValue('draft'); expect(screen.getByLabelText('Thingiverse license')).toHaveValue('cc-nc');
+    expect(screen.getByText(/Direct upload ready:/)).toBeInTheDocument(); expectFieldValue(screen.getByLabelText('Thingiverse action'), 'draft'); expectFieldValue(screen.getByLabelText('Thingiverse license'), 'cc-nc');
     expect(screen.getByLabelText('Thingiverse Customizer')).toBeDisabled();
   });
   it('enables Thingiverse Customizer only for SCAD uploads and fails closed for stale state', () => {

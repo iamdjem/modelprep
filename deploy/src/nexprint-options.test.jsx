@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
+import { optionLabels } from './select-harness.js';
 import { NexprintOptions } from './App.jsx';
 
 beforeEach(() => {
@@ -48,17 +49,20 @@ describe('Nexprint-specific upload options', () => {
       onUpdate={vi.fn()}
     />);
 
-    expect(await screen.findByRole('option', { name: 'Home & Decoration › Storage' })).toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: 'Home & Decoration' })).not.toBeInTheDocument();
+    // The live taxonomy offers the leaf, and only the leaf: a parent on its own
+    // is not a category you can publish into.
+    await waitFor(() => expect(optionLabels(/category/i)).toContain('Home & Decoration › Storage'));
+    expect(optionLabels(/category/i)).not.toContain('Home & Decoration');
     // The source URL moved to the shared provenance block in Details; only
     // the Nexprint-only model ID is still asked for here.
     expect(screen.queryByText('Original URL')).not.toBeInTheDocument();
     expect(screen.getByText('Nexprint model ID (instead of the source URL)')).toBeInTheDocument();
+    const licences = optionLabels(/license/i);
     for (const license of [
       'CC BY', 'CC BY-SA', 'CC BY-NC', 'CC BY-NC-SA',
       'CC BY-ND', 'CC BY-NC-ND', 'CC0', 'Standard Digital File License',
     ]) {
-      expect(screen.getByRole('option', { name: license })).toBeInTheDocument();
+      expect(licences).toContain(license);
     }
     // AI disclosure and NSFW are answered once in Details now.
     expect(screen.queryByRole('checkbox', { name: /AI-generated content/i })).not.toBeInTheDocument();
