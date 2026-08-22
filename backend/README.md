@@ -64,6 +64,12 @@ automatic backend deployment on git push.
 - `docs/*-web-flow.md`: dated first-party request maps and platform gotchas.
 - `docs/platform-upload-requirements-live.md`: complete cross-platform field and
   limit evidence.
+- `docs/platform-upload-flow-independent-audit-2026-08-22.md`: clean-context
+  native upload journeys, controls, and minimum-success checklists.
+- `docs/platform-workflow-mapping-audit-2026-08-22.md`: current native fields
+  reconciled with ModelPrep implementation coverage.
+- `docs/platform-upload-independent-comparison-2026-08-22.md`: differences
+  between the independent native inventory and the implementation audit.
 - `docs/platform-one-by-one-implementation-playbook.md`: required mapping,
   implementation, packaged-QA and live-certification sequence.
 

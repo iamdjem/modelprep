@@ -2,6 +2,15 @@
 
 Built from the code, read-only, at the working tree after the five-step change. Line numbers refer to `deploy/src/App.jsx` unless another file is named. Sources: `App.jsx`, `lib/platform-required.js`, `lib/platform-defaults.js`, `lib/platform-files.js`, `lib/shared-defaults.js`, `lib/platform-workflow.js`, `lib/makerworld.js`, `lib/batch-publish.js`.
 
+> This remains a code-structure snapshot, not the current native-form audit.
+> For the signed-in 2026-08-22 comparison, all requested field groups, and the
+> implementation gaps per platform, use
+> `platform-workflow-mapping-audit-2026-08-22.md`. That audit corrects the old
+> Creality pricing claim and records native controls that this panel-oriented
+> table does not represent. The clean-context verification and its comparison
+> are in `platform-upload-flow-independent-audit-2026-08-22.md` and
+> `platform-upload-independent-comparison-2026-08-22.md`.
+
 ## How the four kinds are decided
 
 A field is **derived** when `deriveSharedDefaultPatches` writes it from the Details, Files, Images or Profiles steps and the panel only offers an override (`lib/shared-defaults.js:372-472`). The override is recorded by clearing `categoryAuto` / `licenseAuto`, and `AutoMatchNote` (`App.jsx:8800-8809`) tells the user the value came from Details.
@@ -138,6 +147,7 @@ Panel: `ThangsOptions`. Preflight: `App.jsx:5625-5633`.
 | Access type ID / Plan IDs, Dependency model IDs, Version notes, Allow remix / Enable feedback | decision, unique | no | yes | Platforms | |
 | Paid marketplace listing + price | decision, unique | yes price when on | `marketplace` yes, `price` no | Platforms | |
 | License (free text) | derived | no | yes (`license`) | Details | `THANGS_LICENSE_MAP`, fallback `CC BY-NC` flagged inexact. |
+| Native audience modes, compatibility flags, video embed, inspiration attribution, dynamic licence picker | unsupported native fields | varies | n/a | Platforms | The current ModelPrep panel reduces audience to private or public and does not expose these retained native controls. |
 | 250 MB reference-file rule, read-back note | reference | no | n/a | Platforms | |
 
 ## Nexprint
@@ -151,6 +161,7 @@ Panel: `NexprintOptions`. Preflight: `App.jsx:5435-5477`.
 | Nexprint model ID (instead of the source URL) | decision, unique | one of the two | yes (`sourceModelId`) | Platforms | Preflight accepts either the Details URL or this ID. |
 | Category | decision (live taxonomy) with derived seed | yes | yes (`categoryId`) | Details | Second-column leaves only. |
 | License | derived | yes | yes (`licenseType`) | Details | Seeded from `NEXPRINT_LICENSE_MAP`. |
+| Upload mode (single model / batch upload) | unsupported native field | yes before file upload | n/a | Files | ModelPrep creates one listing and does not expose the native batch branch. |
 | Include bill of materials; rows (n/100) | decision, unique | rows must be valid | yes (`hasBom`, `bom`) | Platforms | |
 | Eligible activities and contests | decision, unique | no | yes (`activityIds`) | Platforms | Loaded live per account; not a static checkbox. |
 | Your collections | decision, unique | no | yes (`collectionIds`) | Platforms | |
@@ -167,9 +178,12 @@ Panel: `CrealityOptions`. Preflight: `App.jsx:5478-5506`.
 | Model source (original / remix / non-original) | derived plus a unique third state | effectively yes | yes (`modelSource`) | Details | Anything other than Original is a hard blocker: ModelPrep will not guess at attribution. |
 | Category | decision (own taxonomy) with derived seed | yes | yes (`categoryId`) | Details | |
 | License | derived | yes | yes (`license`) | Details | Seeded from `CREALITY_LICENSE_MAP`. |
-| What ModelPrep sends / paid controls are account-gated | reference | no | n/a | Platforms | |
+| Price (free / paid) | unsupported native field | native form requires a choice | n/a | Platforms | The signed-in 2026-08-22 editor exposes both states. The adapter hardcodes free. |
+| Bill of Materials | unsupported native field | yes/no is required in the live editor | n/a | Platforms | Not sent by ModelPrep. |
+| Boost Me rich-description control | unsupported native field | no | n/a | Platforms | Not represented by the shared rich-description mapping. |
+| What ModelPrep sends | reference | no | n/a | Platforms | Ordinary model files, instruction files, dual covers, gallery, title, description, category, tags, licence, NSFW, visibility and Original source. |
 
-Creality has no print-profile field: its 3MFs upload as plain model files (`lib/platform-files.js:84-90`).
+ModelPrep has no Creality print-profile field. It uploads 3MF as plain model geometry (`lib/platform-files.js:84-90`), while the native product has a distinct Creality Print Configuration concept.
 
 ## MakerOnline
 
@@ -218,15 +232,17 @@ Panel: `MakerRoadOptions`. Preflight: `App.jsx:5552-5564` and `5594-5623`.
 | Title | same | same | same | same | same | same | same | same | same | same |
 | Description | same | same | same | same | same | same | same | same | same | same |
 | Tags | same | mapped | same | same | same | same | same | same | same | same |
+| AI disclosure | mapped | mapped | mapped | native declaration | mapped | mapped | mapped as tag | no native field seen | mapped | mapped |
+| NSFW | mapped | mapped | n/a | n/a | mapped | n/a | mapped | mapped | mapped | mapped |
 | Category | own taxonomy | own taxonomy | own taxonomy | own taxonomy | own taxonomy | own taxonomy | own taxonomy | own taxonomy | own taxonomy | own taxonomy |
 | Licence | mapped | mapped | mapped | mapped | mapped | mapped | mapped | mapped | mapped | mapped |
-| Visibility | same | same | same | same | same | same | same | same | unique rule | unique rule |
-| Origin / remix | mapped | unique rule | n/a | mapped | mapped | n/a | unique rule | unique rule | mapped | mapped |
-| Price | n/a | unique rule | unique rule | n/a | n/a | unique rule | n/a | n/a | n/a | unique rule |
+| Visibility | same | same | same | same | same | native audience gap | same | same | unique rule | unique rule |
+| Origin / remix | mapped | unique rule | n/a | mapped | mapped | native attribution gap | unique rule | unsupported beyond Original | mapped | mapped |
+| Price | n/a | unique rule | unique rule | premium branch gap | n/a | unique rule | n/a | unsupported native field | n/a | unique rule |
 | Images | mapped | same | same | mapped | same | mapped | mapped | mapped | same | unique rule |
-| Videos | same | n/a | same | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+| Videos | uploaded media | description embed | uploaded media | n/a | section URL | native embed gap | description media | n/a | n/a | n/a |
 | Files | same | unique rule | same | same | same | unique rule | same | same | same | same |
-| Print profile | unique rule | n/a | n/a | n/a | n/a | n/a | n/a | n/a | unique rule | mapped |
+| Print profile | unique rule | n/a | n/a | n/a | settings only | compatibility gap | n/a | native configuration gap | unique rule | mapped |
 | Release plan | same | same | same | same | same | same | same | same | same | unique rule |
 
 *same*: the step's value is sent unchanged. *mapped*: a documented per-platform transform runs (`shared-defaults.js`, `platformImagePlan`, `normalizePrintablesTags`). *own taxonomy*: the platform has its own tree that the shared value only seeds. *n/a*: no such field. *unique rule*: a constraint no other platform imposes.
@@ -240,9 +256,9 @@ Row-by-row evidence:
 - **Licence.** Five platforms are filled by `LICENSE_TARGETS`; MakerWorld, Printables, Nexprint, Creality and MakerOnline use their own map constants at the panel. Cults3D is the only one with no fallback, because its free-versus-paid class couples to price.
 - **Visibility.** Eight platforms are a two-state choice. MakerOnline splits it into a draft action plus a stored `permission`. MakerRoad has no accepted private path: every Save enters review.
 - **Origin and remix.** `provenancePatch` covers eight platforms. Cults3D and Thangs have no origin field. Printables adds `reupload`, Nexprint adds `Reprint`, Creality adds `Non-original`, and the platform-only identifiers (Thingiverse Thing ID, MyMiniFactory parent object IDs, Printables parent model) stay in their panels because a generic URL cannot express them.
-- **Price.** Four platforms sell, in four shapes: Cults3D free-or-paid USD with a 0.65 to 1200 range, Printables Store and Club with account eligibility, Thangs marketplace, MakerRoad free, points or cash.
+- **Price.** ModelPrep maps four selling branches: Cults3D free or paid USD, Printables Store and Club, Thangs marketplace, and MakerRoad free, points, or cash. The native MyMiniFactory premium Store and Creality Free or Paid controls are not mapped.
 - **Images.** One ordered gallery with one cover and a focal point. MakerWorld, Nexprint and Creality get real crops. MyMiniFactory re-encodes at quality 90 with a 2400 px longest edge. Thangs offers an optional card crop. MakerRoad is the only hard range: 3 to 10 images or nothing publishes.
-- **Videos.** MakerWorld and Cults3D only; the Images step hides the video card unless one of those two is enabled.
+- **Videos.** ModelPrep uploads shared video only to MakerWorld and Cults3D. Printables can embed YouTube or Vimeo in its description, Thingiverse can store a URL in a structured section, Nexprint has rich-editor media, and Thangs has a native embed URL that ModelPrep does not expose.
 - **Files.** One package, one role per file per destination (`lib/platform-files.js:100-121`). Printables has a ZIP mode choice; Thangs rejects some filename characters and pushes anything over 250 MB to references.
 - **Print profile.** `NATIVE_PROFILE_PLATFORMS` is MakerWorld and MakerRoad (`lib/platform-files.js:47`); the picker also offers the profile role to MakerOnline. Creality and Nexprint keep the 3MF as ordinary geometry.
 - **Release plan.** Every platform is in `LIVE_PUBLISH_PLATFORM_IDS`, so all ten get a plan row, now on Publish. MakerRoad also has a native scheduled time of its own.

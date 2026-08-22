@@ -1,5 +1,14 @@
 # ModelPrep ten-platform difference matrix (UX view)
 
+> Historical code and UX snapshot from 2026-08-13. Do not use its Top 10 list
+> as the current mapping ledger. Shared category and licence mapping changed
+> after this file was written. The current native inventory, ModelPrep mapping,
+> and independent comparison are:
+>
+> - `platform-upload-flow-independent-audit-2026-08-22.md`
+> - `platform-workflow-mapping-audit-2026-08-22.md`
+> - `platform-upload-independent-comparison-2026-08-22.md`
+
 Compiled 2026-08-13 from `backend/docs/platform-upload-requirements-live.md`, `platform-specs.md`,
 the ten `*-web-flow.md` docs, `deploy/src/App.jsx` (`PLATFORMS` L439-563, `platformPreflight`
 L2890-3187) and `deploy/src/lib/platform-workflow.js` in the `codex/package-workspace-redesign`

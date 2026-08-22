@@ -4,9 +4,9 @@
 > demo batch is in `demo-upload-live-verification-2026-08-08.md`. Do not treat
 > older safe-core receipt wording as stronger than that newer UI evidence.
 
-Last live audit: **2026-08-02** (Printables read-only mapping plus authorized
-specialist-draft and normal-public closeout; MyMiniFactory current-form and
-retained-editor refresh; other platform dates remain in their sections)
+Last live audit: **2026-08-22** (read-only signed-in form refresh across all ten
+platforms; file-gated and account-gated branches retain the dated evidence in
+their platform sections)
 Audited account surfaces: authenticated browser/desktop sessions for ten platforms
 Scope: every upload platform currently implemented or implemented locally as a direct ModelPrep publisher
 
@@ -20,6 +20,63 @@ For the current implementation ledger, continuation order, retained evidence,
 and next-agent operating prompt, start with
 `modelprep-current-handoff-2026-08-01.md`, then use this file for the detailed
 cross-platform contract.
+
+The current cross-platform field table, one table per destination, implementation
+gaps, and documentation corrections are in
+`platform-workflow-mapping-audit-2026-08-22.md`.
+The clean-context native inventory is in
+`platform-upload-flow-independent-audit-2026-08-22.md`, with the differences
+reconciled in `platform-upload-independent-comparison-2026-08-22.md`.
+
+## 2026-08-22 read-only form refresh
+
+No upload, save, publish, terms acceptance, or deletion was performed during
+this refresh. The full field evidence and qualifications are in the comparison
+document linked above. The changes that affect this requirements record are:
+
+- Printables exposes a required AI question, NSFW, Political Content, and
+  YouTube or Vimeo insertion inside its description editor.
+- Cults3D currently lists JPG, PNG, WEBP, WEBM, and MP4 in the media control.
+  GIF is still accepted by the ModelPrep adapter but is not listed in the live
+  control, so its current support is unconfirmed. Cults also has usage choices
+  beyond 3D printing that ModelPrep does not expose.
+- Thingiverse exposes AI Generated Content and NSFW in the current editor.
+  Video is a structured-section URL, not gallery media.
+- Thangs accepts nine model formats in the first live step. Its later audience,
+  compatibility, video, attribution, and licence controls remain file-gated and
+  are not all mapped exactly by ModelPrep.
+- Nexprint asks for Single model or Batch upload before files. Its retained
+  editor has rich inline media, BOM, activity, collection, and World-first
+  controls. The live attachment list does not name GCODE or GOO even though the
+  current adapter allows them.
+- Creality Cloud exposes Free and Paid on the current account. The adapter
+  hardcodes Free. The live editor also requires a BOM yes or no answer and has
+  a Boost Me editor control. Those fields are not mapped. Remix, Non-original,
+  and native Creality Print Configuration remain unsupported.
+- MakerOnline currently allows up to 20 images, up to 100 model files, required
+  AI disclosure, NSFW, documents, and a separate Anycubic 3MF profile step.
+- MakerRoad currently allows 3 to 10 images, up to 80 model files, separate 3MF
+  configuration files, instructions, AI, NSFW, pricing, visibility, and
+  scheduling. Print Makes and the upload-type Print Configurations branch are
+  not supported by ModelPrep.
+- MakerWorld's current first step was refreshed. Its later metadata remains
+  file-gated, so current source and retained editor evidence still define that
+  part of the contract.
+- MyMiniFactory's Advanced Settings still expose print data and the required
+  original non-AI declaration. Scan The World and License store are visible but
+  not mapped. Premium Store and Archive Mode remain unsupported branches.
+- The independent retained-form pass found MakerWorld `Share` as a third source
+  state and a separate 14-day Exclusive Launch option. ModelPrep exposes neither.
+- Cults3D also has `OPEN PRICE` and `OFFLINE`. ModelPrep currently reduces these
+  controls to a paid amount and Secret or Public visibility.
+- Thingiverse has distinct Thing, Edu Project, and Upload a Make entry paths.
+  The normal Thing form is mapped. Upload a Make is not.
+- Creality Cloud has standalone Upload Print Files and import branches in
+  addition to model listings. ModelPrep does not implement those paths.
+- The independent MakerRoad form displayed `Price to Download` as fixed Free,
+  while the current adapter still sends older Free, Points, and Cash enums.
+  Treat paid MakerRoad publishing as unconfirmed until the current request
+  contract is captured again.
 
 During the initial cross-platform mapping audit, no listing was publicly
 published or deleted. Nexprint draft
@@ -1350,9 +1407,9 @@ payload unchanged to all sites.
 | print data | detailed print/filament settings | print instructions, license file, model assets | FDM/LCD/Others, printer, material, color; separate 3MF configs |
 | provenance | original/remix/source, AI, WIP, customizable, NSFW | remix permission, AI, feedback | original/remix/source, AI, NSFW |
 | license | 13 open-source/CC/hardware licenses | license metadata plus PDF/TXT/MD license file | seven CC/CC0 combinations |
-| monetization | not mapped | plans/tiers, marketplace, memberships, bundle/print-store branches | Free/Points/Cash; paid branches may be gated |
+| monetization | not mapped | plans/tiers, marketplace, memberships, bundle/print-store branches | 2026-08-22 form displayed fixed Free; older bundle has Points/Cash, now unconfirmed |
 | publication | draft/publish and complete readback | private/public/access/plans and details/attachments/license readback | save/preview/publish, public/private, schedule, review, edit readback |
-| current code | complete draft/publish adapter, UI, session bridge and readback; exact-app draft `7390480` live-certified | complete encrypted-token adapter, UI, signed uploads and three-part readback; exact-app private model `1583272` live-certified | complete `X-Token` adapter, UI, four upload roles and readback; exact-app private draft `M2134222528` live-certified; video explicitly unsupported because the current form has no field |
+| current code | complete draft/publish adapter, UI, session bridge and readback; exact-app draft `7390480` live-certified | complete encrypted-token adapter, UI, signed uploads and three-part readback; exact-app private model `1583272` live-certified | `X-Token` adapter, UI, four upload roles and readback are implemented. Safe-core certification is withdrawn because saves entered review and were rejected; video remains unsupported |
 
 2026-08-08 Thangs correction: the table records intended schema breadth, not
 implemented parity. The adapter drops renderer-provided units, access type,

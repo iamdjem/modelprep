@@ -1,5 +1,12 @@
 # Creality Cloud authenticated upload flow
 
+> 2026-08-22 read-only supplement. The native Upload menu has three entry paths:
+> Upload 3D Models, Upload Print Files, and Import from crealitycloud.cn. The
+> standalone print-file path accepts up to 100 `.gcode`, `.gz`, `.cxdlp`,
+> `.cxline`, or `.cxdlpv4` files. ModelPrep implements model listings only. It
+> does not implement standalone print-file upload or import. See
+> `platform-upload-flow-independent-audit-2026-08-22.md`.
+
 Live audit: **2026-07-31**. Surface: signed-in production account on
 `https://www.crealitycloud.com/create-model-new?editType=editModel` (the editor is a
 same-origin `/flowprint/create-model` iframe). This document records the observed DOM,

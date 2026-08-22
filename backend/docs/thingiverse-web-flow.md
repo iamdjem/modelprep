@@ -1,5 +1,12 @@
 # Thingiverse upload flow map
 
+> 2026-08-22 read-only supplement. The Create menu exposes Upload a Thing or
+> Remix and a separate Upload a Make path. The normal editor also offers Thing
+> and Edu Project as separate content types. ModelPrep implements the normal
+> Thing journey and schema-shaped education data, but it does not implement
+> Upload a Make or certify the complete Edu Project journey. See
+> `platform-upload-flow-independent-audit-2026-08-22.md`.
+
 Audit date: **2026-08-01**
 Surface: authenticated production account, `https://www.thingiverse.com/thing:0/edit`, current production bundles, and official developer/legal pages
 Original audit mutation boundary: **read-only**. Written clearance to enable the mapped ModelPrep flow was recorded from the product owner on **2026-08-01**. The owner then explicitly accepted the current Thingiverse Terms for the certification action and authorized Save as Draft. Browser draft `7390453` and exact packaged-app draft `7390455` were created and retained unpublished; no listing was published.

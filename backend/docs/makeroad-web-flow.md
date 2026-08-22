@@ -1,5 +1,12 @@
 # MakerRoad upload flow map
 
+> 2026-08-22 read-only refresh. The signed-in upload form displayed `Price to
+> Download` as fixed Free. The older production bundle and ModelPrep adapter
+> still contain Free, Points, and Cash enums. Paid behavior may be account-gated
+> or stale. Do not treat paid MakerRoad upload as confirmed-current until a new
+> first-party request capture proves it. See
+> `platform-upload-independent-comparison-2026-08-22.md`.
+
 > **CORRECTION (2026-08-07).** The "live-certified private draft M2134222528"
 > claim is wrong in effect: a private Save still enters MakerRoad review, and
 > ALL seven retained drafts sit under Drafts > Rejected Models ("cover is not a

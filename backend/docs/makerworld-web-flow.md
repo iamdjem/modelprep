@@ -1,5 +1,12 @@
 # MakerWorld web flow
 
+> 2026-08-22 read-only refresh. The retained model editor exposed Original,
+> Remix, and Share, but the retained source value was locked. Earlier account
+> evidence showed Share disabled, so its current selectable eligibility remains
+> account-gated or unproven. The same editor exposed a separate 14-day Exclusive
+> Launch option that ModelPrep does not represent. See
+> `platform-upload-flow-independent-audit-2026-08-22.md`.
+
 Canonical reference for the reverse-engineered MakerWorld (Bambu Lab) upload flow that
 `backend/src/adapters/makerworld-web.ts` drives. **Read this before changing that adapter.**
 Reverse-engineered from a Playwright capture (kit + raw request bodies/screenshots live

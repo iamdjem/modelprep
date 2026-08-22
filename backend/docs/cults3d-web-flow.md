@@ -1,5 +1,12 @@
 # Cults3D web-flow research + reference
 
+> 2026-08-22 read-only refresh. The current media control lists JPG, PNG, WEBP,
+> WEBM, and MP4. It does not list GIF, although the existing adapter accepts it.
+> Treat GIF as unconfirmed until the current first-party request contract proves
+> it. The current sharing step still exposes Paying, Open Price, and Free plus
+> Public, Secret, and Offline. See
+> `platform-upload-flow-independent-audit-2026-08-22.md`.
+
 This is the canonical reference for everything ModelPrep knows about Cults3D's reverse-engineered web upload flow. **Read this before changing `backend/src/adapters/cults3d-web.ts`** — every gotcha was hard-won and easy to re-introduce.
 
 For the high-level architecture (how this fits with the GraphQL flow, R2, CDN, etc.) see [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md). This doc is the deep dive on the web flow itself.
