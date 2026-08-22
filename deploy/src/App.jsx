@@ -46,7 +46,14 @@ import {
 } from './lib/creality-auth.js';
 import { crealityResponseError, uploadCrealityFile } from './lib/creality-upload.js';
 import { fileSlicer, parseThreeMF, slicerLabel, SLICERS } from './lib/threemf.js';
-import { loadProjectBinaries, rehydrateProject, saveProjectBinaries } from './lib/project-store.js';
+import { clearStoredProject, loadProjectBinaries, rehydrateProject, saveProjectBinaries } from './lib/project-store.js';
+import {
+  autoProjectName, duplicateName, duePlansForOtherProjects, entryFromProject, findEntry, formatProjectDate,
+  loadLibrary, migrateLegacyAutosave, newProjectId, readCurrentId, removeEntry, saveLibrary, upsertEntry, writeCurrentId,
+} from './lib/project-library.js';
+import { applyPlatformDefaults, forgetPlatform, loadPlatformDefaults, rememberPlatform, rememberedCount } from './lib/platform-defaults.js';
+import { isRequiredField, stripRequiredSuffix } from './lib/platform-required.js';
+import { controlFor, findTargetElement, resolveIssueTarget } from './lib/issue-targets.js';
 import {
   autoExcludedFileIds,
   DESTINATION_FILE_ROLES,
@@ -202,7 +209,8 @@ import {
   Folder, Send, Star, X, Plus, Trash2, ChevronRight, ChevronLeft, ChevronDown,
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search,
   Globe, DollarSign, Info, Edit3, ArrowRight, User, Settings,
-  PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus
+  PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus, FolderOpen, Clock, Palette,
+  Gauge, SlidersHorizontal, GitBranch, Link2, Cpu, Package, Printer, Tag, Scale, Eye, Coins, ShieldCheck, Box
 } from 'lucide-react';
 import {
   useAccounts, getAccounts, getActive, setStatus, CONNECTABLE, rehydrateDesktopAccount,
@@ -214,7 +222,9 @@ const SECTIONS = [
   { id: 'files',     label: 'Files',     icon: Folder,    description: 'Model files, print profiles and photos' },
   { id: 'details',   label: 'Details',   icon: FileText,  description: 'The listing you write once' },
   { id: 'images',    label: 'Images',    icon: ImageIcon, description: 'Cover, gallery and video' },
-  { id: 'profiles',  label: 'Profiles',  icon: Layers,    description: 'Settings for each sliced 3MF' },
+  // Print profiles are MakerWorld's form for a sliced 3MF (profile visibility,
+  // MakerWorld's photo rule, Bambu printer list, MakerWorld guidelines), so
+  // they live as a subsection of the MakerWorld panel, not as a project step.
   { id: 'platforms', label: 'Platforms', icon: Globe,     description: 'Where it goes, and how each one publishes it' },
   { id: 'publish',   label: 'Publish',   icon: Send,      description: 'Send it everywhere at once, or one at a time' },
 ];
@@ -249,7 +259,7 @@ function VersionBanner() {
   const stale = latest && BUILD_TIME && latest.time && latest.time > BUILD_TIME;
   if (!stale) return null;
   return (
-    <button onClick={() => window.location.reload()} className="w-full text-center py-1.5 px-4 mp-mono text-xs uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ backgroundColor: '#1a7f37', color: '#fff' }}>
+    <button onClick={() => window.location.reload()} className="w-full text-center py-1.5 px-4 mp-mono text-xs uppercase tracking-[0.15em] flex items-center justify-center gap-2" style={{ backgroundColor: 'var(--success-text)', color: '#fff' }}>
       <RefreshCw size={12} /> New build available ({latest.commit}): click to refresh
     </button>
   );
@@ -423,7 +433,7 @@ const PRINTABLES_FORMATS = ['3dm', '3ds', '3dxml', '3mf', 'ai', 'amf', 'asm', 'b
 
 export const PLATFORMS = [
   {
-    id: 'makerworld', name: 'MakerWorld', org: 'Bambu Lab', dot: '#FF6900',
+    id: 'makerworld', name: 'MakerWorld', org: 'Bambu Lab', dot: 'var(--accent-warm)',
     covers: [
       { id: 'web', label: 'Web cover', w: 1920, h: 1440, aspect: '4:3' },
       { id: 'app', label: 'App cover', w: 1500, h: 2000, aspect: '3:4' },
@@ -438,7 +448,7 @@ export const PLATFORMS = [
     limits: { titleMax: 50, tagMax: 50, tagCharMax: 100 },
   },
   {
-    id: 'printables', name: 'Printables', org: 'Prusa Research', dot: '#FA6831',
+    id: 'printables', name: 'Printables', org: 'Prusa Research', dot: 'var(--accent-warm)',
     covers: [{ id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' }],
     preserveOriginalImages: true,
     descFormat: 'html', maxImages: null, maxFileMb: 1024, maxTotalMb: null,
@@ -462,7 +472,7 @@ export const PLATFORMS = [
     fields: ['price'], note: `Uploads through Cults3D's own upload flow. Paid marketplace (you keep 80%). Accepts video (mp4/webm). Put real print photos first in the gallery.`,
   },
   {
-    id: 'mmf', name: 'MyMiniFactory', org: 'SoulCrafted', dot: '#4FB286',
+    id: 'mmf', name: 'MyMiniFactory', org: 'SoulCrafted', dot: 'var(--success)',
     // No capture evidence for any MMF cover ratio, and the direct path uploads
     // the raw original (live-confirmed: 2400x1600 stored uncropped): showing a
     // 1920x1440 4:3 crop in the preview was a crop MMF never received.
@@ -487,7 +497,7 @@ export const PLATFORMS = [
     fields: [], note: 'Uploads files, photos, category, tags and license. Stays a draft until you choose to publish it publicly.',
   },
   {
-    id: 'thangs', name: 'Thangs', org: 'Physna', dot: '#3A86FF',
+    id: 'thangs', name: 'Thangs', org: 'Physna', dot: 'var(--api)',
     covers: [
       { id: 'cover', label: 'Original image', w: null, h: null, aspect: 'original' },
       // Thangs uploads the original and shows it in the slideshow, but its model
@@ -501,7 +511,7 @@ export const PLATFORMS = [
     fields: [], note: `Uploads through Thangs' own upload flow. New uploads stay private unless you choose public.`,
   },
   {
-    id: 'nexprint', name: 'Nexprint', org: 'Elegoo', dot: '#FFB627',
+    id: 'nexprint', name: 'Nexprint', org: 'Elegoo', dot: 'var(--warn)',
     covers: [{ id: 'cover', label: 'Cover', w: 2000, h: 1500, aspect: '4:3' }],
     // Only the cover is a fixed 4:3 crop; the gallery keeps original aspect
     // (doc-verified). Without this flag the ZIP path hard-cropped every photo.
@@ -513,7 +523,7 @@ export const PLATFORMS = [
     limits: { titleMax: 80, tagMax: 20, tagCharMax: 50, descMax: 10000 },
   },
   {
-    id: 'creality', name: 'Creality Cloud', org: 'Creality', dot: '#E63946',
+    id: 'creality', name: 'Creality Cloud', org: 'Creality', dot: 'var(--danger)',
     covers: [
       { id: 'web', label: 'Web cover', w: 1600, h: 1200, aspect: '4:3' },
       { id: 'app', label: 'App cover', w: 1200, h: 1600, aspect: '3:4' },
@@ -683,6 +693,7 @@ function cropToCanvas(img, targetW, targetH, focal) {
   ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
   return c;
 }
+// Canvas: literal colours on purpose, a 2D context cannot read CSS variables.
 function makeSampleImage(label = 'SAMPLE', tint = ['#5A7430', '#FFB627', '#262A23']) {
   const c = document.createElement('canvas');
   c.width = 2400; c.height = 1800;
@@ -997,7 +1008,14 @@ const MW_LICENSE_MAP = {
 const mwResolveLicense = (opts, project) => opts?.license || MW_LICENSE_MAP[project?.license] || 'Standard Digital File License';
 
 const initialProject = {
-  name: 'Untitled Project',
+  // Identity lives on the project so the library, the stored files and a
+  // release plan all point at the same thing. `name` is what the user typed;
+  // until they do, autoProjectName() derives one from the title or the date.
+  id: null,
+  storageId: null,
+  createdAt: null,
+  name: '',
+  nameLocked: false,
   files: [],
   images: [],
   media: [],
@@ -1095,6 +1113,7 @@ function mergePlatformDefaults(savedPlatforms = {}) {
 // publishers. Loading it never uploads by itself; the Publish button remains the
 // single explicit mutation boundary.
 export function buildDemoProject(seedImages = null) {
+  // Literal colours: these feed a canvas gradient, which cannot read CSS variables.
   const tints = [
     ['#5A7430', '#FFB627', '#262A23'],
     ['#3A86FF', '#4FB286', '#262A23'],
@@ -1407,13 +1426,9 @@ async function loadDemoAssets(base) {
   };
 }
 
-// --- Autosave (localStorage) -------------------------------------------------
-// We persist only serializable METADATA: not files (File blobs) or image pixels
-// (base64 dataUrls would blow the ~5MB quota). Restoring brings back the typed
-// description, tags, category, license and per-platform settings; files/images
-// are re-added by the user.
-const AUTOSAVE_KEY = 'modelprep:autosave:v1';
-const AUTOSAVE_HANDLED_KEY = 'modelprep:autosave:handled:v1';
+// --- Per-project save ----------------------------------------------------------
+// The text of a project (title, tags, platform settings) goes into the library
+// in localStorage; files and photos go to IndexedDB under the project's id.
 function serializeProjectMeta(p) {
   return {
     name: p.name, title: p.title, description: p.description,
@@ -1432,95 +1447,49 @@ function serializeProjectMeta(p) {
   };
 }
 
-function canonicalAutosaveValue(value) {
-  if (Array.isArray(value)) return value.map(canonicalAutosaveValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.keys(value).sort().map((key) => [key, canonicalAutosaveValue(value[key])]),
-  );
-}
-
-// Fields written by the shared-defaults materializer (lib/shared-defaults.js).
-// While the auto flag is true, the value is derived from the shared category/
-// license, which the fingerprint already covers, so neither the flag nor the
-// derived value is a user edit.
-const AUTO_MANAGED_FLAGS = ['categoryAuto', 'licenseAuto', 'licenseAutoExact'];
-const AUTO_MANAGED_VALUE_FIELDS = {
-  categoryAuto: ['categoryId', 'categoryIds', 'categoryPaths', 'category'],
-  licenseAuto: ['license', 'licenseId', 'licenseType', 'licenseIndex'],
-};
-
-function meaningfulPlatformSettings(platforms = {}) {
-  const meaningful = {};
-  for (const id of Object.keys(platforms || {}).sort()) {
-    const settings = platforms[id];
-    if (!settings || typeof settings !== 'object') continue;
-    const defaults = initialProject.platforms[id] || {};
-    const derivedKeys = new Set(AUTO_MANAGED_FLAGS);
-    for (const [flag, fields] of Object.entries(AUTO_MANAGED_VALUE_FIELDS)) {
-      if (settings[flag] === true) for (const field of fields) derivedKeys.add(field);
-    }
-    const differences = {};
-    for (const key of Object.keys(settings).sort()) {
-      if (derivedKeys.has(key)) continue;
-      if (JSON.stringify(canonicalAutosaveValue(settings[key])) !== JSON.stringify(canonicalAutosaveValue(defaults[key]))) {
-        differences[key] = settings[key];
-      }
-    }
-    if (Object.keys(differences).length) meaningful[id] = differences;
-  }
-  return meaningful;
-}
-
-function autosaveFingerprint(saved) {
-  if (!saved) return '';
-  return JSON.stringify(canonicalAutosaveValue({
-    version: 2,
-    name: saved.name || '',
-    title: saved.title || '',
-    description: saved.description || '',
-    tags: saved.tags || [],
-    category: saved.category || '',
-    license: saved.license || '',
-    // Normalized the same way serializeProjectMeta writes them, so a snapshot
-    // saved before these fields existed fingerprints identically once restored.
-    provenance: { origin: 'original', sourceUrl: '', changes: '', ...(saved.provenance || {}) },
-    aiGenerated: !!saved.aiGenerated,
-    nsfw: !!saved.nsfw,
-    profiles: saved.profiles || [],
-    assetGroups: saved.assetGroups || {},
-    assetCollections: saved.assetCollections || [],
-    savedAssetSearches: saved.savedAssetSearches || [],
-    watchedFolders: saved.watchedFolders || [],
-    // Restoring merges newly introduced platform defaults into old snapshots.
-    // Default-valued fields are not user edits and must not make the same
-    // snapshot look new on the next launch.
-    platforms: meaningfulPlatformSettings(saved.platforms),
-  }));
-}
-function autosaveWasHandled(saved, handledFingerprint) {
-  const fingerprint = autosaveFingerprint(saved);
-  if (handledFingerprint === fingerprint) return true;
-  // v1 stored the fingerprint object directly. Re-fingerprint it using the v2
-  // canonical rules so upgrades do not resurrect an already handled prompt.
-  try {
-    const legacy = JSON.parse(handledFingerprint || 'null');
-    if (legacy && !legacy.version && autosaveFingerprint(legacy) === fingerprint) {
-      localStorage.setItem(AUTOSAVE_HANDLED_KEY, fingerprint);
-      return true;
-    }
-  } catch (e) { /* malformed/old storage: offer recovery normally */ }
-  return false;
-}
-function markAutosaveHandled(saved) {
-  try {
-    localStorage.setItem(AUTOSAVE_HANDLED_KEY, autosaveFingerprint(saved));
-  } catch (e) { /* private mode */ }
-}
 function projectHasContent(p) {
   return !!(p.files.length || p.images.length || (p.media || []).length ||
     p.title || p.description || p.tags.length ||
     Object.values(p.platforms).some(pl => pl.price || pl.contestEntry || pl.remix));
+}
+
+// A new, empty project with its own id. Every path that starts a project
+// (launch, New project, folder import, duplicate) goes through here.
+function freshProject(overrides = {}) {
+  const id = newProjectId();
+  const storage = typeof window !== 'undefined' ? window.localStorage : null;
+  const platforms = applyPlatformDefaults(applyDefaultPlatforms(initialProject.platforms), loadPlatformDefaults(storage));
+  return { ...initialProject, platforms, id, storageId: id, createdAt: Date.now(), ...overrides };
+}
+
+// The in-memory shape of a saved library entry, before its binaries are
+// rehydrated. Missing fields get the current defaults, so an entry saved by an
+// older build still opens.
+function projectFromEntry(entry) {
+  const saved = entry.meta || {};
+  return {
+    ...freshProject(),
+    id: entry.id,
+    storageId: entry.id,
+    createdAt: entry.createdAt || Date.now(),
+    name: entry.nameLocked ? entry.name : '',
+    nameLocked: !!entry.nameLocked,
+    title: saved.title || '',
+    description: saved.description || '',
+    tags: saved.tags || [],
+    category: saved.category || '',
+    license: saved.license || 'ccbync',
+    provenance: { origin: 'original', sourceUrl: '', changes: '', ...(saved.provenance || {}) },
+    aiGenerated: !!saved.aiGenerated,
+    nsfw: !!saved.nsfw,
+    confirmations: saved.confirmations || {},
+    profiles: Array.isArray(saved.profiles) ? saved.profiles : [],
+    platforms: mergePlatformDefaults(saved.platforms),
+    assetGroups: saved.assetGroups || {},
+    assetCollections: saved.assetCollections || [],
+    savedAssetSearches: saved.savedAssetSearches || [],
+    watchedFolders: saved.watchedFolders || [],
+  };
 }
 
 // Single reducer for the whole project. All state transitions go through here so
@@ -1660,23 +1629,12 @@ async function importFolderToProject(fileList) {
   return { patch, summary };
 }
 
-function buildImportSummaryText(s) {
-  const parts = [];
-  if (s.found.length)    parts.push('Imported:\n• ' + s.found.join('\n• '));
-  if (s.warnings.length) parts.push('Heads up:\n• ' + s.warnings.join('\n• '));
-  if (s.missing.length)  parts.push('Still needed:\n• ' + s.missing.join('\n• '));
-  // If the text fields are missing but photos came in, point at the AI generator.
-  if (s.missing.some(m => /description|tags|title/i.test(m)) && s.found.some(f => /photo/i.test(f))) {
-    parts.push(`Tip: click "✨ Generate with AI" on the Details step to write the title, description and tags from your photos.`);
-  }
-  return parts.join('\n\n');
-}
-
 export default function App() {
-  const [project, dispatchProject] = useReducer(projectReducer, initialProject);
+  const [project, dispatchProject] = useReducer(projectReducer, null, () => freshProject());
   const [currentSection, setCurrentSection] = useState('files');
   const syncingPackageImageIds = useRef(new Set());
 
+  const promptedPlans = useRef(new Set());
   // Release-plan scheduler: while the app is open, surface due reminders as
   // system notifications and, for scheduled uploads, jump to the Publish step
   // so its (only-mounted-there) batch machinery can auto-start the publish.
@@ -1685,6 +1643,23 @@ export default function App() {
     const tick = () => {
       const now = Date.now();
       const plans = releasePlanStore.get();
+      // A due schedule that belongs to a saved project other than the open one.
+      // Every uploader works on the open project, so it asks before switching;
+      // the open project is saved first, nothing is lost.
+      const others = duePlansForOtherProjects(plans, loadLibrary(typeof window !== 'undefined' ? window.localStorage : null), projectRef.current?.id, now)
+        .filter(({ plan }) => !promptedPlans.current.has(plan.id));
+      if (others.length && !projectRef.current?.__testProject) {
+        const { plan, entry } = others[0];
+        promptedPlans.current.add(plan.id);
+        setDialog({
+          kind: 'confirm',
+          title: 'A scheduled publish is due',
+          message: `"${entry.name}" is due on ${plan.platformName || plan.platformId}. Open it and publish now? The project you are on is saved.`,
+          confirmLabel: 'Open and publish',
+          cancelLabel: 'Later',
+          onConfirm: () => { persistProject(projectRef.current); openEntryRef.current(entry, { section: 'publish' }); },
+        });
+      }
       const due = unnotifiedDuePlans(plans, now);
       if (!due.length) return;
       let next = plans;
@@ -1730,6 +1705,47 @@ export default function App() {
     return () => { unsub?.(); offRun?.(); offQueue?.(); };
   }, []);
 
+  // A request to land on one field: step, platform panel to open, label
+  // pattern. Fulfilled by the effect below once the step has rendered.
+  const [focusRequest, setFocusRequest] = useState(null);
+  const goToIssue = useCallback((message, platformId = null) => {
+    const target = resolveIssueTarget(message, platformId);
+    if (target.settings) { openSettings('accounts', platformId || null); return; }
+    setCurrentSection(target.section);
+    setFocusRequest({ ...target, nonce: Date.now() });
+  }, []);
+
+  // Scroll to, focus and flash the requested field. The step may not have
+  // painted yet, and a platform panel opens a tick later, so it retries.
+  useEffect(() => {
+    if (!focusRequest) return undefined;
+    let attempts = 0;
+    let timer = null;
+    const attempt = () => {
+      attempts += 1;
+      const root = focusRequest.platformId
+        ? document.querySelector(`[data-platform-card="${focusRequest.platformId}"] .mp-platform-panel`)
+        : document.querySelector('[data-testid="section-content"]');
+      const element = findTargetElement(root, focusRequest.field);
+      if (!element || (focusRequest.platformId && !root)) {
+        if (attempts < 8) timer = setTimeout(attempt, 120);
+        return;
+      }
+      element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const control = controlFor(element);
+      if (control && typeof control.focus === 'function') control.focus({ preventScroll: true });
+      const flashTarget = element === root ? root : (element.closest('label, div') || element);
+      flashTarget.classList.add('mp-flash');
+      setTimeout(() => flashTarget.classList.remove('mp-flash'), 1800);
+      setFocusRequest(null);
+    };
+    timer = setTimeout(attempt, 60);
+    return () => clearTimeout(timer);
+  }, [focusRequest]);
+
+  // Appearance follows the saved preference from the first paint.
+  useEffect(() => { applyTheme(readTheme()); applyPalette(readPalette()); applyAccent(readAccent()); }, []);
+
   const workspaceMainRef = useRef(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem('modelprep.sidebarCollapsed') === 'true'; } catch (error) { return false; }
@@ -1737,9 +1753,10 @@ export default function App() {
   // Templates folded into duplicating a project. They were never persisted:
   // a "saved" template lived in memory and vanished on reload, so the feature
   // promised reuse it could not deliver. A project library replaces it.
-  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [dialog, setDialog] = useState(null); // styled prompt/confirm modal
-  const [restoreOffer, setRestoreOffer] = useState(null); // last session's text, offered without blocking
+  const [library, setLibrary] = useState(() => loadLibrary(typeof window !== 'undefined' ? window.localStorage : null));
+  const [showProjects, setShowProjects] = useState(false);   // the project library panel
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [binariesSaved, setBinariesSaved] = useState(null);   // null = not attempted yet
   const [demoActive, setDemoActive] = useState(false);
   const [showConnections, setShowConnections] = useState(false); // unified Settings modal
@@ -1878,12 +1895,10 @@ export default function App() {
   const toggleDemo = () => {
     if (!demoActive) {
       stashedProject.current = project;
-      // Persist the real project's text/settings now, so it survives even a reload
-      // while in demo (autosave is suppressed during demo).
-      try {
-        if (projectHasContent(project)) localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serializeProjectMeta(project)));
-      } catch (e) { /* ignore */ }
-      const base = buildDemoProject();
+      // Save the real project now, so it survives a reload while in demo
+      // (autosave is suppressed during demo).
+      persistProject(project);
+      const base = { ...buildDemoProject(), id: 'demo', storageId: 'demo', createdAt: Date.now() };
       setProject(base);           // show placeholders instantly
       setDemoActive(true);
       setCurrentSection('files');
@@ -1895,7 +1910,7 @@ export default function App() {
         .catch(() => { /* keep placeholders */ })
         .finally(() => setDemoLoading(false));
     } else {
-      setProject(stashedProject.current || { ...initialProject, name: 'Untitled Project' });
+      setProject(stashedProject.current || freshProject());
       stashedProject.current = null;
       setDemoActive(false);
       setDemoLoading(false);
@@ -2117,7 +2132,7 @@ export default function App() {
           visibility: 'private',
           compatiblePrinters: [],
           realPhotoConfirmed: false,
-          guidelinesAccepted: false,
+          guidelinesAccepted: readGuidelinesAck(),
           // Real stats arrive asynchronously from the 3MF metadata scan.
           parsed: null,
         }));
@@ -2130,12 +2145,28 @@ export default function App() {
 
   // Autosave project metadata to localStorage (debounced). Only writes once the
   // project has real content, so a fresh load never clobbers a saved session.
+  // Save this project's text into the library and remember it as the open one.
+  // Synchronous, so a switch to another project can flush first.
+  const completionRef = useRef({});
+  const persistProject = useCallback((p) => {
+    if (!p?.id || p.__testProject || !projectHasContent(p)) return;
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    const done = Object.entries(completionRef.current).filter(([id, ok]) => id !== 'publish' && ok).length;
+    const count = Math.max(0, Object.keys(completionRef.current).length - 1);
+    const next = upsertEntry(loadLibrary(storage), entryFromProject(p, serializeProjectMeta(p), { stepsDone: done, stepCount: count }));
+    saveLibrary(storage, next);
+    writeCurrentId(storage, p.id);
+    setLibrary(next);
+  }, []);
+  const projectRef = useRef(project);
+  projectRef.current = project;
+
   const saveTimer = useRef(null);
   useEffect(() => {
     if (demoActive || !projectHasContent(project)) return; // never persist demo data
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(serializeProjectMeta(project))); } catch (e) { /* quota/private mode */ }
+      persistProject(project);
       // The binaries go to IndexedDB: without them a restored project has no
       // files, which is what made a scheduled publish impossible to fire after
       // a restart. Failure is non-fatal and never blocks editing.
@@ -2144,60 +2175,37 @@ export default function App() {
     return () => clearTimeout(saveTimer.current);
   }, [project, demoActive]);
 
-  // On first load, offer to restore a previous session if one was saved.
+  // Open a saved project: its text from the library, its files and photos from
+  // IndexedDB. Lands on Publish when one of its scheduled plans is already due,
+  // because the queue's auto-start effect lives there.
+  const openEntry = useCallback(async (entry, { section = null } = {}) => {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    const restored = projectFromEntry(entry);
+    let stored = await loadProjectBinaries({ storageId: entry.id });
+    if (!stored && entry.legacyBinaryKey) stored = await loadProjectBinaries(entry.legacyBinaryKey);
+    const full = stored ? rehydrateProject(restored, stored) : restored;
+    setDemoActive(false);
+    stashedProject.current = null;
+    setProject(full);
+    writeCurrentId(storage, entry.id);
+    const due = dueReleasePlans(loadReleasePlans(storage), Date.now()).some((plan) => plan.mode === 'scheduled'
+      && (plan.projectId ? plan.projectId === entry.id : planKey(plan.projectTitle, plan.platformId) === planKey(full.title || autoProjectName(full), plan.platformId)));
+    setCurrentSection(section || (due ? 'publish' : 'files'));
+    return full;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const openEntryRef = useRef(openEntry);
+  openEntryRef.current = openEntry;
+
+  // On launch, reopen the project that was open last time. The single autosave
+  // slot from before the library is folded into it first, once.
   useEffect(() => {
-    let saved;
-    try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || 'null'); } catch (e) { saved = null; }
-    if (!saved || (!saved.title && !saved.description && !(saved.tags || []).length)) return;
-    let handledFingerprint = '';
-    try { handledFingerprint = localStorage.getItem(AUTOSAVE_HANDLED_KEY) || ''; } catch (e) { /* private mode */ }
-    const restored = {
-      name: saved.name || 'Untitled Project',
-      title: saved.title || '',
-      description: saved.description || '',
-      tags: saved.tags || [],
-      category: saved.category || '',
-      license: saved.license || 'ccbync',
-      provenance: { origin: 'original', sourceUrl: '', changes: '', ...(saved.provenance || {}) },
-      aiGenerated: !!saved.aiGenerated,
-      nsfw: !!saved.nsfw,
-      confirmations: saved.confirmations || {},
-      profiles: Array.isArray(saved.profiles) ? saved.profiles : [],
-      platforms: mergePlatformDefaults(saved.platforms),
-    };
-    // A scheduled publish that came due while the app was closed restores
-    // itself: its whole point is running without the user shepherding it, and
-    // waiting for a click on the offer bar defeats that. Everything else keeps
-    // the quiet opt-in below.
-    // Read straight from storage rather than the module's snapshot: the store is
-    // seeded once at import, which is before this check can be trusted.
-    const dueScheduled = dueReleasePlans(loadReleasePlans(typeof window !== 'undefined' ? window.localStorage : null), Date.now())
-      .some((plan) => plan.mode === 'scheduled'
-        && planKey(plan.projectTitle, plan.platformId) === planKey(restored.title || restored.name, plan.platformId));
-    if (dueScheduled) {
-      markAutosaveHandled(saved);
-      loadProjectBinaries({ name: restored.name, title: restored.title }).then((stored) => {
-        updateProject(stored ? rehydrateProject(restored, stored) : restored);
-        setCurrentSection('publish');   // the queue's auto-start effect lives there
-      });
-      return;
-    }
-    if (autosaveWasHandled(saved, handledFingerprint)) return;
-    // A quiet offer, not a modal. Any session with content saves a new snapshot,
-    // so a blocking dialog appeared on practically every launch, demanding an
-    // answer before the app could be used, for something that only restores
-    // text. It now waits in a bar the user can ignore.
-    setRestoreOffer({
-      saved,
-      onDismiss: () => markAutosaveHandled(saved),
-      onRestore: async () => {
-        markAutosaveHandled(saved);
-        // Pull the model files and photos back too, so the restored project is
-        // publishable rather than a title with nothing behind it.
-        const stored = await loadProjectBinaries({ name: restored.name, title: restored.title });
-        updateProject(stored ? rehydrateProject(restored, stored) : restored);
-      },
-    });
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    migrateLegacyAutosave(storage);
+    const entries = loadLibrary(storage);
+    setLibrary(entries);
+    const entry = findEntry(entries, readCurrentId(storage));
+    if (entry) openEntry(entry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2225,7 +2233,6 @@ export default function App() {
   const readiness = useMemo(() => deriveProjectReadiness(project), [project]);
   const completion = useMemo(() => ({
     files: readiness.package.sendable,
-    profiles: readiness.package.profileBlockers.length === 0,
     details: readiness.listing.details,
     images: readiness.listing.media,
     platforms: readiness.destinations.allReady,
@@ -2233,66 +2240,112 @@ export default function App() {
   }), [readiness]);
 
   const allReady = readiness.package.ready && readiness.listing.ready && readiness.destinations.selectedCount > 0;
-
-  const isDirty = () => project.files.length || project.images.length || (project.media || []).length || project.title || project.description || project.tags.length || Object.values(project.platforms).some(p => p.enabled);
-  // Folder import: infer a whole project from a chosen folder, then land on Details
-  // for review. Replaces the current project (with confirmation if it has content).
+  completionRef.current = completion;
+  // Folder import: infer a whole project from a chosen folder and show it on Files. Replaces the current project (with confirmation if it has content).
   const importFolder = (fileList) => {
     if (!fileList || !fileList.length) return;
     const run = async () => {
       try {
         const result = await importFolderToProject(fileList);
         if (!result) { setDialog({ kind: 'confirm', title: 'Nothing to import', message: 'That folder had no recognisable files (photos, models, or description/tags text).', confirmLabel: 'OK' }); return; }
+        if (!demoActive) persistProject(project);
         setDemoActive(false);
         stashedProject.current = null;
-        setProject({ ...initialProject, platforms: applyDefaultPlatforms(initialProject.platforms), name: result.patch.title || 'Imported project', ...result.patch });
-        // Land on Files so the import is visible: jumping straight past it left
-        // people wondering what had actually been read. The receipt then offers
-        // the move to Details, where the fields a folder can't fill still are.
+        // A new project in the library; whatever was open stays saved there.
+        const imported = freshProject(result.patch);
+        setProject(imported);
+        writeCurrentId(typeof window !== 'undefined' ? window.localStorage : null, imported.id);
+        // Land on Files, where the imported files and photos are visible. No
+        // receipt dialog: it repeated the table below it and the gaps Details
+        // already marks.
         setCurrentSection('files');
-        setDialog({
-          kind: 'confirm',
-          title: 'Folder imported',
-          message: buildImportSummaryText(result.summary),
-          cancelLabel: 'Stay on Files',
-          confirmLabel: 'Go to Details',
-          onConfirm: () => setCurrentSection('details'),
-        });
       } catch (e) {
         setDialog({ kind: 'confirm', title: 'Import failed', message: String((e && e.message) || e), confirmLabel: 'OK' });
       }
     };
-    if (projectHasContent(project) && !demoActive) {
-      setDialog({ kind: 'confirm', title: 'Replace current project?', message: 'Importing a folder replaces your current title, files, photos and settings.', confirmLabel: 'Import & replace', danger: true, onConfirm: run });
-    } else run();
+    run();
   };
 
+  // New project keeps the current one: it is already in the library, so there
+  // is nothing to discard and nothing to confirm.
   const newProject = () => {
-    const reset = () => {
-      try { localStorage.removeItem(AUTOSAVE_KEY); } catch (e) { /* ignore */ }
-      try { localStorage.removeItem(AUTOSAVE_HANDLED_KEY); } catch (e) { /* ignore */ }
-      setDemoActive(false);
-      stashedProject.current = null;
-      setProject({ ...initialProject, platforms: applyDefaultPlatforms(initialProject.platforms), name: 'Untitled Project' });
-      setCurrentSection('files');
-    };
-    if (isDirty()) {
-      setDialog({
-        kind: 'confirm',
-        title: 'Start a new project?',
-        message: `This clears everything: files, images, description and platform choices. This can't be undone.`,
-        confirmLabel: 'Discard & start fresh',
-        danger: true,
-        onConfirm: reset,
-      });
-    } else {
-      reset();
+    if (!demoActive) persistProject(project);
+    setDemoActive(false);
+    stashedProject.current = null;
+    const fresh = freshProject();
+    setProject(fresh);
+    writeCurrentId(typeof window !== 'undefined' ? window.localStorage : null, fresh.id);
+    setCurrentSection('files');
+  };
+
+  const renameProject = (name) => updateProject({ name, nameLocked: !!String(name || '').trim() });
+
+  const openProject = async (id) => {
+    if (id === project.id && !demoActive) return;
+    if (!demoActive) persistProject(project);
+    const entry = findEntry(loadLibrary(typeof window !== 'undefined' ? window.localStorage : null), id);
+    if (entry) await openEntry(entry);
+  };
+
+  // Duplicate: the same text, files and photos under a new id and a new name.
+  // This is what Templates were traded for.
+  const duplicateProject = async (id) => {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    let base = project;
+    if (id !== project.id) {
+      const entry = findEntry(loadLibrary(storage), id);
+      if (!entry) return;
+      base = projectFromEntry(entry);
+      const stored = await loadProjectBinaries({ storageId: id });
+      if (stored) base = rehydrateProject(base, stored);
     }
+    if (!demoActive) persistProject(project);
+    const names = loadLibrary(storage).map((entry) => entry.name);
+    // Everything but the identity: freshProject() mints the new id.
+    const { id: _id, storageId: _storageId, createdAt: _createdAt, ...rest } = base;
+    const copy = freshProject({
+      ...rest,
+      name: duplicateName(autoProjectName(base), names),
+      nameLocked: true,
+      confirmations: {},
+      __testProject: undefined,
+    });
+    setDemoActive(false);
+    stashedProject.current = null;
+    setProject(copy);
+    writeCurrentId(storage, copy.id);
+    setCurrentSection('files');
+  };
+
+  const deleteProject = (id) => {
+    const storage = typeof window !== 'undefined' ? window.localStorage : null;
+    const entry = findEntry(loadLibrary(storage), id);
+    if (!entry) return;
+    setDialog({
+      kind: 'confirm',
+      title: `Delete "${entry.name}"?`,
+      message: 'This removes its files, photos, description and platform choices from this computer. Nothing on any platform is touched.',
+      confirmLabel: 'Delete project',
+      danger: true,
+      onConfirm: () => {
+        const next = removeEntry(loadLibrary(storage), id);
+        saveLibrary(storage, next);
+        setLibrary(next);
+        clearStoredProject({ storageId: id });
+        if (id === project.id) {
+          const fresh = freshProject();
+          setProject(fresh);
+          writeCurrentId(storage, fresh.id);
+          setCurrentSection('files');
+        }
+      },
+    });
   };
 
   return (
     <ConnectionsCtx.Provider value={openSettings}>
-    <div className="min-h-screen w-full" style={{ backgroundColor: '#FFFFFF', color: '#262A23', fontFamily: "'Inter', system-ui, sans-serif" }}>
+    <IssueNavCtx.Provider value={goToIssue}>
+    <div className="min-h-screen w-full" style={{ backgroundColor: 'var(--surface)', color: 'var(--ink)', fontFamily: "'Inter', system-ui, sans-serif" }}>
       <GlobalStyles />
 
       <div className="relative z-10 min-h-screen flex flex-col">
@@ -2302,15 +2355,19 @@ export default function App() {
         updateProject={updateProject}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={setSidebarCollapsed}
-        menuOpen={showProjectMenu}
-        setMenuOpen={setShowProjectMenu}
-        onNewProject={newProject}
+        project={project}
         demoActive={demoActive}
         demoLoading={demoLoading}
         onToggleDemo={toggleDemo}
+        onNewProject={newProject}
         onOpenConnections={openSettings}
-        completion={completion}
-        onGoPublish={() => setCurrentSection('publish')}
+        library={library}
+        menuOpen={showProjectMenu}
+        setMenuOpen={setShowProjectMenu}
+        onOpenProject={openProject}
+        onDuplicateProject={duplicateProject}
+        onRenameProject={renameProject}
+        onOpenLibrary={() => setShowProjects(true)}
       />
       <VersionBanner />
 
@@ -2342,35 +2399,11 @@ export default function App() {
             <div
               role="status"
               className="mp-card mb-4 px-3 py-2 text-xs flex items-center gap-2"
-              style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E', borderColor: '#C9DCF8' }}
+              style={{ backgroundColor: 'var(--info-tint)', color: 'var(--info-text)', borderColor: '#C9DCF8' }}
             >
               {demoLoading
                 ? <Spinner size={12} label="Loading the sample project…" />
                 : <><Sparkles size={12} className="flex-shrink-0" /> Sample project loaded. Nothing has been uploaded yet, and every platform is set to private, secret or draft.</>}
-            </div>
-          )}
-          {restoreOffer && (
-            <div
-              role="status"
-              className="mp-card mb-4 px-3 py-2 flex items-center gap-3 flex-wrap"
-              style={{ backgroundColor: 'rgba(58,134,255,0.08)', borderColor: 'rgba(58,134,255,0.35)' }}
-            >
-              <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'var(--ink-65)' }}>
-                <strong style={{ color: 'var(--ink)' }}>Restore text and settings?</strong>{' '}
-                Restore{restoreOffer.saved?.title ? ` "${restoreOffer.saved.title}"` : ' your last session'}: title, description, tags, category, license and platform settings, plus any model files and photos still held on this computer.
-              </span>
-              <button
-                onClick={() => { restoreOffer.onRestore(); setRestoreOffer(null); }}
-                className="mp-btn text-[13px] py-1.5 px-3"
-              >
-                Restore text &amp; settings
-              </button>
-              <button
-                onClick={() => { restoreOffer.onDismiss(); setRestoreOffer(null); }}
-                className="mp-btn mp-btn-ghost text-[13px] py-1.5 px-3"
-              >
-                Dismiss
-              </button>
             </div>
           )}
           <div data-testid="section-content" className="mp-section-content flex flex-1 flex-col min-h-0">
@@ -2383,11 +2416,8 @@ export default function App() {
             {currentSection === 'images' && (
               <ImagesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
             )}
-            {currentSection === 'profiles' && (
-              <ProfilesSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
-            )}
             {currentSection === 'platforms' && (
-              <PlatformsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} />
+              <PlatformsSection project={project} updateProject={updateProject} setCurrentSection={setCurrentSection} openPlatformId={focusRequest?.section === 'platforms' ? focusRequest.platformId : null} />
             )}
             {currentSection === 'publish' && (
               <PublishSection
@@ -2406,6 +2436,17 @@ export default function App() {
       </div>
 
       {dialog && <Modal dialog={dialog} onClose={() => setDialog(null)} />}
+      <ProjectsPanel
+        open={showProjects}
+        onClose={() => setShowProjects(false)}
+        entries={library}
+        currentId={demoActive ? null : project.id}
+        plans={releasePlans}
+        onOpen={(id) => { setShowProjects(false); openProject(id); }}
+        onDuplicate={(id) => { setShowProjects(false); duplicateProject(id); }}
+        onDelete={deleteProject}
+        onNew={() => { setShowProjects(false); newProject(); }}
+      />
       <SettingsPanel
         open={showConnections}
         onClose={() => setShowConnections(false)}
@@ -2415,6 +2456,7 @@ export default function App() {
         onClearFocus={() => setSettingsPlatform(null)}
       />
     </div>
+    </IssueNavCtx.Provider>
     </ConnectionsCtx.Provider>
   );
 }
@@ -2450,10 +2492,10 @@ function Modal({ dialog, onClose }) {
     else if (!cardRef.current.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
   };
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(38,42,35,0.55)' }} onMouseDown={cancel} onKeyDown={trapTab}>
-      <div ref={cardRef} className="mp-card w-full max-w-md p-5" style={{ backgroundColor: '#FFFFFF', boxShadow: 'var(--shadow-3)' }} onMouseDown={(e) => e.stopPropagation()}>
+    <div role="dialog" aria-modal="true" aria-labelledby="modelprep-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'var(--ink-a55)' }} onMouseDown={cancel} onKeyDown={trapTab}>
+      <div ref={cardRef} className="mp-card w-full max-w-md p-5" style={{ backgroundColor: 'var(--surface)', boxShadow: 'var(--shadow-3)' }} onMouseDown={(e) => e.stopPropagation()}>
         <h3 id="modelprep-dialog-title" className="mp-display text-[22px] leading-none mb-2">{title}</h3>
-        {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'rgba(38,42,35,0.7)' }}>{message}</p>}
+        {message && <p className="mp-body text-sm mb-4 whitespace-pre-line max-h-[50vh] overflow-y-auto" style={{ color: 'var(--ink-a70)' }}>{message}</p>}
         {kind === 'prompt' && (
           <input
             ref={inputRef}
@@ -2471,7 +2513,7 @@ function Modal({ dialog, onClose }) {
             onClick={confirm}
             disabled={kind === 'prompt' && !value.trim()}
             className="mp-btn text-[13px] py-2 px-3 disabled:opacity-40"
-            style={danger ? { backgroundColor: '#c83f10', borderColor: '#c83f10' } : undefined}
+            style={danger ? { backgroundColor: 'var(--accent-warm-text)', borderColor: 'var(--accent-warm-text)' } : undefined}
           >
             {confirmLabel}
           </button>
@@ -2536,6 +2578,71 @@ function GlobalStyles() {
         --danger-text: #B91C1C;
         --danger-tint: #FBEFEC;
 
+        /* Alpha steps, generated from every literal the app used. */
+        --ink-a02: rgba(38,42,35,0.02);
+        --ink-a03: rgba(38,42,35,0.03);
+        --ink-a04: rgba(38,42,35,0.04);
+        --ink-a05: rgba(38,42,35,0.05);
+        --ink-a06: rgba(38,42,35,0.06);
+        --ink-a07: rgba(38,42,35,0.07);
+        --ink-a08: rgba(38,42,35,0.08);
+        --ink-a09: rgba(38,42,35,0.09);
+        --ink-a10: rgba(38,42,35,0.1);
+        --ink-a10: rgba(38,42,35,0.10);
+        --ink-a12: rgba(38,42,35,0.12);
+        --ink-a15: rgba(38,42,35,0.15);
+        --ink-a18: rgba(38,42,35,0.18);
+        --ink-a20: rgba(38,42,35,0.2);
+        --ink-a24: rgba(38,42,35,0.24);
+        --ink-a25: rgba(38,42,35,0.25);
+        --ink-a30: rgba(38,42,35,0.3);
+        --ink-a35: rgba(38,42,35,0.35);
+        --ink-a36: rgba(38,42,35,0.36);
+        --ink-a45: rgba(38,42,35,0.45);
+        --ink-a50: rgba(38,42,35,0.5);
+        --ink-a52: rgba(38,42,35,0.52);
+        --ink-a55: rgba(38,42,35,0.55);
+        --ink-a56: rgba(38,42,35,0.56);
+        --ink-a58: rgba(38,42,35,0.58);
+        --ink-a60: rgba(38,42,35,0.6);
+        --ink-a60: rgba(38,42,35,0.60);
+        --ink-a62: rgba(38,42,35,0.62);
+        --ink-a65: rgba(38,42,35,0.65);
+        --ink-a66: rgba(38,42,35,0.66);
+        --ink-a70: rgba(38,42,35,0.7);
+        --ink-a75: rgba(38,42,35,0.75);
+        --ink-a78: rgba(38,42,35,0.78);
+        --ink-a80: rgba(38,42,35,0.8);
+        --ink-a82: rgba(38,42,35,0.82);
+        --ink-a85: rgba(38,42,35,0.85);
+        --primary-a00: rgba(90,116,48,0.0);
+        --primary-a06: rgba(90,116,48,0.06);
+        --primary-a08: rgba(90,116,48,0.08);
+        --primary-a10: rgba(90,116,48,0.10);
+        --primary-a12: rgba(90,116,48,0.12);
+        --primary-a18: rgba(90,116,48,0.18);
+        --primary-a30: rgba(90,116,48,0.3);
+        --primary-a35: rgba(90,116,48,0.35);
+        --primary-a45: rgba(90,116,48,0.45);
+        --primary-a55: rgba(90,116,48,0.55);
+        --surface-a18: rgba(255,255,255,0.18);
+        --surface-a24: rgba(255,255,255,0.24);
+        --surface-a66: rgba(255,255,255,0.66);
+        --surface-a84: rgba(255,255,255,0.84);
+        --surface-a90: rgba(255,255,255,0.9);
+        --surface-a92: rgba(255,255,255,0.92);
+        --surface-a94: rgba(255,255,255,0.94);
+        --surface-a95: rgba(255,255,255,0.95);
+        --surface-glass: rgba(255,255,255,0.92);
+        --on-primary: #FFFFFF;
+        --info-tint: #EDF3FE;
+        --info-text: #1D4E9E;
+        --accent-warm: #FF6900;
+        --accent-warm-text: #B23A1A;
+        --danger: #E5484D;
+        --canvas: #262A23;              /* photo wells and the 3D stage, dark in both themes */
+        color-scheme: light;
+
         /* Shape */
         --radius-sm: 6px;
         --radius-md: 8px;
@@ -2546,6 +2653,2128 @@ function GlobalStyles() {
         --shadow-2: 0 2px 6px rgba(38,42,35,0.08), 0 1px 2px rgba(38,42,35,0.05);
         --shadow-3: 0 12px 32px rgba(38,42,35,0.14), 0 2px 8px rgba(38,42,35,0.08);
       }
+
+      /* Dark: the same tokens, different values. Picked in Settings →
+         Appearance; "System" is resolved by applyTheme() into light or dark.
+         Only the 3D canvas was dark before; now everything is, and nothing
+         else had to change because every colour goes through a token. */
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #0F110F;
+        --surface: #151815;
+        --surface-sunken: #1B1F1B;
+        --surface-hover: #232823;
+        --ink: #EEF0EA;
+        --ink-65: rgba(238,240,234,0.70);
+        --ink-50: rgba(238,240,234,0.56);
+        --ink-35: rgba(238,240,234,0.40);
+        --ink-04: rgba(238,240,234,0.06);
+        --border: rgba(238,240,234,0.09);
+        --border-strong: rgba(238,240,234,0.20);
+        --primary: #A3D65C;
+        --primary-hover: #B4E070;
+        --primary-active: #8FC24B;
+        --primary-ink: #CDEB9A;
+        --primary-tint: rgba(163,214,92,0.14);
+        --primary-tint-border: rgba(163,214,92,0.40);
+        --paper: #151815;
+        --accent: #A3D65C;
+        --accent-text: #CDEB9A;
+        --accent-fill: #8FC24B;
+        --api: #7AB3FF;
+        --api-fill: #4A8CF0;
+        --success: #5DD39E;
+        --success-text: #8FE3BC;
+        --warn: #FFC857;
+        --warn-text: #F6CC74;
+        --danger-text: #FF9B9B;
+        --danger-tint: rgba(255,107,107,0.14);
+        --danger: #FF6B6B;
+        --info-tint: rgba(122,179,255,0.14);
+        --info-text: #B3D1FF;
+        --accent-warm: #FF8F5A;
+        --accent-warm-text: #FFB08A;
+        --surface-glass: rgba(15,17,15,0.85);
+        --on-primary: #0F110F;
+        --shadow-1: 0 1px 2px rgba(0,0,0,0.5);
+        --shadow-2: 0 4px 12px rgba(0,0,0,0.55), 0 1px 2px rgba(0,0,0,0.5);
+        --shadow-3: 0 16px 40px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.5);
+        --ink-a02: rgba(238,240,234,0.02);
+        --ink-a03: rgba(238,240,234,0.03);
+        --ink-a04: rgba(238,240,234,0.04);
+        --ink-a05: rgba(238,240,234,0.05);
+        --ink-a06: rgba(238,240,234,0.06);
+        --ink-a07: rgba(238,240,234,0.07);
+        --ink-a08: rgba(238,240,234,0.08);
+        --ink-a09: rgba(238,240,234,0.09);
+        --ink-a10: rgba(238,240,234,0.1);
+        --ink-a10: rgba(238,240,234,0.10);
+        --ink-a12: rgba(238,240,234,0.12);
+        --ink-a15: rgba(238,240,234,0.15);
+        --ink-a18: rgba(238,240,234,0.18);
+        --ink-a20: rgba(238,240,234,0.2);
+        --ink-a24: rgba(238,240,234,0.24);
+        --ink-a25: rgba(238,240,234,0.25);
+        --ink-a30: rgba(238,240,234,0.3);
+        --ink-a35: rgba(238,240,234,0.35);
+        --ink-a36: rgba(238,240,234,0.36);
+        --ink-a45: rgba(238,240,234,0.45);
+        --ink-a50: rgba(238,240,234,0.5);
+        --ink-a52: rgba(238,240,234,0.52);
+        --ink-a55: rgba(238,240,234,0.55);
+        --ink-a56: rgba(238,240,234,0.56);
+        --ink-a58: rgba(238,240,234,0.58);
+        --ink-a60: rgba(238,240,234,0.6);
+        --ink-a60: rgba(238,240,234,0.60);
+        --ink-a62: rgba(238,240,234,0.62);
+        --ink-a65: rgba(238,240,234,0.65);
+        --ink-a66: rgba(238,240,234,0.66);
+        --ink-a70: rgba(238,240,234,0.7);
+        --ink-a75: rgba(238,240,234,0.75);
+        --ink-a78: rgba(238,240,234,0.78);
+        --ink-a80: rgba(238,240,234,0.8);
+        --ink-a82: rgba(238,240,234,0.82);
+        --ink-a85: rgba(238,240,234,0.85);
+        --primary-a00: rgba(163,214,92,0.0);
+        --primary-a06: rgba(163,214,92,0.06);
+        --primary-a08: rgba(163,214,92,0.08);
+        --primary-a10: rgba(163,214,92,0.10);
+        --primary-a12: rgba(163,214,92,0.12);
+        --primary-a18: rgba(163,214,92,0.18);
+        --primary-a30: rgba(163,214,92,0.3);
+        --primary-a35: rgba(163,214,92,0.35);
+        --primary-a45: rgba(163,214,92,0.45);
+        --primary-a55: rgba(163,214,92,0.55);
+        --surface-a18: rgba(21,24,21,0.18);
+        --surface-a24: rgba(21,24,21,0.24);
+        --surface-a66: rgba(21,24,21,0.66);
+        --surface-a84: rgba(21,24,21,0.84);
+        --surface-a90: rgba(21,24,21,0.9);
+        --surface-a92: rgba(21,24,21,0.92);
+        --surface-a94: rgba(21,24,21,0.94);
+        --surface-a95: rgba(21,24,21,0.95);
+      }
+
+      /* Named dark palettes: the themes people already run in their editors and
+         apps, mapped onto the same tokens from each theme's published palette.
+         Generated from the PALETTES table in the session script; edit the
+         table and regenerate rather than these blocks. */
+      :root[data-theme="dark"][data-palette="tokyo-night"] {
+        --bg: #16161E;
+        --surface: #1A1B26;
+        --surface-sunken: #1F2335;
+        --surface-hover: #292E42;
+        --ink: #C0CAF5;
+        --ink-65: rgba(192,202,245,0.72);
+        --ink-50: rgba(192,202,245,0.58);
+        --ink-35: rgba(192,202,245,0.42);
+        --ink-04: rgba(192,202,245,0.06);
+        --border: rgba(192,202,245,0.1);
+        --border-strong: rgba(192,202,245,0.22);
+        --primary: #9ECE6A;
+        --primary-hover: #AAD47C;
+        --primary-active: #8BB55D;
+        --primary-ink: #C0DF9E;
+        --primary-tint: rgba(158,206,106,0.14);
+        --primary-tint-border: rgba(158,206,106,0.4);
+        --paper: #1A1B26;
+        --accent: #9ECE6A;
+        --accent-text: #C0DF9E;
+        --accent-fill: #8BB55D;
+        --api: #7AA2F7;
+        --api-fill: #6282C6;
+        --success: #9ECE6A;
+        --success-text: #BBDD97;
+        --warn: #E0AF68;
+        --warn-text: #E6BF86;
+        --danger: #F7768E;
+        --danger-text: #F998AA;
+        --danger-tint: rgba(247,118,142,0.14);
+        --info-tint: rgba(122,162,247,0.14);
+        --info-text: #A2BEF9;
+        --accent-warm: #FF9E64;
+        --accent-warm-text: #FFBB92;
+        --surface-glass: rgba(22,22,30,0.86);
+        --on-primary: #16161E;
+        --ink-a02: rgba(192,202,245,0.02);
+        --ink-a03: rgba(192,202,245,0.03);
+        --ink-a04: rgba(192,202,245,0.04);
+        --ink-a05: rgba(192,202,245,0.05);
+        --ink-a06: rgba(192,202,245,0.06);
+        --ink-a07: rgba(192,202,245,0.07);
+        --ink-a08: rgba(192,202,245,0.08);
+        --ink-a09: rgba(192,202,245,0.09);
+        --ink-a10: rgba(192,202,245,0.1);
+        --ink-a12: rgba(192,202,245,0.12);
+        --ink-a15: rgba(192,202,245,0.15);
+        --ink-a18: rgba(192,202,245,0.18);
+        --ink-a20: rgba(192,202,245,0.2);
+        --ink-a24: rgba(192,202,245,0.24);
+        --ink-a25: rgba(192,202,245,0.25);
+        --ink-a30: rgba(192,202,245,0.3);
+        --ink-a35: rgba(192,202,245,0.35);
+        --ink-a36: rgba(192,202,245,0.36);
+        --ink-a45: rgba(192,202,245,0.45);
+        --ink-a50: rgba(192,202,245,0.5);
+        --ink-a52: rgba(192,202,245,0.52);
+        --ink-a55: rgba(192,202,245,0.55);
+        --ink-a56: rgba(192,202,245,0.56);
+        --ink-a58: rgba(192,202,245,0.58);
+        --ink-a60: rgba(192,202,245,0.6);
+        --ink-a62: rgba(192,202,245,0.62);
+        --ink-a65: rgba(192,202,245,0.65);
+        --ink-a66: rgba(192,202,245,0.66);
+        --ink-a70: rgba(192,202,245,0.7);
+        --ink-a75: rgba(192,202,245,0.75);
+        --ink-a78: rgba(192,202,245,0.78);
+        --ink-a80: rgba(192,202,245,0.8);
+        --ink-a82: rgba(192,202,245,0.82);
+        --ink-a85: rgba(192,202,245,0.85);
+        --primary-a00: rgba(158,206,106,0.0);
+        --primary-a06: rgba(158,206,106,0.06);
+        --primary-a08: rgba(158,206,106,0.08);
+        --primary-a10: rgba(158,206,106,0.1);
+        --primary-a12: rgba(158,206,106,0.12);
+        --primary-a18: rgba(158,206,106,0.18);
+        --primary-a30: rgba(158,206,106,0.3);
+        --primary-a35: rgba(158,206,106,0.35);
+        --primary-a45: rgba(158,206,106,0.45);
+        --primary-a55: rgba(158,206,106,0.55);
+        --surface-a18: rgba(26,27,38,0.18);
+        --surface-a24: rgba(26,27,38,0.24);
+        --surface-a66: rgba(26,27,38,0.66);
+        --surface-a84: rgba(26,27,38,0.84);
+        --surface-a90: rgba(26,27,38,0.9);
+        --surface-a92: rgba(26,27,38,0.92);
+        --surface-a94: rgba(26,27,38,0.94);
+        --surface-a95: rgba(26,27,38,0.95);
+      }
+      :root[data-theme="dark"][data-palette="catppuccin"] {
+        --bg: #11111B;
+        --surface: #1E1E2E;
+        --surface-sunken: #181825;
+        --surface-hover: #313244;
+        --ink: #CDD6F4;
+        --ink-65: rgba(205,214,244,0.72);
+        --ink-50: rgba(205,214,244,0.58);
+        --ink-35: rgba(205,214,244,0.42);
+        --ink-04: rgba(205,214,244,0.06);
+        --border: rgba(205,214,244,0.1);
+        --border-strong: rgba(205,214,244,0.22);
+        --primary: #A6E3A1;
+        --primary-hover: #B1E6AC;
+        --primary-active: #92C88E;
+        --primary-ink: #C5EDC2;
+        --primary-tint: rgba(166,227,161,0.14);
+        --primary-tint-border: rgba(166,227,161,0.4);
+        --paper: #1E1E2E;
+        --accent: #A6E3A1;
+        --accent-text: #C5EDC2;
+        --accent-fill: #92C88E;
+        --api: #89B4FA;
+        --api-fill: #6E90C8;
+        --success: #A6E3A1;
+        --success-text: #C1EBBD;
+        --warn: #F9E2AF;
+        --warn-text: #FAE8BF;
+        --danger: #F38BA8;
+        --danger-text: #F6A8BE;
+        --danger-tint: rgba(243,139,168,0.14);
+        --info-tint: rgba(137,180,250,0.14);
+        --info-text: #ACCAFC;
+        --accent-warm: #FAB387;
+        --accent-warm-text: #FCCAAB;
+        --surface-glass: rgba(17,17,27,0.86);
+        --on-primary: #11111B;
+        --ink-a02: rgba(205,214,244,0.02);
+        --ink-a03: rgba(205,214,244,0.03);
+        --ink-a04: rgba(205,214,244,0.04);
+        --ink-a05: rgba(205,214,244,0.05);
+        --ink-a06: rgba(205,214,244,0.06);
+        --ink-a07: rgba(205,214,244,0.07);
+        --ink-a08: rgba(205,214,244,0.08);
+        --ink-a09: rgba(205,214,244,0.09);
+        --ink-a10: rgba(205,214,244,0.1);
+        --ink-a12: rgba(205,214,244,0.12);
+        --ink-a15: rgba(205,214,244,0.15);
+        --ink-a18: rgba(205,214,244,0.18);
+        --ink-a20: rgba(205,214,244,0.2);
+        --ink-a24: rgba(205,214,244,0.24);
+        --ink-a25: rgba(205,214,244,0.25);
+        --ink-a30: rgba(205,214,244,0.3);
+        --ink-a35: rgba(205,214,244,0.35);
+        --ink-a36: rgba(205,214,244,0.36);
+        --ink-a45: rgba(205,214,244,0.45);
+        --ink-a50: rgba(205,214,244,0.5);
+        --ink-a52: rgba(205,214,244,0.52);
+        --ink-a55: rgba(205,214,244,0.55);
+        --ink-a56: rgba(205,214,244,0.56);
+        --ink-a58: rgba(205,214,244,0.58);
+        --ink-a60: rgba(205,214,244,0.6);
+        --ink-a62: rgba(205,214,244,0.62);
+        --ink-a65: rgba(205,214,244,0.65);
+        --ink-a66: rgba(205,214,244,0.66);
+        --ink-a70: rgba(205,214,244,0.7);
+        --ink-a75: rgba(205,214,244,0.75);
+        --ink-a78: rgba(205,214,244,0.78);
+        --ink-a80: rgba(205,214,244,0.8);
+        --ink-a82: rgba(205,214,244,0.82);
+        --ink-a85: rgba(205,214,244,0.85);
+        --primary-a00: rgba(166,227,161,0.0);
+        --primary-a06: rgba(166,227,161,0.06);
+        --primary-a08: rgba(166,227,161,0.08);
+        --primary-a10: rgba(166,227,161,0.1);
+        --primary-a12: rgba(166,227,161,0.12);
+        --primary-a18: rgba(166,227,161,0.18);
+        --primary-a30: rgba(166,227,161,0.3);
+        --primary-a35: rgba(166,227,161,0.35);
+        --primary-a45: rgba(166,227,161,0.45);
+        --primary-a55: rgba(166,227,161,0.55);
+        --surface-a18: rgba(30,30,46,0.18);
+        --surface-a24: rgba(30,30,46,0.24);
+        --surface-a66: rgba(30,30,46,0.66);
+        --surface-a84: rgba(30,30,46,0.84);
+        --surface-a90: rgba(30,30,46,0.9);
+        --surface-a92: rgba(30,30,46,0.92);
+        --surface-a94: rgba(30,30,46,0.94);
+        --surface-a95: rgba(30,30,46,0.95);
+      }
+      :root[data-theme="dark"][data-palette="nord"] {
+        --bg: #242933;
+        --surface: #2E3440;
+        --surface-sunken: #3B4252;
+        --surface-hover: #434C5E;
+        --ink: #ECEFF4;
+        --ink-65: rgba(236,239,244,0.72);
+        --ink-50: rgba(236,239,244,0.58);
+        --ink-35: rgba(236,239,244,0.42);
+        --ink-04: rgba(236,239,244,0.06);
+        --border: rgba(236,239,244,0.1);
+        --border-strong: rgba(236,239,244,0.22);
+        --primary: #A3BE8C;
+        --primary-hover: #AEC69A;
+        --primary-active: #8FA77B;
+        --primary-ink: #C3D5B4;
+        --primary-tint: rgba(163,190,140,0.14);
+        --primary-tint-border: rgba(163,190,140,0.4);
+        --paper: #2E3440;
+        --accent: #A3BE8C;
+        --accent-text: #C3D5B4;
+        --accent-fill: #8FA77B;
+        --api: #88C0D0;
+        --api-fill: #6D9AA6;
+        --success: #A3BE8C;
+        --success-text: #BFD2AE;
+        --warn: #EBCB8B;
+        --warn-text: #EFD5A2;
+        --danger: #BF616A;
+        --danger-text: #CF888F;
+        --danger-tint: rgba(191,97,106,0.14);
+        --info-tint: rgba(136,192,208,0.14);
+        --info-text: #ACD3DE;
+        --accent-warm: #D08770;
+        --accent-warm-text: #DEAB9B;
+        --surface-glass: rgba(36,41,51,0.86);
+        --on-primary: #242933;
+        --ink-a02: rgba(236,239,244,0.02);
+        --ink-a03: rgba(236,239,244,0.03);
+        --ink-a04: rgba(236,239,244,0.04);
+        --ink-a05: rgba(236,239,244,0.05);
+        --ink-a06: rgba(236,239,244,0.06);
+        --ink-a07: rgba(236,239,244,0.07);
+        --ink-a08: rgba(236,239,244,0.08);
+        --ink-a09: rgba(236,239,244,0.09);
+        --ink-a10: rgba(236,239,244,0.1);
+        --ink-a12: rgba(236,239,244,0.12);
+        --ink-a15: rgba(236,239,244,0.15);
+        --ink-a18: rgba(236,239,244,0.18);
+        --ink-a20: rgba(236,239,244,0.2);
+        --ink-a24: rgba(236,239,244,0.24);
+        --ink-a25: rgba(236,239,244,0.25);
+        --ink-a30: rgba(236,239,244,0.3);
+        --ink-a35: rgba(236,239,244,0.35);
+        --ink-a36: rgba(236,239,244,0.36);
+        --ink-a45: rgba(236,239,244,0.45);
+        --ink-a50: rgba(236,239,244,0.5);
+        --ink-a52: rgba(236,239,244,0.52);
+        --ink-a55: rgba(236,239,244,0.55);
+        --ink-a56: rgba(236,239,244,0.56);
+        --ink-a58: rgba(236,239,244,0.58);
+        --ink-a60: rgba(236,239,244,0.6);
+        --ink-a62: rgba(236,239,244,0.62);
+        --ink-a65: rgba(236,239,244,0.65);
+        --ink-a66: rgba(236,239,244,0.66);
+        --ink-a70: rgba(236,239,244,0.7);
+        --ink-a75: rgba(236,239,244,0.75);
+        --ink-a78: rgba(236,239,244,0.78);
+        --ink-a80: rgba(236,239,244,0.8);
+        --ink-a82: rgba(236,239,244,0.82);
+        --ink-a85: rgba(236,239,244,0.85);
+        --primary-a00: rgba(163,190,140,0.0);
+        --primary-a06: rgba(163,190,140,0.06);
+        --primary-a08: rgba(163,190,140,0.08);
+        --primary-a10: rgba(163,190,140,0.1);
+        --primary-a12: rgba(163,190,140,0.12);
+        --primary-a18: rgba(163,190,140,0.18);
+        --primary-a30: rgba(163,190,140,0.3);
+        --primary-a35: rgba(163,190,140,0.35);
+        --primary-a45: rgba(163,190,140,0.45);
+        --primary-a55: rgba(163,190,140,0.55);
+        --surface-a18: rgba(46,52,64,0.18);
+        --surface-a24: rgba(46,52,64,0.24);
+        --surface-a66: rgba(46,52,64,0.66);
+        --surface-a84: rgba(46,52,64,0.84);
+        --surface-a90: rgba(46,52,64,0.9);
+        --surface-a92: rgba(46,52,64,0.92);
+        --surface-a94: rgba(46,52,64,0.94);
+        --surface-a95: rgba(46,52,64,0.95);
+      }
+      :root[data-theme="dark"][data-palette="dracula"] {
+        --bg: #21222C;
+        --surface: #282A36;
+        --surface-sunken: #343746;
+        --surface-hover: #44475A;
+        --ink: #F8F8F2;
+        --ink-65: rgba(248,248,242,0.72);
+        --ink-50: rgba(248,248,242,0.58);
+        --ink-35: rgba(248,248,242,0.42);
+        --ink-04: rgba(248,248,242,0.06);
+        --border: rgba(248,248,242,0.1);
+        --border-strong: rgba(248,248,242,0.22);
+        --primary: #50FA7B;
+        --primary-hover: #65FB8B;
+        --primary-active: #46DC6C;
+        --primary-ink: #8DFCA9;
+        --primary-tint: rgba(80,250,123,0.14);
+        --primary-tint-border: rgba(80,250,123,0.4);
+        --paper: #282A36;
+        --accent: #50FA7B;
+        --accent-text: #8DFCA9;
+        --accent-fill: #46DC6C;
+        --api: #8BE9FD;
+        --api-fill: #6FBACA;
+        --success: #50FA7B;
+        --success-text: #84FCA3;
+        --warn: #F1FA8C;
+        --warn-text: #F4FBA3;
+        --danger: #FF5555;
+        --danger-text: #FF8080;
+        --danger-tint: rgba(255,85,85,0.14);
+        --info-tint: rgba(139,233,253,0.14);
+        --info-text: #AEF0FE;
+        --accent-warm: #FFB86C;
+        --accent-warm-text: #FFCD98;
+        --surface-glass: rgba(33,34,44,0.86);
+        --on-primary: #21222C;
+        --ink-a02: rgba(248,248,242,0.02);
+        --ink-a03: rgba(248,248,242,0.03);
+        --ink-a04: rgba(248,248,242,0.04);
+        --ink-a05: rgba(248,248,242,0.05);
+        --ink-a06: rgba(248,248,242,0.06);
+        --ink-a07: rgba(248,248,242,0.07);
+        --ink-a08: rgba(248,248,242,0.08);
+        --ink-a09: rgba(248,248,242,0.09);
+        --ink-a10: rgba(248,248,242,0.1);
+        --ink-a12: rgba(248,248,242,0.12);
+        --ink-a15: rgba(248,248,242,0.15);
+        --ink-a18: rgba(248,248,242,0.18);
+        --ink-a20: rgba(248,248,242,0.2);
+        --ink-a24: rgba(248,248,242,0.24);
+        --ink-a25: rgba(248,248,242,0.25);
+        --ink-a30: rgba(248,248,242,0.3);
+        --ink-a35: rgba(248,248,242,0.35);
+        --ink-a36: rgba(248,248,242,0.36);
+        --ink-a45: rgba(248,248,242,0.45);
+        --ink-a50: rgba(248,248,242,0.5);
+        --ink-a52: rgba(248,248,242,0.52);
+        --ink-a55: rgba(248,248,242,0.55);
+        --ink-a56: rgba(248,248,242,0.56);
+        --ink-a58: rgba(248,248,242,0.58);
+        --ink-a60: rgba(248,248,242,0.6);
+        --ink-a62: rgba(248,248,242,0.62);
+        --ink-a65: rgba(248,248,242,0.65);
+        --ink-a66: rgba(248,248,242,0.66);
+        --ink-a70: rgba(248,248,242,0.7);
+        --ink-a75: rgba(248,248,242,0.75);
+        --ink-a78: rgba(248,248,242,0.78);
+        --ink-a80: rgba(248,248,242,0.8);
+        --ink-a82: rgba(248,248,242,0.82);
+        --ink-a85: rgba(248,248,242,0.85);
+        --primary-a00: rgba(80,250,123,0.0);
+        --primary-a06: rgba(80,250,123,0.06);
+        --primary-a08: rgba(80,250,123,0.08);
+        --primary-a10: rgba(80,250,123,0.1);
+        --primary-a12: rgba(80,250,123,0.12);
+        --primary-a18: rgba(80,250,123,0.18);
+        --primary-a30: rgba(80,250,123,0.3);
+        --primary-a35: rgba(80,250,123,0.35);
+        --primary-a45: rgba(80,250,123,0.45);
+        --primary-a55: rgba(80,250,123,0.55);
+        --surface-a18: rgba(40,42,54,0.18);
+        --surface-a24: rgba(40,42,54,0.24);
+        --surface-a66: rgba(40,42,54,0.66);
+        --surface-a84: rgba(40,42,54,0.84);
+        --surface-a90: rgba(40,42,54,0.9);
+        --surface-a92: rgba(40,42,54,0.92);
+        --surface-a94: rgba(40,42,54,0.94);
+        --surface-a95: rgba(40,42,54,0.95);
+      }
+      :root[data-theme="dark"][data-palette="github"] {
+        --bg: #010409;
+        --surface: #0D1117;
+        --surface-sunken: #161B22;
+        --surface-hover: #21262D;
+        --ink: #E6EDF3;
+        --ink-65: rgba(230,237,243,0.72);
+        --ink-50: rgba(230,237,243,0.58);
+        --ink-35: rgba(230,237,243,0.42);
+        --ink-04: rgba(230,237,243,0.06);
+        --border: rgba(230,237,243,0.1);
+        --border-strong: rgba(230,237,243,0.22);
+        --primary: #3FB950;
+        --primary-hover: #56C165;
+        --primary-active: #37A346;
+        --primary-ink: #82D28D;
+        --primary-tint: rgba(63,185,80,0.14);
+        --primary-tint-border: rgba(63,185,80,0.4);
+        --paper: #0D1117;
+        --accent: #3FB950;
+        --accent-text: #82D28D;
+        --accent-fill: #37A346;
+        --api: #58A6FF;
+        --api-fill: #4685CC;
+        --success: #3FB950;
+        --success-text: #79CE84;
+        --warn: #D29922;
+        --warn-text: #DBAD4E;
+        --danger: #F85149;
+        --danger-text: #FA7C76;
+        --danger-tint: rgba(248,81,73,0.14);
+        --info-tint: rgba(88,166,255,0.14);
+        --info-text: #8AC1FF;
+        --accent-warm: #DB6D28;
+        --accent-warm-text: #E69968;
+        --surface-glass: rgba(1,4,9,0.86);
+        --on-primary: #010409;
+        --ink-a02: rgba(230,237,243,0.02);
+        --ink-a03: rgba(230,237,243,0.03);
+        --ink-a04: rgba(230,237,243,0.04);
+        --ink-a05: rgba(230,237,243,0.05);
+        --ink-a06: rgba(230,237,243,0.06);
+        --ink-a07: rgba(230,237,243,0.07);
+        --ink-a08: rgba(230,237,243,0.08);
+        --ink-a09: rgba(230,237,243,0.09);
+        --ink-a10: rgba(230,237,243,0.1);
+        --ink-a12: rgba(230,237,243,0.12);
+        --ink-a15: rgba(230,237,243,0.15);
+        --ink-a18: rgba(230,237,243,0.18);
+        --ink-a20: rgba(230,237,243,0.2);
+        --ink-a24: rgba(230,237,243,0.24);
+        --ink-a25: rgba(230,237,243,0.25);
+        --ink-a30: rgba(230,237,243,0.3);
+        --ink-a35: rgba(230,237,243,0.35);
+        --ink-a36: rgba(230,237,243,0.36);
+        --ink-a45: rgba(230,237,243,0.45);
+        --ink-a50: rgba(230,237,243,0.5);
+        --ink-a52: rgba(230,237,243,0.52);
+        --ink-a55: rgba(230,237,243,0.55);
+        --ink-a56: rgba(230,237,243,0.56);
+        --ink-a58: rgba(230,237,243,0.58);
+        --ink-a60: rgba(230,237,243,0.6);
+        --ink-a62: rgba(230,237,243,0.62);
+        --ink-a65: rgba(230,237,243,0.65);
+        --ink-a66: rgba(230,237,243,0.66);
+        --ink-a70: rgba(230,237,243,0.7);
+        --ink-a75: rgba(230,237,243,0.75);
+        --ink-a78: rgba(230,237,243,0.78);
+        --ink-a80: rgba(230,237,243,0.8);
+        --ink-a82: rgba(230,237,243,0.82);
+        --ink-a85: rgba(230,237,243,0.85);
+        --primary-a00: rgba(63,185,80,0.0);
+        --primary-a06: rgba(63,185,80,0.06);
+        --primary-a08: rgba(63,185,80,0.08);
+        --primary-a10: rgba(63,185,80,0.1);
+        --primary-a12: rgba(63,185,80,0.12);
+        --primary-a18: rgba(63,185,80,0.18);
+        --primary-a30: rgba(63,185,80,0.3);
+        --primary-a35: rgba(63,185,80,0.35);
+        --primary-a45: rgba(63,185,80,0.45);
+        --primary-a55: rgba(63,185,80,0.55);
+        --surface-a18: rgba(13,17,23,0.18);
+        --surface-a24: rgba(13,17,23,0.24);
+        --surface-a66: rgba(13,17,23,0.66);
+        --surface-a84: rgba(13,17,23,0.84);
+        --surface-a90: rgba(13,17,23,0.9);
+        --surface-a92: rgba(13,17,23,0.92);
+        --surface-a94: rgba(13,17,23,0.94);
+        --surface-a95: rgba(13,17,23,0.95);
+      }
+      :root[data-theme="dark"][data-palette="one-dark"] {
+        --bg: #21252B;
+        --surface: #282C34;
+        --surface-sunken: #2C313A;
+        --surface-hover: #3A3F4B;
+        --ink: #ABB2BF;
+        --ink-65: rgba(171,178,191,0.72);
+        --ink-50: rgba(171,178,191,0.58);
+        --ink-35: rgba(171,178,191,0.42);
+        --ink-04: rgba(171,178,191,0.06);
+        --border: rgba(171,178,191,0.1);
+        --border-strong: rgba(171,178,191,0.22);
+        --primary: #98C379;
+        --primary-hover: #A4CA89;
+        --primary-active: #86AC6A;
+        --primary-ink: #BCD8A8;
+        --primary-tint: rgba(152,195,121,0.14);
+        --primary-tint-border: rgba(152,195,121,0.4);
+        --paper: #282C34;
+        --accent: #98C379;
+        --accent-text: #BCD8A8;
+        --accent-fill: #86AC6A;
+        --api: #61AFEF;
+        --api-fill: #4E8CBF;
+        --success: #98C379;
+        --success-text: #B7D5A1;
+        --warn: #E5C07B;
+        --warn-text: #EACD95;
+        --danger: #E06C75;
+        --danger-text: #E89198;
+        --danger-tint: rgba(224,108,117,0.14);
+        --info-tint: rgba(97,175,239,0.14);
+        --info-text: #90C7F4;
+        --accent-warm: #D19A66;
+        --accent-warm-text: #DFB894;
+        --surface-glass: rgba(33,37,43,0.86);
+        --on-primary: #21252B;
+        --ink-a02: rgba(171,178,191,0.02);
+        --ink-a03: rgba(171,178,191,0.03);
+        --ink-a04: rgba(171,178,191,0.04);
+        --ink-a05: rgba(171,178,191,0.05);
+        --ink-a06: rgba(171,178,191,0.06);
+        --ink-a07: rgba(171,178,191,0.07);
+        --ink-a08: rgba(171,178,191,0.08);
+        --ink-a09: rgba(171,178,191,0.09);
+        --ink-a10: rgba(171,178,191,0.1);
+        --ink-a12: rgba(171,178,191,0.12);
+        --ink-a15: rgba(171,178,191,0.15);
+        --ink-a18: rgba(171,178,191,0.18);
+        --ink-a20: rgba(171,178,191,0.2);
+        --ink-a24: rgba(171,178,191,0.24);
+        --ink-a25: rgba(171,178,191,0.25);
+        --ink-a30: rgba(171,178,191,0.3);
+        --ink-a35: rgba(171,178,191,0.35);
+        --ink-a36: rgba(171,178,191,0.36);
+        --ink-a45: rgba(171,178,191,0.45);
+        --ink-a50: rgba(171,178,191,0.5);
+        --ink-a52: rgba(171,178,191,0.52);
+        --ink-a55: rgba(171,178,191,0.55);
+        --ink-a56: rgba(171,178,191,0.56);
+        --ink-a58: rgba(171,178,191,0.58);
+        --ink-a60: rgba(171,178,191,0.6);
+        --ink-a62: rgba(171,178,191,0.62);
+        --ink-a65: rgba(171,178,191,0.65);
+        --ink-a66: rgba(171,178,191,0.66);
+        --ink-a70: rgba(171,178,191,0.7);
+        --ink-a75: rgba(171,178,191,0.75);
+        --ink-a78: rgba(171,178,191,0.78);
+        --ink-a80: rgba(171,178,191,0.8);
+        --ink-a82: rgba(171,178,191,0.82);
+        --ink-a85: rgba(171,178,191,0.85);
+        --primary-a00: rgba(152,195,121,0.0);
+        --primary-a06: rgba(152,195,121,0.06);
+        --primary-a08: rgba(152,195,121,0.08);
+        --primary-a10: rgba(152,195,121,0.1);
+        --primary-a12: rgba(152,195,121,0.12);
+        --primary-a18: rgba(152,195,121,0.18);
+        --primary-a30: rgba(152,195,121,0.3);
+        --primary-a35: rgba(152,195,121,0.35);
+        --primary-a45: rgba(152,195,121,0.45);
+        --primary-a55: rgba(152,195,121,0.55);
+        --surface-a18: rgba(40,44,52,0.18);
+        --surface-a24: rgba(40,44,52,0.24);
+        --surface-a66: rgba(40,44,52,0.66);
+        --surface-a84: rgba(40,44,52,0.84);
+        --surface-a90: rgba(40,44,52,0.9);
+        --surface-a92: rgba(40,44,52,0.92);
+        --surface-a94: rgba(40,44,52,0.94);
+        --surface-a95: rgba(40,44,52,0.95);
+      }
+      :root[data-theme="dark"][data-palette="vscode"] {
+        --bg: #181818;
+        --surface: #1F1F1F;
+        --surface-sunken: #181818;
+        --surface-hover: #2A2D2E;
+        --ink: #CCCCCC;
+        --ink-65: rgba(204,204,204,0.72);
+        --ink-50: rgba(204,204,204,0.58);
+        --ink-35: rgba(204,204,204,0.42);
+        --ink-04: rgba(204,204,204,0.06);
+        --border: rgba(204,204,204,0.1);
+        --border-strong: rgba(204,204,204,0.22);
+        --primary: #89D185;
+        --primary-hover: #97D794;
+        --primary-active: #79B875;
+        --primary-ink: #B2E1B0;
+        --primary-tint: rgba(137,209,133,0.14);
+        --primary-tint-border: rgba(137,209,133,0.4);
+        --paper: #1F1F1F;
+        --accent: #89D185;
+        --accent-text: #B2E1B0;
+        --accent-fill: #79B875;
+        --api: #4DAAFC;
+        --api-fill: #3E88CA;
+        --success: #89D185;
+        --success-text: #ACDFAA;
+        --warn: #CCA700;
+        --warn-text: #D6B933;
+        --danger: #F14C4C;
+        --danger-text: #F47979;
+        --danger-tint: rgba(241,76,76,0.14);
+        --info-tint: rgba(77,170,252,0.14);
+        --info-text: #82C4FD;
+        --accent-warm: #CE9178;
+        --accent-warm-text: #DDB2A0;
+        --surface-glass: rgba(24,24,24,0.86);
+        --on-primary: #181818;
+        --ink-a02: rgba(204,204,204,0.02);
+        --ink-a03: rgba(204,204,204,0.03);
+        --ink-a04: rgba(204,204,204,0.04);
+        --ink-a05: rgba(204,204,204,0.05);
+        --ink-a06: rgba(204,204,204,0.06);
+        --ink-a07: rgba(204,204,204,0.07);
+        --ink-a08: rgba(204,204,204,0.08);
+        --ink-a09: rgba(204,204,204,0.09);
+        --ink-a10: rgba(204,204,204,0.1);
+        --ink-a12: rgba(204,204,204,0.12);
+        --ink-a15: rgba(204,204,204,0.15);
+        --ink-a18: rgba(204,204,204,0.18);
+        --ink-a20: rgba(204,204,204,0.2);
+        --ink-a24: rgba(204,204,204,0.24);
+        --ink-a25: rgba(204,204,204,0.25);
+        --ink-a30: rgba(204,204,204,0.3);
+        --ink-a35: rgba(204,204,204,0.35);
+        --ink-a36: rgba(204,204,204,0.36);
+        --ink-a45: rgba(204,204,204,0.45);
+        --ink-a50: rgba(204,204,204,0.5);
+        --ink-a52: rgba(204,204,204,0.52);
+        --ink-a55: rgba(204,204,204,0.55);
+        --ink-a56: rgba(204,204,204,0.56);
+        --ink-a58: rgba(204,204,204,0.58);
+        --ink-a60: rgba(204,204,204,0.6);
+        --ink-a62: rgba(204,204,204,0.62);
+        --ink-a65: rgba(204,204,204,0.65);
+        --ink-a66: rgba(204,204,204,0.66);
+        --ink-a70: rgba(204,204,204,0.7);
+        --ink-a75: rgba(204,204,204,0.75);
+        --ink-a78: rgba(204,204,204,0.78);
+        --ink-a80: rgba(204,204,204,0.8);
+        --ink-a82: rgba(204,204,204,0.82);
+        --ink-a85: rgba(204,204,204,0.85);
+        --primary-a00: rgba(137,209,133,0.0);
+        --primary-a06: rgba(137,209,133,0.06);
+        --primary-a08: rgba(137,209,133,0.08);
+        --primary-a10: rgba(137,209,133,0.1);
+        --primary-a12: rgba(137,209,133,0.12);
+        --primary-a18: rgba(137,209,133,0.18);
+        --primary-a30: rgba(137,209,133,0.3);
+        --primary-a35: rgba(137,209,133,0.35);
+        --primary-a45: rgba(137,209,133,0.45);
+        --primary-a55: rgba(137,209,133,0.55);
+        --surface-a18: rgba(31,31,31,0.18);
+        --surface-a24: rgba(31,31,31,0.24);
+        --surface-a66: rgba(31,31,31,0.66);
+        --surface-a84: rgba(31,31,31,0.84);
+        --surface-a90: rgba(31,31,31,0.9);
+        --surface-a92: rgba(31,31,31,0.92);
+        --surface-a94: rgba(31,31,31,0.94);
+        --surface-a95: rgba(31,31,31,0.95);
+      }
+      :root[data-theme="dark"][data-palette="telegram"] {
+        --bg: #0E1621;
+        --surface: #17212B;
+        --surface-sunken: #0F1A24;
+        --surface-hover: #202B36;
+        --ink: #F5F5F5;
+        --ink-65: rgba(245,245,245,0.72);
+        --ink-50: rgba(245,245,245,0.58);
+        --ink-35: rgba(245,245,245,0.42);
+        --ink-04: rgba(245,245,245,0.06);
+        --border: rgba(245,245,245,0.1);
+        --border-strong: rgba(245,245,245,0.22);
+        --primary: #4FAE4E;
+        --primary-hover: #64B863;
+        --primary-active: #469945;
+        --primary-ink: #8DCA8C;
+        --primary-tint: rgba(79,174,78,0.14);
+        --primary-tint-border: rgba(79,174,78,0.4);
+        --paper: #17212B;
+        --accent: #4FAE4E;
+        --accent-text: #8DCA8C;
+        --accent-fill: #469945;
+        --api: #6AB2F2;
+        --api-fill: #558EC2;
+        --success: #4FAE4E;
+        --success-text: #84C683;
+        --warn: #E5B14A;
+        --warn-text: #EAC16E;
+        --danger: #E55252;
+        --danger-text: #EC7D7D;
+        --danger-tint: rgba(229,82,82,0.14);
+        --info-tint: rgba(106,178,242,0.14);
+        --info-text: #97C9F6;
+        --accent-warm: #F0A23C;
+        --accent-warm-text: #F4BE76;
+        --surface-glass: rgba(14,22,33,0.86);
+        --on-primary: #0E1621;
+        --ink-a02: rgba(245,245,245,0.02);
+        --ink-a03: rgba(245,245,245,0.03);
+        --ink-a04: rgba(245,245,245,0.04);
+        --ink-a05: rgba(245,245,245,0.05);
+        --ink-a06: rgba(245,245,245,0.06);
+        --ink-a07: rgba(245,245,245,0.07);
+        --ink-a08: rgba(245,245,245,0.08);
+        --ink-a09: rgba(245,245,245,0.09);
+        --ink-a10: rgba(245,245,245,0.1);
+        --ink-a12: rgba(245,245,245,0.12);
+        --ink-a15: rgba(245,245,245,0.15);
+        --ink-a18: rgba(245,245,245,0.18);
+        --ink-a20: rgba(245,245,245,0.2);
+        --ink-a24: rgba(245,245,245,0.24);
+        --ink-a25: rgba(245,245,245,0.25);
+        --ink-a30: rgba(245,245,245,0.3);
+        --ink-a35: rgba(245,245,245,0.35);
+        --ink-a36: rgba(245,245,245,0.36);
+        --ink-a45: rgba(245,245,245,0.45);
+        --ink-a50: rgba(245,245,245,0.5);
+        --ink-a52: rgba(245,245,245,0.52);
+        --ink-a55: rgba(245,245,245,0.55);
+        --ink-a56: rgba(245,245,245,0.56);
+        --ink-a58: rgba(245,245,245,0.58);
+        --ink-a60: rgba(245,245,245,0.6);
+        --ink-a62: rgba(245,245,245,0.62);
+        --ink-a65: rgba(245,245,245,0.65);
+        --ink-a66: rgba(245,245,245,0.66);
+        --ink-a70: rgba(245,245,245,0.7);
+        --ink-a75: rgba(245,245,245,0.75);
+        --ink-a78: rgba(245,245,245,0.78);
+        --ink-a80: rgba(245,245,245,0.8);
+        --ink-a82: rgba(245,245,245,0.82);
+        --ink-a85: rgba(245,245,245,0.85);
+        --primary-a00: rgba(79,174,78,0.0);
+        --primary-a06: rgba(79,174,78,0.06);
+        --primary-a08: rgba(79,174,78,0.08);
+        --primary-a10: rgba(79,174,78,0.1);
+        --primary-a12: rgba(79,174,78,0.12);
+        --primary-a18: rgba(79,174,78,0.18);
+        --primary-a30: rgba(79,174,78,0.3);
+        --primary-a35: rgba(79,174,78,0.35);
+        --primary-a45: rgba(79,174,78,0.45);
+        --primary-a55: rgba(79,174,78,0.55);
+        --surface-a18: rgba(23,33,43,0.18);
+        --surface-a24: rgba(23,33,43,0.24);
+        --surface-a66: rgba(23,33,43,0.66);
+        --surface-a84: rgba(23,33,43,0.84);
+        --surface-a90: rgba(23,33,43,0.9);
+        --surface-a92: rgba(23,33,43,0.92);
+        --surface-a94: rgba(23,33,43,0.94);
+        --surface-a95: rgba(23,33,43,0.95);
+      }
+      :root[data-theme="dark"][data-palette="slack"] {
+        --bg: #121016;
+        --surface: #1A1D21;
+        --surface-sunken: #19171D;
+        --surface-hover: #27242C;
+        --ink: #D1D2D3;
+        --ink-65: rgba(209,210,211,0.72);
+        --ink-50: rgba(209,210,211,0.58);
+        --ink-35: rgba(209,210,211,0.42);
+        --ink-04: rgba(209,210,211,0.06);
+        --border: rgba(209,210,211,0.1);
+        --border-strong: rgba(209,210,211,0.22);
+        --primary: #2BAC76;
+        --primary-hover: #44B686;
+        --primary-active: #269768;
+        --primary-ink: #75C9A6;
+        --primary-tint: rgba(43,172,118,0.14);
+        --primary-tint-border: rgba(43,172,118,0.4);
+        --paper: #1A1D21;
+        --accent: #2BAC76;
+        --accent-text: #75C9A6;
+        --accent-fill: #269768;
+        --api: #1D9BD1;
+        --api-fill: #177CA7;
+        --success: #2BAC76;
+        --success-text: #6BC59F;
+        --warn: #ECB22E;
+        --warn-text: #F0C158;
+        --danger: #E01E5A;
+        --danger-text: #E85683;
+        --danger-tint: rgba(224,30,90,0.14);
+        --info-tint: rgba(29,155,209,0.14);
+        --info-text: #61B9DF;
+        --accent-warm: #E8912D;
+        --accent-warm-text: #EFB26C;
+        --surface-glass: rgba(18,16,22,0.86);
+        --on-primary: #121016;
+        --ink-a02: rgba(209,210,211,0.02);
+        --ink-a03: rgba(209,210,211,0.03);
+        --ink-a04: rgba(209,210,211,0.04);
+        --ink-a05: rgba(209,210,211,0.05);
+        --ink-a06: rgba(209,210,211,0.06);
+        --ink-a07: rgba(209,210,211,0.07);
+        --ink-a08: rgba(209,210,211,0.08);
+        --ink-a09: rgba(209,210,211,0.09);
+        --ink-a10: rgba(209,210,211,0.1);
+        --ink-a12: rgba(209,210,211,0.12);
+        --ink-a15: rgba(209,210,211,0.15);
+        --ink-a18: rgba(209,210,211,0.18);
+        --ink-a20: rgba(209,210,211,0.2);
+        --ink-a24: rgba(209,210,211,0.24);
+        --ink-a25: rgba(209,210,211,0.25);
+        --ink-a30: rgba(209,210,211,0.3);
+        --ink-a35: rgba(209,210,211,0.35);
+        --ink-a36: rgba(209,210,211,0.36);
+        --ink-a45: rgba(209,210,211,0.45);
+        --ink-a50: rgba(209,210,211,0.5);
+        --ink-a52: rgba(209,210,211,0.52);
+        --ink-a55: rgba(209,210,211,0.55);
+        --ink-a56: rgba(209,210,211,0.56);
+        --ink-a58: rgba(209,210,211,0.58);
+        --ink-a60: rgba(209,210,211,0.6);
+        --ink-a62: rgba(209,210,211,0.62);
+        --ink-a65: rgba(209,210,211,0.65);
+        --ink-a66: rgba(209,210,211,0.66);
+        --ink-a70: rgba(209,210,211,0.7);
+        --ink-a75: rgba(209,210,211,0.75);
+        --ink-a78: rgba(209,210,211,0.78);
+        --ink-a80: rgba(209,210,211,0.8);
+        --ink-a82: rgba(209,210,211,0.82);
+        --ink-a85: rgba(209,210,211,0.85);
+        --primary-a00: rgba(43,172,118,0.0);
+        --primary-a06: rgba(43,172,118,0.06);
+        --primary-a08: rgba(43,172,118,0.08);
+        --primary-a10: rgba(43,172,118,0.1);
+        --primary-a12: rgba(43,172,118,0.12);
+        --primary-a18: rgba(43,172,118,0.18);
+        --primary-a30: rgba(43,172,118,0.3);
+        --primary-a35: rgba(43,172,118,0.35);
+        --primary-a45: rgba(43,172,118,0.45);
+        --primary-a55: rgba(43,172,118,0.55);
+        --surface-a18: rgba(26,29,33,0.18);
+        --surface-a24: rgba(26,29,33,0.24);
+        --surface-a66: rgba(26,29,33,0.66);
+        --surface-a84: rgba(26,29,33,0.84);
+        --surface-a90: rgba(26,29,33,0.9);
+        --surface-a92: rgba(26,29,33,0.92);
+        --surface-a94: rgba(26,29,33,0.94);
+        --surface-a95: rgba(26,29,33,0.95);
+      }
+      :root[data-theme="dark"][data-palette="solarized"] {
+        --bg: #00212B;
+        --surface: #002B36;
+        --surface-sunken: #073642;
+        --surface-hover: #0B4252;
+        --ink: #93A1A1;
+        --ink-65: rgba(147,161,161,0.72);
+        --ink-50: rgba(147,161,161,0.58);
+        --ink-35: rgba(147,161,161,0.42);
+        --ink-04: rgba(147,161,161,0.06);
+        --border: rgba(147,161,161,0.1);
+        --border-strong: rgba(147,161,161,0.22);
+        --primary: #859900;
+        --primary-hover: #94A51F;
+        --primary-active: #758700;
+        --primary-ink: #B0BD59;
+        --primary-tint: rgba(133,153,0,0.14);
+        --primary-tint-border: rgba(133,153,0,0.4);
+        --paper: #002B36;
+        --accent: #859900;
+        --accent-text: #B0BD59;
+        --accent-fill: #758700;
+        --api: #268BD2;
+        --api-fill: #1E6FA8;
+        --success: #859900;
+        --success-text: #AAB84C;
+        --warn: #B58900;
+        --warn-text: #C4A133;
+        --danger: #DC322F;
+        --danger-text: #E56563;
+        --danger-tint: rgba(220,50,47,0.14);
+        --info-tint: rgba(38,139,210,0.14);
+        --info-text: #67AEE0;
+        --accent-warm: #CB4B16;
+        --accent-warm-text: #DB815C;
+        --surface-glass: rgba(0,33,43,0.86);
+        --on-primary: #00212B;
+        --ink-a02: rgba(147,161,161,0.02);
+        --ink-a03: rgba(147,161,161,0.03);
+        --ink-a04: rgba(147,161,161,0.04);
+        --ink-a05: rgba(147,161,161,0.05);
+        --ink-a06: rgba(147,161,161,0.06);
+        --ink-a07: rgba(147,161,161,0.07);
+        --ink-a08: rgba(147,161,161,0.08);
+        --ink-a09: rgba(147,161,161,0.09);
+        --ink-a10: rgba(147,161,161,0.1);
+        --ink-a12: rgba(147,161,161,0.12);
+        --ink-a15: rgba(147,161,161,0.15);
+        --ink-a18: rgba(147,161,161,0.18);
+        --ink-a20: rgba(147,161,161,0.2);
+        --ink-a24: rgba(147,161,161,0.24);
+        --ink-a25: rgba(147,161,161,0.25);
+        --ink-a30: rgba(147,161,161,0.3);
+        --ink-a35: rgba(147,161,161,0.35);
+        --ink-a36: rgba(147,161,161,0.36);
+        --ink-a45: rgba(147,161,161,0.45);
+        --ink-a50: rgba(147,161,161,0.5);
+        --ink-a52: rgba(147,161,161,0.52);
+        --ink-a55: rgba(147,161,161,0.55);
+        --ink-a56: rgba(147,161,161,0.56);
+        --ink-a58: rgba(147,161,161,0.58);
+        --ink-a60: rgba(147,161,161,0.6);
+        --ink-a62: rgba(147,161,161,0.62);
+        --ink-a65: rgba(147,161,161,0.65);
+        --ink-a66: rgba(147,161,161,0.66);
+        --ink-a70: rgba(147,161,161,0.7);
+        --ink-a75: rgba(147,161,161,0.75);
+        --ink-a78: rgba(147,161,161,0.78);
+        --ink-a80: rgba(147,161,161,0.8);
+        --ink-a82: rgba(147,161,161,0.82);
+        --ink-a85: rgba(147,161,161,0.85);
+        --primary-a00: rgba(133,153,0,0.0);
+        --primary-a06: rgba(133,153,0,0.06);
+        --primary-a08: rgba(133,153,0,0.08);
+        --primary-a10: rgba(133,153,0,0.1);
+        --primary-a12: rgba(133,153,0,0.12);
+        --primary-a18: rgba(133,153,0,0.18);
+        --primary-a30: rgba(133,153,0,0.3);
+        --primary-a35: rgba(133,153,0,0.35);
+        --primary-a45: rgba(133,153,0,0.45);
+        --primary-a55: rgba(133,153,0,0.55);
+        --surface-a18: rgba(0,43,54,0.18);
+        --surface-a24: rgba(0,43,54,0.24);
+        --surface-a66: rgba(0,43,54,0.66);
+        --surface-a84: rgba(0,43,54,0.84);
+        --surface-a90: rgba(0,43,54,0.9);
+        --surface-a92: rgba(0,43,54,0.92);
+        --surface-a94: rgba(0,43,54,0.94);
+        --surface-a95: rgba(0,43,54,0.95);
+      }
+      :root[data-theme="dark"][data-palette="monokai"] {
+        --bg: #221F22;
+        --surface: #2D2A2E;
+        --surface-sunken: #403E41;
+        --surface-hover: #5B595C;
+        --ink: #FCFCFA;
+        --ink-65: rgba(252,252,250,0.72);
+        --ink-50: rgba(252,252,250,0.58);
+        --ink-35: rgba(252,252,250,0.42);
+        --ink-04: rgba(252,252,250,0.06);
+        --border: rgba(252,252,250,0.1);
+        --border-strong: rgba(252,252,250,0.22);
+        --primary: #A9DC76;
+        --primary-hover: #B3E086;
+        --primary-active: #95C268;
+        --primary-ink: #C7E8A6;
+        --primary-tint: rgba(169,220,118,0.14);
+        --primary-tint-border: rgba(169,220,118,0.4);
+        --paper: #2D2A2E;
+        --accent: #A9DC76;
+        --accent-text: #C7E8A6;
+        --accent-fill: #95C268;
+        --api: #78DCE8;
+        --api-fill: #60B0BA;
+        --success: #A9DC76;
+        --success-text: #C3E69F;
+        --warn: #FFD866;
+        --warn-text: #FFE085;
+        --danger: #FF6188;
+        --danger-text: #FF88A6;
+        --danger-tint: rgba(255,97,136,0.14);
+        --info-tint: rgba(120,220,232,0.14);
+        --info-text: #A0E6EF;
+        --accent-warm: #FC9867;
+        --accent-warm-text: #FDB795;
+        --surface-glass: rgba(34,31,34,0.86);
+        --on-primary: #221F22;
+        --ink-a02: rgba(252,252,250,0.02);
+        --ink-a03: rgba(252,252,250,0.03);
+        --ink-a04: rgba(252,252,250,0.04);
+        --ink-a05: rgba(252,252,250,0.05);
+        --ink-a06: rgba(252,252,250,0.06);
+        --ink-a07: rgba(252,252,250,0.07);
+        --ink-a08: rgba(252,252,250,0.08);
+        --ink-a09: rgba(252,252,250,0.09);
+        --ink-a10: rgba(252,252,250,0.1);
+        --ink-a12: rgba(252,252,250,0.12);
+        --ink-a15: rgba(252,252,250,0.15);
+        --ink-a18: rgba(252,252,250,0.18);
+        --ink-a20: rgba(252,252,250,0.2);
+        --ink-a24: rgba(252,252,250,0.24);
+        --ink-a25: rgba(252,252,250,0.25);
+        --ink-a30: rgba(252,252,250,0.3);
+        --ink-a35: rgba(252,252,250,0.35);
+        --ink-a36: rgba(252,252,250,0.36);
+        --ink-a45: rgba(252,252,250,0.45);
+        --ink-a50: rgba(252,252,250,0.5);
+        --ink-a52: rgba(252,252,250,0.52);
+        --ink-a55: rgba(252,252,250,0.55);
+        --ink-a56: rgba(252,252,250,0.56);
+        --ink-a58: rgba(252,252,250,0.58);
+        --ink-a60: rgba(252,252,250,0.6);
+        --ink-a62: rgba(252,252,250,0.62);
+        --ink-a65: rgba(252,252,250,0.65);
+        --ink-a66: rgba(252,252,250,0.66);
+        --ink-a70: rgba(252,252,250,0.7);
+        --ink-a75: rgba(252,252,250,0.75);
+        --ink-a78: rgba(252,252,250,0.78);
+        --ink-a80: rgba(252,252,250,0.8);
+        --ink-a82: rgba(252,252,250,0.82);
+        --ink-a85: rgba(252,252,250,0.85);
+        --primary-a00: rgba(169,220,118,0.0);
+        --primary-a06: rgba(169,220,118,0.06);
+        --primary-a08: rgba(169,220,118,0.08);
+        --primary-a10: rgba(169,220,118,0.1);
+        --primary-a12: rgba(169,220,118,0.12);
+        --primary-a18: rgba(169,220,118,0.18);
+        --primary-a30: rgba(169,220,118,0.3);
+        --primary-a35: rgba(169,220,118,0.35);
+        --primary-a45: rgba(169,220,118,0.45);
+        --primary-a55: rgba(169,220,118,0.55);
+        --surface-a18: rgba(45,42,46,0.18);
+        --surface-a24: rgba(45,42,46,0.24);
+        --surface-a66: rgba(45,42,46,0.66);
+        --surface-a84: rgba(45,42,46,0.84);
+        --surface-a90: rgba(45,42,46,0.9);
+        --surface-a92: rgba(45,42,46,0.92);
+        --surface-a94: rgba(45,42,46,0.94);
+        --surface-a95: rgba(45,42,46,0.95);
+      }
+      :root[data-theme="dark"][data-palette="gruvbox"] {
+        --bg: #1D2021;
+        --surface: #282828;
+        --surface-sunken: #3C3836;
+        --surface-hover: #504945;
+        --ink: #EBDBB2;
+        --ink-65: rgba(235,219,178,0.72);
+        --ink-50: rgba(235,219,178,0.58);
+        --ink-35: rgba(235,219,178,0.42);
+        --ink-04: rgba(235,219,178,0.06);
+        --border: rgba(235,219,178,0.1);
+        --border-strong: rgba(235,219,178,0.22);
+        --primary: #B8BB26;
+        --primary-hover: #C1C340;
+        --primary-active: #A2A521;
+        --primary-ink: #D1D372;
+        --primary-tint: rgba(184,187,38,0.14);
+        --primary-tint-border: rgba(184,187,38,0.4);
+        --paper: #282828;
+        --accent: #B8BB26;
+        --accent-text: #D1D372;
+        --accent-fill: #A2A521;
+        --api: #83A598;
+        --api-fill: #69847A;
+        --success: #B8BB26;
+        --success-text: #CDCF67;
+        --warn: #FABD2F;
+        --warn-text: #FBCA59;
+        --danger: #FB4934;
+        --danger-text: #FC7667;
+        --danger-tint: rgba(251,73,52,0.14);
+        --info-tint: rgba(131,165,152,0.14);
+        --info-text: #A8C0B7;
+        --accent-warm: #FE8019;
+        --accent-warm-text: #FEA65E;
+        --surface-glass: rgba(29,32,33,0.86);
+        --on-primary: #1D2021;
+        --ink-a02: rgba(235,219,178,0.02);
+        --ink-a03: rgba(235,219,178,0.03);
+        --ink-a04: rgba(235,219,178,0.04);
+        --ink-a05: rgba(235,219,178,0.05);
+        --ink-a06: rgba(235,219,178,0.06);
+        --ink-a07: rgba(235,219,178,0.07);
+        --ink-a08: rgba(235,219,178,0.08);
+        --ink-a09: rgba(235,219,178,0.09);
+        --ink-a10: rgba(235,219,178,0.1);
+        --ink-a12: rgba(235,219,178,0.12);
+        --ink-a15: rgba(235,219,178,0.15);
+        --ink-a18: rgba(235,219,178,0.18);
+        --ink-a20: rgba(235,219,178,0.2);
+        --ink-a24: rgba(235,219,178,0.24);
+        --ink-a25: rgba(235,219,178,0.25);
+        --ink-a30: rgba(235,219,178,0.3);
+        --ink-a35: rgba(235,219,178,0.35);
+        --ink-a36: rgba(235,219,178,0.36);
+        --ink-a45: rgba(235,219,178,0.45);
+        --ink-a50: rgba(235,219,178,0.5);
+        --ink-a52: rgba(235,219,178,0.52);
+        --ink-a55: rgba(235,219,178,0.55);
+        --ink-a56: rgba(235,219,178,0.56);
+        --ink-a58: rgba(235,219,178,0.58);
+        --ink-a60: rgba(235,219,178,0.6);
+        --ink-a62: rgba(235,219,178,0.62);
+        --ink-a65: rgba(235,219,178,0.65);
+        --ink-a66: rgba(235,219,178,0.66);
+        --ink-a70: rgba(235,219,178,0.7);
+        --ink-a75: rgba(235,219,178,0.75);
+        --ink-a78: rgba(235,219,178,0.78);
+        --ink-a80: rgba(235,219,178,0.8);
+        --ink-a82: rgba(235,219,178,0.82);
+        --ink-a85: rgba(235,219,178,0.85);
+        --primary-a00: rgba(184,187,38,0.0);
+        --primary-a06: rgba(184,187,38,0.06);
+        --primary-a08: rgba(184,187,38,0.08);
+        --primary-a10: rgba(184,187,38,0.1);
+        --primary-a12: rgba(184,187,38,0.12);
+        --primary-a18: rgba(184,187,38,0.18);
+        --primary-a30: rgba(184,187,38,0.3);
+        --primary-a35: rgba(184,187,38,0.35);
+        --primary-a45: rgba(184,187,38,0.45);
+        --primary-a55: rgba(184,187,38,0.55);
+        --surface-a18: rgba(40,40,40,0.18);
+        --surface-a24: rgba(40,40,40,0.24);
+        --surface-a66: rgba(40,40,40,0.66);
+        --surface-a84: rgba(40,40,40,0.84);
+        --surface-a90: rgba(40,40,40,0.9);
+        --surface-a92: rgba(40,40,40,0.92);
+        --surface-a94: rgba(40,40,40,0.94);
+        --surface-a95: rgba(40,40,40,0.95);
+      }
+      :root[data-theme="dark"][data-palette="rose-pine"] {
+        --bg: #191724;
+        --surface: #1F1D2E;
+        --surface-sunken: #26233A;
+        --surface-hover: #2A273F;
+        --ink: #E0DEF4;
+        --ink-65: rgba(224,222,244,0.72);
+        --ink-50: rgba(224,222,244,0.58);
+        --ink-35: rgba(224,222,244,0.42);
+        --ink-04: rgba(224,222,244,0.06);
+        --border: rgba(224,222,244,0.1);
+        --border-strong: rgba(224,222,244,0.22);
+        --primary: #9CCFD8;
+        --primary-hover: #A8D5DD;
+        --primary-active: #89B6BE;
+        --primary-ink: #BFE0E6;
+        --primary-tint: rgba(156,207,216,0.14);
+        --primary-tint-border: rgba(156,207,216,0.4);
+        --paper: #1F1D2E;
+        --accent: #9CCFD8;
+        --accent-text: #BFE0E6;
+        --accent-fill: #89B6BE;
+        --api: #31748F;
+        --api-fill: #275D72;
+        --success: #9CCFD8;
+        --success-text: #BADDE4;
+        --warn: #F6C177;
+        --warn-text: #F8CD92;
+        --danger: #EB6F92;
+        --danger-text: #F093AD;
+        --danger-tint: rgba(235,111,146,0.14);
+        --info-tint: rgba(49,116,143,0.14);
+        --info-text: #6F9EB1;
+        --accent-warm: #EBBCBA;
+        --accent-warm-text: #F1D0CF;
+        --surface-glass: rgba(25,23,36,0.86);
+        --on-primary: #191724;
+        --ink-a02: rgba(224,222,244,0.02);
+        --ink-a03: rgba(224,222,244,0.03);
+        --ink-a04: rgba(224,222,244,0.04);
+        --ink-a05: rgba(224,222,244,0.05);
+        --ink-a06: rgba(224,222,244,0.06);
+        --ink-a07: rgba(224,222,244,0.07);
+        --ink-a08: rgba(224,222,244,0.08);
+        --ink-a09: rgba(224,222,244,0.09);
+        --ink-a10: rgba(224,222,244,0.1);
+        --ink-a12: rgba(224,222,244,0.12);
+        --ink-a15: rgba(224,222,244,0.15);
+        --ink-a18: rgba(224,222,244,0.18);
+        --ink-a20: rgba(224,222,244,0.2);
+        --ink-a24: rgba(224,222,244,0.24);
+        --ink-a25: rgba(224,222,244,0.25);
+        --ink-a30: rgba(224,222,244,0.3);
+        --ink-a35: rgba(224,222,244,0.35);
+        --ink-a36: rgba(224,222,244,0.36);
+        --ink-a45: rgba(224,222,244,0.45);
+        --ink-a50: rgba(224,222,244,0.5);
+        --ink-a52: rgba(224,222,244,0.52);
+        --ink-a55: rgba(224,222,244,0.55);
+        --ink-a56: rgba(224,222,244,0.56);
+        --ink-a58: rgba(224,222,244,0.58);
+        --ink-a60: rgba(224,222,244,0.6);
+        --ink-a62: rgba(224,222,244,0.62);
+        --ink-a65: rgba(224,222,244,0.65);
+        --ink-a66: rgba(224,222,244,0.66);
+        --ink-a70: rgba(224,222,244,0.7);
+        --ink-a75: rgba(224,222,244,0.75);
+        --ink-a78: rgba(224,222,244,0.78);
+        --ink-a80: rgba(224,222,244,0.8);
+        --ink-a82: rgba(224,222,244,0.82);
+        --ink-a85: rgba(224,222,244,0.85);
+        --primary-a00: rgba(156,207,216,0.0);
+        --primary-a06: rgba(156,207,216,0.06);
+        --primary-a08: rgba(156,207,216,0.08);
+        --primary-a10: rgba(156,207,216,0.1);
+        --primary-a12: rgba(156,207,216,0.12);
+        --primary-a18: rgba(156,207,216,0.18);
+        --primary-a30: rgba(156,207,216,0.3);
+        --primary-a35: rgba(156,207,216,0.35);
+        --primary-a45: rgba(156,207,216,0.45);
+        --primary-a55: rgba(156,207,216,0.55);
+        --surface-a18: rgba(31,29,46,0.18);
+        --surface-a24: rgba(31,29,46,0.24);
+        --surface-a66: rgba(31,29,46,0.66);
+        --surface-a84: rgba(31,29,46,0.84);
+        --surface-a90: rgba(31,29,46,0.9);
+        --surface-a92: rgba(31,29,46,0.92);
+        --surface-a94: rgba(31,29,46,0.94);
+        --surface-a95: rgba(31,29,46,0.95);
+      }
+      :root[data-theme="dark"][data-palette="ayu"] {
+        --bg: #0B0E14;
+        --surface: #0D1017;
+        --surface-sunken: #131721;
+        --surface-hover: #1A1F29;
+        --ink: #BFBDB6;
+        --ink-65: rgba(191,189,182,0.72);
+        --ink-50: rgba(191,189,182,0.58);
+        --ink-35: rgba(191,189,182,0.42);
+        --ink-04: rgba(191,189,182,0.06);
+        --border: rgba(191,189,182,0.1);
+        --border-strong: rgba(191,189,182,0.22);
+        --primary: #AAD94C;
+        --primary-hover: #B4DE61;
+        --primary-active: #96BF43;
+        --primary-ink: #C8E68B;
+        --primary-tint: rgba(170,217,76,0.14);
+        --primary-tint-border: rgba(170,217,76,0.4);
+        --paper: #0D1017;
+        --accent: #AAD94C;
+        --accent-text: #C8E68B;
+        --accent-fill: #96BF43;
+        --api: #59C2FF;
+        --api-fill: #479BCC;
+        --success: #AAD94C;
+        --success-text: #C4E482;
+        --warn: #E6B450;
+        --warn-text: #EBC373;
+        --danger: #D95757;
+        --danger-text: #E28181;
+        --danger-tint: rgba(217,87,87,0.14);
+        --info-tint: rgba(89,194,255,0.14);
+        --info-text: #8BD4FF;
+        --accent-warm: #FF8F40;
+        --accent-warm-text: #FFB179;
+        --surface-glass: rgba(11,14,20,0.86);
+        --on-primary: #0B0E14;
+        --ink-a02: rgba(191,189,182,0.02);
+        --ink-a03: rgba(191,189,182,0.03);
+        --ink-a04: rgba(191,189,182,0.04);
+        --ink-a05: rgba(191,189,182,0.05);
+        --ink-a06: rgba(191,189,182,0.06);
+        --ink-a07: rgba(191,189,182,0.07);
+        --ink-a08: rgba(191,189,182,0.08);
+        --ink-a09: rgba(191,189,182,0.09);
+        --ink-a10: rgba(191,189,182,0.1);
+        --ink-a12: rgba(191,189,182,0.12);
+        --ink-a15: rgba(191,189,182,0.15);
+        --ink-a18: rgba(191,189,182,0.18);
+        --ink-a20: rgba(191,189,182,0.2);
+        --ink-a24: rgba(191,189,182,0.24);
+        --ink-a25: rgba(191,189,182,0.25);
+        --ink-a30: rgba(191,189,182,0.3);
+        --ink-a35: rgba(191,189,182,0.35);
+        --ink-a36: rgba(191,189,182,0.36);
+        --ink-a45: rgba(191,189,182,0.45);
+        --ink-a50: rgba(191,189,182,0.5);
+        --ink-a52: rgba(191,189,182,0.52);
+        --ink-a55: rgba(191,189,182,0.55);
+        --ink-a56: rgba(191,189,182,0.56);
+        --ink-a58: rgba(191,189,182,0.58);
+        --ink-a60: rgba(191,189,182,0.6);
+        --ink-a62: rgba(191,189,182,0.62);
+        --ink-a65: rgba(191,189,182,0.65);
+        --ink-a66: rgba(191,189,182,0.66);
+        --ink-a70: rgba(191,189,182,0.7);
+        --ink-a75: rgba(191,189,182,0.75);
+        --ink-a78: rgba(191,189,182,0.78);
+        --ink-a80: rgba(191,189,182,0.8);
+        --ink-a82: rgba(191,189,182,0.82);
+        --ink-a85: rgba(191,189,182,0.85);
+        --primary-a00: rgba(170,217,76,0.0);
+        --primary-a06: rgba(170,217,76,0.06);
+        --primary-a08: rgba(170,217,76,0.08);
+        --primary-a10: rgba(170,217,76,0.1);
+        --primary-a12: rgba(170,217,76,0.12);
+        --primary-a18: rgba(170,217,76,0.18);
+        --primary-a30: rgba(170,217,76,0.3);
+        --primary-a35: rgba(170,217,76,0.35);
+        --primary-a45: rgba(170,217,76,0.45);
+        --primary-a55: rgba(170,217,76,0.55);
+        --surface-a18: rgba(13,16,23,0.18);
+        --surface-a24: rgba(13,16,23,0.24);
+        --surface-a66: rgba(13,16,23,0.66);
+        --surface-a84: rgba(13,16,23,0.84);
+        --surface-a90: rgba(13,16,23,0.9);
+        --surface-a92: rgba(13,16,23,0.92);
+        --surface-a94: rgba(13,16,23,0.94);
+        --surface-a95: rgba(13,16,23,0.95);
+      }
+      :root[data-theme="dark"][data-palette="night-owl"] {
+        --bg: #010E1A;
+        --surface: #011627;
+        --surface-sunken: #0B2942;
+        --surface-hover: #13344F;
+        --ink: #D6DEEB;
+        --ink-65: rgba(214,222,235,0.72);
+        --ink-50: rgba(214,222,235,0.58);
+        --ink-35: rgba(214,222,235,0.42);
+        --ink-04: rgba(214,222,235,0.06);
+        --border: rgba(214,222,235,0.1);
+        --border-strong: rgba(214,222,235,0.22);
+        --primary: #ADDB67;
+        --primary-hover: #B7DF79;
+        --primary-active: #98C15B;
+        --primary-ink: #CAE89C;
+        --primary-tint: rgba(173,219,103,0.14);
+        --primary-tint-border: rgba(173,219,103,0.4);
+        --paper: #011627;
+        --accent: #ADDB67;
+        --accent-text: #CAE89C;
+        --accent-fill: #98C15B;
+        --api: #82AAFF;
+        --api-fill: #6888CC;
+        --success: #ADDB67;
+        --success-text: #C6E695;
+        --warn: #ECC48D;
+        --warn-text: #F0D0A4;
+        --danger: #EF5350;
+        --danger-text: #F37E7C;
+        --danger-tint: rgba(239,83,80,0.14);
+        --info-tint: rgba(130,170,255,0.14);
+        --info-text: #A8C4FF;
+        --accent-warm: #F78C6C;
+        --accent-warm-text: #F9AE98;
+        --surface-glass: rgba(1,14,26,0.86);
+        --on-primary: #010E1A;
+        --ink-a02: rgba(214,222,235,0.02);
+        --ink-a03: rgba(214,222,235,0.03);
+        --ink-a04: rgba(214,222,235,0.04);
+        --ink-a05: rgba(214,222,235,0.05);
+        --ink-a06: rgba(214,222,235,0.06);
+        --ink-a07: rgba(214,222,235,0.07);
+        --ink-a08: rgba(214,222,235,0.08);
+        --ink-a09: rgba(214,222,235,0.09);
+        --ink-a10: rgba(214,222,235,0.1);
+        --ink-a12: rgba(214,222,235,0.12);
+        --ink-a15: rgba(214,222,235,0.15);
+        --ink-a18: rgba(214,222,235,0.18);
+        --ink-a20: rgba(214,222,235,0.2);
+        --ink-a24: rgba(214,222,235,0.24);
+        --ink-a25: rgba(214,222,235,0.25);
+        --ink-a30: rgba(214,222,235,0.3);
+        --ink-a35: rgba(214,222,235,0.35);
+        --ink-a36: rgba(214,222,235,0.36);
+        --ink-a45: rgba(214,222,235,0.45);
+        --ink-a50: rgba(214,222,235,0.5);
+        --ink-a52: rgba(214,222,235,0.52);
+        --ink-a55: rgba(214,222,235,0.55);
+        --ink-a56: rgba(214,222,235,0.56);
+        --ink-a58: rgba(214,222,235,0.58);
+        --ink-a60: rgba(214,222,235,0.6);
+        --ink-a62: rgba(214,222,235,0.62);
+        --ink-a65: rgba(214,222,235,0.65);
+        --ink-a66: rgba(214,222,235,0.66);
+        --ink-a70: rgba(214,222,235,0.7);
+        --ink-a75: rgba(214,222,235,0.75);
+        --ink-a78: rgba(214,222,235,0.78);
+        --ink-a80: rgba(214,222,235,0.8);
+        --ink-a82: rgba(214,222,235,0.82);
+        --ink-a85: rgba(214,222,235,0.85);
+        --primary-a00: rgba(173,219,103,0.0);
+        --primary-a06: rgba(173,219,103,0.06);
+        --primary-a08: rgba(173,219,103,0.08);
+        --primary-a10: rgba(173,219,103,0.1);
+        --primary-a12: rgba(173,219,103,0.12);
+        --primary-a18: rgba(173,219,103,0.18);
+        --primary-a30: rgba(173,219,103,0.3);
+        --primary-a35: rgba(173,219,103,0.35);
+        --primary-a45: rgba(173,219,103,0.45);
+        --primary-a55: rgba(173,219,103,0.55);
+        --surface-a18: rgba(1,22,39,0.18);
+        --surface-a24: rgba(1,22,39,0.24);
+        --surface-a66: rgba(1,22,39,0.66);
+        --surface-a84: rgba(1,22,39,0.84);
+        --surface-a90: rgba(1,22,39,0.9);
+        --surface-a92: rgba(1,22,39,0.92);
+        --surface-a94: rgba(1,22,39,0.94);
+        --surface-a95: rgba(1,22,39,0.95);
+      }
+
+      /* Accent: brand green by default. "theme" is the colour each dark theme
+         is known for; the rest are fixed hues with a light and a dark value. */
+      :root[data-theme="dark"]:not([data-palette])[data-accent="theme"] {
+        --primary: #7C9CFF;
+        --primary-hover: #8CA8FF;
+        --primary-active: #6D89E0;
+        --primary-ink: #AABFFF;
+        --primary-tint: rgba(124,156,255,0.14);
+        --primary-tint-border: rgba(124,156,255,0.4);
+        --accent: #7C9CFF;
+        --accent-text: #AABFFF;
+        --accent-fill: #6D89E0;
+        --primary-a00: rgba(124,156,255,0.0);
+        --primary-a06: rgba(124,156,255,0.06);
+        --primary-a08: rgba(124,156,255,0.08);
+        --primary-a10: rgba(124,156,255,0.1);
+        --primary-a12: rgba(124,156,255,0.12);
+        --primary-a18: rgba(124,156,255,0.18);
+        --primary-a30: rgba(124,156,255,0.3);
+        --primary-a35: rgba(124,156,255,0.35);
+        --primary-a45: rgba(124,156,255,0.45);
+        --primary-a55: rgba(124,156,255,0.55);
+      }
+      :root[data-theme="dark"][data-palette="tokyo-night"][data-accent="theme"] {
+        --primary: #7AA2F7;
+        --primary-hover: #8AADF8;
+        --primary-active: #6B8FD9;
+        --primary-ink: #A9C3FA;
+        --primary-tint: rgba(122,162,247,0.14);
+        --primary-tint-border: rgba(122,162,247,0.4);
+        --accent: #7AA2F7;
+        --accent-text: #A9C3FA;
+        --accent-fill: #6B8FD9;
+        --primary-a00: rgba(122,162,247,0.0);
+        --primary-a06: rgba(122,162,247,0.06);
+        --primary-a08: rgba(122,162,247,0.08);
+        --primary-a10: rgba(122,162,247,0.1);
+        --primary-a12: rgba(122,162,247,0.12);
+        --primary-a18: rgba(122,162,247,0.18);
+        --primary-a30: rgba(122,162,247,0.3);
+        --primary-a35: rgba(122,162,247,0.35);
+        --primary-a45: rgba(122,162,247,0.45);
+        --primary-a55: rgba(122,162,247,0.55);
+      }
+      :root[data-theme="dark"][data-palette="catppuccin"][data-accent="theme"] {
+        --primary: #CBA6F7;
+        --primary-hover: #D1B1F8;
+        --primary-active: #B392D9;
+        --primary-ink: #DDC5FA;
+        --primary-tint: rgba(203,166,247,0.14);
+        --primary-tint-border: rgba(203,166,247,0.4);
+        --accent: #CBA6F7;
+        --accent-text: #DDC5FA;
+        --accent-fill: #B392D9;
+        --primary-a00: rgba(203,166,247,0.0);
+        --primary-a06: rgba(203,166,247,0.06);
+        --primary-a08: rgba(203,166,247,0.08);
+        --primary-a10: rgba(203,166,247,0.1);
+        --primary-a12: rgba(203,166,247,0.12);
+        --primary-a18: rgba(203,166,247,0.18);
+        --primary-a30: rgba(203,166,247,0.3);
+        --primary-a35: rgba(203,166,247,0.35);
+        --primary-a45: rgba(203,166,247,0.45);
+        --primary-a55: rgba(203,166,247,0.55);
+      }
+      :root[data-theme="dark"][data-palette="nord"][data-accent="theme"] {
+        --primary: #88C0D0;
+        --primary-hover: #96C8D6;
+        --primary-active: #78A9B7;
+        --primary-ink: #B2D6E0;
+        --primary-tint: rgba(136,192,208,0.14);
+        --primary-tint-border: rgba(136,192,208,0.4);
+        --accent: #88C0D0;
+        --accent-text: #B2D6E0;
+        --accent-fill: #78A9B7;
+        --primary-a00: rgba(136,192,208,0.0);
+        --primary-a06: rgba(136,192,208,0.06);
+        --primary-a08: rgba(136,192,208,0.08);
+        --primary-a10: rgba(136,192,208,0.1);
+        --primary-a12: rgba(136,192,208,0.12);
+        --primary-a18: rgba(136,192,208,0.18);
+        --primary-a30: rgba(136,192,208,0.3);
+        --primary-a35: rgba(136,192,208,0.35);
+        --primary-a45: rgba(136,192,208,0.45);
+        --primary-a55: rgba(136,192,208,0.55);
+      }
+      :root[data-theme="dark"][data-palette="dracula"][data-accent="theme"] {
+        --primary: #BD93F9;
+        --primary-hover: #C5A0FA;
+        --primary-active: #A681DB;
+        --primary-ink: #D4B9FB;
+        --primary-tint: rgba(189,147,249,0.14);
+        --primary-tint-border: rgba(189,147,249,0.4);
+        --accent: #BD93F9;
+        --accent-text: #D4B9FB;
+        --accent-fill: #A681DB;
+        --primary-a00: rgba(189,147,249,0.0);
+        --primary-a06: rgba(189,147,249,0.06);
+        --primary-a08: rgba(189,147,249,0.08);
+        --primary-a10: rgba(189,147,249,0.1);
+        --primary-a12: rgba(189,147,249,0.12);
+        --primary-a18: rgba(189,147,249,0.18);
+        --primary-a30: rgba(189,147,249,0.3);
+        --primary-a35: rgba(189,147,249,0.35);
+        --primary-a45: rgba(189,147,249,0.45);
+        --primary-a55: rgba(189,147,249,0.55);
+      }
+      :root[data-theme="dark"][data-palette="github"][data-accent="theme"] {
+        --primary: #58A6FF;
+        --primary-hover: #6CB1FF;
+        --primary-active: #4D92E0;
+        --primary-ink: #92C5FF;
+        --primary-tint: rgba(88,166,255,0.14);
+        --primary-tint-border: rgba(88,166,255,0.4);
+        --accent: #58A6FF;
+        --accent-text: #92C5FF;
+        --accent-fill: #4D92E0;
+        --primary-a00: rgba(88,166,255,0.0);
+        --primary-a06: rgba(88,166,255,0.06);
+        --primary-a08: rgba(88,166,255,0.08);
+        --primary-a10: rgba(88,166,255,0.1);
+        --primary-a12: rgba(88,166,255,0.12);
+        --primary-a18: rgba(88,166,255,0.18);
+        --primary-a30: rgba(88,166,255,0.3);
+        --primary-a35: rgba(88,166,255,0.35);
+        --primary-a45: rgba(88,166,255,0.45);
+        --primary-a55: rgba(88,166,255,0.55);
+      }
+      :root[data-theme="dark"][data-palette="one-dark"][data-accent="theme"] {
+        --primary: #61AFEF;
+        --primary-hover: #74B9F1;
+        --primary-active: #559AD2;
+        --primary-ink: #98CBF5;
+        --primary-tint: rgba(97,175,239,0.14);
+        --primary-tint-border: rgba(97,175,239,0.4);
+        --accent: #61AFEF;
+        --accent-text: #98CBF5;
+        --accent-fill: #559AD2;
+        --primary-a00: rgba(97,175,239,0.0);
+        --primary-a06: rgba(97,175,239,0.06);
+        --primary-a08: rgba(97,175,239,0.08);
+        --primary-a10: rgba(97,175,239,0.1);
+        --primary-a12: rgba(97,175,239,0.12);
+        --primary-a18: rgba(97,175,239,0.18);
+        --primary-a30: rgba(97,175,239,0.3);
+        --primary-a35: rgba(97,175,239,0.35);
+        --primary-a45: rgba(97,175,239,0.45);
+        --primary-a55: rgba(97,175,239,0.55);
+      }
+      :root[data-theme="dark"][data-palette="vscode"][data-accent="theme"] {
+        --primary: #0078D4;
+        --primary-hover: #1F88D9;
+        --primary-active: #006ABB;
+        --primary-ink: #59A7E3;
+        --primary-tint: rgba(0,120,212,0.14);
+        --primary-tint-border: rgba(0,120,212,0.4);
+        --accent: #0078D4;
+        --accent-text: #59A7E3;
+        --accent-fill: #006ABB;
+        --primary-a00: rgba(0,120,212,0.0);
+        --primary-a06: rgba(0,120,212,0.06);
+        --primary-a08: rgba(0,120,212,0.08);
+        --primary-a10: rgba(0,120,212,0.1);
+        --primary-a12: rgba(0,120,212,0.12);
+        --primary-a18: rgba(0,120,212,0.18);
+        --primary-a30: rgba(0,120,212,0.3);
+        --primary-a35: rgba(0,120,212,0.35);
+        --primary-a45: rgba(0,120,212,0.45);
+        --primary-a55: rgba(0,120,212,0.55);
+      }
+      :root[data-theme="dark"][data-palette="telegram"][data-accent="theme"] {
+        --primary: #6AB2F2;
+        --primary-hover: #7CBBF4;
+        --primary-active: #5D9DD5;
+        --primary-ink: #9ECDF7;
+        --primary-tint: rgba(106,178,242,0.14);
+        --primary-tint-border: rgba(106,178,242,0.4);
+        --accent: #6AB2F2;
+        --accent-text: #9ECDF7;
+        --accent-fill: #5D9DD5;
+        --primary-a00: rgba(106,178,242,0.0);
+        --primary-a06: rgba(106,178,242,0.06);
+        --primary-a08: rgba(106,178,242,0.08);
+        --primary-a10: rgba(106,178,242,0.1);
+        --primary-a12: rgba(106,178,242,0.12);
+        --primary-a18: rgba(106,178,242,0.18);
+        --primary-a30: rgba(106,178,242,0.3);
+        --primary-a35: rgba(106,178,242,0.35);
+        --primary-a45: rgba(106,178,242,0.45);
+        --primary-a55: rgba(106,178,242,0.55);
+      }
+      :root[data-theme="dark"][data-palette="slack"][data-accent="theme"] {
+        --primary: #9B5FA5;
+        --primary-hover: #A772B0;
+        --primary-active: #885491;
+        --primary-ink: #BE97C4;
+        --primary-tint: rgba(155,95,165,0.14);
+        --primary-tint-border: rgba(155,95,165,0.4);
+        --accent: #9B5FA5;
+        --accent-text: #BE97C4;
+        --accent-fill: #885491;
+        --primary-a00: rgba(155,95,165,0.0);
+        --primary-a06: rgba(155,95,165,0.06);
+        --primary-a08: rgba(155,95,165,0.08);
+        --primary-a10: rgba(155,95,165,0.1);
+        --primary-a12: rgba(155,95,165,0.12);
+        --primary-a18: rgba(155,95,165,0.18);
+        --primary-a30: rgba(155,95,165,0.3);
+        --primary-a35: rgba(155,95,165,0.35);
+        --primary-a45: rgba(155,95,165,0.45);
+        --primary-a55: rgba(155,95,165,0.55);
+      }
+      :root[data-theme="dark"][data-palette="solarized"][data-accent="theme"] {
+        --primary: #2AA198;
+        --primary-hover: #44ACA4;
+        --primary-active: #258E86;
+        --primary-ink: #75C2BC;
+        --primary-tint: rgba(42,161,152,0.14);
+        --primary-tint-border: rgba(42,161,152,0.4);
+        --accent: #2AA198;
+        --accent-text: #75C2BC;
+        --accent-fill: #258E86;
+        --primary-a00: rgba(42,161,152,0.0);
+        --primary-a06: rgba(42,161,152,0.06);
+        --primary-a08: rgba(42,161,152,0.08);
+        --primary-a10: rgba(42,161,152,0.1);
+        --primary-a12: rgba(42,161,152,0.12);
+        --primary-a18: rgba(42,161,152,0.18);
+        --primary-a30: rgba(42,161,152,0.3);
+        --primary-a35: rgba(42,161,152,0.35);
+        --primary-a45: rgba(42,161,152,0.45);
+        --primary-a55: rgba(42,161,152,0.55);
+      }
+      :root[data-theme="dark"][data-palette="monokai"][data-accent="theme"] {
+        --primary: #AB9DF2;
+        --primary-hover: #B5A9F4;
+        --primary-active: #968AD5;
+        --primary-ink: #C8BFF7;
+        --primary-tint: rgba(171,157,242,0.14);
+        --primary-tint-border: rgba(171,157,242,0.4);
+        --accent: #AB9DF2;
+        --accent-text: #C8BFF7;
+        --accent-fill: #968AD5;
+        --primary-a00: rgba(171,157,242,0.0);
+        --primary-a06: rgba(171,157,242,0.06);
+        --primary-a08: rgba(171,157,242,0.08);
+        --primary-a10: rgba(171,157,242,0.1);
+        --primary-a12: rgba(171,157,242,0.12);
+        --primary-a18: rgba(171,157,242,0.18);
+        --primary-a30: rgba(171,157,242,0.3);
+        --primary-a35: rgba(171,157,242,0.35);
+        --primary-a45: rgba(171,157,242,0.45);
+        --primary-a55: rgba(171,157,242,0.55);
+      }
+      :root[data-theme="dark"][data-palette="gruvbox"][data-accent="theme"] {
+        --primary: #FE8019;
+        --primary-hover: #FE8F35;
+        --primary-active: #E07116;
+        --primary-ink: #FEAC6A;
+        --primary-tint: rgba(254,128,25,0.14);
+        --primary-tint-border: rgba(254,128,25,0.4);
+        --accent: #FE8019;
+        --accent-text: #FEAC6A;
+        --accent-fill: #E07116;
+        --primary-a00: rgba(254,128,25,0.0);
+        --primary-a06: rgba(254,128,25,0.06);
+        --primary-a08: rgba(254,128,25,0.08);
+        --primary-a10: rgba(254,128,25,0.1);
+        --primary-a12: rgba(254,128,25,0.12);
+        --primary-a18: rgba(254,128,25,0.18);
+        --primary-a30: rgba(254,128,25,0.3);
+        --primary-a35: rgba(254,128,25,0.35);
+        --primary-a45: rgba(254,128,25,0.45);
+        --primary-a55: rgba(254,128,25,0.55);
+      }
+      :root[data-theme="dark"][data-palette="rose-pine"][data-accent="theme"] {
+        --primary: #C4A7E7;
+        --primary-hover: #CBB2EA;
+        --primary-active: #AC93CB;
+        --primary-ink: #D9C6EF;
+        --primary-tint: rgba(196,167,231,0.14);
+        --primary-tint-border: rgba(196,167,231,0.4);
+        --accent: #C4A7E7;
+        --accent-text: #D9C6EF;
+        --accent-fill: #AC93CB;
+        --primary-a00: rgba(196,167,231,0.0);
+        --primary-a06: rgba(196,167,231,0.06);
+        --primary-a08: rgba(196,167,231,0.08);
+        --primary-a10: rgba(196,167,231,0.1);
+        --primary-a12: rgba(196,167,231,0.12);
+        --primary-a18: rgba(196,167,231,0.18);
+        --primary-a30: rgba(196,167,231,0.3);
+        --primary-a35: rgba(196,167,231,0.35);
+        --primary-a45: rgba(196,167,231,0.45);
+        --primary-a55: rgba(196,167,231,0.55);
+      }
+      :root[data-theme="dark"][data-palette="ayu"][data-accent="theme"] {
+        --primary: #FF8F40;
+        --primary-hover: #FF9C57;
+        --primary-active: #E07E38;
+        --primary-ink: #FFB683;
+        --primary-tint: rgba(255,143,64,0.14);
+        --primary-tint-border: rgba(255,143,64,0.4);
+        --accent: #FF8F40;
+        --accent-text: #FFB683;
+        --accent-fill: #E07E38;
+        --primary-a00: rgba(255,143,64,0.0);
+        --primary-a06: rgba(255,143,64,0.06);
+        --primary-a08: rgba(255,143,64,0.08);
+        --primary-a10: rgba(255,143,64,0.1);
+        --primary-a12: rgba(255,143,64,0.12);
+        --primary-a18: rgba(255,143,64,0.18);
+        --primary-a30: rgba(255,143,64,0.3);
+        --primary-a35: rgba(255,143,64,0.35);
+        --primary-a45: rgba(255,143,64,0.45);
+        --primary-a55: rgba(255,143,64,0.55);
+      }
+      :root[data-theme="dark"][data-palette="night-owl"][data-accent="theme"] {
+        --primary: #82AAFF;
+        --primary-hover: #91B4FF;
+        --primary-active: #7296E0;
+        --primary-ink: #AEC8FF;
+        --primary-tint: rgba(130,170,255,0.14);
+        --primary-tint-border: rgba(130,170,255,0.4);
+        --accent: #82AAFF;
+        --accent-text: #AEC8FF;
+        --accent-fill: #7296E0;
+        --primary-a00: rgba(130,170,255,0.0);
+        --primary-a06: rgba(130,170,255,0.06);
+        --primary-a08: rgba(130,170,255,0.08);
+        --primary-a10: rgba(130,170,255,0.1);
+        --primary-a12: rgba(130,170,255,0.12);
+        --primary-a18: rgba(130,170,255,0.18);
+        --primary-a30: rgba(130,170,255,0.3);
+        --primary-a35: rgba(130,170,255,0.35);
+        --primary-a45: rgba(130,170,255,0.45);
+        --primary-a55: rgba(130,170,255,0.55);
+      }
+      :root[data-accent="orange"] {
+        --primary: #E8590C;
+        --primary-hover: #D5520B;
+        --primary-active: #C34B0A;
+        --primary-ink: #AE4309;
+        --primary-tint: rgba(232,89,12,0.12);
+        --primary-tint-border: rgba(232,89,12,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #E8590C;
+        --accent-text: #AE4309;
+        --accent-fill: #C34B0A;
+        --primary-a00: rgba(232,89,12,0.0);
+        --primary-a06: rgba(232,89,12,0.06);
+        --primary-a08: rgba(232,89,12,0.08);
+        --primary-a10: rgba(232,89,12,0.1);
+        --primary-a12: rgba(232,89,12,0.12);
+        --primary-a18: rgba(232,89,12,0.18);
+        --primary-a30: rgba(232,89,12,0.3);
+        --primary-a35: rgba(232,89,12,0.35);
+        --primary-a45: rgba(232,89,12,0.45);
+        --primary-a55: rgba(232,89,12,0.55);
+      }
+      :root[data-theme="dark"][data-accent="orange"] {
+        --primary: #FF8A4C;
+        --primary-hover: #FF9861;
+        --primary-active: #E07943;
+        --primary-ink: #FFB38B;
+        --primary-tint: rgba(255,138,76,0.14);
+        --primary-tint-border: rgba(255,138,76,0.4);
+        --accent: #FF8A4C;
+        --accent-text: #FFB38B;
+        --accent-fill: #E07943;
+        --primary-a00: rgba(255,138,76,0.0);
+        --primary-a06: rgba(255,138,76,0.06);
+        --primary-a08: rgba(255,138,76,0.08);
+        --primary-a10: rgba(255,138,76,0.1);
+        --primary-a12: rgba(255,138,76,0.12);
+        --primary-a18: rgba(255,138,76,0.18);
+        --primary-a30: rgba(255,138,76,0.3);
+        --primary-a35: rgba(255,138,76,0.35);
+        --primary-a45: rgba(255,138,76,0.45);
+        --primary-a55: rgba(255,138,76,0.55);
+      }
+      :root[data-accent="blue"] {
+        --primary: #2563EB;
+        --primary-hover: #225BD8;
+        --primary-active: #1F53C5;
+        --primary-ink: #1C4AB0;
+        --primary-tint: rgba(37,99,235,0.12);
+        --primary-tint-border: rgba(37,99,235,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #2563EB;
+        --accent-text: #1C4AB0;
+        --accent-fill: #1F53C5;
+        --primary-a00: rgba(37,99,235,0.0);
+        --primary-a06: rgba(37,99,235,0.06);
+        --primary-a08: rgba(37,99,235,0.08);
+        --primary-a10: rgba(37,99,235,0.1);
+        --primary-a12: rgba(37,99,235,0.12);
+        --primary-a18: rgba(37,99,235,0.18);
+        --primary-a30: rgba(37,99,235,0.3);
+        --primary-a35: rgba(37,99,235,0.35);
+        --primary-a45: rgba(37,99,235,0.45);
+        --primary-a55: rgba(37,99,235,0.55);
+      }
+      :root[data-theme="dark"][data-accent="blue"] {
+        --primary: #7AB3FF;
+        --primary-hover: #8ABCFF;
+        --primary-active: #6B9EE0;
+        --primary-ink: #A9CEFF;
+        --primary-tint: rgba(122,179,255,0.14);
+        --primary-tint-border: rgba(122,179,255,0.4);
+        --accent: #7AB3FF;
+        --accent-text: #A9CEFF;
+        --accent-fill: #6B9EE0;
+        --primary-a00: rgba(122,179,255,0.0);
+        --primary-a06: rgba(122,179,255,0.06);
+        --primary-a08: rgba(122,179,255,0.08);
+        --primary-a10: rgba(122,179,255,0.1);
+        --primary-a12: rgba(122,179,255,0.12);
+        --primary-a18: rgba(122,179,255,0.18);
+        --primary-a30: rgba(122,179,255,0.3);
+        --primary-a35: rgba(122,179,255,0.35);
+        --primary-a45: rgba(122,179,255,0.45);
+        --primary-a55: rgba(122,179,255,0.55);
+      }
+      :root[data-accent="purple"] {
+        --primary: #7C3AED;
+        --primary-hover: #7235DA;
+        --primary-active: #6831C7;
+        --primary-ink: #5D2CB2;
+        --primary-tint: rgba(124,58,237,0.12);
+        --primary-tint-border: rgba(124,58,237,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #7C3AED;
+        --accent-text: #5D2CB2;
+        --accent-fill: #6831C7;
+        --primary-a00: rgba(124,58,237,0.0);
+        --primary-a06: rgba(124,58,237,0.06);
+        --primary-a08: rgba(124,58,237,0.08);
+        --primary-a10: rgba(124,58,237,0.1);
+        --primary-a12: rgba(124,58,237,0.12);
+        --primary-a18: rgba(124,58,237,0.18);
+        --primary-a30: rgba(124,58,237,0.3);
+        --primary-a35: rgba(124,58,237,0.35);
+        --primary-a45: rgba(124,58,237,0.45);
+        --primary-a55: rgba(124,58,237,0.55);
+      }
+      :root[data-theme="dark"][data-accent="purple"] {
+        --primary: #B794F6;
+        --primary-hover: #C0A1F7;
+        --primary-active: #A182D8;
+        --primary-ink: #D0B9F9;
+        --primary-tint: rgba(183,148,246,0.14);
+        --primary-tint-border: rgba(183,148,246,0.4);
+        --accent: #B794F6;
+        --accent-text: #D0B9F9;
+        --accent-fill: #A182D8;
+        --primary-a00: rgba(183,148,246,0.0);
+        --primary-a06: rgba(183,148,246,0.06);
+        --primary-a08: rgba(183,148,246,0.08);
+        --primary-a10: rgba(183,148,246,0.1);
+        --primary-a12: rgba(183,148,246,0.12);
+        --primary-a18: rgba(183,148,246,0.18);
+        --primary-a30: rgba(183,148,246,0.3);
+        --primary-a35: rgba(183,148,246,0.35);
+        --primary-a45: rgba(183,148,246,0.45);
+        --primary-a55: rgba(183,148,246,0.55);
+      }
+      :root[data-accent="pink"] {
+        --primary: #DB2777;
+        --primary-hover: #C9246D;
+        --primary-active: #B82164;
+        --primary-ink: #A41D59;
+        --primary-tint: rgba(219,39,119,0.12);
+        --primary-tint-border: rgba(219,39,119,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #DB2777;
+        --accent-text: #A41D59;
+        --accent-fill: #B82164;
+        --primary-a00: rgba(219,39,119,0.0);
+        --primary-a06: rgba(219,39,119,0.06);
+        --primary-a08: rgba(219,39,119,0.08);
+        --primary-a10: rgba(219,39,119,0.1);
+        --primary-a12: rgba(219,39,119,0.12);
+        --primary-a18: rgba(219,39,119,0.18);
+        --primary-a30: rgba(219,39,119,0.3);
+        --primary-a35: rgba(219,39,119,0.35);
+        --primary-a45: rgba(219,39,119,0.45);
+        --primary-a55: rgba(219,39,119,0.55);
+      }
+      :root[data-theme="dark"][data-accent="pink"] {
+        --primary: #F472B6;
+        --primary-hover: #F583BF;
+        --primary-active: #D764A0;
+        --primary-ink: #F8A3D0;
+        --primary-tint: rgba(244,114,182,0.14);
+        --primary-tint-border: rgba(244,114,182,0.4);
+        --accent: #F472B6;
+        --accent-text: #F8A3D0;
+        --accent-fill: #D764A0;
+        --primary-a00: rgba(244,114,182,0.0);
+        --primary-a06: rgba(244,114,182,0.06);
+        --primary-a08: rgba(244,114,182,0.08);
+        --primary-a10: rgba(244,114,182,0.1);
+        --primary-a12: rgba(244,114,182,0.12);
+        --primary-a18: rgba(244,114,182,0.18);
+        --primary-a30: rgba(244,114,182,0.3);
+        --primary-a35: rgba(244,114,182,0.35);
+        --primary-a45: rgba(244,114,182,0.45);
+        --primary-a55: rgba(244,114,182,0.55);
+      }
+      :root[data-accent="teal"] {
+        --primary: #0D9488;
+        --primary-hover: #0C887D;
+        --primary-active: #0B7C72;
+        --primary-ink: #0A6F66;
+        --primary-tint: rgba(13,148,136,0.12);
+        --primary-tint-border: rgba(13,148,136,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #0D9488;
+        --accent-text: #0A6F66;
+        --accent-fill: #0B7C72;
+        --primary-a00: rgba(13,148,136,0.0);
+        --primary-a06: rgba(13,148,136,0.06);
+        --primary-a08: rgba(13,148,136,0.08);
+        --primary-a10: rgba(13,148,136,0.1);
+        --primary-a12: rgba(13,148,136,0.12);
+        --primary-a18: rgba(13,148,136,0.18);
+        --primary-a30: rgba(13,148,136,0.3);
+        --primary-a35: rgba(13,148,136,0.35);
+        --primary-a45: rgba(13,148,136,0.45);
+        --primary-a55: rgba(13,148,136,0.55);
+      }
+      :root[data-theme="dark"][data-accent="teal"] {
+        --primary: #5EEAD4;
+        --primary-hover: #71EDD9;
+        --primary-active: #53CEBB;
+        --primary-ink: #96F1E3;
+        --primary-tint: rgba(94,234,212,0.14);
+        --primary-tint-border: rgba(94,234,212,0.4);
+        --accent: #5EEAD4;
+        --accent-text: #96F1E3;
+        --accent-fill: #53CEBB;
+        --primary-a00: rgba(94,234,212,0.0);
+        --primary-a06: rgba(94,234,212,0.06);
+        --primary-a08: rgba(94,234,212,0.08);
+        --primary-a10: rgba(94,234,212,0.1);
+        --primary-a12: rgba(94,234,212,0.12);
+        --primary-a18: rgba(94,234,212,0.18);
+        --primary-a30: rgba(94,234,212,0.3);
+        --primary-a35: rgba(94,234,212,0.35);
+        --primary-a45: rgba(94,234,212,0.45);
+        --primary-a55: rgba(94,234,212,0.55);
+      }
+      :root[data-accent="amber"] {
+        --primary: #D97706;
+        --primary-hover: #C86D06;
+        --primary-active: #B66405;
+        --primary-ink: #A35904;
+        --primary-tint: rgba(217,119,6,0.12);
+        --primary-tint-border: rgba(217,119,6,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #D97706;
+        --accent-text: #A35904;
+        --accent-fill: #B66405;
+        --primary-a00: rgba(217,119,6,0.0);
+        --primary-a06: rgba(217,119,6,0.06);
+        --primary-a08: rgba(217,119,6,0.08);
+        --primary-a10: rgba(217,119,6,0.1);
+        --primary-a12: rgba(217,119,6,0.12);
+        --primary-a18: rgba(217,119,6,0.18);
+        --primary-a30: rgba(217,119,6,0.3);
+        --primary-a35: rgba(217,119,6,0.35);
+        --primary-a45: rgba(217,119,6,0.45);
+        --primary-a55: rgba(217,119,6,0.55);
+      }
+      :root[data-theme="dark"][data-accent="amber"] {
+        --primary: #FBBF24;
+        --primary-hover: #FBC73E;
+        --primary-active: #DDA820;
+        --primary-ink: #FCD571;
+        --primary-tint: rgba(251,191,36,0.14);
+        --primary-tint-border: rgba(251,191,36,0.4);
+        --accent: #FBBF24;
+        --accent-text: #FCD571;
+        --accent-fill: #DDA820;
+        --primary-a00: rgba(251,191,36,0.0);
+        --primary-a06: rgba(251,191,36,0.06);
+        --primary-a08: rgba(251,191,36,0.08);
+        --primary-a10: rgba(251,191,36,0.1);
+        --primary-a12: rgba(251,191,36,0.12);
+        --primary-a18: rgba(251,191,36,0.18);
+        --primary-a30: rgba(251,191,36,0.3);
+        --primary-a35: rgba(251,191,36,0.35);
+        --primary-a45: rgba(251,191,36,0.45);
+        --primary-a55: rgba(251,191,36,0.55);
+      }
+      :root[data-accent="red"] {
+        --primary: #DC2626;
+        --primary-hover: #CA2323;
+        --primary-active: #B92020;
+        --primary-ink: #A51C1C;
+        --primary-tint: rgba(220,38,38,0.12);
+        --primary-tint-border: rgba(220,38,38,0.35);
+        --on-primary: #FFFFFF;
+        --accent: #DC2626;
+        --accent-text: #A51C1C;
+        --accent-fill: #B92020;
+        --primary-a00: rgba(220,38,38,0.0);
+        --primary-a06: rgba(220,38,38,0.06);
+        --primary-a08: rgba(220,38,38,0.08);
+        --primary-a10: rgba(220,38,38,0.1);
+        --primary-a12: rgba(220,38,38,0.12);
+        --primary-a18: rgba(220,38,38,0.18);
+        --primary-a30: rgba(220,38,38,0.3);
+        --primary-a35: rgba(220,38,38,0.35);
+        --primary-a45: rgba(220,38,38,0.45);
+        --primary-a55: rgba(220,38,38,0.55);
+      }
+      :root[data-theme="dark"][data-accent="red"] {
+        --primary: #F87171;
+        --primary-hover: #F98282;
+        --primary-active: #DA6363;
+        --primary-ink: #FAA3A3;
+        --primary-tint: rgba(248,113,113,0.14);
+        --primary-tint-border: rgba(248,113,113,0.4);
+        --accent: #F87171;
+        --accent-text: #FAA3A3;
+        --accent-fill: #DA6363;
+        --primary-a00: rgba(248,113,113,0.0);
+        --primary-a06: rgba(248,113,113,0.06);
+        --primary-a08: rgba(248,113,113,0.08);
+        --primary-a10: rgba(248,113,113,0.1);
+        --primary-a12: rgba(248,113,113,0.12);
+        --primary-a18: rgba(248,113,113,0.18);
+        --primary-a30: rgba(248,113,113,0.3);
+        --primary-a35: rgba(248,113,113,0.35);
+        --primary-a45: rgba(248,113,113,0.45);
+        --primary-a55: rgba(248,113,113,0.55);
+      }
+      html { background: var(--bg); }
+      /* Native checkboxes and radios at 16px in the brand colour; the 13px
+         default was the hardest thing on the page to hit. */
+      input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; accent-color: var(--primary); flex-shrink: 0; cursor: pointer; margin: 0; }
+      /* An option row is a label wrapping a checkbox or radio. One size and one
+         gap for all of them, wherever they sit: the Profiles step had them at
+         16px, 13px and 12px on the same screen, and the platform panels at 11px.
+         :has() carries the input's attribute specificity, so a stray text-xs
+         utility on the label no longer wins. */
+      label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { font-size: 13px; line-height: 1.4; gap: 8px; color: var(--ink); cursor: pointer; }
+      label:has(> input[type="checkbox"]) > input, label:has(> input[type="radio"]) > input { margin-top: 1px; }
+      /* File inputs get the ghost button instead of the OS grey one. */
+      input[type="file"] { font-size: 13px !important; color: var(--ink-65); line-height: 34px; }
+      input[type="file"]::file-selector-button { font: inherit; font-weight: 500; line-height: 1; color: var(--ink); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 12px; height: 34px; margin-right: 12px; cursor: pointer; box-shadow: var(--shadow-1); }
+      input[type="file"]::file-selector-button:hover { background: var(--surface-hover); }
+      /* Inside a platform panel every button is the standard 34px size,
+         whatever utility classes a call site added. */
+      .mp-platform-panel .mp-btn { font-size: 14px !important; min-height: 34px; padding: 0 12px; }
+      /* And every text field too: a 28px search box beside a 34px Search
+         button is the mismatch Alex pointed at. */
+      .mp-platform-panel .mp-input-sm { min-height: 34px; font-size: 14px; line-height: 32px; padding: 0 12px; }
+      [data-testid="workspace-main"]:focus, [data-testid="workspace-main"]:focus-visible { outline: none; }
+      /* One side panel width for the whole app, and it follows the window:
+         44% of it, never under 480px, never over 800px. A 1400px laptop gets
+         616px, a 2000px display 800px, a phone the whole width. */
+      .mp-panel { max-width: clamp(480px, 44vw, 800px); }
 
       /* One-family type system: Inter carries display, body, labels and data.
          mp-display / mp-mono keep their class names so call sites don't churn,
@@ -2574,18 +4803,23 @@ function GlobalStyles() {
       .mp-prose a { color: var(--primary-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
       .mp-pre { white-space: pre-wrap; word-break: break-word; }
 
-      .mp-input { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; min-height: 40px; font-family: 'Inter', system-ui, sans-serif; font-size: 0.9rem; width: 100%; color: var(--ink); transition: border-color 140ms ease, box-shadow 140ms ease; }
-      .mp-input:hover:not(:focus) { border-color: rgba(38,42,35,0.36); }
-      .mp-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(90,116,48,0.18); }
+      /* Controls: 34px standard, 28px small, on the 12/13/14 px scale. The
+         earlier 0.9rem/40px and 0.85rem/34px put 14.4px and 13.6px text on
+         screen, and a 40px select beside a 34px one in the same panel. */
+      .mp-input { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 12px; min-height: 34px; font-family: 'Inter', system-ui, sans-serif; font-size: 14px; line-height: 32px; width: 100%; color: var(--ink); transition: border-color 140ms ease, box-shadow 140ms ease; }
+      textarea.mp-input, .mp-textarea { padding: 8px 12px; line-height: 1.5; }
+      .mp-input:hover:not(:focus) { border-color: var(--ink-a36); }
+      .mp-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-a18); }
       /* Compact input variant for inline controls (datetime, price). One height for all. */
-      .mp-input-sm { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem; min-height: 34px; font-family: 'Inter', system-ui, sans-serif; font-size: 0.85rem; color: var(--ink); transition: border-color 140ms ease, box-shadow 140ms ease; }
-      .mp-input-sm:hover:not(:focus) { border-color: rgba(38,42,35,0.36); }
-      .mp-input-sm:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(90,116,48,0.18); }
+      .mp-input-sm { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 10px; min-height: 28px; font-family: 'Inter', system-ui, sans-serif; font-size: 13px; line-height: 26px; color: var(--ink); transition: border-color 140ms ease, box-shadow 140ms ease; }
+      .mp-input-sm:hover:not(:focus) { border-color: var(--ink-a36); }
+      .mp-input-sm:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-a18); }
 
-      .mp-btn { font-family: 'Inter', system-ui, sans-serif; font-weight: 500; font-size: 0.9rem; text-transform: none !important; letter-spacing: 0 !important; padding: 0.5rem 1rem; min-height: 38px; background: var(--primary); color: #FFFFFF; border-radius: var(--radius-sm); cursor: pointer; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid transparent; }
+      .mp-btn { font-family: 'Inter', system-ui, sans-serif; font-weight: 500; font-size: 14px; line-height: 1; text-transform: none !important; letter-spacing: 0 !important; padding: 0 14px; min-height: 34px; background: var(--primary); color: var(--on-primary); border-radius: var(--radius-sm); cursor: pointer; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid transparent; }
       .mp-btn:hover:not(:disabled) { background: var(--primary-hover); }
       .mp-btn:active:not(:disabled) { background: var(--primary-active); }
       .mp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .mp-btn-sm { font-size: 13px; min-height: 28px; padding: 0 10px; gap: 6px; }
       /* Button loading state (MDS): the mark replaces the label and the icon.
          Transparent text is what hides a bare text node, which no selector can
          reach; the mark takes its colour from the variant instead of inheriting
@@ -2607,7 +4841,7 @@ function GlobalStyles() {
       /* A preview tile is a button. Without this it was a picture that happened
          to be clickable, which nobody discovers. */
       .mp-thumb-btn { display: block; border-radius: 7px; transition: transform 120ms ease, box-shadow 120ms ease; }
-      .mp-thumb-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 10px rgba(38,42,35,0.18); }
+      .mp-thumb-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 10px var(--ink-a18); }
       .mp-thumb-btn:hover span { border-color: var(--border-strong) !important; }
       .mp-thumb-btn:active { transform: translateY(0); box-shadow: none; }
 
@@ -2663,24 +4897,27 @@ function GlobalStyles() {
          chips have room. Form controls must not: a dropdown or text field that
          runs the whole width separates its label from its value by a screen's
          worth of empty space. Cap the control, not the card. Anything already
-         inside a narrower grid cell is unaffected. */
-      .mp-platform-panel select,
+         inside a narrower grid cell is unaffected. The cap sits on the Select
+         wrapper, so the open list stays as wide as its trigger. */
+      .mp-platform-panel .mp-select,
       .mp-platform-panel input[type="text"],
       .mp-platform-panel input[type="search"],
       .mp-platform-panel input[type="number"],
       .mp-platform-panel input[type="datetime-local"],
-      .mp-platform-panel input:not([type]) { max-width: 44rem; }
-      .mp-platform-panel textarea { max-width: 60rem; }
+      .mp-platform-panel input:not([type]),
+      .mp-platform-panel textarea { max-width: 44rem; }
       /* These option fields are <label>{caption}{control}{hint}</label> stacks that
          relied on a full-width control to push the hint onto its own line. Now the
          control is capped, so make the stack explicit. Flex labels (checkboxes)
          blockify their children anyway, so they are unaffected. */
       .mp-platform-panel label > span { display: block; }
-      /* Options panels run dense; give them the working text size so per-
-         platform forms stay readable at depth. */
-      .mp-platform-panel { font-size: 0.95rem; line-height: 1.5; }
+      /* Options panels: working size 14px, small text 12px. Four levels of
+         type inside a panel, and nothing else: section title 14/600, subsection
+         title 13/500, field label 13/500, hint 12/400 muted. */
+      .mp-platform-panel { font-size: 14px; line-height: 1.5; }
       .mp-platform-panel .text-xs,
-      .mp-platform-panel .text-\[11px\] { font-size: 0.85rem; }
+      .mp-platform-panel .text-\[11px\] { font-size: 12px; }
+      .mp-platform-panel .text-\[10px\] { font-size: 11px; }
       .mp-section-content > * { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 
       /* Status pill: quiet rounded badge, sentence case. */
@@ -2695,13 +4932,15 @@ function GlobalStyles() {
       /* Skeleton (MDS): a placeholder in the shape of the content that is
          coming. Quiet enough to read as furniture, not as a filled field. */
       @keyframes mp-shimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
-      .mp-skeleton { background-image: linear-gradient(90deg, var(--surface-sunken) 8%, rgba(38,42,35,0.09) 24%, var(--surface-sunken) 40%); background-size: 300% 100%; animation: mp-shimmer 1.6s ease-in-out infinite; }
+      .mp-skeleton { background-image: linear-gradient(90deg, var(--surface-sunken) 8%, var(--ink-a09) 24%, var(--surface-sunken) 40%); background-size: 300% 100%; animation: mp-shimmer 1.6s ease-in-out infinite; }
       /* Panels enter from the edge they are attached to. 180ms, ease-out, no
          bounce: it should feel like the panel was already there. */
       @keyframes mp-slide-in-right { from { transform: translateX(16px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
       .mp-slide-in-right { animation: mp-slide-in-right 180ms cubic-bezier(0.16, 1, 0.3, 1); }
       @keyframes mp-fade-in { from { opacity: 0; } to { opacity: 1; } }
       .mp-fade-in { animation: mp-fade-in 140ms ease-out; }
+      @keyframes mp-flash { 0% { box-shadow: 0 0 0 0 var(--primary-a00); } 20% { box-shadow: 0 0 0 4px var(--primary-a35); } 100% { box-shadow: 0 0 0 0 var(--primary-a00); } }
+      .mp-flash { animation: mp-flash 1.6s ease-out; border-radius: var(--radius-sm); }
       @media (prefers-reduced-motion: reduce) {
         .mp-spin, .mp-pulse, .mp-scan, .mp-skeleton { animation-duration: 0.01ms; animation-iteration-count: 1; }
         .mp-slide-in-right, .mp-fade-in { animation-duration: 0.01ms; }
@@ -2732,30 +4971,27 @@ function GlobalStyles() {
 // TOP HEADER
 // =====================================================================
 
-// The top bar's job is the project you are on and the action you came for.
-// New, Templates and Try demo are all "which project am I working on", so they
-// belong to the project name, not to the action row: seven controls become
-// four (name menu, readiness chip, Settings, Review and publish).
-function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject, demoActive, demoLoading, onToggleDemo, onOpenConnections, completion, onGoPublish, sidebarCollapsed, onToggleSidebar }) {
+// The top bar carries the brand, New project, the demo toggle and Settings.
+// Progress is not repeated here: the sidebar marks each finished step. Publishing is a step of its own in the sidebar, so it has no button
+// up here. The project name is gone too: it labelled a single autosave slot
+// and nothing else, so it promised a project library the app does not have.
+function TopHeader({ project, demoActive, demoLoading, onToggleDemo, onNewProject, onOpenConnections, sidebarCollapsed, onToggleSidebar, library, menuOpen, setMenuOpen, onOpenProject, onDuplicateProject, onRenameProject, onOpenLibrary }) {
   const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState('');
   const menuRef = useRef(null);
-
-  // Close the project menu on outside tap/click or Escape (works on touch).
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen) return undefined;
     const onDoc = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
     const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [menuOpen, setMenuOpen]);
-
-  const doneCount = Object.entries(completion || {}).filter(([id, done]) => id !== 'publish' && done).length;
-  const stepCount = Math.max(1, Object.keys(completion || {}).length - 1);
-  const ready = doneCount >= stepCount;
-
+  const displayName = demoActive ? 'Sample project' : autoProjectName(project);
+  const recent = library.filter((entry) => entry.id !== project.id).slice(0, 6);
+  const commitRename = () => { onRenameProject(draftName); setEditingName(false); };
   return (
-    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(255,255,255,0.92)' }}>
+    <header className="sticky top-0 z-20 border-b backdrop-blur" style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-a92)' }}>
       {/* Same max width and centring as the content row below, so the brand
            rail's divider lands exactly on the sidebar's border instead of
            drifting 100px away on a display wider than the cap. */}
@@ -2792,76 +5028,154 @@ function TopHeader({ project, updateProject, menuOpen, setMenuOpen, onNewProject
             {sidebarCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}
           </button>
         </div>
-        <div data-testid="top-header-brand" className="flex items-center gap-2 min-w-0 flex-1 lg:pl-0 pl-4">
+        {/* Below lg the rail is hidden, so the brand shows here instead. */}
+        <div data-testid="top-header-brand" className="flex items-center gap-2 min-w-0 flex-1 pl-4 lg:pl-0">
+          <img src={`${import.meta.env.BASE_URL}modelprep-logo.svg`} alt="" className="w-8 h-8 flex-shrink-0 lg:hidden" />
+          {/* The open project. Its menu is the library: switch to a recent one,
+              duplicate this one, rename it, or open the full list. */}
           {editingName ? (
             <input
               autoFocus
               aria-label="Project name"
-              value={project.name}
-              onChange={(e) => updateProject({ name: e.target.value })}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={(e) => e.key === 'Enter' && setEditingName(false)}
-              className="text-[15px] font-semibold bg-transparent outline-none border-b"
-              style={{ borderColor: 'var(--primary)', width: 260, color: 'var(--ink)' }}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditingName(false); }}
+              className="mp-input-sm"
+              style={{ width: 280 }}
             />
           ) : (
             <div className="relative min-w-0" ref={menuRef}>
-              {/* A bordered control, not a bare title with a small chevron: it
-                  was not obvious the name was a menu at all. Wide enough that
-                  "Untitled Project" fits instead of cropping to "Untitled
-                  Pro...", and the tooltip names what is inside. */}
               <button
                 onClick={() => setMenuOpen((open) => !open)}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 aria-label="Project menu"
-                title="Rename, start a new project, or load the demo"
-                className="mp-btn mp-btn-ghost flex items-center gap-2 min-w-0 max-w-[38ch] text-[15px] font-semibold py-1.5 px-3"
+                title="Open another project, duplicate or rename this one"
+                className="mp-btn mp-btn-ghost flex items-center gap-2 min-w-0 max-w-[min(72ch,44vw)] text-[15px] font-semibold py-1.5 px-3"
               >
-                <span className="truncate" style={{ color: 'var(--ink)' }}>{project.name}</span>
+                <FolderOpen size={15} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
+                <span className="truncate" style={{ color: 'var(--ink)' }}>{displayName}</span>
                 <ChevronDown size={14} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} />
               </button>
               {menuOpen && (
-                <div role="menu" className="absolute left-0 top-full mt-1 w-64 max-w-[calc(100vw-2rem)] mp-card z-30 py-1" style={{ boxShadow: 'var(--shadow-2)' }}>
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); setEditingName(true); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
-                    <Edit3 size={12} /> Rename project
-                  </button>
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); onNewProject(); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
-                    <Plus size={12} /> New project
-                  </button>
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); onToggleDemo(); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
-                    <Sparkles size={12} /> {demoActive ? 'Exit demo' : 'Try demo'}
+                <div role="menu" className="absolute left-0 top-full mt-1 w-80 max-w-[calc(100vw-2rem)] mp-card z-30 py-1" style={{ boxShadow: 'var(--shadow-2)' }}>
+                  {!demoActive && (
+                    <>
+                      <button role="menuitem" onClick={() => { setMenuOpen(false); setDraftName(project.nameLocked ? project.name : autoProjectName(project)); setEditingName(true); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
+                        <Edit3 size={12} /> Rename project
+                      </button>
+                      <button role="menuitem" onClick={() => { setMenuOpen(false); onDuplicateProject(project.id); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
+                        <Copy size={12} /> Duplicate project
+                      </button>
+                    </>
+                  )}
+                  <div className="px-3 pt-2 pb-1 text-[11px] border-t mt-1" style={{ color: 'var(--ink-50)', borderColor: 'var(--border)' }}>
+                    {recent.length ? 'Recent projects' : 'No other saved projects yet'}
+                  </div>
+                  {recent.map((entry) => (
+                    <button key={entry.id} role="menuitem" onClick={() => { setMenuOpen(false); onOpenProject(entry.id); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition">
+                      <span className="truncate flex-1" style={{ color: 'var(--ink)' }}>{entry.name}</span>
+                      <span className="flex-shrink-0 t-num" style={{ color: 'var(--ink-50)' }}>{formatProjectDate(entry.updatedAt)}</span>
+                    </button>
+                  ))}
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); onOpenLibrary(); }} className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-[var(--surface-hover)] transition border-t mt-1" style={{ borderColor: 'var(--border)' }}>
+                    <FolderOpen size={12} /> All projects…
                   </button>
                 </div>
               )}
             </div>
           )}
-          {demoActive && (
-            <button
-              onClick={onToggleDemo}
-              className="mp-pill flex-shrink-0"
-              style={{ backgroundColor: '#EDF3FE', color: '#1D4E9E' }}
-              title="Exit the demo and restore your project"
-            >
-              Demo
-            </button>
-          )}
         </div>
 
-        <div data-testid="top-header-actions" className="flex flex-wrap items-center gap-2 min-w-0">
-          <span className="mp-pill hidden md:inline-flex gap-1.5" style={ready ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' } : { backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
-            {ready ? <Check size={11} strokeWidth={2.6} /> : null}
-            {ready ? 'Ready to publish' : `${doneCount} of ${stepCount} steps done`}
-          </span>
-          <ConnectionsButton onOpen={onOpenConnections} />
-          <div aria-hidden className="hidden sm:block" style={{ width: 1, height: 20, backgroundColor: 'var(--border)' }} />
-          <button onClick={onGoPublish} className="mp-btn text-xs py-2 px-3">
-            <Send size={13} /> Review and publish
+        <div data-testid="top-header-actions" className="flex flex-wrap items-center gap-2 min-w-0 ml-auto">
+          <button onClick={onNewProject} className="mp-btn mp-btn-ghost text-xs py-2 px-3" title="Clear files, images, description and platform choices">
+            <Plus size={13} /> New project
           </button>
+          <button
+            onClick={onToggleDemo}
+            className="mp-btn mp-btn-ghost text-xs py-2 px-3"
+            aria-pressed={demoActive}
+            style={demoActive ? { backgroundColor: 'var(--info-tint)', color: 'var(--info-text)', borderColor: 'var(--info-text)' } : undefined}
+            title={demoActive ? 'Exit the demo and restore your project' : 'Load a sample project to explore the flow (nothing is uploaded)'}
+          >
+            {demoLoading ? <Spinner size={13} /> : <Sparkles size={13} />} {demoActive ? 'Exit demo' : 'Try demo'}
+          </button>
+          <ConnectionsButton onOpen={onOpenConnections} />
         </div>
       </div>
       </div>
     </header>
+  );
+}
+
+// =====================================================================
+// PROJECT LIBRARY
+// =====================================================================
+
+// Every saved project, on a right-edge panel like Settings. Open, duplicate
+// and delete; the open one is marked and cannot be opened again.
+function ProjectsPanel({ open, onClose, entries, currentId, plans = [], onOpen, onDuplicate, onDelete, onNew }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = previous; };
+  }, [open, onClose]);
+  if (!open) return null;
+  const scheduled = new Set(plans.filter((plan) => plan.status === 'pending' && plan.mode === 'scheduled').map((plan) => plan.projectId));
+  return (
+    <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'var(--ink-a35)' }} onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Projects"
+        data-testid="projects-panel"
+        className="mp-panel h-full w-full flex flex-col"
+        style={{ backgroundColor: 'var(--surface)', boxShadow: 'var(--shadow-2)' }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 px-5 h-14 border-b flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+          <FolderOpen size={16} style={{ color: 'var(--ink-65)' }} />
+          <h2 className="text-[15px] font-semibold flex-1" style={{ color: 'var(--ink)' }}>Projects</h2>
+          <button onClick={onNew} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><Plus size={13} /> New project</button>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-md hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}><X size={16} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {entries.length === 0 ? (
+            <p className="text-[13px]" style={{ color: 'var(--ink-65)' }}>
+              Nothing saved yet. A project joins this list as soon as it has a title, a file or a photo, and stays here until you delete it.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {entries.map((entry) => {
+                const current = entry.id === currentId;
+                return (
+                  <li key={entry.id} data-testid="project-row" className="mp-card p-3 flex items-center gap-3" style={current ? { borderColor: 'var(--primary)' } : undefined}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[14px] font-medium truncate" style={{ color: 'var(--ink)' }}>{entry.name}</span>
+                        {current && <span className="mp-pill flex-shrink-0" style={{ backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' }}>Open</span>}
+                        {scheduled.has(entry.id) && <span className="mp-pill flex-shrink-0 inline-flex items-center gap-1" style={{ backgroundColor: 'var(--info-tint)', color: 'var(--info-text)' }}><Clock size={10} /> Scheduled</span>}
+                      </div>
+                      <div className="text-xs mt-0.5 t-num" style={{ color: 'var(--ink-50)' }}>
+                        Edited {formatProjectDate(entry.updatedAt)} · {entry.summary?.files || 0} file{entry.summary?.files === 1 ? '' : 's'} · {entry.summary?.images || 0} photo{entry.summary?.images === 1 ? '' : 's'}
+                        {entry.summary?.stepCount ? ` · ${entry.summary.stepsDone} of ${entry.summary.stepCount} steps` : ''}
+                      </div>
+                    </div>
+                    {!current && <button onClick={() => onOpen(entry.id)} className="mp-btn text-xs py-1.5 px-3">Open</button>}
+                    <button onClick={() => onDuplicate(entry.id)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-2.5" aria-label={`Duplicate ${entry.name}`} title="Duplicate"><Copy size={13} /></button>
+                    <button onClick={() => onDelete(entry.id)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-2.5" aria-label={`Delete ${entry.name}`} title="Delete" style={{ color: 'var(--danger-text)' }}><Trash2 size={13} /></button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2874,13 +5188,9 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
   const enabledCount = Object.values(project?.platforms || {}).filter((p) => p.enabled).length;
   const doneCount = Object.entries(completion).filter(([id, done]) => id !== 'publish' && done).length;
   const stepCount = Math.max(1, Object.keys(completion).length - 1);
-  const status = doneCount === 0 ? { label: 'New project', color: '#FFB627' }
-    : doneCount >= stepCount ? { label: 'Ready to publish', color: '#4FB286' }
-    : { label: 'In progress', color: '#FFB627' };
   const metaFor = (id) => {
     if (id === 'files') return project?.files?.length ? String(project.files.length) : null;
     if (id === 'images') return (project?.images?.length || project?.media?.length) ? String((project.images?.length || 0) + (project.media?.length || 0)) : null;
-    if (id === 'profiles') return project?.profiles?.length ? String(project.profiles.length) : null;
     if (id === 'platforms') return `${enabledCount}/${PLATFORMS.length}`;
     return null;
   };
@@ -2952,7 +5262,14 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
                 color: active ? 'var(--primary-ink)' : 'var(--ink-65)',
               }}
             >
-              <Icon size={collapsed ? 22 : 20} strokeWidth={2} className="flex-shrink-0" style={{ color: active ? 'var(--primary)' : 'var(--ink-50)' }} />
+              <span className="relative flex-shrink-0 flex">
+                <Icon size={collapsed ? 22 : 20} strokeWidth={2} style={{ color: active ? 'var(--primary)' : 'var(--ink-50)' }} />
+                {collapsed && done && (
+                  <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--success-text)' }} aria-hidden>
+                    <Check size={9} strokeWidth={3} color="#fff" />
+                  </span>
+                )}
+              </span>
               <span className={collapsed ? 'hidden' : 'flex-1 min-w-0 truncate text-[15px]'} style={{ fontWeight: active ? 600 : 500 }}>
                 {s.label}
               </span>
@@ -2968,18 +5285,6 @@ function Sidebar({ project, currentSection, setCurrentSection, completion, colla
           </p>
         )}
       </nav>
-      <div
-        data-testid="status-bar"
-        className={`hidden lg:flex items-center gap-2 border-t px-4 h-16 flex-shrink-0 text-xs ${collapsed ? 'justify-center' : ''}`}
-        style={{ borderColor: 'var(--border)', color: 'var(--ink-65)' }}
-      >
-        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: status.color }} />
-        {!collapsed && (
-          <span className="min-w-0 truncate">
-            {status.label} · Step {activeIndex + 1} of {SECTIONS.length} · {SECTIONS[activeIndex].label}
-          </span>
-        )}
-      </div>
     </aside>
   );
 }
@@ -3500,9 +5805,30 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
     return undefined;
   }, [project.files, updateProject]);
 
+  // Videos dropped here go to the gallery, the same as when a folder is
+  // imported. A drop zone that took a photo but refused the clip beside it
+  // was the kind of rule nobody could guess.
+  const addVideos = async (videos) => {
+    const additions = [];
+    for (const file of videos) {
+      try {
+        const duration = await readVideoDuration(file);
+        additions.push({
+          id: 'media_' + Date.now() + '_' + additions.length + '_' + Math.random().toString(36).slice(2, 7),
+          kind: 'video', name: file.name, size: file.size, type: file.type,
+          duration, blob: file, previewUrl: URL.createObjectURL(file),
+        });
+      } catch { /* unreadable clip: left out, the count below says so */ }
+    }
+    if (additions.length) updateProject((current) => ({ ...current, media: [...(current.media || []), ...additions] }));
+    return additions.length;
+  };
+
   const handleFiles = (fileList) => {
     const arr = Array.from(fileList);
-    const supported = arr.filter(f => isModelFile(f.name) || isImageFile(f.name) || isMakerWorldLaserFile(f.name)
+    const videos = arr.filter((f) => isGalleryVideoFile(f));
+    if (videos.length) addVideos(videos).then((count) => { if (count) setNotice({ kind: 'video', detail: String(count) }); });
+    const supported = arr.filter(f => !isGalleryVideoFile(f)).filter(f => isModelFile(f.name) || isImageFile(f.name) || isMakerWorldLaserFile(f.name)
       || PRINTABLES_FORMATS.includes(fileExt(f.name))
       || NEXPRINT_MODEL_FORMATS.includes(fileExt(f.name))
       || NEXPRINT_ATTACHMENT_FORMATS.includes(fileExt(f.name))
@@ -3556,7 +5882,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
     }
 
     if (additions.length === 0) {
-      if (!tooBig.length) setNotice({ kind: 'unsupported', detail: null });
+      if (!tooBig.length && !videos.length) setNotice({ kind: 'unsupported', detail: null });
       return;
     }
     updateProject({ files: [...project.files, ...additions] });
@@ -3624,7 +5950,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
             {!!preparing && (
               <Spinner
                 size={13}
-                label={<span className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Preparing {preparing} file{preparing === 1 ? '' : 's'}…</span>}
+                label={<span className="text-xs" style={{ color: 'var(--ink-a66)' }}>Preparing {preparing} file{preparing === 1 ? '' : 's'}…</span>}
                 className="mr-1"
               />
             )}
@@ -3659,7 +5985,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
         ref={fileInputRef}
         type="file"
         multiple
-        accept={[...new Set([...PRINTABLES_FORMATS, 'bmp', 'fbx', 'glb', 'lac', 'md', 'stpz', 'x3d'])].map((extension) => `.${extension}`).join(',')}
+        accept={[...new Set([...PRINTABLES_FORMATS, 'bmp', 'fbx', 'glb', 'lac', 'md', 'stpz', 'x3d', 'mp4', 'mov', 'webm', 'gif', 'heic', 'heif', 'webp'])].map((extension) => `.${extension}`).join(',')}
         onChange={(e) => handleFiles(e.target.files)}
         className="hidden"
       />
@@ -3667,11 +5993,11 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
         <div
           role="button"
           tabIndex={0}
-          aria-label="Add model files. Drop here or press Enter to browse"
-          className="border-2 border-dashed rounded-lg cursor-pointer transition-colors mt-2 py-16 px-6 text-center focus:outline-none focus-visible:border-[#5A7430]"
+          aria-label="Add files. Drop here or press Enter to browse"
+          className="border-2 border-dashed rounded-lg cursor-pointer transition-colors mt-2 py-16 px-6 text-center focus:outline-none focus-visible:border-[var(--primary)]"
           style={{ borderColor: 'var(--border-strong)' }}
-          onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5A7430'}
-          onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(38,42,35,0.24)'}
+          onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
+          onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--ink-a24)'}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
@@ -3680,45 +6006,52 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
           <div className="inline-flex items-center justify-center w-14 h-14 mb-4 rounded-xl" style={{ backgroundColor: 'var(--primary-tint)' }}>
             <Upload size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
           </div>
-          <h2 className="mp-display text-[24px] mb-2">Add your model files</h2>
-          <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>drag &amp; drop · or click anywhere in the work area · max {MAX_BUILD_FILE_MB}MB per file</p>
-          <div className="inline-flex items-center gap-1.5 mp-mono text-xs flex-wrap justify-center" style={{ color: 'rgba(38,42,35,0.66)' }}>
-            {['stl', '3mf', 'step', 'dwg', 'svg', 'dxf', 'lac', 'ai', 'zip'].map(ext => (
-              <span key={ext} className="mp-pill" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}>.{ext}</span>
+          <h2 className="mp-display text-[24px] mb-2">Add your files</h2>
+          <p className="mp-body text-sm mb-3" style={{ color: 'var(--ink-a65)' }}>Models, print profiles, photos and videos · drag &amp; drop or click · max {MAX_BUILD_FILE_MB}MB per file</p>
+          <div className="inline-flex items-center gap-1.5 mp-mono text-xs flex-wrap justify-center" style={{ color: 'var(--ink-a66)' }}>
+            {['stl', '3mf', 'step', 'svg', 'dxf', 'lac', 'zip', 'jpg', 'png', 'gif', 'mp4', 'mov'].map(ext => (
+              <span key={ext} className="mp-pill" style={{ backgroundColor: 'var(--ink-a06)' }}>.{ext}</span>
             ))}
           </div>
         </div>
       )}
 
       {notice && (
-        <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
-          <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
+        <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'var(--primary-a08)', border: '1px solid var(--primary-a30)' }}>
+          <AlertCircle size={16} style={{ color: 'var(--primary)' }} className="flex-shrink-0 mt-0.5" />
           <div className="text-xs flex-1">
             {notice.kind === 'toobig' ? (
               <>
                 <div className="mp-display font-bold mb-1">File too large, not added</div>
-                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
+                <div style={{ color: 'var(--ink-a70)' }}>
                   {notice.detail} exceeds the {MAX_BUILD_FILE_MB}MB per-file ceiling that platforms accept. Decimate the mesh or split it before uploading.
                 </div>
               </>
             ) : notice.kind === 'unsupported' ? (
               <>
                 <div className="mp-display font-bold mb-1">Nothing added: unsupported files</div>
-                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
+                <div style={{ color: 'var(--ink-a70)' }}>
                   None of those files are supported here. Try a MakerWorld 3D or Laser &amp; Cut format, or a supported documentation file.
+                </div>
+              </>
+            ) : notice.kind === 'video' ? (
+              <>
+                <div className="mp-display font-bold mb-1">{notice.detail === '1' ? 'Video added to Images' : `${notice.detail} videos added to Images`}</div>
+                <div style={{ color: 'var(--ink-a70)' }}>
+                  Clips live in the gallery with your photos. Open Images to order them or take one out.
                 </div>
               </>
             ) : notice.kind === 'renamed' ? (
               <>
                 <div className="mp-display font-bold mb-1">Renamed to avoid a duplicate</div>
-                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
+                <div style={{ color: 'var(--ink-a70)' }}>
                   A file with that name was already added, so we renamed it: {notice.detail}. (Same-named files would otherwise overwrite each other in the upload package.)
                 </div>
               </>
             ) : (
               <>
                 <div className="mp-display font-bold mb-1">Added an image as a model file</div>
-                <div style={{ color: 'rgba(38,42,35,0.7)' }}>
+                <div style={{ color: 'var(--ink-a70)' }}>
                   Kept it, which is what you want for a print diagram. If these are gallery photos, add them in <strong>Images</strong> instead, where the per-platform crops happen.
                 </div>
               </>
@@ -3826,13 +6159,13 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
               arbitrary order, and 25 rows of mixed profiles, meshes and photos
               read as one undifferentiated wall. */}
           {duplicateGroups.length > 0 && (
-            <p className="text-[11px] mb-2 px-2 py-1.5" style={{ backgroundColor: 'rgba(255,182,39,0.12)', color: '#8A4B08' }}>
+            <p className="text-[11px] mb-2 px-2 py-1.5" style={{ backgroundColor: 'rgba(255,182,39,0.12)', color: 'var(--warn-text)' }}>
               {duplicateGroups.length === 1 ? '2 or more files look identical' : `${duplicateGroups.length} sets of files look identical`}
               {' '}(same type and byte size). They are all still included: check the marked rows before publishing.
             </p>
           )}
           {matchCount === 0 && (
-            <p className="text-xs py-6 text-center" style={{ color: 'rgba(38,42,35,0.6)' }}>
+            <p className="text-xs py-6 text-center" style={{ color: 'var(--ink-a60)' }}>
               No file matches "{fileQuery}".{' '}
               <button onClick={() => setFileQuery('')} className="underline" style={{ color: 'var(--accent-text)' }}>Clear search</button>
             </p>
@@ -3857,7 +6190,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
                     <thead>
                       <tr>
                         <th>File</th>
-                        <th>Role</th>
+                        <th className="w-[16rem]">Role</th>
                         <th>Size</th>
                         <th aria-label="Row actions" />
                       </tr>
@@ -4157,14 +6490,14 @@ export function FileThumb({ file, size = 40, fill = false }) {
 
   const box = {
     ...(fill ? { width: '100%', aspectRatio: '1 / 1' } : { width: size, height: size }),
-    backgroundColor: isProf ? 'var(--primary-tint)' : isImg || isVid ? 'rgba(38,42,35,0.10)' : 'var(--surface-sunken)',
+    backgroundColor: isProf ? 'var(--primary-tint)' : isImg || isVid ? 'var(--ink-a10)' : 'var(--surface-sunken)',
     border: '1px solid var(--border)',
     borderRadius: 6,
   };
 
   if (plate) {
     return (
-      <span className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ ...box, backgroundColor: '#262A23' }} title="Build plate as sliced">
+      <span className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ ...box, backgroundColor: 'var(--ink)' }} title="Build plate as sliced">
         <img src={plate} alt="" className="w-full h-full object-contain" />
       </span>
     );
@@ -4185,10 +6518,10 @@ export function FileThumb({ file, size = 40, fill = false }) {
   }
   return (
     <span className="flex items-center justify-center flex-shrink-0" style={box}>
-      {isProf ? <Layers size={16} color="#5A7430" />
-        : isVid ? <Video size={16} color="#262A23" />
-        : isImg ? <ImageIcon size={16} color="#262A23" />
-        : <FileCheck size={16} color="#5A7430" />}
+      {isProf ? <Layers size={16} color="var(--primary)" />
+        : isVid ? <Video size={16} color="var(--ink)" />
+        : isImg ? <ImageIcon size={16} color="var(--ink)" />
+        : <FileCheck size={16} color="var(--primary)" />}
     </span>
   );
 }
@@ -4351,7 +6684,7 @@ function SlicerBuildPlate({
               className={nativePlate ? 'absolute inset-0 overflow-hidden' : 'absolute inset-[10px] overflow-hidden rounded-[12px]'}
               style={{
                 backgroundColor: '#2D2F37',
-                border: nativePlate ? '1px solid rgba(255,255,255,0.24)' : '1px solid rgba(176,181,193,0.28)',
+                border: nativePlate ? '1px solid var(--surface-a24)' : '1px solid rgba(176,181,193,0.28)',
                 boxShadow: nativePlate ? undefined : 'inset 0 0 0 2px rgba(13,14,18,0.52)',
                 ...(!nativePlate ? gridStyle : {}),
               }}
@@ -4359,7 +6692,7 @@ function SlicerBuildPlate({
               {!nativePlate && (
                 <>
                   <div className="absolute inset-[7px] rounded-[8px] border pointer-events-none" style={{ borderColor: 'rgba(176,181,193,0.16)' }} />
-                  <div className="absolute left-[7%] top-[4%] mp-mono text-[10px] font-semibold tracking-[0.06em]" style={{ color: 'rgba(255,255,255,0.84)' }}>
+                  <div className="absolute left-[7%] top-[4%] mp-mono text-[10px] font-semibold tracking-[0.06em]" style={{ color: 'var(--surface-a84)' }}>
                     ModelPrep textured PEI plate
                   </div>
                   <div className="absolute top-[5%] right-[6%] mp-mono text-[9px]" style={{ color: 'rgba(176,181,193,0.68)' }}>
@@ -4384,14 +6717,14 @@ function SlicerBuildPlate({
 
               {!nativePlate && (
                 <>
-                  <span className="absolute left-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>0</span>
-                  <span className="absolute right-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
-                  <span className="absolute left-[2.5%] top-[8%] mp-mono text-[9px]" style={{ color: 'rgba(255,255,255,0.66)' }}>{metrics?.plateSize || ''}</span>
+                  <span className="absolute left-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'var(--surface-a66)' }}>0</span>
+                  <span className="absolute right-[2.5%] bottom-[5%] mp-mono text-[9px]" style={{ color: 'var(--surface-a66)' }}>{metrics?.plateSize || ''}</span>
+                  <span className="absolute left-[2.5%] top-[8%] mp-mono text-[9px]" style={{ color: 'var(--surface-a66)' }}>{metrics?.plateSize || ''}</span>
                   <div className="absolute left-[4%] bottom-[8%] h-11 w-11" aria-hidden="true">
-                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ backgroundColor: '#E5484D' }} />
-                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ backgroundColor: '#46A758' }} />
-                    <span className="absolute right-0 bottom-0 mp-mono text-[9px]" style={{ color: '#E5484D' }}>X</span>
-                    <span className="absolute left-1 top-0 mp-mono text-[9px]" style={{ color: '#46A758' }}>Y</span>
+                    <span className="absolute left-3 bottom-2 w-7 h-px" style={{ backgroundColor: 'var(--danger)' }} />
+                    <span className="absolute left-3 bottom-2 w-px h-7" style={{ backgroundColor: 'var(--success)' }} />
+                    <span className="absolute right-0 bottom-0 mp-mono text-[9px]" style={{ color: 'var(--danger)' }}>X</span>
+                    <span className="absolute left-1 top-0 mp-mono text-[9px]" style={{ color: 'var(--success)' }}>Y</span>
                   </div>
                   <div className="absolute left-[10%] right-[10%] bottom-0 h-[6.5%] flex items-center justify-between px-[5%] mp-mono uppercase tracking-[0.05em]" style={{ backgroundColor: '#D9DADD', color: '#30323A', fontSize: '8px' }}>
                     <span>PLA / ABS / PETG</span>
@@ -4491,10 +6824,10 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
     <div
       role="dialog" aria-modal="true" aria-label={`Preview ${file.name}`}
       className="fixed inset-0 flex flex-col items-center justify-center p-6"
-      style={{ backgroundColor: 'rgba(38,42,35,0.82)', zIndex: 400 }}
+      style={{ backgroundColor: 'var(--ink-a82)', zIndex: 400 }}
       onMouseDown={(event) => { if (event.button === 0) onClose(); }}
     >
-      <div ref={dialogRef} tabIndex={-1} className="mp-card w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ backgroundColor: '#FFFFFF', maxWidth: 'min(1400px, calc(100vw - 3rem))' }} onMouseDown={(e) => e.stopPropagation()}>
+      <div ref={dialogRef} tabIndex={-1} className="mp-card w-full max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden" style={{ backgroundColor: 'var(--surface)', maxWidth: 'min(1400px, calc(100vw - 3rem))' }} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 p-3 border-b" style={{ borderColor: 'var(--border)' }}>
           <div className="min-w-0 flex-1">
             <div className="text-[15px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{file.name}</div>
@@ -4511,7 +6844,7 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
             for the 3D/slicer views, where a viewport is expected to be dark. */}
         <div className="flex items-center justify-center p-4 sm:p-6 overflow-y-auto" style={{ backgroundColor: 'var(--surface-sunken)', minHeight: 320 }}>
           {isVid && objectUrl && <video src={objectUrl} controls className="max-h-[72vh] max-w-full" />}
-          {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[72vh] max-w-full object-contain" style={{ boxShadow: '0 1px 14px rgba(38,42,35,0.18)' }} />}
+          {isImg && objectUrl && <img src={objectUrl} alt={file.alt || file.name} className="max-h-[72vh] max-w-full object-contain" style={{ boxShadow: '0 1px 14px var(--ink-a18)' }} />}
           {!isImg && !isVid && previewReady && (
             <SlicerBuildPlate
               src={large}
@@ -4555,14 +6888,14 @@ function FileTile({ file, size, onRemove, onOpen }) {
       <button onClick={onOpen} aria-label={`Preview ${file.name}`} title="Open preview" className="mp-thumb-btn mp-focusable">
         <FileThumb file={file} size={size} />
       </button>
-      <span className="text-[11px] leading-tight break-all line-clamp-2" style={{ color: 'rgba(38,42,35,0.7)' }}>
+      <span className="text-[11px] leading-tight break-all line-clamp-2" style={{ color: 'var(--ink-a70)' }}>
         {file.name}
       </span>
       <button
         onClick={onRemove}
         aria-label={`Remove ${file.name}`}
         className="absolute top-0.5 right-0.5 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition"
-        style={{ backgroundColor: 'rgba(255,255,255,0.9)' }}
+        style={{ backgroundColor: 'var(--surface-a90)' }}
       >
         <Trash2 size={12} />
       </button>
@@ -4625,7 +6958,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
           </div>
         </td>
         <td>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col items-start gap-1.5 w-[15rem]">
             {onChangeRole ? (
               <Select
                 value={role}
@@ -4633,9 +6966,8 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 options={FILE_ROLE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
                 ariaLabel={`Role for ${file.name}`}
                 title="What this file is for. Each platform routes files by role."
-                className="text-xs"
+                className="text-xs w-full"
                 size="sm"
-                style={{ width: 'auto', minWidth: '9rem' }}
                 triggerStyle={role === 'profile' ? { backgroundColor: 'var(--primary-tint)' } : null}
               />
             ) : (
@@ -4648,7 +6980,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 style={role === 'profile'
                   ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)' }
                   : role === 'laser'
-                    ? { backgroundColor: 'rgba(255,105,0,0.14)', color: '#B23A1A' }
+                    ? { backgroundColor: 'rgba(255,105,0,0.14)', color: 'var(--accent-warm-text)' }
                     : { backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)', border: '1px solid var(--border)' }}
               >
                 {FILE_ROLE_OPTIONS.find((option) => option.id === role)?.label || 'Model'}
@@ -4658,7 +6990,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 every file said nothing and made the table look like a checklist
                 with nothing left to check. */}
             {duplicate && (
-              <span className="mp-pill" style={{ backgroundColor: 'rgba(255,182,39,0.25)', color: '#8A4B08' }} title="Another file has the same type and byte size">
+              <span className="mp-pill" style={{ backgroundColor: 'rgba(255,182,39,0.25)', color: 'var(--warn-text)' }} title="Another file has the same type and byte size">
                 Possible duplicate
               </span>
             )}
@@ -4669,9 +7001,8 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
                 options={[{ value: "", label: file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…' }, ...Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => ({ value: id, label: label }))]}
                 ariaLabel={`Slicer for ${file.name}`}
                 title="Detected from the file's own metadata; override if the detection is wrong"
-                className="text-xs"
+                className="text-xs w-full"
                 size="sm"
-                style={{ width: 'auto', minWidth: '10rem' }}
               />
             )}
           </div>
@@ -4756,7 +7087,7 @@ export function FileRow({ file, onRemove, onRename, onUpdateMakerWorld, onUpdate
               Exclude this G-code from the model totals
             </label>
           )}
-          <p className="text-[11px] mt-1.5 max-w-[68ch] leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px] mt-1.5 max-w-[68ch] leading-snug" style={{ color: 'var(--ink-a66)' }}>
             File notes can be up to {PRINTABLES_FILE_NOTE_MAX} characters and folder names up to {PRINTABLES_FOLDER_NAME_MAX}. The overrides above are only used when Printables can't read a value from the file. Files upload in the order shown above.
           </p>
         </details>
@@ -4803,6 +7134,87 @@ function dataUrlToParts(dataUrl) {
 // Default platform selection: which platforms a NEW project starts with enabled.
 // null = the user hasn't customised it → use initialProject's built-in defaults.
 const DEFAULT_PLATFORMS_KEY = 'modelprep:default-platforms';
+
+// Appearance: system, light or dark. Stored here, applied as data-theme on
+// <html> so the token block above can switch.
+const THEME_KEY = 'modelprep:theme';
+const THEME_OPTIONS = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']];
+function readTheme() {
+  try { const v = localStorage.getItem(THEME_KEY); return ['light', 'dark'].includes(v) ? v : 'system'; } catch { return 'system'; }
+}
+// "system" is resolved here rather than in CSS: one matchMedia listener is
+// cheaper than emitting every palette twice, once per media query.
+let systemThemeUnsub = null;
+function applyTheme(theme) {
+  if (typeof document === 'undefined') return;
+  if (systemThemeUnsub) { systemThemeUnsub(); systemThemeUnsub = null; }
+  if (theme === 'light' || theme === 'dark') { document.documentElement.setAttribute('data-theme', theme); return; }
+  const media = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const follow = () => document.documentElement.setAttribute('data-theme', media?.matches ? 'dark' : 'light');
+  follow();
+  if (media?.addEventListener) { media.addEventListener('change', follow); systemThemeUnsub = () => media.removeEventListener('change', follow); }
+}
+function saveTheme(theme) {
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
+  applyTheme(theme);
+}
+// Which dark palette. "graphite" is the app's own; the rest are the
+// community themes people already run in their editors and terminals.
+const PALETTE_KEY = 'modelprep:palette';
+const DARK_PALETTES = [
+  ['graphite', 'Graphite', ['#0F110F', '#151815', '#A3D65C']],
+  ['tokyo-night', 'Tokyo Night', ['#16161E', '#1A1B26', '#9ECE6A']],
+  ['catppuccin', 'Catppuccin Mocha', ['#11111B', '#1E1E2E', '#A6E3A1']],
+  ['nord', 'Nord', ['#242933', '#2E3440', '#A3BE8C']],
+  ['dracula', 'Dracula', ['#21222C', '#282A36', '#50FA7B']],
+  ['github', 'GitHub Dark', ['#010409', '#0D1117', '#3FB950']],
+  ['one-dark', 'One Dark', ['#21252B', '#282C34', '#98C379']],
+  ['vscode', 'VS Code Dark Modern', ['#181818', '#1F1F1F', '#89D185']],
+  ['telegram', 'Telegram Night', ['#0E1621', '#17212B', '#4FAE4E']],
+  ['slack', 'Slack Dark', ['#121016', '#1A1D21', '#2BAC76']],
+  ['solarized', 'Solarized Dark', ['#00212B', '#002B36', '#859900']],
+  ['monokai', 'Monokai Pro', ['#221F22', '#2D2A2E', '#A9DC76']],
+  ['gruvbox', 'Gruvbox Dark', ['#1D2021', '#282828', '#B8BB26']],
+  ['rose-pine', 'Rosé Pine', ['#191724', '#1F1D2E', '#9CCFD8']],
+  ['ayu', 'Ayu Dark', ['#0B0E14', '#0D1017', '#AAD94C']],
+  ['night-owl', 'Night Owl', ['#010E1A', '#011627', '#ADDB67']],
+];
+function readPalette() {
+  try { const v = localStorage.getItem(PALETTE_KEY); return DARK_PALETTES.some(([id]) => id === v) ? v : 'graphite'; } catch { return 'graphite'; }
+}
+function applyPalette(palette) {
+  if (typeof document === 'undefined') return;
+  if (palette && palette !== 'graphite') document.documentElement.setAttribute('data-palette', palette);
+  else document.documentElement.removeAttribute('data-palette');
+}
+function savePalette(palette) {
+  try { localStorage.setItem(PALETTE_KEY, palette); } catch { /* private mode */ }
+  applyPalette(palette);
+}
+const ACCENT_KEY = 'modelprep:accent';
+const THEME_ACCENTS = { 'graphite': '#7C9CFF', 'tokyo-night': '#7AA2F7', 'catppuccin': '#CBA6F7', 'nord': '#88C0D0', 'dracula': '#BD93F9', 'github': '#58A6FF', 'one-dark': '#61AFEF', 'vscode': '#0078D4', 'telegram': '#6AB2F2', 'slack': '#9B5FA5', 'solarized': '#2AA198', 'monokai': '#AB9DF2', 'gruvbox': '#FE8019', 'rose-pine': '#C4A7E7', 'ayu': '#FF8F40', 'night-owl': '#82AAFF' };
+const ACCENTS = [
+  ['green', 'Brand green', '#5A7430', '#A3D65C'],
+  ['orange', 'Orange', '#E8590C', '#FF8A4C'],
+  ['blue', 'Blue', '#2563EB', '#7AB3FF'],
+  ['purple', 'Purple', '#7C3AED', '#B794F6'],
+  ['pink', 'Pink', '#DB2777', '#F472B6'],
+  ['teal', 'Teal', '#0D9488', '#5EEAD4'],
+  ['amber', 'Amber', '#D97706', '#FBBF24'],
+  ['red', 'Red', '#DC2626', '#F87171'],
+];
+function readAccent() {
+  try { const v = localStorage.getItem(ACCENT_KEY); return v === 'theme' || ACCENTS.some(([id]) => id === v) ? v : 'green'; } catch { return 'green'; }
+}
+function applyAccent(accent) {
+  if (typeof document === 'undefined') return;
+  if (accent && accent !== 'green') document.documentElement.setAttribute('data-accent', accent);
+  else document.documentElement.removeAttribute('data-accent');
+}
+function saveAccent(accent) {
+  try { localStorage.setItem(ACCENT_KEY, accent); } catch { /* private mode */ }
+  applyAccent(accent);
+}
 function getDefaultPlatforms() {
   try { const v = JSON.parse(localStorage.getItem(DEFAULT_PLATFORMS_KEY) || 'null'); return Array.isArray(v) ? v : null; }
   catch { return null; }
@@ -4856,9 +7268,25 @@ function desktopBridge() {
 
 // The instruction that follows the photos, shared by every provider.
 function aiUserInstruction(hint) {
-  return hint?.trim()
-    ? `Maker's one-line hint: "${hint.trim()}". Write the listing for the model in these photos.`
+  const text = hint?.trim() || '';
+  if (text.includes('\n')) return text;   // an improve brief: already a full instruction
+  return text
+    ? `Maker's one-line hint: "${text}". Write the listing for the model in these photos.`
     : 'Write the listing for the model in these photos.';
+}
+
+// The brief for improving a listing the maker already wrote. Facts stay
+// theirs; the writer fixes grammar, fills gaps, and adds tags they missed.
+function improveBrief({ title, description, tags, direction }) {
+  return [
+    'Improve the listing below for the model in these photos. Keep every fact the maker wrote and their voice; do not invent features.',
+    'Fix grammar and spelling, make the description fuller and better organised, sharpen the title, and add tags the description supports but the list misses. Keep every existing tag.',
+    direction?.trim() ? `Maker's direction: ${direction.trim()}` : '',
+    `Existing title: ${title || '(none)'}`,
+    `Existing description:\n${description || '(none)'}`,
+    `Existing tags: ${tags?.length ? tags.join(', ') : '(none)'}`,
+    'Return the full improved listing in the JSON shape.',
+  ].filter(Boolean).join('\n');
 }
 
 // Local model server (Ollama, LM Studio). Routed through the desktop main process, which can
@@ -4981,17 +7409,17 @@ async function generateListingAI({ images, hint, limits, categories, onAttempt }
 // click: "Use this": and everything else (model, endpoint, chain position) is filled in.
 
 const AI_TONE = {
-  ready:   { fg: '#1a7f37', bg: 'rgba(26,127,55,0.10)', label: 'Ready' },
-  setup:   { fg: '#8a5a00', bg: 'rgba(138,90,0,0.10)',  label: 'Needs setup' },
-  key:     { fg: 'rgba(38,42,35,0.55)', bg: 'rgba(38,42,35,0.06)', label: 'Needs key' },
-  missing: { fg: 'rgba(38,42,35,0.45)', bg: 'rgba(38,42,35,0.05)', label: 'Not found' },
-  unsupported: { fg: 'rgba(38,42,35,0.45)', bg: 'rgba(38,42,35,0.05)', label: 'Desktop only' },
-  checking: { fg: 'rgba(38,42,35,0.45)', bg: 'rgba(38,42,35,0.05)', label: 'Checking' },
-  error:   { fg: '#991b1b', bg: 'rgba(185,28,28,0.08)', label: 'Problem' },
+  ready:   { fg: 'var(--success-text)', bg: 'rgba(26,127,55,0.10)', label: 'Ready' },
+  setup:   { fg: 'var(--warn-text)', bg: 'rgba(138,90,0,0.10)',  label: 'Needs setup' },
+  key:     { fg: 'var(--ink-a55)', bg: 'var(--ink-a06)', label: 'Needs key' },
+  missing: { fg: 'var(--ink-a45)', bg: 'var(--ink-a05)', label: 'Not found' },
+  unsupported: { fg: 'var(--ink-a45)', bg: 'var(--ink-a05)', label: 'Desktop only' },
+  checking: { fg: 'var(--ink-a45)', bg: 'var(--ink-a05)', label: 'Checking' },
+  error:   { fg: 'var(--danger-text)', bg: 'rgba(185,28,28,0.08)', label: 'Problem' },
 };
 
 const aiLabelClass = 'mp-mono text-[11px] uppercase tracking-[0.12em] block mb-1';
-const aiMuted = 'rgba(38,42,35,0.55)';
+const aiMuted = 'var(--ink-a55)';
 
 function AiStatusChip({ state }) {
   const tone = AI_TONE[state] || AI_TONE.missing;
@@ -5007,8 +7435,8 @@ function AiStatusChip({ state }) {
 // running. Always states the problem and the fix, and keeps the provider's own words.
 function AiProblem({ title, fix, detail, tone = 'warn' }) {
   const colors = tone === 'error'
-    ? { fg: '#991b1b', bg: 'rgba(185,28,28,0.06)', border: 'rgba(185,28,28,0.30)' }
-    : { fg: '#7a4f00', bg: 'rgba(138,90,0,0.07)', border: 'rgba(138,90,0,0.30)' };
+    ? { fg: 'var(--danger-text)', bg: 'rgba(185,28,28,0.06)', border: 'rgba(185,28,28,0.30)' }
+    : { fg: 'var(--warn-text)', bg: 'rgba(138,90,0,0.07)', border: 'rgba(138,90,0,0.30)' };
   return (
     <div role="status" className="p-2.5 text-xs leading-relaxed break-words" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, color: colors.fg }}>
       <span className="font-semibold">{title}</span>{fix ? `: ${fix}` : ''}
@@ -5055,7 +7483,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
   const problem = detection?.error || null;
 
   return (
-    <div className="mp-card" style={{ borderColor: isPrimary ? 'rgba(90,116,48,0.55)' : 'rgba(38,42,35,0.12)' }}>
+    <div className="mp-card" style={{ borderColor: isPrimary ? 'var(--primary-a55)' : 'var(--ink-a12)' }}>
       <div className="flex items-start gap-3 p-3">
         <button
           type="button" onClick={onToggle} aria-expanded={expanded}
@@ -5065,8 +7493,8 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
           <span className="min-w-0">
             <span className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-semibold">{meta.name}</span>
-              {isPrimary && <span className="mp-pill" style={{ backgroundColor: 'rgba(90,116,48,0.12)', color: '#B23C15' }}>Primary</span>}
-              {backupIndex >= 0 && <span className="mp-pill" style={{ backgroundColor: 'rgba(38,42,35,0.06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
+              {isPrimary && <span className="mp-pill" style={{ backgroundColor: 'var(--primary-a12)', color: 'var(--accent-warm-text)' }}>Primary</span>}
+              {backupIndex >= 0 && <span className="mp-pill" style={{ backgroundColor: 'var(--ink-a06)', color: aiMuted }}>Backup {backupIndex + 1}</span>}
             </span>
             <span className="block text-xs mt-0.5 break-words" style={{ color: aiMuted }}>
               {detection?.detail || meta.cost}
@@ -5086,7 +7514,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
           {!usable && state !== 'checking' && !expanded && (
             <button
               type="button" onClick={onToggle}
-              className="mp-mono text-[11px] uppercase tracking-[0.12em] shrink-0 hover:text-[#5A7430] transition"
+              className="mp-mono text-[11px] uppercase tracking-[0.12em] shrink-0 hover:text-[var(--primary)] transition"
               style={{ color: aiMuted }}
             >
               {meta.kind === 'cloud' ? 'Add key' : state === 'setup' ? 'Finish setup' : `What's needed`}
@@ -5096,7 +7524,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
       </div>
 
       {expanded && (
-        <div className="px-3 pb-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.10)' }}>
+        <div className="px-3 pb-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a10)' }}>
           <p className="text-xs leading-relaxed break-words" style={{ color: aiMuted }}>{meta.blurb}</p>
 
           {detection?.warning && <AiProblem title="Heads up" fix={detection.warning} />}
@@ -5152,7 +7580,7 @@ function AiProviderRow({ meta, detection, config, models, expanded, onToggle, on
             {usable && !inChain && <button type="button" className="mp-btn mp-btn-ghost text-[13px]" style={{ minHeight: 36 }} onClick={onBackup}>Add as backup</button>}
             {inChain && <button type="button" className="mp-btn mp-btn-ghost text-[13px]" style={{ minHeight: 36 }} onClick={onRemove}>Remove from chain</button>}
             {meta.setupUrl && (
-              <a href={meta.setupUrl} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: '#B23C15' }}>
+              <a href={meta.setupUrl} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: 'var(--accent-warm-text)' }}>
                 {meta.kind === 'cloud' ? 'Get a key' : 'Install guide'}
               </a>
             )}
@@ -5256,7 +7684,7 @@ function AiSettings() {
         </div>
         <LoadingButton
           type="button" onClick={scan} loading={detected === null} markSize={11}
-          className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 shrink-0 mt-1 hover:text-[#5A7430] transition disabled:opacity-50"
+          className="mp-mono text-[11px] uppercase tracking-[0.12em] flex items-center gap-1.5 shrink-0 mt-1 hover:text-[var(--primary)] transition disabled:opacity-50"
           style={{ color: aiMuted }}
         >
           <RefreshCw size={11} /> Check again
@@ -5400,7 +7828,7 @@ function Select({
   const pad = size === 'sm' ? 'py-1.5 text-xs' : 'py-2.5 text-[13px]';
 
   return (
-    <div className={`relative ${className}`} style={style} ref={wrapRef} onKeyDown={onKeyDown}>
+    <div className={`mp-select relative ${className}`} style={style} ref={wrapRef} onKeyDown={onKeyDown}>
       <button
         type="button"
         id={id}
@@ -5462,8 +7890,8 @@ function Select({
                     aria-selected={isSelected}
                     disabled={option.disabled}
                     onClick={() => choose(option)}
-                    className={`w-full text-left px-3 ${pad} hover:bg-[rgba(90,116,48,0.08)] transition flex items-center justify-between gap-3 disabled:opacity-40`}
-                    style={{ backgroundColor: isSelected ? 'rgba(90,116,48,0.06)' : 'transparent' }}
+                    className={`w-full text-left px-3 ${pad} hover:bg-[var(--primary-a08)] transition flex items-center justify-between gap-3 disabled:opacity-40`}
+                    style={{ backgroundColor: isSelected ? 'var(--primary-a06)' : 'transparent' }}
                   >
                     <span className="truncate">{option.label}</span>
                     {isSelected && <Check size={12} className="flex-shrink-0" style={{ color: 'var(--primary)' }} />}
@@ -5500,6 +7928,219 @@ const LICENSE_GROUPS = [
   { label: 'Non-commercial only', licenses: LICENSES.filter((license) => !license.commercial) },
 ].filter((group) => group.licenses.length > 0);
 
+// The writer as an action in the header, not a banner above the form. The
+// button carries the state: primary while the listing is empty (the main
+// path), ghost once there is text (a redo), loading while it drafts. Its
+// popover holds the one optional input, a hint, and says who writes.
+function DraftListingControl({ project, busy, open, setOpen }) {
+  const photos = project.images.length;
+  const empty = !project.title.trim() && !project.description.trim();
+  const label = busy ? (empty ? 'Drafting…' : 'Improving…') : (empty ? (photos ? 'Draft from photos' : 'Draft listing') : 'Improve listing');
+  return (
+    <div className="flex items-center gap-2">
+      {photos > 0 && !busy && (
+        <span className="text-xs hidden sm:inline" style={{ color: 'var(--ink-50)' }}>Reads your {photos} photo{photos === 1 ? '' : 's'}</span>
+      )}
+      <LoadingButton
+        onClick={() => setOpen(!open)}
+        loading={busy}
+        markSize={13}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`${empty ? 'mp-btn' : 'mp-btn mp-btn-ghost'} text-xs`}
+      >
+        <Sparkles size={13} /> {label}
+      </LoadingButton>
+    </div>
+  );
+}
+
+// The draft panel: a right-edge panel like Settings and Projects, because a
+// hint can be a paragraph and the result wants reviewing. Top: what it reads
+// and the hint, full height to type in. Bottom: the Draft button and who
+// writes. After a run the panel lists what changed and what is waiting for
+// Replace, so the review happens here and the form stays the form.
+function DraftPanel({ open, onClose, project, hint, setHint, busy, onRun, providerName, onSetUp, offers, onReplace, onDismiss, onEdit, onReplaceAll, status, mode = 'create', setMode = () => {}, hasListing = false }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = previous; };
+  }, [open, onClose]);
+  if (!open) return null;
+  const photos = project.images.length;
+  const offerEntries = Object.entries(offers || {});
+  const FIELD_NAMES = { title: 'Title', description: 'Description', tags: 'Tags', category: 'Category' };
+  const improve = mode === 'improve';
+  // Tags on offer are shown as what would be added; the maker's own stay.
+  const newTags = (value) => value.filter((tag) => !project.tags.includes(tag));
+  // The hint fills the panel until there is something to review; then it keeps
+  // its height and the body scrolls, instead of painting over the status box.
+  const hasReview = !!status || offerEntries.length > 0;
+  return (
+    <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'var(--ink-a35)' }} onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Draft the listing"
+        data-testid="draft-panel"
+        className="mp-panel h-full w-full flex flex-col"
+        style={{ backgroundColor: 'var(--surface)', boxShadow: 'var(--shadow-2)' }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 px-5 h-14 border-b flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+          <Sparkles size={16} style={{ color: 'var(--primary)' }} />
+          <h2 className="text-[15px] font-semibold flex-1" style={{ color: 'var(--ink)' }}>Draft the listing</h2>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-md hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-4 min-h-0">
+          {/* Two jobs, one button. With a listing on the page the default is
+              to improve it; with nothing written, to write it. The switch is
+              here for the maker who wants the other one. */}
+          <div className="mp-segmented" role="group" aria-label="What the draft does">
+            <button type="button" onClick={() => setMode('improve')} aria-pressed={improve} className="flex-1 text-xs py-1.5 rounded-sm transition"
+              style={improve ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'var(--ink-65)' }}>
+              Improve what I wrote
+            </button>
+            <button type="button" onClick={() => setMode('create')} aria-pressed={!improve} className="flex-1 text-xs py-1.5 rounded-sm transition"
+              style={!improve ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'var(--ink-65)' }}>
+              Start from a prompt
+            </button>
+          </div>
+          <p className="text-[13px]" style={{ color: 'var(--ink-65)' }}>
+            {improve
+              ? (hasListing
+                ? `Keeps every fact you wrote, fixes grammar, fills gaps and adds tags your description supports${photos ? `, using your ${photos} photo${photos === 1 ? '' : 's'} too` : ''}. You approve each change.`
+                : 'Nothing is written yet, so there is nothing to improve. Switch to "Start from a prompt", or type the listing first.')
+              : (photos
+                ? `Writes the title, description, tags and category from your ${photos} photo${photos === 1 ? '' : 's'} and what you tell it below.`
+                : 'No photos yet, so it writes from what you type below. A sentence or two about the model is enough.')}
+          </p>
+          <div className={`flex flex-col ${hasReview ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
+            <FieldHeader label={improve ? 'Anything to change or add' : 'What is this model?'}>
+              <span className="text-xs t-num" style={{ color: 'var(--ink-50)' }}>{hint.length ? `${hint.length} characters` : (improve || photos ? 'optional' : 'needed')}</span>
+            </FieldHeader>
+            <textarea
+              autoFocus
+              className={`mp-textarea mp-input text-sm leading-relaxed resize-none ${hasReview ? '' : 'flex-1'}`}
+              style={{ minHeight: 220 }}
+              placeholder={improve
+                ? 'e.g. Make the description shorter. Mention it needs no supports. Add tags for fidget and desk toy.'
+                : 'Anything the photos do not show.\n\ne.g. Articulating desk dragon, prints in place, PLA, no supports. Designed for 0.4 nozzle, 0.2 layers. Comes in three sizes.'}
+              aria-label="Hint for the draft"
+              value={hint}
+              onChange={(e) => setHint(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onRun(); }}
+              disabled={busy}
+            />
+            <p className="text-[11px] mt-1.5" style={{ color: 'var(--ink-50)' }}>Cmd+Enter runs it. Nothing changes on the page until you press Use this on a proposal.</p>
+          </div>
+
+          {status && (
+            <p role="status" className="text-xs flex items-start gap-2 p-3 rounded-md" style={{ backgroundColor: status.kind === 'warn' ? 'rgba(255,182,39,0.12)' : 'var(--primary-tint)', color: status.kind === 'warn' ? 'var(--warn-text)' : 'var(--primary-ink)' }}>
+              <Sparkles size={12} className="flex-shrink-0 mt-0.5" aria-hidden />
+              <span>{status.text}</span>
+            </p>
+          )}
+
+          {offerEntries.length > 0 && (
+            <div className="space-y-2" data-testid="draft-review">
+              <div className="flex items-center gap-2">
+                <SectionTitle title="Proposed changes" icon={RefreshCw} className="mb-0 flex-1" />
+                <button type="button" onClick={onReplaceAll} className="mp-btn mp-btn-ghost text-xs py-1 px-2.5">Use all</button>
+              </div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-50)' }}>Edit a proposal before you use it. Keep mine leaves that field as you wrote it.</p>
+              {offerEntries.map(([field, value]) => (
+                <div key={field} className="mp-card p-3 space-y-2" data-testid={`draft-offer-${field}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-medium flex-1" style={{ color: 'var(--ink)' }}>{FIELD_NAMES[field] || field}</span>
+                    {field === 'tags' && <span className="text-xs" style={{ color: 'var(--ink-50)' }}>{newTags(value).length} new, {value.length - newTags(value).length} kept</span>}
+                  </div>
+                  {/* Proposals are editable: "nearly right" is the common case,
+                      and retyping it into the form loses the rest of the draft. */}
+                  {field === 'description' ? (
+                    <textarea
+                      aria-label="Proposed description"
+                      className="mp-textarea mp-input text-xs leading-5 resize-y"
+                      style={{ minHeight: 160 }}
+                      value={value}
+                      onChange={(e) => onEdit(field, e.target.value)}
+                    />
+                  ) : field === 'tags' ? (
+                    <input
+                      aria-label="Proposed tags"
+                      className="mp-input text-xs"
+                      value={value.join(', ')}
+                      onChange={(e) => onEdit(field, [...new Set(e.target.value.split(',').map((tag) => tag.trim().toLowerCase().replace(/\s+/g, '-')).filter(Boolean))])}
+                    />
+                  ) : (
+                    <input
+                      aria-label={`Proposed ${FIELD_NAMES[field]?.toLowerCase() || field}`}
+                      className="mp-input text-xs"
+                      value={value}
+                      onChange={(e) => onEdit(field, e.target.value)}
+                    />
+                  )}
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <button type="button" onClick={() => onDismiss(field)} className="mp-btn mp-btn-ghost text-xs py-1 px-2.5">Keep mine</button>
+                    <button type="button" onClick={() => onReplace(field)} className="mp-btn text-xs py-1 px-2.5">Use this</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t flex items-center gap-3 flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+          <span className="text-[11px] flex-1" style={{ color: 'var(--ink-50)' }}>
+            {providerName
+              ? <>Written by {providerName}. <button type="button" onClick={onSetUp} className="underline">Change</button></>
+              : <>No AI set up, so it drafts from your hint. <button type="button" onClick={onSetUp} className="underline">Set up AI</button></>}
+          </span>
+          <LoadingButton onClick={onRun} loading={busy} markSize={13} className="mp-btn text-[13px] py-2 px-4">
+            <Sparkles size={13} /> {busy ? (improve ? 'Improving…' : 'Drafting…') : (improve ? 'Improve' : 'Draft')}
+          </LoadingButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A drafted value waiting beside a field you had already filled.
+function DraftOffer({ field, value, onReplace, onDismiss }) {
+  const preview = field === 'tags' ? `${value.length} tags` : String(value).replace(/\s+/g, ' ').slice(0, 48) + (String(value).length > 48 ? '…' : '');
+  return (
+    <span className="flex items-center gap-2 text-xs min-w-0" style={{ color: 'var(--ink-65)' }} data-testid={`draft-offer-${field}`}>
+      <span className="truncate" title={field === 'tags' ? value.join(', ') : String(value)}>Draft: {preview}</span>
+      <button type="button" onClick={onReplace} className="underline flex-shrink-0" style={{ color: 'var(--primary-ink)' }}>Replace</button>
+      <button type="button" onClick={onDismiss} className="underline flex-shrink-0">Keep mine</button>
+    </span>
+  );
+}
+
+// Clears the listing text and the shared answers, two presses apart.
+function ClearDetailsButton({ project, updateProject }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (!armed) return undefined; const t = setTimeout(() => setArmed(false), 4000); return () => clearTimeout(t); }, [armed]);
+  const hasContent = !!(project.title || project.description || project.tags.length || project.category);
+  const clear = () => {
+    if (!armed) { setArmed(true); return; }
+    updateProject({
+      title: '', description: '', tags: [], category: '', license: initialProject.license,
+      provenance: { origin: 'original', sourceUrl: '', changes: '' }, aiGenerated: false, nsfw: false,
+    });
+    setArmed(false);
+  };
+  return (
+    <button type="button" onClick={clear} disabled={!hasContent} className="mp-btn mp-btn-ghost text-xs disabled:opacity-40" style={armed ? { color: 'var(--danger-text)', borderColor: 'var(--danger-text)' } : undefined}>
+      <X size={13} /> {armed ? 'Press again to clear' : 'Clear details'}
+    </button>
+  );
+}
+
 function DetailsSection({ project, updateProject, setCurrentSection }) {
   useAccounts();
   const [tagInput, setTagInput] = useState('');
@@ -5509,7 +8150,22 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const [aiHint, setAiHint] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState(null); // { kind:'ok'|'warn', text }
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [draftOpen, setDraftOpen] = useState(false);          // the draft panel
+  // "improve" keeps what is written and makes it better; "create" writes from
+  // the hint. The default follows the listing: text present means improve.
+  const [draftModeChoice, setDraftModeChoice] = useState(null);
+  const [draftOffers, setDraftOffers] = useState({});          // field -> drafted value, waiting for Replace
+  const [flashed, setFlashed] = useState(() => new Set());     // fields just filled, flashing
+  // Status lines fade on their own; a warning stays a while longer.
+  useEffect(() => {
+    if (!aiMsg) return undefined;
+    const t = setTimeout(() => setAiMsg(null), aiMsg.kind === 'warn' ? 12000 : 6000);
+    return () => clearTimeout(t);
+  }, [aiMsg]);
+  const flash = (fields) => {
+    setFlashed(new Set(fields));
+    setTimeout(() => setFlashed(new Set()), 1800);
+  };
   const openSettings = useOpenConnections();
   const aiPrimary = readAiConfig().primary;
   const selectedLicense = LICENSES.find((license) => license.id === project.license);
@@ -5524,23 +8180,52 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   const longTags = lim.tagCharMax ? project.tags.filter(t => t.length > lim.tagCharMax) : [];
 
   // ✨ Generate Title/Description/Tags/Category from the photos (+ optional hint).
+  const hasListing = !!(project.title.trim() || project.description.trim());
+  const draftMode = draftModeChoice || (hasListing ? 'improve' : 'create');
   const runGenerate = async () => {
     if (aiBusy) return;
-    if (!project.images.length && !aiHint.trim()) {
-      setAiMsg({ kind: 'warn', text: 'Add photos in Images, or type a hint here first.' });
+    if (draftMode === 'create' && !project.images.length && !aiHint.trim()) {
+      setAiMsg({ kind: 'warn', text: 'Tell it about the model first, or add photos in Images.' });
+      return;
+    }
+    if (draftMode === 'improve' && !aiPrimary) {
+      setAiMsg({ kind: 'warn', text: 'Improving what you wrote needs an AI provider. Set one up in Settings, or switch to "Start from a prompt".' });
       return;
     }
     setAiBusy(true); setAiMsg(null);
     try {
-      const out = await generateListingAI({ images: project.images, hint: aiHint, limits: lim, categories: CATEGORIES });
+      const hint = draftMode === 'improve'
+        ? improveBrief({ title: project.title, description: project.description, tags: project.tags, direction: aiHint })
+        : aiHint;
+      const out = await generateListingAI({ images: project.images, hint, limits: lim, categories: CATEGORIES });
       const f = out.fields;
+      // What came back, keyed by field.
+      const drafted = {};
+      if (f.title) drafted.title = f.title;
+      if (f.description) drafted.description = f.description;
+      // Tags are added to, never swapped: the maker's own tags always survive.
+      if (f.tags?.length) drafted.tags = [...new Set([...project.tags, ...f.tags])].slice(0, MAX_TAGS);
+      if (f.category) drafted.category = f.category;
+      // Empty fields fill in. A field you typed into keeps your text and gets
+      // a Replace offer beside its label instead; pressing the button must
+      // never cost you work.
+      const has = { title: !!project.title.trim(), description: !!project.description.trim(), tags: project.tags.length > 0, category: !!project.category };
       const patch = {};
-      if (f.title) patch.title = f.title;
-      if (f.description) patch.description = f.description;
-      if (f.tags?.length) patch.tags = [...new Set(f.tags)];
-      if (f.category) patch.category = f.category;
+      const offers = {};
+      for (const [field, value] of Object.entries(drafted)) {
+        const same = field === 'tags' ? JSON.stringify(value) === JSON.stringify(project.tags) : value === project[field];
+        if (same) continue;
+        if (has[field]) offers[field] = value; else patch[field] = value;
+      }
       if (Object.keys(patch).length) updateProject(patch);
-      const filled = Object.keys(patch).map(k => k === 'tags' ? `${patch.tags.length} tags` : k).join(', ') || 'nothing';
+      setDraftOffers(offers);
+      flash(Object.keys(patch));
+      const name = (k, v) => k === 'tags' ? `${v.length} tags` : k;
+      const filledList = Object.entries(patch).map(([k, v]) => name(k, v));
+      const filled = filledList.length
+        ? (filledList.length > 1 ? `${filledList.slice(0, -1).join(', ')} and ${filledList.at(-1)}` : filledList[0])
+        : 'nothing new';
+      const offered = Object.keys(offers).length ? ` ${Object.keys(offers).length} field${Object.keys(offers).length === 1 ? ' has' : 's have'} a draft waiting for your say.` : '';
       // Name whoever actually wrote it. When a backup stepped in, say why the first one didn't
       //: a maker seeing "quota" on their primary knows exactly what to do about it.
       const wrote = out.source === 'ai' ? ` by ${AI_PROVIDERS[out.providerId]?.name || 'AI'}` : '';
@@ -5552,12 +8237,35 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         : `${skipped}${out.realPhotoDetected === false ? ' ⚠ No real print photo detected: MakerWorld requires one.' : ''}`;
       setAiMsg({
         kind: out.source === 'offline' || out.realPhotoDetected === false ? 'warn' : 'ok',
-        text: `Generated ${filled}${wrote}.${out.notes ? ' ' + out.notes : ''}${tail}`,
+        text: `${draftMode === 'improve' ? 'Improved' : 'Drafted'} ${filled}${wrote}. Edit anything.${offered}${out.notes ? ' ' + out.notes : ''}${tail}`,
       });
     } catch (e) {
-      setAiMsg({ kind: 'warn', text: 'Generation failed: ' + String((e && e.message) || e) });
+      setAiMsg({ kind: 'warn', text: 'Drafting failed: ' + String((e && e.message) || e) });
     } finally { setAiBusy(false); }
   };
+  // Every decision says what it did. Pressing Replace all and watching the
+  // list vanish without a word read as a bug, because it looked like one.
+  const fieldWord = (field, value) => (field === 'tags' ? `${value.length} tags` : field);
+  const listWords = (words) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]);
+  const applyOffers = (fields) => {
+    const chosen = fields.filter((field) => draftOffers[field] !== undefined);
+    if (!chosen.length) return;
+    updateProject(Object.fromEntries(chosen.map((field) => [field, draftOffers[field]])));
+    setDraftOffers((current) => { const next = { ...current }; chosen.forEach((field) => delete next[field]); return next; });
+    flash(chosen);
+    setAiMsg({ kind: 'ok', text: `Replaced ${listWords(chosen.map((field) => fieldWord(field, draftOffers[field])))}. Edit anything.` });
+  };
+  const acceptOffer = (field) => applyOffers([field]);
+  const editOffer = (field, value) => setDraftOffers((current) => ({ ...current, [field]: value }));
+  const acceptAllOffers = () => applyOffers(Object.keys(draftOffers));
+  const dismissOffer = (field) => {
+    setDraftOffers((current) => { const next = { ...current }; delete next[field]; return next; });
+    setAiMsg({ kind: 'ok', text: `Kept your ${field}.` });
+  };
+  const offerFor = (field) => draftOffers[field] !== undefined
+    ? <DraftOffer field={field} value={draftOffers[field]} onReplace={() => acceptOffer(field)} onDismiss={() => dismissOffer(field)} />
+    : null;
+  const flashClass = (field) => (flashed.has(field) ? 'mp-flash' : '');
 
   const addTag = (raw) => {
     const t = raw.trim().toLowerCase().replace(/\s+/g, '-');
@@ -5607,91 +8315,45 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
   };
 
   return (
+    <RequiredCtx.Provider value="details">
     <div className="w-full min-w-0">
+      <DraftPanel
+      open={draftOpen}
+      onClose={() => setDraftOpen(false)}
+      project={project}
+      hint={aiHint}
+      setHint={setAiHint}
+      busy={aiBusy}
+      onRun={runGenerate}
+      providerName={aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || 'AI') : null}
+      onSetUp={() => { setDraftOpen(false); openSettings('ai'); }}
+      offers={draftOffers}
+      onReplace={acceptOffer}
+      onDismiss={dismissOffer}
+      onEdit={editOffer}
+      onReplaceAll={acceptAllOffers}
+      status={aiMsg}
+      mode={draftMode}
+      setMode={setDraftModeChoice}
+      hasListing={hasListing}
+    />
       <SectionHeader
         number="02"
         title="Project details"
         subtitle="Write the listing once. ModelPrep reshapes it for each platform you publish to."
-      />
-
-      {/* Reads the photos and the optional one-line hint, then fills in the
-          title, description, tags and category. Collapsed is the common case,
-          so the button sits in the header; the panel only opens when you want
-          to add a hint. A plain button and a conditional body rather than
-          <details>, because a controlled <details open> desyncs whenever the
-          native toggle event does not reach React. */}
-      <div className="mp-card mt-6 w-full max-w-[1600px]" style={{ backgroundColor: "var(--primary-tint)", borderColor: "var(--primary-tint-border)" }}>
-        <div className="min-h-[48px] px-4 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAiPanelOpen((open) => !open)}
-            aria-expanded={aiPanelOpen}
-            className="flex items-center gap-2 min-w-0 flex-1 text-left py-2"
-          >
-            {aiPanelOpen ? <ChevronDown size={14} style={{ color: "var(--ink-50)" }} /> : <ChevronRight size={14} style={{ color: "var(--ink-50)" }} />}
-            <Sparkles size={15} className="flex-shrink-0" style={{ color: "var(--primary)" }} />
-            <span className="text-[14px] font-semibold flex-shrink-0" style={{ color: "var(--ink)" }}>Write the listing for me</span>
-            <span className="text-xs truncate" style={{ color: "var(--ink-65)" }}>
-              {project.images.length
-                ? `Reads your ${project.images.length} photo${project.images.length === 1 ? "" : "s"}`
-                : "Add photos, or open this and type a hint"}
-            </span>
-          </button>
-          {/* Only while collapsed. Open, the button beside the hint field is
-              the one to press, and two at once is just noise. */}
-          {!aiPanelOpen && (
-            <LoadingButton
-              onClick={runGenerate}
-              loading={aiBusy}
-              markSize={12}
-              className="mp-btn text-xs py-1.5 px-3 disabled:opacity-50 flex-shrink-0"
-            >
-              <Sparkles size={12} /> Write it
-            </LoadingButton>
-          )}
-          <button
-            onClick={() => openSettings("ai")}
-            className="text-xs flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[rgba(255,255,255,0.7)] flex-shrink-0"
-            style={{ color: "var(--ink-65)" }}
-            title="Choose which AI writes it, in Settings"
-          >
-            <Settings size={12} /> {aiPrimary ? (AI_PROVIDERS[aiPrimary]?.name || "AI") : "Set up AI"}
-          </button>
-        </div>
-        {aiPanelOpen && (
-        <div className="px-4 pb-4">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              className="mp-input flex-1"
-              placeholder="Anything the photos do not show, e.g. articulating, PLA, no supports"
-              value={aiHint}
-              onChange={(e) => setAiHint(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") runGenerate(); }}
-              disabled={aiBusy}
-            />
-            <LoadingButton
-              onClick={runGenerate}
-              loading={aiBusy}
-              markSize={13}
-              className="mp-btn text-[13px] py-2 px-4 disabled:opacity-50 flex items-center gap-1.5 justify-center"
-            >
-              <Sparkles size={13} /> Write it
-            </LoadingButton>
+        actions={(
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <DraftListingControl project={project} busy={aiBusy} open={draftOpen} setOpen={setDraftOpen} />
+            <ClearDetailsButton project={project} updateProject={updateProject} />
           </div>
-          {aiMsg && (
-            <p className="text-xs mt-2" style={{ color: aiMsg.kind === "warn" ? "var(--warn-text)" : "var(--ink-65)" }}>
-              {aiMsg.text}
-            </p>
-          )}
-          {/* One line here. How the writer works is explained once, in
-              Settings, instead of in a paragraph you read past every project. */}
-          <p className="text-xs mt-2" style={{ color: "var(--ink-65)" }}>
-            Fills the title, description, tags and category. You can edit all of it.
-            {!aiPrimary && " No AI is set up yet, so it writes from your hint alone."}
-          </p>
-        </div>
         )}
-      </div>
+      />
+      {aiMsg && (
+        <p role="status" className="mt-3 text-xs flex items-start gap-2" style={{ color: aiMsg.kind === 'warn' ? 'var(--warn-text)' : 'var(--ink-65)' }}>
+          <Sparkles size={12} className="flex-shrink-0 mt-0.5" aria-hidden />
+          <span>{aiMsg.text}</span>
+        </p>
+      )}
 
       {/* The listing copy on the left, everything that classifies it on the
           right. Both are filled at the same moment: you pick a category and
@@ -5707,8 +8369,9 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
           page scrolls as before. */}
       <div className="mt-6 w-full max-w-[1600px] grid gap-6 items-stretch lg:flex-1 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5 min-w-0 flex flex-col">
-          <div>
+          <div className={flashClass('title')}>
             <FieldHeader label="Title">
+              {offerFor('title')}
               {!aiBusy && lim.titleMax && (titleOver || project.title.length >= lim.titleMax * 0.8) && (
                 <span className="text-xs t-num flex-shrink-0" style={{ color: titleOver ? 'var(--warn-text)' : 'var(--ink-65)' }}>
                   {project.title.length}/{lim.titleMax}
@@ -5726,8 +8389,10 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
             )}
           </div>
 
-          <div className="flex flex-col lg:flex-1 min-h-0">
+          <div className={`flex flex-col lg:flex-1 min-h-0 ${flashClass('description')}`}>
             <FieldHeader label="Description (markdown)">
+              <div className="flex items-center gap-3 min-w-0">
+              {offerFor('description')}
               <div className="mp-segmented flex-shrink-0" role="group" aria-label="Description mode" style={{ height: 28 }}>
                 {['write', 'preview', 'formats'].map(m => (
                   <button
@@ -5743,11 +8408,12 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   <button
                     onClick={() => updateProject({ description: SAMPLE_DESCRIPTION })}
                     className="mp-mono text-xs uppercase tracking-[0.15em] px-2 py-1 ml-1"
-                    style={{ color: '#5A7430' }}
+                    style={{ color: 'var(--primary)' }}
                   >
                     <Sparkles size={10} className="inline" /> Sample
                   </button>
                 )}
+              </div>
               </div>
             </FieldHeader>
 
@@ -5762,7 +8428,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               />
             )}
             {!aiBusy && previewMode === 'preview' && (
-              <div className="mp-card p-5 mp-prose text-sm lg:flex-1 overflow-auto" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: rgba(38,42,35,0.6)">Preview shows once you write something</p>' }} />
+              <div className="mp-card p-5 mp-prose text-sm lg:flex-1 overflow-auto" style={{ minHeight: 320 }} dangerouslySetInnerHTML={{ __html: mdToHtml(project.description) || '<p style="color: var(--ink-a60)">Preview shows once you write something</p>' }} />
             )}
             {!aiBusy && previewMode === 'formats' && (
               <FormatTabs description={project.description} />
@@ -5772,7 +8438,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               {!aiBusy && (descOver || (lim.descMax && project.description.length >= lim.descMax * 0.8)) && <span className="mp-mono text-xs" style={{ color: descOver ? 'var(--danger-text)' : 'var(--warn-text)' }}>
                 {project.description.length}/{lim.descMax} chars{descOver && ` · over ${lim.descMaxBy}'s limit`}
               </span>}
-              <span className="mp-mono text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>
+              <span className="mp-mono text-xs ml-auto" style={{ color: 'var(--ink-a66)' }}>
                 Adapted automatically per destination
               </span>
             </div>
@@ -5780,13 +8446,13 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         </div>
 
         <div className="space-y-5 min-w-0">
-          <div>
+          <div className={flashClass('category')}>
             {/* No hint under this one. "Each platform has its own category tree,
                 we pick a close match" was the page subtitle said twice, and its
                 two lines pushed the whole rail out of step with the left
                 column. The auto-match note appears per platform where it
                 actually applies. */}
-            <FieldHeader label="Category" />
+            <FieldHeader label="Category">{offerFor('category')}</FieldHeader>
             {aiBusy ? <FieldSkeleton /> : <CategorySelect value={project.category} onChange={(c) => updateProject({ category: c })} options={CATEGORIES} />}
           </div>
 
@@ -5816,15 +8482,15 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
               </p>
             )}
           </div>
-          <div>
-            <FieldHeader label="Tags" />
+          <div className={flashClass('tags')}>
+            <FieldHeader label="Tags">{offerFor('tags')}</FieldHeader>
             {aiBusy ? <FieldSkeleton height={86} /> : (
             <div className="mp-card p-3">
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {project.tags.map(t => (
                   <span key={t} className="inline-flex items-center gap-0.5 pl-2.5 pr-0.5 py-1 mp-mono text-xs rounded-full" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
                     {t}
-                    <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[#5A7430] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
+                    <button onClick={() => removeTag(t)} className="p-1.5 opacity-70 hover:opacity-100 hover:text-[var(--primary)] transition" aria-label={`Remove tag ${t}`}><X size={13} /></button>
                   </span>
                 ))}
                 <input
@@ -5837,18 +8503,18 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
                   className="bg-transparent outline-none text-xs flex-1 min-w-[100px]"
                 />
               </div>
-              <div className="flex items-center justify-between text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
+              <div className="flex items-center justify-between text-xs" style={{ color: 'var(--ink-a66)' }}>
                 <span className="mp-mono uppercase tracking-[0.15em]">
                   {project.tags.length}/{lim.tagMax ?? '∞'} tags
                   {lim.tagMax && project.tags.length >= lim.tagMax && ` · ${lim.tagMaxBy} max`}
                 </span>
-                <LoadingButton onClick={suggestTags} loading={tagSuggestBusy} markSize={10} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[#5A7430] transition disabled:opacity-40">
+                <LoadingButton onClick={suggestTags} loading={tagSuggestBusy} markSize={10} className="mp-mono uppercase tracking-[0.15em] flex items-center gap-1 hover:text-[var(--primary)] transition disabled:opacity-40">
                   <Sparkles size={10} /> Suggest tags
                 </LoadingButton>
               </div>
               {tagSuggestMsg && <p className="text-[11px] mt-1.5 opacity-70">{tagSuggestMsg}</p>}
               {longTags.length > 0 && (
-                <p className="mp-mono text-[11px] mt-1.5" style={{ color: '#5A7430' }}>
+                <p className="mp-mono text-[11px] mt-1.5" style={{ color: 'var(--primary)' }}>
                   {longTags.length} tag{longTags.length > 1 ? 's' : ''} over {lim.tagCharMax} chars ({lim.tagCharMaxBy} limit): {longTags.join(', ')}
                 </p>
               )}
@@ -5869,6 +8535,7 @@ function DetailsSection({ project, updateProject, setCurrentSection }) {
         onNext={() => setCurrentSection('images')}
       />
     </div>
+    </RequiredCtx.Provider>
   );
 }
 
@@ -6006,7 +8673,7 @@ function SkeletonRows({ rows = 3, height = 30, className = '' }) {
 // the Status Indicator instead. The dot pulses, the line names the step.
 function WorkingStatus({ label, className = '', dotSize = 7 }) {
   return (
-    <span role="status" aria-live="polite" className={`inline-flex items-center gap-2 text-xs py-1.5 ${className}`} style={{ color: 'rgba(38,42,35,0.7)' }}>
+    <span role="status" aria-live="polite" className={`inline-flex items-center gap-2 text-xs py-1.5 ${className}`} style={{ color: 'var(--ink-a70)' }}>
       <span
         className="mp-pulse flex-shrink-0"
         style={{ width: dotSize, height: dotSize, borderRadius: 999, backgroundColor: 'var(--primary)' }}
@@ -6027,8 +8694,94 @@ function FieldSkeleton({ height = 38, className = '' }) {
   return <Skeleton className={className} style={{ height }} />;
 }
 
-function Label({ children, className = '' }) {
-  return <label className={`text-[13px] font-medium block mb-1.5 ${className}`} style={{ color: 'var(--ink)' }}>{children}</label>;
+// The fields every platform asks for get a small mark, so "Category" and
+// "Licence" look the same on MakerWorld as on Cults. Matched on the label text;
+// a label that is not one of these stays plain.
+const FIELD_ICONS = [
+  [/\bcategor/i, Tag],
+  [/batch action|^action\b/i, SlidersHorizontal],
+  [/licen[cs]e/i, Scale],
+  [/visibility|publication|permission/i, Eye],
+  [/price|paid|pricing/i, Coins],
+  [/declaration|confirm|attest|guidelines/i, ShieldCheck],
+  [/printer|print method|print profile|technology|print settings|material/i, Printer],
+  [/summary|description|notes|tips/i, FileText],
+  [/primary part|model source|upload type|kind/i, Box],
+  [/\bname\b|^title\b/i, Edit3],
+  [/\btags?\b/i, Tag],
+  [/cover|photo|picture|image|gallery/i, ImageIcon],
+];
+// Which platform's panel (or which step) a field sits in, so its label can
+// show the platform's own "required" mark. See lib/platform-required.js.
+const RequiredCtx = createContext(null);
+
+// "Take me there" for a preflight message. App provides the function; any
+// list of issues renders IssueLink instead of plain text.
+const IssueNavCtx = createContext(null);
+function useIssueNavigation() { return useContext(IssueNavCtx); }
+
+function IssueLink({ message, platformId, className = '', style = null }) {
+  const goTo = useIssueNavigation();
+  if (!goTo) return <div className={className} style={style}>{message}</div>;
+  return (
+    <button
+      type="button"
+      onClick={() => goTo(message, platformId)}
+      className={`w-full text-left flex items-center gap-2 group ${className}`}
+      style={style}
+      title="Go to this field"
+    >
+      <span className="flex-1">{message}</span>
+      <ArrowRight size={13} className="flex-shrink-0 opacity-50 group-hover:opacity-100 transition-opacity" aria-hidden />
+    </button>
+  );
+}
+
+function RequiredMark({ scope }) {
+  const owner = scope === 'details' ? 'every platform' : (PLATFORMS.find((p) => p.id === scope)?.name || 'this platform');
+  return (
+    <span className="text-[12px] leading-none" style={{ color: 'var(--danger-text)' }} title={`Required by ${owner}`} aria-label="required">*</span>
+  );
+}
+
+function labelText(children) {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children)) return children.filter((child) => typeof child === 'string').join(' ');
+  return '';
+}
+// The caption inside a wrapping <label>, same look and same icon rule as Label.
+function FieldCaption({ children }) {
+  const scope = useContext(RequiredCtx);
+  const text = labelText(children);
+  const hit = FIELD_ICONS.find(([pattern]) => pattern.test(text));
+  const Icon = hit ? hit[1] : null;
+  const required = scope && isRequiredField(scope, text);
+  const shown = typeof children === 'string' ? stripRequiredSuffix(children) : children;
+  return (
+    // Inline display: the panel's `label > span { display: block }` rule would
+    // otherwise stack the icon above the text.
+    <span data-field-caption className="items-center gap-1.5 text-[13px] font-medium mb-1.5" style={{ color: 'var(--ink)', display: 'flex' }}>
+      {Icon && <Icon size={13} strokeWidth={2} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} aria-hidden />}
+      <span>{shown}</span>
+      {required && <RequiredMark scope={scope} />}
+    </span>
+  );
+}
+
+function Label({ children, className = '', icon = null }) {
+  const scope = useContext(RequiredCtx);
+  const text = labelText(children);
+  const hit = icon ? null : FIELD_ICONS.find(([pattern]) => pattern.test(text));
+  const Icon = icon || (hit ? hit[1] : null);
+  const required = scope && isRequiredField(scope, text);
+  const shown = typeof children === 'string' ? stripRequiredSuffix(children) : children;
+  return (
+    <label className={`text-[13px] font-medium mb-1.5 flex items-center gap-1.5 ${className}`} style={{ color: 'var(--ink)' }}>
+      {Icon && <Icon size={13} strokeWidth={2} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} aria-hidden />}
+      <span>{shown}</span>
+      {required && <RequiredMark scope={scope} />}
+    </label>
+  );
 }
 
 // Every field opens with the same 28px header row, whether or not it carries a
@@ -6047,7 +8800,7 @@ function FieldHeader({ label, children = null }) {
 function AutoMatchNote({ active, exact = true, kind = 'category' }) {
   if (!active) return null;
   return (
-    <p className="text-[11px] mt-1" style={{ color: exact ? '#24634f' : '#8A4B08' }}>
+    <p className="text-[11px] mt-1" style={{ color: exact ? 'var(--success-text)' : 'var(--warn-text)' }}>
       {exact
         ? `Matched from your Details ${kind} · change below to override`
         : `Closest available to your Details ${kind} · change below to override`}
@@ -6074,7 +8827,7 @@ function FormatTabs({ description }) {
   const copyLabel = active === 'rich' ? 'Copy formatted' : `Copy ${active}`;
   return (
     <div className="mp-card flex flex-col lg:flex-1 min-h-0">
-      <div className="flex border-b flex-shrink-0" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+      <div className="flex border-b flex-shrink-0" style={{ borderColor: 'var(--ink-a10)' }}>
         {tabs.map(({ k, label, platforms }) => (
           <button
             key={k}
@@ -6082,8 +8835,8 @@ function FormatTabs({ description }) {
             className="flex-1 px-3 py-2.5 mp-display font-bold text-xs transition border-r last:border-r-0"
             style={{
               backgroundColor: active === k ? 'var(--primary-tint)' : 'transparent',
-              color: active === k ? 'var(--primary-ink)' : '#262A23',
-              borderColor: 'rgba(38,42,35,0.1)',
+              color: active === k ? 'var(--primary-ink)' : 'var(--ink)',
+              borderColor: 'var(--ink-a10)',
             }}
           >
             {label}
@@ -6093,20 +8846,20 @@ function FormatTabs({ description }) {
           </button>
         ))}
       </div>
-      <div className="p-3 flex items-center justify-between border-b gap-2 flex-shrink-0" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
-        <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+      <div className="p-3 flex items-center justify-between border-b gap-2 flex-shrink-0" style={{ borderColor: 'var(--ink-a10)' }}>
+        <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--ink-a66)' }}>
           {active === 'rich' ? 'Rendered: paste into the visual editor, keeps formatting' : active === 'html' ? 'Raw HTML source' : active === 'md' ? 'Markdown source' : 'Plain text'}
         </span>
-        <button onClick={() => copy(active)} className="mp-mono text-xs uppercase tracking-[0.2em] flex items-center gap-1.5 hover:text-[#5A7430] transition flex-shrink-0 py-1" aria-label={copyLabel}>
-          {copied === 'ok' ? <><Check size={13} style={{ color: '#4FB286' }} /> Copied</> : copied === 'fail' ? <><X size={13} style={{ color: '#c83f10' }} /> Select &amp; copy</> : <><Copy size={12} /> {copyLabel}</>}
+        <button onClick={() => copy(active)} className="mp-mono text-xs uppercase tracking-[0.2em] flex items-center gap-1.5 hover:text-[var(--primary)] transition flex-shrink-0 py-1" aria-label={copyLabel}>
+          {copied === 'ok' ? <><Check size={13} style={{ color: 'var(--success)' }} /> Copied</> : copied === 'fail' ? <><X size={13} style={{ color: 'var(--accent-warm-text)' }} /> Select &amp; copy</> : <><Copy size={12} /> {copyLabel}</>}
         </button>
       </div>
       {active === 'rich' ? (
         <div className="mp-prose p-4 text-sm max-h-64 lg:max-h-none lg:flex-1 lg:min-h-0 overflow-auto"
-          dangerouslySetInnerHTML={{ __html: html || '<span style="color:rgba(38,42,35,0.3)">Write something in markdown to see the formatted output</span>' }} />
+          dangerouslySetInnerHTML={{ __html: html || '<span style="color:var(--ink-a30)">Write something in markdown to see the formatted output</span>' }} />
       ) : (
-        <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 lg:max-h-none lg:flex-1 lg:min-h-0 overflow-auto" style={{ color: 'rgba(38,42,35,0.85)' }}>
-          {outputs[active] || <span style={{ color: 'rgba(38,42,35,0.6)' }}>Write something in markdown to see formatted outputs</span>}
+        <pre className="mp-pre mp-mono p-4 text-xs leading-relaxed max-h-64 lg:max-h-none lg:flex-1 lg:min-h-0 overflow-auto" style={{ color: 'var(--ink-a85)' }}>
+          {outputs[active] || <span style={{ color: 'var(--ink-a60)' }}>Write something in markdown to see formatted outputs</span>}
         </pre>
       )}
     </div>
@@ -6320,22 +9073,24 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
 
       {!!importing && (
         <div className="mp-card px-3 py-2 mb-3">
-          <Spinner size={13} label={<span className="text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>Reading {importing} photo{importing === 1 ? '' : 's'}…</span>} />
+          <Spinner size={13} label={<span className="text-xs" style={{ color: 'var(--ink-a70)' }}>Reading {importing} photo{importing === 1 ? '' : 's'}…</span>} />
         </div>
       )}
       {imgNotice && (
-        <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'rgba(90,116,48,0.08)', border: '1px solid rgba(90,116,48,0.3)' }}>
-          <AlertCircle size={16} style={{ color: '#5A7430' }} className="flex-shrink-0 mt-0.5" />
-          <div className="text-xs flex-1" style={{ color: 'rgba(38,42,35,0.7)' }}>{imgNotice}</div>
+        <div className="mt-4 p-3 flex items-start gap-3" style={{ backgroundColor: 'var(--primary-a08)', border: '1px solid var(--primary-a30)' }}>
+          <AlertCircle size={16} style={{ color: 'var(--primary)' }} className="flex-shrink-0 mt-0.5" />
+          <div className="text-xs flex-1" style={{ color: 'var(--ink-a70)' }}>{imgNotice}</div>
           <button onClick={() => setImgNotice(null)} className="p-2 -m-1 opacity-50 hover:opacity-100 transition" aria-label="Dismiss notice"><X size={14} /></button>
         </div>
       )}
 
-      {(videoSupported || existingVideos.length > 0) && <div className="mp-card p-4 mt-5" data-testid="typed-video-media">
+      {/* The step header already carries 20px below it; a second 20px here
+          opened a 40px gap between the subtitle and this card. */}
+      {(videoSupported || existingVideos.length > 0) && <div className="mp-card p-4" data-testid="typed-video-media">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div className="mp-display text-[20px] flex items-center gap-2"><Video size={18} /> Model videos</div>
-            <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.58)' }}>
+            <p className="text-xs mt-1" style={{ color: 'var(--ink-a58)' }}>
               MakerWorld: one MP4/MOV, maximum 30 seconds. Cults3D: ordered MP4/WebM media. Other platforms skip videos.
             </p>
           </div>
@@ -6347,16 +9102,16 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         {(project.media || []).filter((item) => item.kind === 'video').length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
             {(project.media || []).filter((item) => item.kind === 'video').map((item) => (
-              <div key={item.id} className="flex items-center gap-3 p-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
+              <div key={item.id} className="flex items-center gap-3 p-2" style={{ backgroundColor: 'var(--ink-a04)' }}>
                 <video src={item.previewUrl} preload="metadata" muted playsInline className="w-28 h-20 object-contain bg-black" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[13px] truncate">{item.name}</div>
                   <div className="mp-mono text-[11px] uppercase mt-1 opacity-70">{item.duration.toFixed(1)}s · {formatBytes(item.size)}</div>
-                  <div className="text-[11px] mt-1" style={{ color: item.duration > 30 ? '#b91c1c' : '#247255' }}>
+                  <div className="text-[11px] mt-1" style={{ color: item.duration > 30 ? 'var(--danger-text)' : 'var(--success-text)' }}>
                     {item.duration > 30 ? 'Too long for MakerWorld' : 'Duration accepted by MakerWorld'}
                   </div>
                 </div>
-                <button type="button" onClick={() => removeVideo(item.id)} aria-label={`Delete video ${item.name}`} className="p-2 opacity-60 hover:text-[#5A7430]"><Trash2 size={15} /></button>
+                <button type="button" onClick={() => removeVideo(item.id)} aria-label={`Delete video ${item.name}`} className="p-2 opacity-60 hover:text-[var(--primary)]"><Trash2 size={15} /></button>
               </div>
             ))}
           </div>
@@ -6424,7 +9179,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                   </button>
                   <span
                     className="absolute top-1 left-1 inline-flex items-center gap-1 rounded-full px-1.5 t-num"
-                    style={{ height: 17, fontSize: 10, fontWeight: 500, backgroundColor: 'rgba(255,255,255,0.92)', color: isCover ? 'var(--primary-ink)' : 'var(--ink-65)' }}
+                    style={{ height: 17, fontSize: 10, fontWeight: 500, backgroundColor: 'var(--surface-a92)', color: isCover ? 'var(--primary-ink)' : 'var(--ink-65)' }}
                   >
                     {isCover ? <><Star size={8} fill="currentColor" /> Cover</> : idx + 1}
                   </span>
@@ -6434,7 +9189,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       disabled={idx === 0}
                       aria-label={`Move ${img.alt || `image ${idx + 1}`} earlier`}
                       className="p-1 rounded-tr-md disabled:opacity-25"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
+                      style={{ backgroundColor: 'var(--surface-a94)', color: 'var(--ink)' }}
                     >
                       <ChevronLeft size={14} />
                     </button>
@@ -6443,7 +9198,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                       disabled={idx === project.images.length - 1}
                       aria-label={`Move ${img.alt || `image ${idx + 1}`} later`}
                       className="p-1 rounded-tl-md disabled:opacity-25"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.94)', color: 'var(--ink)' }}
+                      style={{ backgroundColor: 'var(--surface-a94)', color: 'var(--ink)' }}
                     >
                       <ChevronRight size={14} />
                     </button>
@@ -6475,20 +9230,20 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                   </button>}
                 </div>
                 <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
-                  <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                  <span className="mp-mono text-[13px] uppercase tracking-[0.2em]" style={{ color: 'var(--ink-a66)' }}>
                     {imageWorkspace === 'gallery'
                       ? `Image · ${activeImage.naturalW} × ${activeImage.naturalH} · drag the crosshair to the most important part`
                       : `Crop check · ${cropPlatform.name} · uses the same focal point`}
                   </span>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setAsCover(activeImage.id)} aria-pressed={project.coverImageId === activeImage.id} className="mp-mono text-xs uppercase tracking-[0.15em] min-h-[40px] py-2 px-3 flex items-center gap-1.5 transition" style={{
-                      backgroundColor: project.coverImageId === activeImage.id ? '#5A7430' : '#262A23',
-                      color: '#FFFFFF',
-                    }}>
-                      <Star size={12} fill={project.coverImageId === activeImage.id ? '#fff' : 'none'} />
+                    {/* Primary while this is the cover, ghost otherwise. The old
+                        `--ink` fill under white text was unreadable in dark mode,
+                        where ink is light. */}
+                    <button onClick={() => setAsCover(activeImage.id)} aria-pressed={project.coverImageId === activeImage.id} className={`mp-btn ${project.coverImageId === activeImage.id ? '' : 'mp-btn-ghost'}`}>
+                      <Star size={13} fill={project.coverImageId === activeImage.id ? 'currentColor' : 'none'} />
                       {project.coverImageId === activeImage.id ? 'Cover' : 'Set as cover'}
                     </button>
-                    <button onClick={() => removeImage(activeImage.id)} aria-label="Delete this image" title="Delete image" className="p-2.5 hover:text-[#5A7430] transition opacity-60 hover:opacity-100">
+                    <button onClick={() => removeImage(activeImage.id)} aria-label="Delete this image" title="Delete image" className="p-2.5 hover:text-[var(--primary)] transition opacity-60 hover:opacity-100">
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -6504,7 +9259,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
                     <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
                       <div>
                         <div className="mp-display text-[20px]">Review platform framing</div>
-                        <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.58)' }}>One platform at a time keeps the crop decision readable. Return to Gallery editor to move the focal point.</p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--ink-a58)' }}>One platform at a time keeps the crop decision readable. Return to Gallery editor to move the focal point.</p>
                       </div>
                       <label className="min-w-[220px]">
                         <span className="sr-only">Platform to preview</span>
@@ -6536,7 +9291,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
         nextDisabled={project.images.length === 0 || !project.coverImageId}
         disabledReason={project.images.length === 0 ? 'Add at least one image to continue' : 'Pick a cover image to continue'}
         onBack={() => setCurrentSection('details')}
-        onNext={() => setCurrentSection(project.profiles.length ? 'profiles' : 'platforms')}
+        onNext={() => setCurrentSection('platforms')}
       />
     </div>
   );
@@ -6549,10 +9304,10 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
         role="button"
         tabIndex={0}
         aria-label="Upload images: drop here or press Enter to browse"
-        className="mp-blueprint border-2 border-dashed py-16 px-6 text-center cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[#5A7430]"
-        style={{ borderColor: 'rgba(38,42,35,0.25)' }}
-        onMouseEnter={(e) => e.currentTarget.style.borderColor = '#5A7430'}
-        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(38,42,35,0.25)'}
+        className="mp-blueprint border-2 border-dashed py-16 px-6 text-center cursor-pointer transition-colors mt-6 focus:outline-none focus-visible:border-[var(--primary)]"
+        style={{ borderColor: 'var(--ink-a25)' }}
+        onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--primary)'}
+        onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--ink-a25)'}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBrowse(); } }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
@@ -6563,8 +9318,8 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
           <ImageIcon size={22} strokeWidth={2.5} style={{ color: 'var(--primary)' }} />
         </div>
         <h2 className="mp-display text-[24px] mb-2">Load renders &amp; photos</h2>
-        <p className="mp-body text-sm mb-3" style={{ color: 'rgba(38,42,35,0.65)' }}>jpg, png, webp, gif, heic · first image becomes the cover</p>
-        <p className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+        <p className="mp-body text-sm mb-3" style={{ color: 'var(--ink-a65)' }}>jpg, png, webp, gif, heic · first image becomes the cover</p>
+        <p className="mp-mono text-xs uppercase tracking-[0.2em]" style={{ color: 'var(--ink-a66)' }}>
           ◯ min recommended 2000 × 1500 px
         </p>
       </div>
@@ -6572,7 +9327,7 @@ function ImageDropZone({ onDrop, onBrowse, inputRef, onSamples }) {
           demo so a released build never offers fake photos. */}
       {onSamples && (
         <div className="text-center mt-3">
-          <button onClick={onSamples} className="mp-mono text-xs uppercase tracking-[0.2em] py-2 px-3 hover:text-[#5A7430] transition inline-flex items-center gap-1.5">
+          <button onClick={onSamples} className="mp-mono text-xs uppercase tracking-[0.2em] py-2 px-3 hover:text-[var(--primary)] transition inline-flex items-center gap-1.5">
             <Sparkles size={11} /> Load 3 sample images
           </button>
         </div>
@@ -6609,7 +9364,7 @@ function FocalPicker({ image, onUpdate }) {
   };
   const isCentered = Math.abs(image.focal.x - 0.5) < 0.001 && Math.abs(image.focal.y - 0.5) < 0.001;
   return (
-    <div className="relative w-full select-none" style={{ backgroundColor: '#262A23', textAlign: 'center' }}>
+    <div className="relative w-full select-none" style={{ backgroundColor: 'var(--ink)', textAlign: 'center' }}>
       <div
         className="relative inline-block"
         style={{ maxWidth: '100%', verticalAlign: 'top', touchAction: 'none' }}
@@ -6634,17 +9389,17 @@ function FocalPicker({ image, onUpdate }) {
         >
           <svg width="44" height="44" viewBox="0 0 44 44" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,0.5))', display: 'block' }}>
             {/* Outer corner brackets */}
-            <path d="M 4 14 L 4 4 L 14 4" stroke="#5A7430" strokeWidth="1.5" fill="none" />
-            <path d="M 30 4 L 40 4 L 40 14" stroke="#5A7430" strokeWidth="1.5" fill="none" />
-            <path d="M 40 30 L 40 40 L 30 40" stroke="#5A7430" strokeWidth="1.5" fill="none" />
-            <path d="M 14 40 L 4 40 L 4 30" stroke="#5A7430" strokeWidth="1.5" fill="none" />
+            <path d="M 4 14 L 4 4 L 14 4" stroke="var(--primary)" strokeWidth="1.5" fill="none" />
+            <path d="M 30 4 L 40 4 L 40 14" stroke="var(--primary)" strokeWidth="1.5" fill="none" />
+            <path d="M 40 30 L 40 40 L 30 40" stroke="var(--primary)" strokeWidth="1.5" fill="none" />
+            <path d="M 14 40 L 4 40 L 4 30" stroke="var(--primary)" strokeWidth="1.5" fill="none" />
             {/* Crosshair ticks */}
-            <line x1="22" y1="10" x2="22" y2="18" stroke="#5A7430" strokeWidth="1.5" />
-            <line x1="22" y1="26" x2="22" y2="34" stroke="#5A7430" strokeWidth="1.5" />
-            <line x1="10" y1="22" x2="18" y2="22" stroke="#5A7430" strokeWidth="1.5" />
-            <line x1="26" y1="22" x2="34" y2="22" stroke="#5A7430" strokeWidth="1.5" />
+            <line x1="22" y1="10" x2="22" y2="18" stroke="var(--primary)" strokeWidth="1.5" />
+            <line x1="22" y1="26" x2="22" y2="34" stroke="var(--primary)" strokeWidth="1.5" />
+            <line x1="10" y1="22" x2="18" y2="22" stroke="var(--primary)" strokeWidth="1.5" />
+            <line x1="26" y1="22" x2="34" y2="22" stroke="var(--primary)" strokeWidth="1.5" />
             {/* Center dot */}
-            <circle cx="22" cy="22" r="2" fill="#5A7430" />
+            <circle cx="22" cy="22" r="2" fill="var(--primary)" />
           </svg>
         </div>
         {!isCentered && (
@@ -6687,7 +9442,7 @@ function PlatformCropPreview({ image, platform, cover }) {
   }, [image, cover, preserveOriginal]);
   return (
     <div className="mp-card">
-      <div className="overflow-hidden" style={{ backgroundColor: '#262A23' }}>
+      <div className="overflow-hidden" style={{ backgroundColor: 'var(--canvas)' }}>
         {preserveOriginal
           ? <img src={image.dataUrl} alt={`${platform.name} original`} className="w-full max-h-72 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
@@ -6699,7 +9454,7 @@ function PlatformCropPreview({ image, platform, cover }) {
             <div className="mp-display font-bold text-[13px] leading-tight truncate">
               {platform.name}{cover.label !== 'Cover' ? ` · ${cover.label}` : ''}
             </div>
-            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--ink-a66)' }}>
               {preserveOriginal ? 'Original aspect · no forced crop' : `${cover.w}×${cover.h} (${cover.aspect})`}
             </div>
           </div>
@@ -6713,7 +9468,16 @@ function PlatformCropPreview({ image, platform, cover }) {
 // SECTION: PROFILES (per 3MF)
 // =====================================================================
 
-function ProfilesSection({ project, updateProject, setCurrentSection }) {
+// "I have read the guidelines" is true of the person, not the profile. Once
+// ticked it is remembered on this computer and the next profile starts ticked;
+// the checkbox stays, so it can be unticked, and a fresh install asks once.
+const MW_GUIDELINES_ACK_KEY = 'modelprep:ack:makerworld-profile-guidelines';
+function readGuidelinesAck() { try { return localStorage.getItem(MW_GUIDELINES_ACK_KEY) === 'true'; } catch { return false; } }
+function writeGuidelinesAck(value) { try { localStorage.setItem(MW_GUIDELINES_ACK_KEY, value ? 'true' : 'false'); } catch { /* private mode */ } }
+
+// `embedded`: rendered inside the MakerWorld panel, so no step header, no
+// Back/Next bar, and nothing at all when there is no sliced 3MF.
+function ProfilesSection({ project, updateProject, setCurrentSection = () => {}, embedded = false }) {
   const [activeProfileId, setActiveProfileId] = useState(project.profiles[0]?.id);
   const [imagePicker, setImagePicker] = useState(null); // cover | photos | null
 
@@ -6729,13 +9493,14 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
   };
 
   if (project.profiles.length === 0) {
+    if (embedded) return null;
     return (
       <div className="w-full min-w-0">
         <SectionHeader number="04" title="Print profiles" subtitle="Add a 3MF file to configure a print profile." />
         <div className="mt-6 p-8 text-center mp-card">
           <Layers size={32} className="mx-auto mb-3 opacity-30" />
           <h3 className="mp-display font-bold text-lg mb-1">No 3MF files yet</h3>
-          <p className="text-sm mb-4" style={{ color: 'rgba(38,42,35,0.66)' }}>Add a 3MF in Files and give it the print-profile role. A sliced project from any slicer works, and so does an unsliced Bambu Studio project, which MakerWorld slices for you. An STL-only model skips this step.</p>
+          <p className="text-sm mb-4" style={{ color: 'var(--ink-a66)' }}>Add a 3MF in Files and give it the print-profile role. A sliced project from any slicer works, and so does an unsliced Bambu Studio project, which MakerWorld slices for you. An STL-only model skips this step.</p>
           <button onClick={() => setCurrentSection('files')} className="mp-btn mp-btn-ghost text-xs">
             <ChevronRight size={12} className="rotate-180" /> Back to Files
           </button>
@@ -6758,14 +9523,15 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 
   return (
     <div className="w-full min-w-0">
-      <SectionHeader
-        number="04"
-        title="Print profiles"
-        subtitle="Name each profile and pick the one MakerWorld starts with."
-      />
+      {!embedded && (
+        <SectionHeader
+          number="04"
+          title="Print profiles"
+          subtitle="Name each profile and pick the one MakerWorld starts with."
+        />
+      )}
 
-
-      <div className="mt-6">
+      <div className={embedded ? '' : 'mt-6'}>
         {project.profiles.length > 1 && (
         <div className="flex flex-wrap gap-2 mb-5">
           {project.profiles.map(p => (
@@ -6775,8 +9541,8 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               aria-pressed={active?.id === p.id}
               className="text-left p-2.5 rounded-lg transition-colors min-w-[170px]"
               style={{
-                backgroundColor: active?.id === p.id ? 'var(--primary-tint)' : '#FFFFFF',
-                color: active?.id === p.id ? 'var(--primary-ink)' : '#262A23',
+                backgroundColor: active?.id === p.id ? 'var(--primary-tint)' : 'var(--surface)',
+                color: active?.id === p.id ? 'var(--primary-ink)' : 'var(--ink)',
                 border: active?.id === p.id ? '1px solid var(--primary-tint-border)' : '1px solid var(--border)',
               }}
             >
@@ -6794,16 +9560,19 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
         </div>
         )}
 
-        <div className="space-y-5 max-w-3xl">
+        <div className="space-y-5 w-full max-w-[1600px]">
           {active && (
             <>
+              {/* Name beside visibility, cover beside photos: the step used a
+                  760px column on a 2000px window. Pairs share a row now and
+                  the long fields run the width, the way Details does. */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 {/* Counter sits with the label, as it does on Details. It used to
                     hang under the field, right-aligned, which read as a stray. */}
-                <div className="flex items-center justify-between mb-2">
-                  <Label className="mb-0">Profile name</Label>
-                  <span className="mp-mono text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>{active.name.length}/60</span>
-                </div>
+                <FieldHeader label="Profile name">
+                  <span className="mp-mono text-xs" style={{ color: 'var(--ink-a66)' }}>{active.name.length}/60</span>
+                </FieldHeader>
                 <input
                   className="mp-input"
                   value={active.name}
@@ -6813,7 +9582,10 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               </div>
 
               <div>
-                <Label>MakerWorld profile visibility</Label>
+                {/* Same 28px header row as the name beside it, so the two
+                    controls sit on one line (DESIGN.md, "Every field opens
+                    with the same header row"). */}
+                <FieldHeader label="MakerWorld profile visibility" />
                 <Select
                   value={active.visibility || 'private'}
                   onChange={(selectValue) => updateProfile(active.id, { visibility: selectValue })}
@@ -6822,6 +9594,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                   ariaLabel="MakerWorld profile visibility"
 />
                 <div className="text-[11px] mt-1 opacity-70">Independent from the model visibility, matching MakerWorld's profile editor.</div>
+              </div>
               </div>
 
               {active.parsed && (
@@ -6853,6 +9626,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                 />
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <Label>Cover image for this profile</Label>
                 <div className="space-y-2">
@@ -6861,7 +9635,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       type="radio"
                       checked={active.useMainCover}
                       onChange={() => updateProfile(active.id, { useMainCover: true })}
-                      style={{ accentColor: '#5A7430' }}
+                      style={{ accentColor: 'var(--primary)' }}
                     />
                     <span className="text-xs">Use the main project cover image</span>
                   </label>
@@ -6870,7 +9644,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       type="radio"
                       checked={!active.useMainCover}
                       onChange={() => { updateProfile(active.id, { useMainCover: false }); setImagePicker('cover'); }}
-                      style={{ accentColor: '#5A7430' }}
+                      style={{ accentColor: 'var(--primary)' }}
                     />
                     <span className="text-xs">Pick a specific image from the gallery</span>
                   </label>
@@ -6879,11 +9653,11 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       {selectedProfileCover ? (
                         <img src={selectedProfileCover.dataUrl} alt={selectedProfileCover.alt || 'Selected profile cover'} className="w-16 h-16 object-cover flex-shrink-0" />
                       ) : (
-                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}><ImageIcon size={18} className="opacity-35" /></div>
+                        <div className="w-16 h-16 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--ink-a06)' }}><ImageIcon size={18} className="opacity-35" /></div>
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-medium truncate">{selectedProfileCover?.alt || 'No specific cover selected'}</div>
-                        <button type="button" onClick={() => setImagePicker('cover')} className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1 underline" style={{ color: '#5A7430' }}>
+                        <button type="button" onClick={() => setImagePicker('cover')} className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1 underline" style={{ color: 'var(--primary)' }}>
                           Choose image
                         </button>
                       </div>
@@ -6897,7 +9671,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
               <div>
                 <Label>Print profile photos <span style={{ opacity: 0.6, fontWeight: 400 }}>· photos of the printed model (MakerWorld requires ≥1)</span></Label>
                 {project.images.length === 0 ? (
-                  <p className="text-xs" style={{ color: '#B23A1A' }}>Add photos in Images first. At least one has to show the printed model.</p>
+                  <p className="text-xs" style={{ color: 'var(--accent-warm-text)' }}>Add photos in Images first. At least one has to show the printed model.</p>
                 ) : (
                   <div className="mp-card p-3">
                     <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -6905,19 +9679,19 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                         <img key={image.id} src={image.dataUrl} alt={image.alt || `Selected print photo ${index + 1}`} className="w-14 h-14 object-cover flex-shrink-0" />
                       ))}
                       {selectedProfilePhotos.length === 0 && (
-                        <span className="text-xs py-4" style={{ color: 'rgba(38,42,35,0.66)' }}>No print photos selected.</span>
+                        <span className="text-xs py-4" style={{ color: 'var(--ink-a66)' }}>No print photos selected.</span>
                       )}
                       {selectedProfilePhotos.length > 6 && (
                         <span className="mp-mono text-[11px] flex-shrink-0">+{selectedProfilePhotos.length - 6}</span>
                       )}
-                      <button type="button" onClick={() => setImagePicker('photos')} className="mp-btn mp-btn-ghost text-[11px] min-h-[38px] py-1.5 px-2.5 ml-auto flex-shrink-0">
+                      <button type="button" onClick={() => setImagePicker('photos')} className="mp-btn mp-btn-ghost ml-auto flex-shrink-0">
                         Choose photos
                       </button>
                     </div>
                   </div>
                 )}
                 {(active.photoIds || []).length === 0 && project.images.length > 0 && (
-                  <p className="text-xs mt-1" style={{ color: '#B91C1C' }}>Select at least one real printed-model photo before publishing.</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--danger-text)' }}>Select at least one real printed-model photo before publishing.</p>
                 )}
                 <label className="flex items-start gap-2 text-xs mt-2">
                   <input type="checkbox" className="mt-0.5" checked={!!active.realPhotoConfirmed}
@@ -6925,14 +9699,18 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                   <span>I confirm that at least one selected photo shows the <strong>real printed model</strong>, not only a render.</span>
                 </label>
               </div>
+              </div>
 
-              <MwSection title="Additional compatible printers" hint="optional" badge={(active.compatiblePrinters || []).length}>
-                <div className="text-[11px] opacity-60">MakerWorld detects the native printer from the 3MF. Select only additional printers you have verified.</div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+              <MwSection title="Additional compatible printers" hint="optional" badge={(active.compatiblePrinters || []).length} onClear={() => updateProfile(active.id, { compatiblePrinters: [] })}>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="text-xs flex-1 min-w-[16rem]" style={{ color: 'var(--ink-65)' }}>MakerWorld detects the native printer from the 3MF. Select only additional printers you have verified.</div>
+                  <button type="button" onClick={() => updateProfile(active.id, { compatiblePrinters: MAKERWORLD_PRINTERS.map((printer) => printer.product) })} className="mp-btn mp-btn-ghost text-xs">Select all</button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
                   {MAKERWORLD_PRINTERS.map((printer) => {
                     const selected = (active.compatiblePrinters || []).includes(printer.product);
                     return (
-                      <label key={printer.product} className="flex items-center gap-1.5 text-[11px] mp-card p-1.5">
+                      <label key={printer.product} className="flex items-center gap-2 text-[13px] mp-card p-2.5 cursor-pointer">
                         <input type="checkbox" checked={selected} onChange={() => updateProfile(active.id, {
                           compatiblePrinters: selected
                             ? (active.compatiblePrinters || []).filter((name) => name !== printer.product)
@@ -6947,7 +9725,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
 
               <label className="flex items-start gap-2 text-xs">
                 <input type="checkbox" className="mt-0.5" checked={!!active.guidelinesAccepted}
-                  onChange={(e) => updateProfile(active.id, { guidelinesAccepted: e.target.checked })} />
+                  onChange={(e) => { writeGuidelinesAck(e.target.checked); updateProfile(active.id, { guidelinesAccepted: e.target.checked }); }} />
                 <span>I have read and this profile meets MakerWorld's <a href="https://makerworld.com/en/rules" target="_blank" rel="noopener noreferrer" className="underline">Print Profile Guidelines</a>.</span>
               </label>
             </>
@@ -6956,12 +9734,12 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
       </div>
 
       {imagePicker && active && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(38,42,35,0.58)' }} onMouseDown={() => setImagePicker(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ backgroundColor: '#FFFFFF' }} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'var(--ink-a58)' }} onMouseDown={() => setImagePicker(null)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="profile-image-picker-title" className="mp-card w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col" style={{ backgroundColor: 'var(--surface)' }} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="p-4 border-b flex items-start gap-3" style={{ borderColor: 'var(--ink-a12)' }}>
               <div className="flex-1">
                 <h3 id="profile-image-picker-title" className="mp-display text-[26px] leading-none">{imagePicker === 'cover' ? 'Choose profile cover' : 'Choose print photos'}</h3>
-                <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                <p className="text-xs mt-1" style={{ color: 'var(--ink-a66)' }}>
                   {imagePicker === 'cover' ? 'Select one image for this profile.' : 'Select every real photo that shows the printed model.'}
                 </p>
               </div>
@@ -6988,17 +9766,18 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
                       }
                     }}
                     className="relative aspect-square overflow-hidden"
-                    style={{ outline: selected ? '3px solid #5A7430' : '1px solid rgba(38,42,35,0.18)', outlineOffset: -2 }}
+                    style={{ outline: selected ? '3px solid var(--primary)' : '1px solid var(--ink-a18)', outlineOffset: -2 }}
                   >
                     <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
-                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[11px] truncate px-1.5 py-1" style={{ backgroundColor: 'rgba(38,42,35,0.78)', color: '#fff' }}>{image.alt || `Image ${index + 1}`}</span>
-                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ backgroundColor: '#5A7430' }}><Check size={12} color="#fff" /></span>}
+                    {/* Over a photo, so a fixed dark scrim like the gallery's: `--ink` would be light in dark mode. */}
+                    <span className="absolute left-1.5 bottom-1.5 right-1.5 text-left text-[11px] truncate px-1.5 py-1" style={{ backgroundColor: 'rgba(0,0,0,0.72)', color: '#FFFFFF' }}>{image.alt || `Image ${index + 1}`}</span>
+                    {selected && <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5" style={{ backgroundColor: 'var(--primary)' }}><Check size={12} color="#fff" /></span>}
                   </button>
                 );
               })}
             </div>
             {imagePicker === 'photos' && (
-              <div className="p-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'rgba(38,42,35,0.12)' }}>
+              <div className="p-3 border-t flex items-center justify-between gap-3" style={{ borderColor: 'var(--ink-a12)' }}>
                 <span className="text-xs">{(active.photoIds || []).length} selected</span>
                 <button type="button" onClick={() => setImagePicker(null)} className="mp-btn text-xs py-2 px-4">Done</button>
               </div>
@@ -7007,12 +9786,14 @@ function ProfilesSection({ project, updateProject, setCurrentSection }) {
         </div>
       )}
 
-      <SectionNav
-        backLabel="Back to Images"
-        nextLabel="Continue to Platforms"
-        onBack={() => setCurrentSection('images')}
-        onNext={() => setCurrentSection('platforms')}
-      />
+      {!embedded && (
+        <SectionNav
+          backLabel="Back to Images"
+          nextLabel="Continue to Platforms"
+          onBack={() => setCurrentSection('images')}
+          onNext={() => setCurrentSection('platforms')}
+        />
+      )}
     </div>
   );
 }
@@ -7030,7 +9811,7 @@ function Stat({ label, value }) {
 // SECTION: PLATFORMS
 // =====================================================================
 
-function PlatformsSection({ project, updateProject, setCurrentSection }) {
+function PlatformsSection({ project, updateProject, setCurrentSection, openPlatformId = null }) {
   const accounts = useAccounts();
   const openConnections = useOpenConnections();
   const togglePlatform = (id) => {
@@ -7051,6 +9832,8 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
     updateProject({ platforms: next });
   };
   const [expandedPlatformId, setExpandedPlatformId] = useState(null);
+  // A "Needs attention" link asked for one platform's panel.
+  useEffect(() => { if (openPlatformId) setExpandedPlatformId(openPlatformId); }, [openPlatformId]);
 
   return (
     <div className="w-full min-w-0">
@@ -7063,7 +9846,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
       <div className="flex flex-wrap items-center gap-2 mt-5">
         <button onClick={() => setAll(true)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><Check size={12} /> Select all</button>
         <button onClick={() => setAll(false)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><X size={12} /> Deselect all</button>
-        <span className="mp-mono text-xs ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
+        <span className="mp-mono text-xs ml-auto" style={{ color: 'var(--ink-a66)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
       </div>
 
       {/* Every platform publishes from a connected account, so the old
@@ -7087,17 +9870,18 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
             expanded={expandedPlatformId === p.id}
             onExpand={() => setExpandedPlatformId((current) => current === p.id ? null : p.id)}
             onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
+            updateProject={updateProject}
           />;
         })}
         </div>
       </div>
 
       <SectionNav
-        backLabel={project.profiles.length ? 'Back to Profiles' : 'Back to Images'}
+        backLabel="Back to Images"
         nextLabel="Continue to Publish"
         nextDisabled={enabledCount === 0}
         disabledReason="Enable at least one platform to continue"
-        onBack={() => setCurrentSection(project.profiles.length ? 'profiles' : 'images')}
+        onBack={() => setCurrentSection('images')}
         onNext={() => setCurrentSection('publish')}
       />
     </div>
@@ -7107,7 +9891,30 @@ function PlatformsSection({ project, updateProject, setCurrentSection }) {
 // Per-platform release plan: no plan (default), a reminder, or a scheduled
 // upload. One pending plan per project+platform; plans persist locally and
 // scheduled ones auto-start from the Publish step while the app is open.
-export function ReleasePlanControls({ platform, project }) {
+// Every enabled live platform's release plan in one place on Publish.
+// Collapsed unless something is planned: most publishes are "now".
+function ReleasePlanPanel({ project }) {
+  const plans = useReleasePlans();
+  const live = PLATFORMS.filter((p) => project.platforms?.[p.id]?.enabled && LIVE_PUBLISH_PLATFORM_IDS.includes(p.id));
+  if (!live.length) return null;
+  const planned = live.filter((p) => planForProjectPlatform(plans, project.title, p.id));
+  return (
+    <details className="mt-5 mp-card px-4 py-3" open={planned.length > 0} data-testid="release-plan-panel">
+      <summary className="mp-disclosure cursor-pointer flex items-center gap-2">
+        <Clock size={14} style={{ color: 'var(--ink-50)' }} aria-hidden />
+        <span className="text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>Release plan</span>
+        <span className="text-[12px] ml-auto" style={{ color: 'var(--ink-65)' }}>
+          {planned.length ? `${planned.length} of ${live.length} planned` : 'Publish now, or schedule each platform'}
+        </span>
+      </summary>
+      <div className="mt-1">
+        {live.map((p) => <ReleasePlanControls key={p.id} platform={p} project={project} title={p.name} compact />)}
+      </div>
+    </details>
+  );
+}
+
+export function ReleasePlanControls({ platform, project, title = 'Release plan', compact = false }) {
   const plans = useReleasePlans();
   const desktopBridge = (typeof window !== 'undefined' && window.modelprepDesktop?.isDesktop) ? window.modelprepDesktop : null;
   const active = planForProjectPlatform(plans, project.title, platform.id);
@@ -7126,7 +9933,8 @@ export function ReleasePlanControls({ platform, project }) {
     if (releasePlanIssues({ ...next, platformId: platform.id }, Date.now()).length) return;
     releasePlanStore.set(upsertReleasePlan(plans, {
       id: active?.id || `plan-${platform.id}-${Date.now()}`,
-      projectTitle: project.title || 'Untitled Project',
+      projectId: project.id,
+      projectTitle: project.title || autoProjectName(project),
       platformId: platform.id,
       platformName: platform.name,
       mode: next.mode,
@@ -7139,11 +9947,16 @@ export function ReleasePlanControls({ platform, project }) {
   };
 
   return (
-    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
-        Release plan{active ? ` · ${describeDue(active, Date.now())}` : ''}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={compact ? 'py-2 border-t first:border-t-0' : 'pt-3 mt-3 border-t'} style={{ borderColor: 'var(--ink-a08)' }}>
+      <div className={compact ? 'flex flex-wrap items-center gap-3' : 'contents'}>
+      {compact ? (
+        <span className="text-[13px] font-medium w-40 flex-shrink-0 truncate" style={{ color: 'var(--ink)' }} title={active ? describeDue(active, Date.now()) : undefined}>
+          {title}{active ? <span className="font-normal" style={{ color: 'var(--ink-65)' }}> · {describeDue(active, Date.now())}</span> : null}
+        </span>
+      ) : (
+        <SectionTitle title={`${title}${active ? ` · ${describeDue(active, Date.now())}` : ''}`} icon={Clock} />
+      )}
+      <div className="flex flex-wrap items-center gap-2 flex-1">
         <Select
           value={current.mode}
           onChange={(selectValue) => apply({ mode: selectValue })}
@@ -7171,6 +9984,7 @@ export function ReleasePlanControls({ platform, project }) {
           />
         )}
       </div>
+      </div>
       {current.mode === 'scheduled' && (
         <>
           {desktopBridge?.syncReleasePlans && (
@@ -7180,12 +9994,12 @@ export function ReleasePlanControls({ platform, project }) {
                 aria-label={`${platform.name} unattended publish`}
                 checked={!!current.unattended}
                 onChange={(e) => apply({ unattended: e.target.checked })}
-                style={{ accentColor: '#5A7430', marginTop: 2 }}
+                style={{ accentColor: 'var(--primary)', marginTop: 2 }}
               />
               <span>Publish even if ModelPrep is closed. It reopens at the set time and publishes, as long as this account is still signed in. If the session has expired it waits for you instead, as an overdue reminder.</span>
             </label>
           )}
-          <p className="text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px] mt-1" style={{ color: 'var(--ink-a66)' }}>
             {current.unattended
               ? `Runs in the background at the set time using this platform's saved action and visibility, after a session pre-flight.`
               : `Publishes through the normal pipeline at the set time while ModelPrep is open, using this platform's saved action and visibility. If the app is closed it becomes an overdue reminder instead.`}
@@ -7193,7 +10007,7 @@ export function ReleasePlanControls({ platform, project }) {
         </>
       )}
       {issues.length > 0 && (
-        <p className="text-[11px] mt-1" style={{ color: '#B23A1A' }}>{issues.join(' ')}</p>
+        <p className="text-[11px] mt-1" style={{ color: 'var(--accent-warm-text)' }}>{issues.join(' ')}</p>
       )}
     </div>
   );
@@ -7217,11 +10031,11 @@ export function DestinationFileRoleRow({ platform, file, opts, onChange, onReset
   const ext = fileExt(file.name);
   const detectedSlicer = file.isProfile ? slicerLabel(fileSlicer(file)) : '';
   return (
-    <div className="py-2.5 border-b last:border-b-0" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="py-2.5 border-b last:border-b-0" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-xs font-medium truncate flex-1" title={file.name}>{file.name}</span>
         {detectedSlicer && <span className="mp-mono text-xs uppercase tracking-[0.08em] opacity-65">{detectedSlicer}</span>}
-        <span className="mp-mono text-[9px] uppercase tracking-[0.1em] px-2 py-0.5 rounded-full" style={{ backgroundColor: choice.automatic ? 'rgba(58,134,255,0.10)' : 'rgba(90,116,48,0.10)', color: choice.automatic ? '#245DA8' : '#8F2D00' }}>{choice.automatic ? 'Automatic' : 'Manual'}</span>
+        <span className="mp-mono text-[9px] uppercase tracking-[0.1em] px-2 py-0.5 rounded-full" style={{ backgroundColor: choice.automatic ? 'rgba(58,134,255,0.10)' : 'var(--primary-a10)', color: choice.automatic ? 'var(--api-fill)' : 'var(--accent-warm-text)' }}>{choice.automatic ? 'Automatic' : 'Manual'}</span>
       </div>
       <div className="mt-1.5 flex items-center gap-2">
         <Select
@@ -7234,7 +10048,7 @@ export function DestinationFileRoleRow({ platform, file, opts, onChange, onReset
         />
         {!choice.automatic && <button type="button" onClick={onReset} className="text-[10px] underline whitespace-nowrap">Reset to Auto</button>}
       </div>
-      <p className="text-[10px] mt-1 leading-snug" style={{ color: unsupported ? '#B91C1C' : 'rgba(38,42,35,0.60)' }}>
+      <p className="text-[10px] mt-1 leading-snug" style={{ color: unsupported ? 'var(--danger-text)' : 'var(--ink-a60)' }}>
         {unsupported ? `.${ext || 'file'} is not a format this platform accepts.` : choice.reason}
         {choice.suggestedRole && choice.role !== choice.suggestedRole ? ` Suggested role: ${choice.suggestedRole === 'profile' ? 'Print profile' : choice.suggestedRole}.` : ''}
       </p>
@@ -7258,12 +10072,10 @@ export function PlatformImagePicker({ platform, project, opts, onUpdate }) {
 
   const usableIds = new Set([plan.cover?.id, ...plan.gallery.map((image) => image.id)].filter(Boolean));
   return (
-    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
-        Pictures for {platform.name}
-      </div>
+    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'var(--ink-a08)' }}>
+      <SectionTitle title={`Pictures for ${platform.name}`} icon={ImageIcon} />
       {note && (
-        <p className="text-[11px] mb-2" style={{ color: 'rgba(38,42,35,0.7)' }}>{note}</p>
+        <p className="text-[11px] mb-2" style={{ color: 'var(--ink-a70)' }}>{note}</p>
       )}
       <div className="flex items-center gap-2 flex-wrap">
         <Select
@@ -7285,7 +10097,7 @@ export function PlatformImagePicker({ platform, project, opts, onUpdate }) {
             type="button"
             onClick={() => onUpdate('coverImageId', null)}
             className="mp-mono text-[11px] underline"
-            style={{ color: 'rgba(38,42,35,0.66)' }}
+            style={{ color: 'var(--ink-a66)' }}
           >
             back to automatic
           </button>
@@ -7298,31 +10110,103 @@ export function PlatformImagePicker({ platform, project, opts, onUpdate }) {
 // One role per file/destination intersection. Slicer affinity only proposes a
 // native profile role; a foreign-slicer 3MF remains an ordinary model.
 export function PlatformFilePicker({ platform, project, opts, onUpdate }) {
+  // Collapsed by default. Every file got a row before, photos included, and
+  // on a 25-file project that was a screen of "Automatic" rows nobody needed
+  // to read. The summary line says what is in there; open it to override.
+  const [open, setOpen] = useState(false);
   if (!project.files.length) return null;
+  const photos = project.files.filter((file) => file.isImage);
+  const files = project.files.filter((file) => !file.isImage);
+  const manual = Object.keys(opts.fileRoles || {}).length + (opts.excludedFileIds || []).length;
+  const unsupported = files.filter((file) => {
+    const availability = destinationRoleAvailability(platform, file);
+    return !availability.model && !availability.profile && !availability.documentation;
+  }).length;
   const resetAll = () => {
     const reset = resetPlatformFileRoles();
     Object.entries(reset).forEach(([field, value]) => onUpdate(field, value));
   };
+  const summary = [
+    `${files.length} file${files.length === 1 ? '' : 's'}`,
+    manual ? `${manual} manual` : 'all automatic',
+    unsupported ? `${unsupported} not accepted` : null,
+  ].filter(Boolean).join(' · ');
   return (
-    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5 flex items-center gap-2 flex-wrap" style={{ color: 'rgba(38,42,35,0.66)' }}>
-        <span>Files and roles for {platform.name}</span>
-        {(Object.keys(opts.fileRoles || {}).length > 0 || (opts.excludedFileIds || []).length > 0) && <button type="button" onClick={resetAll} className="mp-mono text-[10px] uppercase tracking-[0.12em] underline" style={{ color: 'var(--accent-text)' }}>Reset all to Auto</button>}
-      </div>
-      <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(38,42,35,0.66)' }}>The selected role is what the native adapter will do with this file. Automatic choices always explain their reason.</p>
-      <div className="space-y-1">
-        {project.files.map((file) => <DestinationFileRoleRow key={file.id} platform={platform} file={file} opts={opts}
-          onChange={(role) => {
-            onUpdate('fileSelection', 'manual');
-            onUpdate('fileRoles', setPlatformFileRole(opts, file.id, role));
-            onUpdate('excludedFileIds', (opts.excludedFileIds || []).filter((id) => String(id) !== String(file.id)));
-          }}
-          onReset={() => {
-            const fileRoles = { ...(opts.fileRoles || {}) }; delete fileRoles[String(file.id)];
-            onUpdate('fileRoles', fileRoles);
-            onUpdate('excludedFileIds', (opts.excludedFileIds || []).filter((id) => String(id) !== String(file.id)));
-          }} />)}
-      </div>
+    <div className="pt-3 mt-3 border-t" style={{ borderColor: 'var(--ink-a08)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-[var(--surface-hover)]"
+      >
+        {open ? <ChevronDown size={14} style={{ color: 'var(--ink-50)' }} /> : <ChevronRight size={14} style={{ color: 'var(--ink-50)' }} />}
+        <SectionTitle title={`Files and roles for ${platform.name}`} icon={Folder} className="mb-0 flex-1" />
+        <span className="text-xs t-num" style={{ color: unsupported ? 'var(--danger-text)' : 'var(--ink-50)' }}>{summary}</span>
+      </button>
+      {open && (
+        <div className="mt-2">
+          <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'var(--ink-a66)' }}>
+            The role is what {platform.name} does with the file. Automatic choices say why.
+            {photos.length ? ` ${photos.length} photo${photos.length === 1 ? ' is' : 's are'} handled on the Images step.` : ''}
+          </p>
+          {manual > 0 && (
+            <button type="button" onClick={resetAll} className="text-[11px] underline mb-1.5" style={{ color: 'var(--accent-text)' }}>Reset all to automatic</button>
+          )}
+          <div className="space-y-1">
+            {files.map((file) => <DestinationFileRoleRow key={file.id} platform={platform} file={file} opts={opts}
+              onChange={(role) => {
+                onUpdate('fileSelection', 'manual');
+                onUpdate('fileRoles', setPlatformFileRole(opts, file.id, role));
+                onUpdate('excludedFileIds', (opts.excludedFileIds || []).filter((id) => String(id) !== String(file.id)));
+              }}
+              onReset={() => {
+                const fileRoles = { ...(opts.fileRoles || {}) }; delete fileRoles[String(file.id)];
+                onUpdate('fileRoles', fileRoles);
+                onUpdate('excludedFileIds', (opts.excludedFileIds || []).filter((id) => String(id) !== String(file.id)));
+              }} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// "Remember these settings": the platform's current answers become the
+// starting point for every new project. Files, pictures and remix sources are
+// never remembered; see lib/platform-defaults.js.
+function PlatformDefaultsRow({ platform, state, onUpdate }) {
+  const storage = typeof window !== 'undefined' ? window.localStorage : null;
+  const [defaults, setDefaults] = useState(() => loadPlatformDefaults(storage));
+  const [justSaved, setJustSaved] = useState(false);
+  // Two presses to reset: the first arms it for a few seconds, the second
+  // does it. A dialog for a per-platform form felt heavier than the action.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => { if (!armed) return undefined; const t = setTimeout(() => setArmed(false), 4000); return () => clearTimeout(t); }, [armed]);
+  const resetAll = () => {
+    if (!armed) { setArmed(true); return; }
+    const fresh = { ...(initialProject.platforms[platform.id] || {}) };
+    delete fresh.enabled;
+    onUpdate(fresh);
+    setArmed(false);
+  };
+  const count = rememberedCount(defaults, platform.id);
+  const remember = () => { setDefaults(rememberPlatform(storage, platform.id, state)); setJustSaved(true); setTimeout(() => setJustSaved(false), 2000); };
+  const forget = () => setDefaults(forgetPlatform(storage, platform.id));
+  return (
+    <div className="pt-3 mt-3 border-t flex items-center gap-3 flex-wrap" style={{ borderColor: 'var(--ink-a08)' }} data-testid="platform-defaults-row">
+      <Save size={13} style={{ color: 'var(--ink-50)' }} aria-hidden />
+      <span className="text-xs flex-1 min-w-[16rem]" style={{ color: 'var(--ink-65)' }}>
+        {count
+          ? `New projects start with your ${platform.name} answers (${count} remembered).`
+          : `Answer these once: remember them and every new project starts with the same ${platform.name} settings.`}
+      </span>
+      <button type="button" onClick={resetAll} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3" style={armed ? { color: 'var(--danger-text)', borderColor: 'var(--danger-text)' } : undefined} aria-label={`Reset ${platform.name} settings`}>
+        <X size={12} /> {armed ? 'Press again to reset' : `Reset ${platform.name} settings`}
+      </button>
+      {count > 0 && <button type="button" onClick={forget} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">Forget</button>}
+      <button type="button" onClick={remember} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3">
+        {justSaved ? <><Check size={12} /> Remembered</> : (count ? 'Update remembered' : 'Remember these settings')}
+      </button>
     </div>
   );
 }
@@ -7348,7 +10232,7 @@ function readableOn(hex) {
     const channel = parseInt(part, 16) / 255;
     return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
   });
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.45 ? '#262A23' : '#FFFFFF';
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.45 ? 'var(--ink)' : '#FFFFFF';
 }
 
 // Each platform's own icon, bundled locally so the packaged app never reaches
@@ -7375,7 +10259,7 @@ function PlatformMark({ platform, size = 26 }) {
     return (
       <span
         className="inline-flex items-center justify-center flex-shrink-0 overflow-hidden"
-        style={{ width: size, height: size, backgroundColor: '#FFFFFF', border: '1px solid rgba(38,42,35,0.10)' }}
+        style={{ width: size, height: size, backgroundColor: 'var(--surface)', border: '1px solid var(--ink-a10)' }}
       >
         <img
           src={logo} alt="" onError={() => setFailed(true)}
@@ -7407,19 +10291,70 @@ function PlatformMark({ platform, size = 26 }) {
 // an anonymous stack of the same tiny uppercase label, so nothing told the eye
 // where one topic ended and the next began. A hairline rule and a consistent
 // heading make the card scannable instead of a single long column.
-function PanelSection({ title, hint, children }) {
+// One icon per kind of section, so a panel with a dozen groups can be scanned
+// by shape before it is read. Matched on the title, which keeps the ten
+// platform panels from each carrying their own icon wiring.
+const SECTION_ICONS = [
+  [/needs attention/i, AlertCircle],
+  [/adapt|will change/i, RefreshCw],
+  [/limits/i, Gauge],
+  [/accepted formats|formats/i, FileCheck],
+  [/files and roles|files/i, Folder],
+  [/pictures|photos|images|cover/i, ImageIcon],
+  [/release plan|schedule/i, Clock],
+  [/source|remix/i, GitBranch],
+  [/linked/i, Link2],
+  [/cyberbrick/i, Cpu],
+  [/bill of materials|bom/i, Package],
+  [/documentation|guide/i, FileText],
+  [/profile|printer/i, Printer],
+  [/options|settings/i, SlidersHorizontal],
+];
+function iconForSection(title) {
+  const text = typeof title === 'string' ? title : '';
+  const hit = SECTION_ICONS.find(([pattern]) => pattern.test(text));
+  return hit ? hit[1] : null;
+}
+
+// A choice made in a section stays made until it is cleared; this is the
+// button that clears it. Given to any section that holds choices.
+function ClearButton({ onClear, label = 'Clear', disabled = false }) {
   return (
-    <section className="pt-3 mt-3 border-t first:border-t-0 first:mt-0" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
-        {title}
-      </div>
-      {hint && <p className="text-[11px] mb-1.5 max-w-[70ch]" style={{ color: 'rgba(38,42,35,0.66)' }}>{hint}</p>}
+    <button
+      type="button"
+      onClick={(event) => { event.stopPropagation(); onClear(); }}
+      disabled={disabled}
+      className="mp-btn mp-btn-ghost text-[11px] py-0.5 px-2 normal-case tracking-normal ml-auto disabled:opacity-40"
+      style={{ minHeight: 24 }}
+    >
+      <X size={11} /> {label}
+    </button>
+  );
+}
+
+function SectionTitle({ title, icon = null, action = null, className = '', onClear = null, clearDisabled = false }) {
+  const Icon = icon || iconForSection(title);
+  return (
+    <div className={`text-[14px] font-semibold mb-2 flex items-center gap-2 flex-wrap ${className}`} style={{ color: 'var(--ink)' }}>
+      {Icon && <Icon size={14} strokeWidth={2} className="flex-shrink-0" style={{ color: 'var(--ink-50)' }} aria-hidden />}
+      <span data-section-title>{title}</span>
+      {action}
+      {onClear && <ClearButton onClear={onClear} disabled={clearDisabled} />}
+    </div>
+  );
+}
+
+function PanelSection({ title, hint, children, icon = null }) {
+  return (
+    <section className="pt-3 mt-3 border-t first:border-t-0 first:mt-0" style={{ borderColor: 'var(--ink-a08)' }}>
+      <SectionTitle title={title} icon={icon} />
+      {hint && <p className="text-[12px] mb-2 max-w-[70ch]" style={{ color: 'var(--ink-65)' }}>{hint}</p>}
       {children}
     </section>
   );
 }
 
-function PlatformCard({ platform, state, project, connectionLabel, onConnect, onToggle, onUpdate, expanded = false, onExpand }) {
+function PlatformCard({ platform, state, project, connectionLabel, onConnect, onToggle, onUpdate, expanded = false, onExpand, updateProject = null }) {
   const acceptedFormats = platform.id === 'makerworld' && state.productMode === 'laser-cut'
     ? MAKERWORLD_LASER_FORMATS
     : platform.formats;
@@ -7432,8 +10367,9 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
     // so its options get real width, and so one tall card can't leave the rest of
     // its row as ragged whitespace. Collapsed cards stay in the tidy grid.
     <div
+      data-platform-card={platform.id}
       className="mp-card"
-      style={{ borderColor: state.enabled ? 'rgba(38,42,35,0.2)' : 'rgba(38,42,35,0.08)', opacity: state.enabled ? 1 : 0.65 }}
+      style={{ borderColor: state.enabled ? 'var(--ink-a20)' : 'var(--ink-a08)', opacity: state.enabled ? 1 : 0.65 }}
     >
       {/* One identity row: toggle, mark, name and status all on the same line at
           the same height. The description used to sit indented inside the name
@@ -7451,10 +10387,10 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
               <PlatformMark platform={platform} size={28} />
               <h3 className="mp-display font-bold text-base truncate min-w-0">{platform.name}</h3>
               {platform.apiSupport === 'manual' && (
-                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ backgroundColor: 'rgba(38,42,35,0.1)', color: 'rgba(38,42,35,0.66)' }}>manual</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ backgroundColor: 'var(--ink-a10)', color: 'var(--ink-a66)' }}>manual</span>
               )}
               {platform.apiSupport === 'addon' && (
-                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ backgroundColor: 'rgba(58,134,255,0.15)', color: '#3A86FF' }}>addon</span>
+                <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{ backgroundColor: 'rgba(58,134,255,0.15)', color: 'var(--api)' }}>addon</span>
               )}
               {/* One connection affordance: a status pill that is itself the
                   action when there is something to do. */}
@@ -7462,15 +10398,15 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                 <button
                   onClick={onConnect}
                   aria-label={`${connectionLabel === 'Reconnect needed' ? 'Reconnect' : connectionLabel === 'Checking session' ? 'View status for' : 'Connect'} ${platform.name}`}
-                  className="mp-pill mp-focusable flex-shrink-0 whitespace-nowrap transition hover:bg-[rgba(38,42,35,0.12)]"
-                  style={{ backgroundColor: 'rgba(38,42,35,0.07)', color: 'var(--accent-text)' }}
+                  className="mp-pill mp-focusable flex-shrink-0 whitespace-nowrap transition hover:bg-[var(--ink-a12)]"
+                  style={{ backgroundColor: 'var(--ink-a07)', color: 'var(--accent-text)' }}
                 >
                   {connectionLabel === 'Checking session' ? 'Checking session…' : connectionLabel === 'Reconnect needed' ? 'Reconnect →' : 'Connect →'}
                 </button>
               ) : (
                 <span className="mp-pill flex-shrink-0 whitespace-nowrap" style={{
-                  backgroundColor: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'rgba(38,42,35,0.07)',
-                  color: connectionLabel === 'Connected' ? '#247255' : 'rgba(38,42,35,0.58)',
+                  backgroundColor: connectionLabel === 'Connected' ? 'rgba(79,178,134,0.14)' : 'var(--ink-a07)',
+                  color: connectionLabel === 'Connected' ? 'var(--success-text)' : 'var(--ink-a58)',
                 }}>{connectionLabel}</span>
               ))}
             </div>
@@ -7487,8 +10423,8 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
             "· HTML" was the description format, an internal detail that told a
             creator nothing about where to publish. The vendor still leads, since
             that is what identifies the platform. */}
-        <p className="text-xs mt-2" style={{ color: 'rgba(38,42,35,0.65)' }}>
-          <span style={{ color: 'rgba(38,42,35,0.5)' }}>{platform.org}</span>
+        <p className="text-xs mt-2" style={{ color: 'var(--ink-a65)' }}>
+          <span style={{ color: 'var(--ink-a50)' }}>{platform.org}</span>
           {platform.note ? ` · ${platform.note}` : ''}
           {state.enabled ? <span style={{ color: 'var(--ink-50)' }}> · native outcome: {readiness.outcome.outcome}</span> : null}
         </p>
@@ -7496,7 +10432,20 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           <summary className="mp-disclosure cursor-pointer text-xs inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-[var(--surface-hover)]" style={{ color: 'var(--ink-65)' }}>Requirements &amp; evidence</summary>
           <div className="mt-2 p-3 text-xs leading-5 rounded-md" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-65)' }}>
             <div>{platformWorkflow(platform.id).evidence}</div>
-            <div className="mt-1">{acceptedFormats.length} accepted package format{acceptedFormats.length === 1 ? '' : 's'} · {destinationMediaTreatment(platform.id).join(' · ')}</div>
+            <div className="mt-1">{destinationMediaTreatment(platform.id).join(' · ')}</div>
+            <div className="mt-3 flex flex-wrap gap-x-10 gap-y-2">
+              <Stat label="Max images" value={Number.isFinite(platform.maxImages) ? platform.maxImages : 'No limit listed'} />
+              <Stat label="File size cap" value={platform.maxFileMb ? `${platform.maxFileMb}MB` : 'No limit listed'} />
+              <Stat label="Total cap" value={platform.maxTotalMb ? `${platform.maxTotalMb}MB` : 'No limit listed'} />
+            </div>
+            <div className="mt-3 text-[12px] font-medium" style={{ color: 'var(--ink)' }}>Accepted formats</div>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {acceptedFormats.map(f => (
+                <span key={f} className="mp-mono text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--ink-a06)', color: 'var(--ink)' }}>
+                  .{f}
+                </span>
+              ))}
+            </div>
           </div>
         </details>
       </div>
@@ -7506,11 +10455,12 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
         // spans the full row so its lists and chips can breathe, but a select
         // stretched across 1800px is unreadable: the eye loses the line between
         // the label and the value.
-        <div className="mp-platform-panel px-3.5 pb-3.5 border-t" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+        <RequiredCtx.Provider value={platform.id}>
+        <div className="mp-platform-panel px-3.5 pb-3.5 border-t" style={{ borderColor: 'var(--ink-a08)' }}>
           {hasFiles && issues.errors.length > 0 && (
             <PanelSection title="Needs attention">
               <div className="space-y-1.5">
-                {issues.errors.map((message) => <div key={message} className="p-2.5 text-xs rounded-md" style={{ backgroundColor: 'var(--danger-tint)', color: 'var(--danger-text)' }}>{message}</div>)}
+                {issues.errors.map((message) => <IssueLink key={message} message={message} platformId={platform.id} className="p-2.5 text-xs rounded-md" style={{ backgroundColor: 'var(--danger-tint)', color: 'var(--danger-text)' }} />)}
               </div>
             </PanelSection>
           )}
@@ -7532,24 +10482,9 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
               Optional, not needed to upload: {issues.optional.join(' ')}
             </p>
           )}
-          <PanelSection title="Limits">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-              <Stat label="Max images" value={Number.isFinite(platform.maxImages) ? platform.maxImages : 'No limit listed'} />
-              <Stat label="File size cap" value={platform.maxFileMb ? `${platform.maxFileMb}MB` : 'No limit listed'} />
-              <Stat label="Total cap" value={platform.maxTotalMb ? `${platform.maxTotalMb}MB` : 'No limit listed'} />
-            </div>
-          </PanelSection>
-
-          <PanelSection title="Accepted formats">
-            <div className="flex flex-wrap gap-1">
-              {acceptedFormats.map(f => (
-                <span key={f} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}>
-                  .{f}
-                </span>
-              ))}
-            </div>
-          </PanelSection>
-
+          {/* Limits and accepted formats are reference, not decisions; they
+              sit in the header's "Requirements & evidence" disclosure. The
+              panel opens on what needs the user. */}
           {platform.fields.includes('price') && state.enabled && (
             <div className="mt-3">
               <Label>Price (USD)</Label>
@@ -7559,7 +10494,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                     type="radio"
                     checked={state.free}
                     onChange={() => onUpdate('free', true)}
-                    style={{ accentColor: '#5A7430' }}
+                    style={{ accentColor: 'var(--primary)' }}
                   /> Free
                 </label>
                 <label className="flex items-center gap-2 text-xs">
@@ -7567,7 +10502,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
                     type="radio"
                     checked={!state.free}
                     onChange={() => onUpdate('free', false)}
-                    style={{ accentColor: '#5A7430' }}
+                    style={{ accentColor: 'var(--primary)' }}
                   /> Paid
                 </label>
                 {!state.free && (
@@ -7600,8 +10535,8 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
 />
               {state.contestEntry && (
                 <div className="mt-2 p-2.5 flex items-start gap-2 text-[13px]" style={{ backgroundColor: 'rgba(255,182,39,0.12)', border: '1px solid rgba(255,182,39,0.5)' }}>
-                  <AlertCircle size={14} style={{ color: '#FF9500' }} className="flex-shrink-0 mt-0.5" />
-                  <span style={{ color: 'rgba(38,42,35,0.8)' }}>
+                  <AlertCircle size={14} style={{ color: 'var(--warn)' }} className="flex-shrink-0 mt-0.5" />
+                  <span style={{ color: 'var(--ink-a80)' }}>
                     <strong>{platform.name} contest entries must be opted in during upload.</strong> This package can't enter you automatically: when you upload, tick the contest checkbox on {platform.name}'s page. You can't add an entry after the model is published.
                   </span>
                 </div>
@@ -7615,11 +10550,10 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           {state.enabled && (
             <PlatformImagePicker platform={platform} project={project} opts={state} onUpdate={onUpdate} />
           )}
-          {state.enabled && LIVE_PUBLISH_PLATFORM_IDS.includes(platform.id) && (
-            <ReleasePlanControls platform={platform} project={project} />
-          )}
+          {/* Release plans are a publishing decision and live on Publish,
+              one row per platform, instead of being repeated in ten panels. */}
           {platform.id === 'makerworld' && state.enabled && (
-            <MakerWorldOptions opts={state} project={project} onUpdate={onUpdate} />
+            <MakerWorldOptions opts={state} project={project} onUpdate={onUpdate} updateProject={updateProject} />
           )}
           {platform.id === 'printables' && state.enabled && (
             <PrintablesOptions opts={state} onUpdate={onUpdate} />
@@ -7646,7 +10580,9 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
             <MyMiniFactoryOptions opts={state} onUpdate={onUpdate} />
           )}
           {platform.id === 'cults' && state.enabled && <CultsOptions opts={state} onUpdate={onUpdate} />}
+          {state.enabled && <PlatformDefaultsRow platform={platform} state={state} onUpdate={onUpdate} />}
         </div>
+        </RequiredCtx.Provider>
       )}
     </div>
   );
@@ -7685,22 +10621,22 @@ export function CultsOptions({ opts, onUpdate }) {
       <div>
         <Label>Visibility</Label>
         <div className="flex items-center gap-3 text-xs">
-          <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: '#5A7430' }} /> Secret (unlisted)</label>
-          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: '#5A7430' }} /> Public</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: 'var(--primary)' }} /> Secret (unlisted)</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: 'var(--primary)' }} /> Public</label>
         </div>
       </div>
       <div>
         <Label>Manufacturing settings <span className="opacity-50">(optional)</span></Label>
-        <textarea value={opts.details || ''} onChange={(event) => onUpdate('details', event.target.value)} placeholder="Print, CNC or laser settings" rows={2} className="w-full mp-card text-xs p-2" />
+        <textarea value={opts.details || ''} onChange={(event) => onUpdate('details', event.target.value)} placeholder="Print, CNC or laser settings" rows={2} className="mp-input" />
       </div>
       <div>
         <Label>Platform labels</Label>
         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-          {CULTS_META_TAGS.map(([value, label]) => <label key={value} className="flex items-center gap-1.5"><input type="checkbox" checked={metaTags.includes(value)} onChange={() => toggleMetaTag(value)} style={{ accentColor: '#5A7430' }} /> {label}</label>)}
+          {CULTS_META_TAGS.map(([value, label]) => <label key={value} className="flex items-center gap-1.5"><input type="checkbox" checked={metaTags.includes(value)} onChange={() => toggleMetaTag(value)} style={{ accentColor: 'var(--primary)' }} /> {label}</label>)}
         </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={opts.showComments !== false} onChange={(event) => onUpdate('showComments', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Allow comments</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={opts.showComments !== false} onChange={(event) => onUpdate('showComments', event.target.checked)} style={{ accentColor: 'var(--primary)' }} /> Allow comments</label>
       </div>
       <p className="text-[11px] opacity-60">3D printing usage is selected automatically. Current Cults terms still require a separate review before public or paid publishing.</p>
     </div>
@@ -7817,8 +10753,8 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
         <Label>Printing tips</Label>
         <textarea aria-label="Printing tips" className="mp-input min-h-20" value={opts.printingTips || ''} onChange={(event) => onUpdate('printingTips', event.target.value)} placeholder="Orientation, layer height, supports, and material advice" />
       </div>
-      <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.supportFree} onChange={(event) => onUpdate('supportFree', event.target.checked)} style={{ accentColor: '#4FB286' }} /><span>This model prints without supports.</span></label>
-      <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(event) => onUpdate('remix', event.target.checked)} style={{ accentColor: '#4FB286' }} /><span>This object is a remix.</span></label>
+      <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.supportFree} onChange={(event) => onUpdate('supportFree', event.target.checked)} style={{ accentColor: 'var(--success)' }} /><span>This model prints without supports.</span></label>
+      <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(event) => onUpdate('remix', event.target.checked)} style={{ accentColor: 'var(--success)' }} /><span>This object is a remix.</span></label>
       {opts.remix && <div><Label>Parent MyMiniFactory object IDs</Label><input aria-label="Parent MyMiniFactory object IDs" className="mp-input" value={parentIds} onChange={(event) => onUpdate('remixParentIds', event.target.value.split(',').map((value) => value.trim()).filter(Boolean))} placeholder="Comma-separated object IDs" /></div>}
       <div>
         <Label>Verify an existing object (read-only)</Label>
@@ -7826,7 +10762,7 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
         <p className="text-[11px] mt-1 opacity-70">Re-reads an object this account already owns and compares the persisted state above. It only reads; it never creates or edits an object.</p>
       </div>
       <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', backgroundColor: 'rgba(79,178,134,0.08)' }}>
-        <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: '#4FB286' }} />
+        <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: 'var(--success)' }} />
         <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory's Terms and Conditions.</span>
       </label>
     </div>
@@ -7946,7 +10882,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
   };
 
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
@@ -8008,10 +10944,10 @@ export function NexprintOptions({ opts, project, onUpdate }) {
       </div>
 
       <div className="flex flex-wrap gap-4 text-xs">
-        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.hasBom} onChange={(event) => onUpdate('hasBom', event.target.checked)} style={{ accentColor: '#5A7430' }} /> Include bill of materials</label>
+        <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!opts.hasBom} onChange={(event) => onUpdate('hasBom', event.target.checked)} style={{ accentColor: 'var(--primary)' }} /> Include bill of materials</label>
       </div>
       {opts.aiGenerated && (
-        <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+        <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>
           ModelPrep adds "AI-generated" to the listing tags to satisfy Nexprint's disclosure rule.
         </p>
       )}
@@ -8037,14 +10973,14 @@ export function NexprintOptions({ opts, project, onUpdate }) {
         <Label>Eligible activities and contests</Label>
         {!active && <p className="text-[11px] opacity-70">Connect Nexprint to load the activities currently available to this account.</p>}
         {dynamic.loading && <p className="text-[11px] opacity-70">Loading current Nexprint options…</p>}
-        {dynamic.error && <p className="text-[11px]" style={{ color: '#b91c1c' }}>{dynamic.error}</p>}
+        {dynamic.error && <p className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{dynamic.error}</p>}
         {!!dynamic.activities.length && (
           <div className="flex flex-wrap gap-2 mt-1">
             {dynamic.activities.map((activity) => {
               const id = nexprintOptionId(activity);
               return (
                 <label key={id} className="mp-card px-2 py-1 text-[11px] flex items-center gap-1.5">
-                  <input type="checkbox" checked={(opts.activityIds || []).map(String).includes(id)} onChange={() => toggleId('activityIds', id)} style={{ accentColor: '#5A7430' }} />
+                  <input type="checkbox" checked={(opts.activityIds || []).map(String).includes(id)} onChange={() => toggleId('activityIds', id)} style={{ accentColor: 'var(--primary)' }} />
                   {nexprintOptionName(activity)}
                 </label>
               );
@@ -8061,7 +10997,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
               const id = nexprintOptionId(collection);
               return (
                 <label key={id} className="mp-card px-2 py-1 text-[11px] flex items-center gap-1.5">
-                  <input type="checkbox" checked={(opts.collectionIds || []).map(String).includes(id)} onChange={() => toggleId('collectionIds', id)} style={{ accentColor: '#5A7430' }} />
+                  <input type="checkbox" checked={(opts.collectionIds || []).map(String).includes(id)} onChange={() => toggleId('collectionIds', id)} style={{ accentColor: 'var(--primary)' }} />
                   {nexprintOptionName(collection)}
                 </label>
               );
@@ -8072,7 +11008,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
 
       {!!dynamic.activities.length && Number(opts.originalityType || 1) !== 3 && (
         <label className="flex items-center gap-1.5 text-xs">
-          <input type="checkbox" checked={!!opts.worldFirstRelease} onChange={(event) => onUpdate('worldFirstRelease', event.target.checked)} style={{ accentColor: '#5A7430' }} />
+          <input type="checkbox" checked={!!opts.worldFirstRelease} onChange={(event) => onUpdate('worldFirstRelease', event.target.checked)} style={{ accentColor: 'var(--primary)' }} />
           Mark eligible activity submission as a world-first release
         </label>
       )}
@@ -8086,7 +11022,7 @@ export function NexprintOptions({ opts, project, onUpdate }) {
 
 export function CrealityOptions({ opts, project, onUpdate }) {
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
@@ -8232,14 +11168,14 @@ export function MakerRoadOptions({ opts, onUpdate }) {
   };
   const license = MAKEROAD_LICENSES[Number(opts.licenseIndex || 0)] || MAKEROAD_LICENSES[0];
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="grid md:grid-cols-2 gap-3">
         <div><Label>Native action</Label><Select
                                            value={opts.publication || 'draft'}
                                            onChange={(selectValue) => onUpdate('publication', selectValue)}
                                            options={[{ value: "draft", label: 'Save · enters MakerRoad review' }, { value: "publish", label: 'Submit for public review (LIVE)' }]}
                                            ariaLabel="MakerRoad batch action"
-                                         /><p className="text-[13px] mt-1" style={{ color: '#8F2D00' }}>MakerRoad does not currently retain a private draft in tested flows. Save is a review submission.</p></div>
+                                         /><p className="text-[13px] mt-1" style={{ color: 'var(--accent-warm-text)' }}>MakerRoad does not currently retain a private draft in tested flows. Save is a review submission.</p></div>
         <div><Label>Upload type</Label><Select
                                          value={Number(opts.uploadType || 1)}
                                          onChange={(selectValue) => onUpdate('uploadType', Number(selectValue))}
@@ -8248,7 +11184,7 @@ export function MakerRoadOptions({ opts, onUpdate }) {
                                        /></div>
       </div>
       {Number(opts.uploadType || 1) === 2 && <div><Label>Original model URL</Label><input className="mp-input" value={opts.referUrl || ''} onChange={(e) => onUpdate('referUrl', e.target.value)} placeholder="https://…" /></div>}
-      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: '#24634f' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad's live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-red-700">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
+      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: 'var(--success-text)' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad's live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-[var(--danger-text)]">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
       <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><Select
                                                                               value={Number(opts.licenseIndex || 0)}
                                                                               onChange={(selectValue) => onUpdate({ licenseIndex: Number(selectValue), licenseAuto: false })}
@@ -8321,7 +11257,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
       }).catch((error) => { if (alive) { setCategories(THANGS_CATEGORIES); setCategorySource('snapshot'); setCategoryError(`${error.message} Using today's verified taxonomy snapshot.`); } });
     return () => { alive = false; };
   }, [secret]);
-  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><Select
                                                                                value={opts.publication || 'private'}
                                                                                onChange={(selectValue) => onUpdate('publication', selectValue)}
@@ -8351,7 +11287,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
                                        onChange={(selectValue) => onUpdate({ category: selectValue, categoryAuto: false })}
                                        options={[{ value: "", label: 'Choose category…' }, ...categories.map((category) => ({ value: category.value, label: category.label }))]}
                                        ariaLabel="Thangs category"
-                                     /><AutoMatchNote active={opts.categoryAuto === true} kind="category" />{categoryError && <p className="text-[11px] text-red-700">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
+                                     /><AutoMatchNote active={opts.categoryAuto === true} kind="category" />{categoryError && <p className="text-[11px] text-[var(--danger-text)]">{categoryError}</p>}<p className="text-[11px] opacity-70">Taxonomy source: {categorySource === 'live' ? 'authenticated Thangs endpoint' : 'verified 2026-08-01 production snapshot'}.</p></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Folder ID (optional)</Label><input className="mp-input" value={opts.folderId || ''} onChange={(e) => onUpdate('folderId', e.target.value)} /></div><div><Label>Workspace ID (optional)</Label><input className="mp-input" value={opts.workspaceId || ''} onChange={(e) => onUpdate('workspaceId', e.target.value)} /></div></div>
     <div><Label>Resume existing private draft ID (recovery only)</Label><input aria-label="Thangs resume draft ID" className="mp-input" value={opts.resumeDraftId || ''} onChange={(e) => onUpdate('resumeDraftId', e.target.value.trim())} placeholder="Leave empty for a new model" /><p className="text-[11px] opacity-70">Use only after Thangs created a private draft but rejected its details; ModelPrep will update that draft instead of creating a duplicate.</p></div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Access type ID (optional)</Label><input className="mp-input" value={opts.accessTypeId || ''} onChange={(e) => onUpdate('accessTypeId', e.target.value)} /></div><div><Label>Plan IDs (comma-separated)</Label><input className="mp-input" value={(opts.planIds || []).join(', ')} onChange={(e) => onUpdate('planIds', e.target.value.split(',').map((value) => value.trim()).filter(Boolean))} /></div></div>
@@ -8366,7 +11302,7 @@ export function ThangsOptions({ opts, project, onUpdate }) {
 
 export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) {
   const hasScad = (project.files || []).some((file) => fileExt(file.name) === 'scad');
-  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+  return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
     <div className="p-2.5 text-[11px]" style={{ backgroundColor: 'rgba(22,163,74,0.07)', border: '1px solid rgba(22,163,74,0.30)' }}><strong>Direct upload ready:</strong> Save draft is the safe default. Public publishing remains a separate explicit action and requires accepting Thingiverse's current terms.</div>
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Action</Label><Select
                                                                            value={opts.publication || 'draft'}
@@ -8457,7 +11393,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
   const printMethod = Number(opts.printMethod || 3);
 
   return (
-    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <Label>Batch action</Label>
@@ -8483,7 +11419,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
         <div>
           <Label>Original work URL (required for remix)</Label>
           <input aria-label="MakerOnline original work URL" className="mp-input" maxLength={1000} value={opts.originalUrl || ''} onChange={(event) => onUpdate('originalUrl', event.target.value)} placeholder="https://…" />
-          {[5, 6].includes(license) && <p className="text-[11px] mt-1" style={{ color: '#b91c1c' }}>NoDerivatives licenses cannot be used for a remix.</p>}
+          {[5, 6].includes(license) && <p className="text-[11px] mt-1" style={{ color: 'var(--danger-text)' }}>NoDerivatives licenses cannot be used for a remix.</p>}
         </div>
       )}
 
@@ -8515,24 +11451,24 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
         <div>
           <Label>Model permissions</Label>
           <div className="flex flex-wrap gap-3 text-xs">
-            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 1} onChange={() => onUpdate('permission', 1)} style={{ accentColor: '#5A7430' }} /> Public</label>
-            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 2} onChange={() => onUpdate('permission', 2)} style={{ accentColor: '#5A7430' }} /> Private</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 1} onChange={() => onUpdate('permission', 1)} style={{ accentColor: 'var(--primary)' }} /> Public</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={Number(opts.permission || 2) === 2} onChange={() => onUpdate('permission', 2)} style={{ accentColor: 'var(--primary)' }} /> Private</label>
           </div>
           <p className="text-[11px] mt-1 opacity-70">Draft controls whether the listing is submitted now; permissions are stored with the model.</p>
         </div>
         <div>
           <Label>Printing method</Label>
           <div className="flex flex-wrap gap-3 text-xs">
-            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 3} onChange={() => onUpdate('printMethod', 3)} style={{ accentColor: '#5A7430' }} /> Both</label>
-            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 1} onChange={() => onUpdate('printMethod', 1)} style={{ accentColor: '#5A7430' }} /> FDM</label>
-            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 2} onChange={() => onUpdate('printMethod', 2)} style={{ accentColor: '#5A7430' }} /> Resin</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 3} onChange={() => onUpdate('printMethod', 3)} style={{ accentColor: 'var(--primary)' }} /> Both</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 1} onChange={() => onUpdate('printMethod', 1)} style={{ accentColor: 'var(--primary)' }} /> FDM</label>
+            <label className="flex items-center gap-1.5"><input type="radio" checked={printMethod === 2} onChange={() => onUpdate('printMethod', 2)} style={{ accentColor: 'var(--primary)' }} /> Resin</label>
           </div>
         </div>
       </div>
 
       {printMethod !== 2 && (
         <div className="p-2.5 space-y-2" style={{ backgroundColor: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.18)' }}>
-          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.includePrintProfile} onChange={(event) => onUpdate('includePrintProfile', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Upload available .3mf files as MakerOnline print profiles as well as raw model files</span></label>
+          <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.includePrintProfile} onChange={(event) => onUpdate('includePrintProfile', event.target.checked)} style={{ accentColor: 'var(--primary)' }} /><span>Upload available .3mf files as MakerOnline print profiles as well as raw model files</span></label>
           {opts.includePrintProfile && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <div><Label>Print profile title</Label><input aria-label="MakerOnline print profile title" className="mp-input" maxLength={100} value={opts.printTitle || ''} onChange={(event) => onUpdate('printTitle', event.target.value)} placeholder={project.title || 'Profile title'} /></div>
@@ -8543,12 +11479,12 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       )}
 
       <div>
-        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: '#5A7430' }} /><span>This model uses MakerOnline Creative Kits</span></label>
+        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: 'var(--primary)' }} /><span>This model uses MakerOnline Creative Kits</span></label>
         {opts.relatedKits && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
             {meta.kits.map((kit) => {
               const id = kitId(kit);
-              return <label key={id} className="flex items-start gap-2 text-[11px] p-1.5 bg-white"><input type="checkbox" checked={selectedKits.includes(id)} onChange={() => toggleKit(id)} style={{ accentColor: '#5A7430' }} /><span>{kitName(kit)}</span></label>;
+              return <label key={id} className="flex items-start gap-2 text-[11px] p-1.5 bg-[var(--surface)]"><input type="checkbox" checked={selectedKits.includes(id)} onChange={() => toggleKit(id)} style={{ accentColor: 'var(--primary)' }} /><span>{kitName(kit)}</span></label>;
             })}
             {!meta.loading && meta.kits.length === 0 && <span className="text-[11px] opacity-70">Connect the account to load current Creative Kits.</span>}
           </div>
@@ -8556,11 +11492,11 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.chinaSync?.eligible || !!opts.nsfw || Number(opts.permission || 2) !== 1} checked={!!opts.syncChina} onChange={(event) => onUpdate('syncChina', event.target.checked)} style={{ accentColor: '#5A7430' }} /><span>Sync to MakerOnline China{!eligibility.chinaSync?.eligible ? ' (account not linked/eligible)' : ''}</span></label>
-        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.exclusive?.eligible} checked={!!opts.exclusive} onChange={(event) => onUpdate(event.target.checked ? { exclusive: true, source: 1, permission: 1, license: 8, includePrintProfile: true } : { exclusive: false })} style={{ accentColor: '#5A7430' }} /><span>Exclusive model{!eligibility.exclusive?.eligible ? ' (account not eligible)' : ''}</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.chinaSync?.eligible || !!opts.nsfw || Number(opts.permission || 2) !== 1} checked={!!opts.syncChina} onChange={(event) => onUpdate('syncChina', event.target.checked)} style={{ accentColor: 'var(--primary)' }} /><span>Sync to MakerOnline China{!eligibility.chinaSync?.eligible ? ' (account not linked/eligible)' : ''}</span></label>
+        <label className="flex items-start gap-2"><input type="checkbox" disabled={!eligibility.exclusive?.eligible} checked={!!opts.exclusive} onChange={(event) => onUpdate(event.target.checked ? { exclusive: true, source: 1, permission: 1, license: 8, includePrintProfile: true } : { exclusive: false })} style={{ accentColor: 'var(--primary)' }} /><span>Exclusive model{!eligibility.exclusive?.eligible ? ' (account not eligible)' : ''}</span></label>
       </div>
 
-      {meta.error && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{meta.error}</div>}
+      {meta.error && <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{meta.error}</div>}
       <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.22)' }}>
         ModelPrep maps all current upload branches: ordered gallery (20 max), title, live two-level category, tags, license, source/original URL, public/private permission, FDM/Resin/Both, rich description, documentation, AI/NSFW disclosure, Creative Kits, account-gated China sync/exclusive controls, raw files, and optional parsed .3mf print profiles. Paid pricing is dormant in the current form and is not exposed.
       </div>
@@ -8650,7 +11586,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
           onChange={(event) => onUpdate('summary', event.target.value)}
           placeholder="Short listing summary; falls back to the description"
         />
-        <div className="mp-mono text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>
+        <div className="mp-mono text-[11px] mt-1" style={{ color: 'var(--ink-a66)' }}>
           {(opts.summary || '').length}/120 · leave blank to derive it from the description
         </div>
       </div>
@@ -8679,7 +11615,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
         </div>
       </div>
       {metaState.error && (
-        <p className="text-[11px]" style={{ color: '#b91c1c' }}>
+        <p className="text-[11px]" style={{ color: 'var(--danger-text)' }}>
           Live Printables options could not load: {metaState.error}. Deploy/start the Worker before publishing.
         </p>
       )}
@@ -8716,7 +11652,7 @@ export function PrintablesOptions({ opts, onUpdate }) {
         <Label>Free, Store, or Club</Label>
         {!active && <p className="text-[11px]">Connect Printables to check account-specific paid and Club eligibility.</p>}
         {active && !capabilityState && !capabilityError && <p className="text-[11px]">Checking account eligibility…</p>}
-        {capabilityError && <p className="text-[11px]" style={{ color: '#b91c1c' }}>{capabilityError}</p>}
+        {capabilityError && <p className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{capabilityError}</p>}
         {capabilityState && !paidEligible && (
           <p className="text-[11px]">This account currently exposes only free models. Store/Club controls stay hidden until Printables reports designer eligibility.</p>
         )}
@@ -8743,8 +11679,8 @@ export function PrintablesOptions({ opts, onUpdate }) {
               </label>
             )}
             {capabilityState.storeFee != null && <p className="text-[11px]">Current account Store fee: {capabilityState.storeFee}%.</p>}
-            {storeLimitReached && <p className="text-[11px]" style={{ color: '#b91c1c' }}>Store model limit reached ({capabilityState.maxStoreModels}).</p>}
-            {opts.authorship === 'reupload' && <p className="text-[11px]" style={{ color: '#b91c1c' }}>Printables does not permit paid or Club reuploads.</p>}
+            {storeLimitReached && <p className="text-[11px]" style={{ color: 'var(--danger-text)' }}>Store model limit reached ({capabilityState.maxStoreModels}).</p>}
+            {opts.authorship === 'reupload' && <p className="text-[11px]" style={{ color: 'var(--danger-text)' }}>Printables does not permit paid or Club reuploads.</p>}
           </div>
         )}
       </div>
@@ -8774,6 +11710,7 @@ export function projectHasFiles(project) {
 }
 
 function PublishSection({ project, updateProject, allReady, completion, setCurrentSection }) {
+  const goToIssue = useIssueNavigation();
   const accounts = useAccounts();
   const openConnections = useOpenConnections();
   const enabled = PLATFORMS.filter(p => project.platforms[p.id]?.enabled);
@@ -8865,13 +11802,6 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   const reviewReadyCount = reviewReports.filter((report) => report.summary.status === 'ready').length;
   const reviewBlockedCount = reviewReports.filter((report) => report.summary.status === 'blocked').length;
   const reviewConfirmCount = reviewReports.filter((report) => report.summary.status === 'confirm').length;
-  const fixSectionFor = (message = '') => /file|model|profile|3mf|slicer|bambu/i.test(message)
-    ? 'files'
-    : /image|photo|cover|gallery|video/i.test(message)
-      ? 'images'
-      : /title|description|tag|shared category|shared license/i.test(message)
-        ? 'details'
-        : 'platforms';
 
   // Release queue: due scheduled plans for THIS project auto-start a normal
   // single-target batch as soon as this step is mounted and idle. Reminders
@@ -8957,7 +11887,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
     <>
       {queuedPlans.length > 0 && (
         <div className="mt-6 mp-card p-4" data-testid="release-queue">
-          <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <div className="mp-mono text-xs uppercase tracking-[0.2em] mb-2" style={{ color: 'var(--ink-a66)' }}>
             Release queue · {queuedPlans.length} planned
           </div>
           <div className="space-y-2">
@@ -8967,7 +11897,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               const blockers = releasePlanBlockers(plan, publishTargets);
               return (
                 <div key={plan.id} className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ backgroundColor: due ? '#5A7430' : 'rgba(38,42,35,0.08)', color: due ? '#fff' : 'inherit' }}>
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-0.5 rounded-full" style={{ backgroundColor: due ? 'var(--primary)' : 'var(--ink-a08)', color: due ? '#fff' : 'inherit' }}>
                     {describeDue(plan, Date.now())}
                   </span>
                   <span className="font-bold">{plan.platformName || plan.platformId}</span>
@@ -8993,7 +11923,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
                     Dismiss
                   </button>
                   {mine && due && blockers.length > 0 && (
-                    <p className="w-full text-[11px] mt-0.5" style={{ color: '#8A4B08' }}>
+                    <p className="w-full text-[11px] mt-0.5" style={{ color: 'var(--warn-text)' }}>
                       Not published yet: {blockers.join(' ')}
                     </p>
                   )}
@@ -9001,7 +11931,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               );
             })}
           </div>
-          <p className="text-[11px] mt-2" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px] mt-2" style={{ color: 'var(--ink-a66)' }}>
             Scheduled publishes start automatically from this step while ModelPrep is open; reminders wait for you.
           </p>
         </div>
@@ -9047,6 +11977,8 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
         )}
       </div>
 
+      {hasFiles && <ReleasePlanPanel project={project} />}
+
       {hasFiles && directEnabled.length > 0 && (
         <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -9079,7 +12011,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
               expandSignal={expandSignal}
               collapseSignal={collapseSignal}
               setCurrentSection={setCurrentSection}
-              onFix={(issue) => setCurrentSection(fixSectionFor(issue))}
+              onFix={(issue) => goToIssue(issue, p.id)}
               onConnect={() => openConnections('accounts', p.id)}
               onSatisfyConfirmation={satisfyConfirmation}
               batchRequest={publishBatch?.status === 'running' && (publishBatch.activeIds || [publishBatch.currentId]).includes(p.id)
@@ -9132,7 +12064,7 @@ function ProjectReviewSummary({ project, cover, setCurrentSection }) {
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
           <h3 id="project-review-title" className="mp-display text-[22px] leading-none">Project review</h3>
-          <p className="text-xs mt-1" style={{ color: 'rgba(38,42,35,0.56)' }}>The shared source ModelPrep will adapt for each selected platform.</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--ink-a56)' }}>The shared source ModelPrep will adapt for each selected platform.</p>
         </div>
         <button onClick={() => setCurrentSection('details')} className="mp-btn mp-btn-ghost text-[11px] py-1.5 px-2.5 min-h-[36px]"><Edit3 size={12} /> Edit details</button>
       </div>
@@ -9143,22 +12075,22 @@ function ProjectReviewSummary({ project, cover, setCurrentSection }) {
               src={cover.dataUrl}
               alt={cover.alt || 'Selected project cover'}
               className="w-full aspect-[4/3] object-cover"
-              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, backgroundColor: '#262A23' }}
+              style={{ objectPosition: `${cover.focal.x * 100}% ${cover.focal.y * 100}%`, backgroundColor: 'var(--ink)' }}
             />
           ) : (
-            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ backgroundColor: 'rgba(38,42,35,0.06)' }}><ImageIcon size={24} className="opacity-30" /></div>
+            <div className="w-full aspect-[4/3] flex items-center justify-center" style={{ backgroundColor: 'var(--ink-a06)' }}><ImageIcon size={24} className="opacity-30" /></div>
           )}
           <button onClick={() => setCurrentSection('images')} className="mp-mono text-[11px] uppercase tracking-[0.12em] underline mt-1.5" style={{ color: 'var(--accent-text)' }}>Review image crops</button>
         </div>
         <div className="min-w-0">
           <h4 className="mp-display text-[28px] leading-none truncate">{project.title || 'Untitled project'}</h4>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--ink-a66)' }}>
             <span><strong>{project.files.length}</strong> file{project.files.length === 1 ? '' : 's'}</span>
             <span><strong>{project.images.length}</strong> image{project.images.length === 1 ? '' : 's'}</span>
             <span><strong>{project.tags.length}</strong> tag{project.tags.length === 1 ? '' : 's'}</span>
             <span><strong>{profileNames.length}</strong> print profile{profileNames.length === 1 ? '' : 's'}</span>
           </div>
-          <div className="mt-2 text-xs leading-relaxed" style={{ color: 'rgba(38,42,35,0.62)' }}>
+          <div className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--ink-a62)' }}>
             {project.category || 'No category'} · {license?.name || project.license}
             {profileNames.length > 0 && <> · {profileNames.join(', ')}</>}
           </div>
@@ -9217,22 +12149,22 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             <span className="mp-display text-[20px] leading-none">Publish selected platforms</span>
             <span className="mp-pill" style={{ backgroundColor: 'var(--api-fill)', color: '#fff' }}>one click</span>
           </div>
-          <p className="mp-body text-xs leading-relaxed mt-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
+          <p className="mp-body text-xs leading-relaxed mt-1.5" style={{ color: 'var(--ink-a70)' }}>
             Platforms upload in parallel (up to four at a time in the desktop app). If one fails, the others keep going.
           </p>
           {/* Support/diagnostics detail stays available for beta bug reports but
               is tucked behind a disclosure so regular creators never parse it. */}
           {(latestResources || (resourceReport && (batch?.status === 'done' || resourceReportStatus === 'previous'))) && (
             <details className="mt-1.5">
-              <summary className="mp-mono text-[11px] uppercase tracking-[0.12em] cursor-pointer" style={{ color: 'rgba(38,42,35,0.52)' }}>Diagnostics</summary>
+              <summary className="mp-mono text-[11px] uppercase tracking-[0.12em] cursor-pointer" style={{ color: 'var(--ink-a52)' }}>Diagnostics</summary>
               {latestResources && (
-                <p data-testid="batch-resource-telemetry" className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1.5" style={{ color: 'rgba(38,42,35,0.52)' }}>
+                <p data-testid="batch-resource-telemetry" className="mp-mono text-[11px] uppercase tracking-[0.12em] mt-1.5" style={{ color: 'var(--ink-a52)' }}>
                   Resource telemetry · {batchResources.sampleCount ? `peak ${batchResources.peakActivePublishers}` : latestResources.publishers.active} active · {batchResources.sampleCount ? `peak ${batchResources.peakAppWorkingSetMb}` : latestResources.memory.appWorkingSetMb} MB app working set · {latestResources.processes.total} processes · {batchResources.sampleCount ? `peak ${batchResources.peakAppCpuPercent}` : latestResources.cpu.appPercent}% CPU
                 </p>
               )}
               {resourceReport && (batch?.status === 'done' || resourceReportStatus === 'previous') && (
                 <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                  <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: resourceReportStatus === 'unavailable' ? '#8A4B08' : 'rgba(38,42,35,0.52)' }}>
+                  <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: resourceReportStatus === 'unavailable' ? 'var(--warn-text)' : 'var(--ink-a52)' }}>
                     {resourceReportStatus === 'saved'
                       ? `Resource report retained locally · ${resourceReport.samples.length} sample${resourceReport.samples.length === 1 ? '' : 's'}`
                       : resourceReportStatus === 'previous'
@@ -9249,24 +12181,24 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
             </details>
           )}
           {noPublicRealTargets && (
-            <p className="text-xs leading-relaxed mt-1.5" style={{ color: '#24634f' }}>
+            <p className="text-xs leading-relaxed mt-1.5" style={{ color: 'var(--success-text)' }}>
               No public listings: {targets.map((target) => `${target.name} ${target.nativeOutcome === 'review' ? 'review pending' : target.visibility}`).join(' · ')}.
             </p>
           )}
           {safeDemo && (
-            <p className="mt-2 text-xs leading-relaxed" style={{ color: '#24634f' }}>
+            <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--success-text)' }}>
               Dry run is on: every step is simulated and nothing reaches your accounts.
             </p>
           )}
           {isTestProject && !safeDemo && (
-            <div className="text-xs leading-relaxed mt-2" style={{ color: '#8A4B08' }}>
+            <div className="text-xs leading-relaxed mt-2" style={{ color: 'var(--warn-text)' }}>
               <p>
                 Sample upload: this sends the bundled sample files to every connected account. Destinations use
                 private, secret, draft, or review-pending outcomes; anything unavailable is skipped and reported below.
               </p>
               {onDryRun && (
                 <label className="flex items-start gap-2 mt-1.5 cursor-pointer">
-                  <input type="checkbox" checked={false} onChange={onDryRun} style={{ accentColor: '#5A7430', marginTop: 2 }} />
+                  <input type="checkbox" checked={false} onChange={onDryRun} style={{ accentColor: 'var(--primary)', marginTop: 2 }} />
                   <span>Dry run instead: walk the whole flow without sending anything.</span>
                 </label>
               )}
@@ -9290,7 +12222,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
               : <><Send size={14} /> {isTestProject && !safeDemo ? 'Upload sample' : safeDemo ? 'Practice upload' : 'Upload'} to {readyTargets.length} ready platform{readyTargets.length === 1 ? '' : 's'}</>}
           </LoadingButton>
           {running && (
-            <p role="status" aria-live="polite" className="text-[11px] text-center t-num" style={{ color: 'rgba(38,42,35,0.7)' }}>
+            <p role="status" aria-live="polite" className="text-[11px] text-center t-num" style={{ color: 'var(--ink-a70)' }}>
               Publishing {summary.running} · {summary.succeeded + summary.failed}/{summary.total} complete
             </p>
           )}
@@ -9303,7 +12235,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
           className="mt-3 p-2.5 text-xs mp-card flex items-center justify-between gap-3 flex-wrap"
           style={{
             backgroundColor: summary.failed ? 'rgba(255,182,39,0.1)' : 'rgba(79,178,134,0.1)',
-            color: summary.failed ? '#8A4B08' : '#24634f',
+            color: summary.failed ? 'var(--warn-text)' : 'var(--success-text)',
           }}
         >
           <span>
@@ -9320,7 +12252,7 @@ export function BatchPublishPanel({ targets, batch, resourceTelemetry = null, re
       )}
 
       {publicTargets.length > 0 && (
-        <div className="mt-3 p-2 text-xs mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.1)', color: '#8A4B08' }}>
+        <div className="mt-3 p-2 text-xs mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.1)', color: 'var(--warn-text)' }}>
           This single action creates real public listings on {publicTargets.map((target) => target.name).join(', ')}. Every other platform uses the outcome shown on its row.
         </div>
       )}
@@ -9375,7 +12307,7 @@ function BatchZipButton({ enabled, project, cover }) {
         <Download size={13} /> {enabled.length} .zip files
       </LoadingButton>
       {busy && msg && (
-        <span role="status" aria-live="polite" className="mp-mono text-[11px] text-center normal-case tracking-normal" style={{ color: 'rgba(38,42,35,0.7)' }}>{msg}</span>
+        <span role="status" aria-live="polite" className="mp-mono text-[11px] text-center normal-case tracking-normal" style={{ color: 'var(--ink-a70)' }}>{msg}</span>
       )}
     </span>
   );
@@ -9482,6 +12414,12 @@ function PlatformPackageCard({
       {/* Always mounted, hidden when collapsed: the batch drives these upload
           flows through batchRequest, so unmounting them would stop a publish. */}
       <div className={expanded ? 'p-4 space-y-4' : 'hidden'} aria-hidden={!expanded}>
+          {blockers.length > 0 && (
+            <div className="space-y-1.5" data-testid="publish-blockers">
+              <SectionTitle title="Needs attention" icon={AlertCircle} />
+              {blockers.map((message) => <IssueLink key={message} message={message} platformId={platform.id} className="p-2.5 text-xs rounded-md" style={{ backgroundColor: 'var(--danger-tint)', color: 'var(--danger-text)' }} />)}
+            </div>
+          )}
 
           <PlatformPreview platform={platform} project={project} cover={cover} setCurrentSection={setCurrentSection} />
 
@@ -9820,17 +12758,17 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
-      <div className="mp-card p-3" style={{ backgroundColor: 'rgba(90,116,48,0.06)', border: '1px solid rgba(90,116,48,0.45)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
+      <div className="mp-card p-3" style={{ backgroundColor: 'var(--primary-a06)', border: '1px solid var(--primary-a45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="mp-display tracking-wide text-sm" style={{ color: '#262A23' }}>CULTS3D PUBLISH</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#c83f10', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
+          <span className="mp-display tracking-wide text-sm" style={{ color: 'var(--ink)' }}>CULTS3D PUBLISH</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? 'var(--api)' : 'var(--accent-warm-text)', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--ink-a66)' }}>{isDesktopCultsSession(realCreds) ? 'direct desktop upload' : 'web upload'}</span>
         </div>
 
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5 leading-snug flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.7)' }}>
+            <p className="text-[13px] mb-2.5 leading-snug flex items-center gap-1.5" style={{ color: 'var(--ink-a70)' }}>
               <StatusDot status="unknown" /> {platform.name}: not connected. Sign in to publish for real (tags, secret listings, deactivate).
             </p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect {platform.name}</button>
@@ -9839,7 +12777,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
 
         {status === 'connected' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2.5 flex-wrap" style={{ color: '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-2.5 flex-wrap" style={{ color: 'var(--success-text)' }}>
               <StatusDot status={active?.status || 'connected'} /> Publishing as
               {cultsAccounts.length > 1 ? (
                 <Select
@@ -9849,16 +12787,16 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                   className="mp-card text-xs p-1 max-w-[180px]"
                 />
               ) : <span className="mp-mono">{simulate ? 'Demo account (simulation only)' : realActive?.label}</span>}
-              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#5A7430] transition ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
-              {!simulate && <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>}
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[var(--primary)] transition ml-1" style={{ color: 'var(--ink-a66)' }}>manage</button>
+              {!simulate && <button onClick={disconnect} className="mp-mono text-[11px] uppercase tracking-[0.15em] hover:text-[var(--accent-warm-text)] transition" style={{ color: 'var(--ink-a66)' }}>disconnect</button>}
             </div>
             {/* Visibility is set on the Platforms step (project.platforms.cults.visibility). */}
-            <div className="flex items-center gap-2 mb-2.5 text-xs flex-wrap" style={{ color: 'rgba(38,42,35,0.7)' }}>
+            <div className="flex items-center gap-2 mb-2.5 text-xs flex-wrap" style={{ color: 'var(--ink-a70)' }}>
               <span className="mp-mono uppercase tracking-[0.15em] text-[11px]">visibility</span>
               <strong>{visibility === 'secret' ? 'Secret' : 'Public'}</strong>
-              <span className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>· change in the Platforms step</span>
+              <span className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>· change in the Platforms step</span>
             </div>
-            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
+            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'var(--ink-a66)' }}>
               {simulate
                 ? <>Demo simulation only: nothing will be sent to Cults3D. Connect a real account in Settings to test the live upload.</>
                 : <>⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{realActive?.label}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return; you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}</>}
@@ -9888,7 +12826,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                 </div>
 
                 {listingsError && (
-                  <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
+                  <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'var(--ink-a80)' }}>
                     {listingsError}
                   </div>
                 )}
@@ -9896,36 +12834,36 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                 {listingsLoading && listings === null && <SkeletonRows rows={3} height={34} className="py-2" />}
 
                 {listings !== null && listings.length === 0 && !listingsLoading && (
-                  <p className="text-xs py-1" style={{ color: 'rgba(38,42,35,0.66)' }}>No listings yet: publish one above and they'll appear here.</p>
+                  <p className="text-xs py-1" style={{ color: 'var(--ink-a66)' }}>No listings yet: publish one above and they'll appear here.</p>
                 )}
 
                 {listings !== null && listings.length > 0 && (
                   <div className="flex flex-col gap-1.5">
                     {listings.map(l => {
                       const isPending = pendingRow.slug === l.slug;
-                      const badgeColor = l.status === 'public' ? '#3a8d68' : l.status === 'secret' ? '#7c3aed' : 'rgba(38,42,35,0.66)';
+                      const badgeColor = l.status === 'public' ? 'var(--success-text)' : l.status === 'secret' ? '#7c3aed' : 'var(--ink-a66)';
                       return (
-                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ backgroundColor: '#fff', border: '1px solid rgba(38,42,35,0.06)' }}>
+                        <div key={l.slug} className="flex items-center gap-2 p-1.5" style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--ink-a06)' }}>
                           {l.thumbnailUrl && (
                             <img src={l.thumbnailUrl} alt="" width={32} height={32} loading="lazy" style={{ objectFit: 'cover', flexShrink: 0 }} />
                           )}
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs truncate" style={{ color: '#262A23' }} title={l.title}>{l.title}</div>
-                            <div className="flex items-center gap-1.5 text-[11px] mp-mono uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                            <div className="text-xs truncate" style={{ color: 'var(--ink)' }} title={l.title}>{l.title}</div>
+                            <div className="flex items-center gap-1.5 text-[11px] mp-mono uppercase tracking-[0.12em]" style={{ color: 'var(--ink-a66)' }}>
                               <span style={{ color: badgeColor }}>{l.status}</span>
                               {l.priceLabel && <span>· {l.priceLabel}</span>}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 flex-shrink-0">
-                            <a href={l.editUrl} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#5A7430] transition px-1" style={{ color: 'rgba(38,42,35,0.66)' }} title="Open on Cults">
+                            <a href={l.editUrl} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[var(--primary)] transition px-1" style={{ color: 'var(--ink-a66)' }} title="Open on Cults">
                               open
                             </a>
                             {l.status !== 'offline' && (
-                              <button onClick={() => rowAction(l.slug, 'deactivate')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#5A7430] transition px-1 disabled:opacity-40" style={{ color: 'rgba(38,42,35,0.66)' }} title="Hide from search + profile (reversible)">
+                              <button onClick={() => rowAction(l.slug, 'deactivate')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[var(--primary)] transition px-1 disabled:opacity-40" style={{ color: 'var(--ink-a66)' }} title="Hide from search + profile (reversible)">
                                 {isPending && pendingRow.action === 'deactivate' ? '…' : 'deactivate'}
                               </button>
                             )}
-                            <button onClick={() => rowAction(l.slug, 'delete')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[#c83f10] transition px-1 disabled:opacity-40" style={{ color: 'rgba(62,84,32,0.7)' }} title="Permanently remove from Cults (irreversible)">
+                            <button onClick={() => rowAction(l.slug, 'delete')} disabled={isPending} className="mp-mono text-[11px] uppercase tracking-[0.12em] hover:text-[var(--accent-warm-text)] transition px-1 disabled:opacity-40" style={{ color: 'rgba(62,84,32,0.7)' }} title="Permanently remove from Cults (irreversible)">
                               {isPending && pendingRow.action === 'delete' ? '…' : 'delete'}
                             </button>
                           </div>
@@ -9935,7 +12873,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
                   </div>
                 )}
 
-                <p className="text-[11px] mt-2 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                <p className="text-[11px] mt-2 leading-snug" style={{ color: 'var(--ink-a66)' }}>
                   <strong>deactivate</strong> hides but keeps the listing (re-activate from Cults). <strong>delete</strong> permanently removes: no undo.
                 </p>
               </div>
@@ -9951,54 +12889,54 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
 
         {status === 'done' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap" style={{ color: result?.deactivated ? 'rgba(38,42,35,0.55)' : '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-1.5 flex-wrap" style={{ color: result?.deactivated ? 'var(--ink-a55)' : 'var(--success-text)' }}>
               <Check size={14} />
               {result?.deactivated
-                ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: '#5A7430', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
-                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'rgba(38,42,35,0.66)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
+                ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
+                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'var(--ink-a66)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
             </div>
-            {result?.demo && <div className="mp-mono text-[11px] mb-1.5" style={{ color: '#3A86FF' }}>Demo mode: nothing was uploaded. Exit demo and connect a real account to publish for real.</div>}
+            {result?.demo && <div className="mp-mono text-[11px] mb-1.5" style={{ color: 'var(--api)' }}>Demo mode: nothing was uploaded. Exit demo and connect a real account to publish for real.</div>}
             {result?.designUrl && (
-              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#5A7430] transition" style={{ backgroundColor: 'rgba(38,42,35,0.04)', color: 'rgba(38,42,35,0.85)' }}>
+              <a href={result.designUrl} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[var(--primary)] transition" style={{ backgroundColor: 'var(--ink-a04)', color: 'var(--ink-a85)' }}>
                 {result.designUrl}
               </a>
             )}
             {result?.substituted?.length > 0 && (
-              <p className="text-[11px] mb-2 leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>
+              <p className="text-[11px] mb-2 leading-snug" style={{ color: 'var(--ink-a66)' }}>
                 {/* Web flow surfaces per-field substitutions for license / category. Tags + media are handled inline (always work). */}
                 {result.substituted.includes('license') && 'License was swapped: Cults requires CC licenses on free listings and cults_cu on paid listings; the closest valid one was used. '}
                 {result.substituted.includes('category') && 'Category mapped to Various: your category wasn\'t in Cults\'s top-level list. Pick a sub-category inside Cults after publish if needed. '}
               </p>
             )}
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={() => { setStatus('connected'); setResult(null); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[#5A7430] transition flex items-center gap-1">
+              <button onClick={() => { setStatus('connected'); setResult(null); }} className="mp-mono text-xs uppercase tracking-[0.2em] hover:text-[var(--primary)] transition flex items-center gap-1">
                 <ArrowRight size={11} /> Publish another
               </button>
               {result?.slug && !result?.deactivated && (
                 <>
-                  <span style={{ color: 'rgba(38,42,35,0.25)' }}>·</span>
-                  <button onClick={deactivate} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>
+                  <span style={{ color: 'var(--ink-a25)' }}>·</span>
+                  <button onClick={deactivate} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[var(--accent-warm-text)] transition" style={{ color: 'var(--ink-a66)' }}>
                     Deactivate this listing
                   </button>
                 </>
               )}
-              <span style={{ color: 'rgba(38,42,35,0.25)' }}>·</span>
-              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>
+              <span style={{ color: 'var(--ink-a25)' }}>·</span>
+              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[var(--accent-warm-text)] transition" style={{ color: 'var(--ink-a66)' }}>disconnect</button>
             </div>
           </>
         )}
 
         {status === 'error' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: '#c83f10' }}>
+            <div className="flex items-center gap-2 text-xs mb-1.5" style={{ color: 'var(--accent-warm-text)' }}>
               <X size={14} /> Publish failed
             </div>
-            <div className="mp-card text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'rgba(38,42,35,0.8)' }}>
+            <div className="mp-card text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(62,84,32,0.06)', border: '1px solid rgba(62,84,32,0.3)', color: 'var(--ink-a80)' }}>
               {errorMsg || 'Unknown error.'}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <button onClick={() => publish()} className="mp-btn text-xs py-2 px-3"><ArrowRight size={13} /> Retry</button>
-              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[#c83f10] transition" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>
+              <button onClick={disconnect} className="mp-mono text-xs uppercase tracking-[0.15em] hover:text-[var(--accent-warm-text)] transition" style={{ color: 'var(--ink-a66)' }}>disconnect</button>
             </div>
           </>
         )}
@@ -10401,26 +13339,26 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="mp-card p-3" style={{ backgroundColor: 'rgba(250,104,49,0.06)', border: '1px solid rgba(250,104,49,0.45)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">PRINTABLES UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#FA6831', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>desktop session</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? 'var(--api)' : 'var(--accent-warm)', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--ink-a66)' }}>desktop session</span>
         </div>
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(38,42,35,0.65)' }}>Connect Printables through its real Prusa Account window to upload.</p>
+            <p className="text-[13px] mb-2.5" style={{ color: 'var(--ink-a65)' }}>Connect Printables through its real Prusa Account window to upload.</p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Printables</button>
           </>
         )}
         {status === 'connected' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: 'var(--success-text)' }}>
               <StatusDot status={active?.status || 'connected'} /> {simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}
-              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'var(--ink-a66)' }}>manage</button>
             </div>
-            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.62)' }}>
+            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'var(--ink-a62)' }}>
               {simulate
                 ? <>Demo simulation only: neither action sends anything to Printables.</>
                 : <><strong>Save draft</strong> uploads an unpublished model only you can edit. <strong>Publish public</strong> submits a real public listing (or an approval request when Printables requires review).</>}
@@ -10436,10 +13374,10 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
                     {modelsLoading ? 'Refreshing…' : 'Refresh'}
                   </button>
                 </div>
-                {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
+                {modelsError && <div className="text-[11px] mb-2" style={{ color: 'var(--danger-text)' }}>{modelsError}</div>}
                 {modelsLoading && models === null && <SkeletonRows rows={3} height={26} />}
                 {models && models.drafts.length === 0 && models.published.length === 0 && !modelsLoading && (
-                  <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>No models found.</div>
+                  <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>No models found.</div>
                 )}
                 {models && [...models.drafts.map((item) => ({ ...item, state: 'draft' })), ...models.published.map((item) => ({ ...item, state: 'live' }))].map((item) => {
                   const href = item.state === 'live'
@@ -10449,14 +13387,14 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
                     ? (item.image.filePath.startsWith('http') ? item.image.filePath : `https://media.printables.com/${item.image.filePath.replace(/^\/+/, '')}`)
                     : '';
                   return (
-                    <div key={`${item.state}-${item.id}`} className="flex items-center gap-2 p-1.5 mb-1" style={{ backgroundColor: '#fff' }}>
+                    <div key={`${item.state}-${item.id}`} className="flex items-center gap-2 p-1.5 mb-1" style={{ backgroundColor: 'var(--surface)' }}>
                       {imageSrc && <img src={imageSrc} alt="" width={34} height={34} style={{ objectFit: 'cover' }} />}
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate">{item.name || `Model ${item.id}`}</div>
-                        <div className="mp-mono text-[11px] uppercase" style={{ color: item.state === 'live' ? '#3a8d68' : '#d97706' }}>{item.state}</div>
+                        <div className="mp-mono text-[11px] uppercase" style={{ color: item.state === 'live' ? 'var(--success-text)' : 'var(--warn-text)' }}>{item.state}</div>
                       </div>
                       <a href={href} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase">Open</a>
-                      <button onClick={() => deleteListedModel(item)} className="mp-mono text-[11px] uppercase" style={{ color: '#b91c1c' }}>Delete</button>
+                      <button onClick={() => deleteListedModel(item)} className="mp-mono text-[11px] uppercase" style={{ color: 'var(--danger-text)' }}>Delete</button>
                     </div>
                   );
                 })}
@@ -10469,7 +13407,7 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
         )}
         {status === 'done' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? 'var(--api)' : 'var(--success-text)' }}>
               <Check size={14} />
               {result?.demo
                 ? `Simulation complete: nothing was uploaded (${result.state}).`
@@ -10480,17 +13418,17 @@ function PrintablesUploadFlow({ platform, project, batchRequest, onBatchResult }
                     : 'Unpublished Printables draft saved.'}
             </div>
             {!result?.demo && result?.url && (
-              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FA6831]">{result.url}</a>
+              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[var(--accent-warm)]">{result.url}</a>
             )}
             <div className="flex gap-3 flex-wrap">
               <button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">Upload another</button>
-              <button onClick={deleteResult} className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: '#b91c1c' }}>{result?.demo ? 'Clear simulated result' : 'Delete this model'}</button>
+              <button onClick={deleteResult} className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--danger-text)' }}>{result?.demo ? 'Clear simulated result' : 'Delete this model'}</button>
             </div>
           </>
         )}
         {status === 'error' && (
           <>
-            <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
+            <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: 'var(--danger-text)' }}>{error}</div>
             <button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button>
           </>
         )}
@@ -10773,17 +13711,17 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="mp-card p-3" style={{ backgroundColor: 'rgba(255,182,39,0.08)', border: '1px solid rgba(255,182,39,0.55)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">NEXPRINT UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#262A23', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>direct desktop upload</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? 'var(--api)' : 'var(--ink)', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--ink-a66)' }}>direct desktop upload</span>
         </div>
 
         {status === 'idle' && (
           <>
-            <p className="text-[13px] mb-2.5" style={{ color: 'rgba(38,42,35,0.65)' }}>
+            <p className="text-[13px] mb-2.5" style={{ color: 'var(--ink-a65)' }}>
               Connect through Nexprint's own sign-in window. Your sign-in stays on this computer.
             </p>
             <button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Nexprint</button>
@@ -10792,12 +13730,12 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
         {status === 'connected' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: 'var(--success-text)' }}>
               <StatusDot status={active?.status || 'connected'} />
               {simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}
-              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
+              <button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1" style={{ color: 'var(--ink-a66)' }}>manage</button>
             </div>
-            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'rgba(38,42,35,0.62)' }}>
+            <p className="text-xs mb-2.5 leading-snug" style={{ color: 'var(--ink-a62)' }}>
               {simulate
                 ? 'Demo simulation only: neither action sends files or metadata to Nexprint.'
                 : 'Save draft uploads an unpublished editable model. Publish public sends a real public listing; review the Nexprint-specific options above first.'}
@@ -10814,7 +13752,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
                     {modelsLoading ? 'Refreshing…' : 'Refresh'}
                   </button>
                 </div>
-                {modelsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{modelsError}</div>}
+                {modelsError && <div className="text-[11px] mb-2" style={{ color: 'var(--danger-text)' }}>{modelsError}</div>}
                 {modelsLoading && models === null && <SkeletonRows rows={3} height={26} />}
                 {models && models.length === 0 && !modelsLoading && <div className="text-[11px] opacity-70">No models found.</div>}
                 {(models || []).map((item) => {
@@ -10825,10 +13763,10 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
                     ? `https://www.nexprint.com/en/editUpload/${id}`
                     : `https://www.nexprint.com/en/models/${code}`;
                   return (
-                    <div key={id || code} className="flex items-center gap-2 p-1.5 mb-1" style={{ backgroundColor: '#fff' }}>
+                    <div key={id || code} className="flex items-center gap-2 p-1.5 mb-1" style={{ backgroundColor: 'var(--surface)' }}>
                       <div className="flex-1 min-w-0">
                         <div className="text-xs truncate">{item.modelName || item.name || `Model ${id}`}</div>
-                        <div className="mp-mono text-[11px] uppercase" style={{ color: draft ? '#d97706' : '#3a8d68' }}>{draft ? 'draft' : 'published'}</div>
+                        <div className="mp-mono text-[11px] uppercase" style={{ color: draft ? 'var(--warn-text)' : 'var(--success-text)' }}>{draft ? 'draft' : 'published'}</div>
                       </div>
                       <a href={href} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase">Open</a>
                     </div>
@@ -10845,7 +13783,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
         {status === 'done' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}>
+            <div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? 'var(--api)' : 'var(--success-text)' }}>
               <Check size={14} />
               {result?.demo
                 ? `Simulation complete: nothing was uploaded (${result.state}).`
@@ -10854,7 +13792,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
                   : 'Unpublished Nexprint draft saved and read back.'}
             </div>
             {!result?.demo && result?.url && (
-              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[#FF9500]">{result.url}</a>
+              <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block hover:text-[var(--warn)]">{result.url}</a>
             )}
             <button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">
               {result?.demo ? 'Clear simulated result' : 'Upload another'}
@@ -10864,7 +13802,7 @@ function NexprintUploadFlow({ platform, project, batchRequest, onBatchResult }) 
 
         {status === 'error' && (
           <>
-            <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div>
+            <div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: 'var(--danger-text)' }}>{error}</div>
             <button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button>
           </>
         )}
@@ -11114,18 +14052,18 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
   };
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="mp-card p-3" style={{ backgroundColor: 'rgba(230,57,70,0.05)', border: '1px solid rgba(230,57,70,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">CREALITY CLOUD UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#E63946', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? 'var(--api)' : 'var(--danger)', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
 
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through Creality Cloud's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect Creality Cloud</button></>}
         {status === 'connected' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: 'var(--success-text)' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
             <p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : "Private creates a real cloud-stored model visible only to you. Creality's new-model page does not create drafts; it only edits existing drafts. Public creates a real public listing."}</p>
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private model' : 'Create private model'}</button>
@@ -11133,22 +14071,22 @@ function CrealityUploadFlow({ platform, project, batchRequest, onBatchResult }) 
               <button onClick={toggleDrafts} className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2">{draftsOpen ? 'Hide drafts' : 'My Creality drafts'}</button>
             </div>
             {draftsOpen && (
-              <div className="mt-3 mp-card p-2" style={{ backgroundColor: 'rgba(38,42,35,0.03)' }}>
+              <div className="mt-3 mp-card p-2" style={{ backgroundColor: 'var(--ink-a03)' }}>
                 <div className="flex items-center justify-between mb-2"><span className="mp-mono text-[11px] uppercase tracking-[0.15em]">Recent drafts</span><button onClick={loadDrafts} className="mp-mono text-[11px] uppercase">Refresh</button></div>
-                {draftsError && <div className="text-[11px] mb-2" style={{ color: '#b91c1c' }}>{draftsError}</div>}
+                {draftsError && <div className="text-[11px] mb-2" style={{ color: 'var(--danger-text)' }}>{draftsError}</div>}
                 {drafts && drafts.length === 0 && <div className="text-[11px] opacity-70">No drafts found.</div>}
                 {(drafts || []).map((draft) => {
                   const id = String(draft.id ?? draft.modelDraftId ?? '');
                   const name = draft.groupName ?? draft.modelInfo?.groupName ?? `Draft ${id}`;
-                  return <div key={id || name} className="flex items-center gap-2 p-1.5 mb-1 bg-white"><span className="flex-1 truncate text-xs">{name}</span><span className="mp-mono text-[11px] uppercase" style={{ color: '#d97706' }}>draft</span></div>;
+                  return <div key={id || name} className="flex items-center gap-2 p-1.5 mb-1 bg-[var(--surface)]"><span className="flex-1 truncate text-xs">{name}</span><span className="mp-mono text-[11px] uppercase" style={{ color: 'var(--warn-text)' }}>draft</span></div>;
                 })}
               </div>
             )}
           </>
         )}
         {status === 'uploading' && <WorkingStatus label={progress || 'Working…'} />}
-        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} Creality model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
-        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? 'var(--api)' : 'var(--success-text)' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} Creality model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
+        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: 'var(--danger-text)' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
   );
@@ -11175,7 +14113,7 @@ function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult 
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handled.current === batchRequest.runId) return; handled.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
-  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thingiverse</button>}{status === 'uploading' && <WorkingStatus label={progress} />}{(status === 'connected' || status === 'error') && <div className="flex gap-2"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Save draft</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thingiverse result saved and verified.'}</p>}</div>;
+  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thingiverse</button>}{status === 'uploading' && <WorkingStatus label={progress} />}{(status === 'connected' || status === 'error') && <div className="flex gap-2"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Save draft</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish (LIVE)</button></div>}{error && <p className="text-xs text-[var(--danger-text)]">{error}</p>}{status === 'done' && <p className="text-xs text-[var(--success-text)]"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thingiverse result saved and verified.'}</p>}</div>;
 }
 
 function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
@@ -11216,7 +14154,7 @@ function ThangsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handled.current === batchRequest.runId) return; handled.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
-  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thangs</button>}{status === 'uploading' && <WorkingStatus label={progress} />}{(status === 'connected' || status === 'error') && <div className="flex flex-wrap gap-2">{options.resumeDraftId && <button className="mp-btn mp-btn-ghost text-xs" onClick={verifyExisting}>Verify existing draft</button>}<button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Create private</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish public (LIVE)</button></div>}{error && <p className="text-xs text-red-700">{error}</p>}{status === 'done' && <p className="text-xs text-green-700"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thangs model saved and verified.'} {result?.url && <a href={result.url} target="_blank" rel="noreferrer" className="underline">Open result</a>}</p>}</div>;
+  return <div className="border-t pt-3 space-y-2">{status === 'idle' && <button className="mp-btn text-xs" onClick={openConnections}>Connect Thangs</button>}{status === 'uploading' && <WorkingStatus label={progress} />}{(status === 'connected' || status === 'error') && <div className="flex flex-wrap gap-2">{options.resumeDraftId && <button className="mp-btn mp-btn-ghost text-xs" onClick={verifyExisting}>Verify existing draft</button>}<button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}>Create private</button><button className="mp-btn text-xs" onClick={() => submit(true)}>Publish public (LIVE)</button></div>}{error && <p className="text-xs text-[var(--danger-text)]">{error}</p>}{status === 'done' && <p className="text-xs text-[var(--success-text)]"><Check size={14} className="inline" /> {result?.demo ? 'Simulation complete: nothing uploaded.' : 'Thangs model saved and verified.'} {result?.url && <a href={result.url} target="_blank" rel="noreferrer" className="underline">Open result</a>}</p>}</div>;
 }
 
 function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult }) {
@@ -11335,12 +14273,12 @@ function MakerRoadUploadFlow({ platform, project, batchRequest, onBatchResult })
     finally { setProgress(''); }
   };
   useEffect(() => { if (!batchRequest?.runId || handledBatchRun.current === batchRequest.runId) return; handledBatchRun.current = batchRequest.runId; submit(batchRequest.action === 'publish', batchRequest.runId); }, [batchRequest?.runId]);
-  return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+  return <div className="border-t pt-3 space-y-2" style={{ borderColor: 'var(--ink-a08)' }}>
     {status === 'idle' && <button className="mp-btn text-xs" onClick={() => openConnections('accounts', 'makeroad')}>Connect MakerRoad</button>}
     {status === 'uploading' && <WorkingStatus label={progress} />}
     {(status === 'connected' || status === 'error') && <div className="flex gap-2 flex-wrap"><button className="mp-btn mp-btn-ghost text-xs" onClick={() => submit(false)}><Bookmark size={13} />{simulate ? 'Simulate Save to review' : 'Save to MakerRoad review'}</button><button className="mp-btn text-xs" onClick={() => submit(true)}><Send size={13} />{simulate ? 'Simulate public review submit' : 'Submit for public review (LIVE)'}</button></div>}
-    {error && <p className="text-xs text-red-700">{error}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open retained save</a>}</p>}
-    {status === 'done' && <div className="text-xs" style={{ color: '#247255' }}><Check size={14} className="inline mr-1" />{result?.demo ? 'Simulation complete: nothing uploaded.' : 'Saved and read back; MakerRoad review is pending.'}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open result</a>}</div>}
+    {error && <p className="text-xs text-[var(--danger-text)]">{error}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open retained save</a>}</p>}
+    {status === 'done' && <div className="text-xs" style={{ color: 'var(--success-text)' }}><Check size={14} className="inline mr-1" />{result?.demo ? 'Simulation complete: nothing uploaded.' : 'Saved and read back; MakerRoad review is pending.'}{result?.url && <a className="ml-2 underline" href={result.url} target="_blank" rel="noreferrer">Open result</a>}</div>}
   </div>;
 }
 
@@ -11587,17 +14525,17 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
   }, [batchRequest?.runId]);
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="mp-card p-3" style={{ backgroundColor: 'rgba(17,24,39,0.04)', border: '1px solid rgba(17,24,39,0.42)' }}>
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="mp-display tracking-wide text-sm">MAKERONLINE UPLOAD</span>
-          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
+          <span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? 'var(--api)' : '#111827', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span>
         </div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MakerOnline's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MakerOnline</button></>}
         {status === 'connected' && (
           <>
-            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
+            <div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: 'var(--success-text)' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div>
             <p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : 'Draft uploads real files and metadata but keeps the model unpublished. Public creates a real visible listing.'}</p>
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => submit('draft')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Save size={13} /> {simulate ? 'Simulate draft save' : 'Save unpublished draft'}</button>
@@ -11607,8 +14545,8 @@ function MakerOnlineUploadFlow({ platform, project, batchRequest, onBatchResult 
           </>
         )}
         {status === 'uploading' && <WorkingStatus label={progress || 'Working…'} />}
-        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} MakerOnline model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
-        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? 'var(--api)' : 'var(--success-text)' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : `${result?.state} MakerOnline model saved and read back.`}</div>{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : 'Upload another'}</button></>}
+        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: 'var(--danger-text)' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
   );
@@ -11807,14 +14745,14 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
   }, [batchRequest?.runId]);
 
   return (
-    <div className="border-t pt-3" style={{ borderColor: 'rgba(38,42,35,0.08)' }}>
+    <div className="border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
       <div className="mp-card p-3" style={{ backgroundColor: 'rgba(79,178,134,0.06)', border: '1px solid rgba(79,178,134,0.5)' }}>
-        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? '#3A86FF' : '#4FB286', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
+        <div className="flex items-center gap-2 mb-2 flex-wrap"><span className="mp-display tracking-wide text-sm">MYMINIFACTORY UPLOAD</span><span className="mp-mono text-[11px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full" style={{ backgroundColor: simulate ? 'var(--api)' : 'var(--success)', color: '#fff' }}>{simulate ? 'Simulation' : 'Real'}</span><span className="mp-mono text-[11px] uppercase tracking-[0.15em] opacity-70">isolated desktop session</span></div>
         {status === 'idle' && <><p className="text-[13px] mb-2.5 opacity-65">Connect through MyMiniFactory's real sign-in page to upload.</p><button onClick={openConnections} className="mp-btn text-xs py-2 px-3"><Globe size={13} /> Connect MyMiniFactory</button></>}
-        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: '#3a8d68' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : `Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory's review flow.`}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
+        {status === 'connected' && <><div className="flex items-center gap-2 text-xs mb-2.5" style={{ color: 'var(--success-text)' }}><StatusDot status={active?.status || 'connected'} />{simulate ? 'Demo account (simulation only)' : <>Connected as <span className="mp-mono">{active?.label}</span></>}<button onClick={openConnections} className="mp-mono text-[11px] uppercase tracking-[0.15em] ml-1 opacity-60">manage</button></div><p className="text-xs mb-2.5 leading-snug opacity-65">{simulate ? 'Demo simulation only: no files or metadata leave the app.' : `Private uploads real files but keeps the object private. Public submits a visible object into MyMiniFactory's review flow.`}</p><div className="flex gap-2 flex-wrap">{!simulate && options.verifyObjectId && <button onClick={verifyExisting} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Check size={13} /> Verify existing object (read-only)</button>}<button onClick={() => submit('private')} className="mp-btn mp-btn-ghost text-xs py-2 px-3"><Bookmark size={13} /> {simulate ? 'Simulate private object' : 'Create private object'}</button><button onClick={() => submit('public')} className="mp-btn text-xs py-2 px-3"><Send size={13} /> {simulate ? 'Simulate public submit' : 'Submit public (LIVE)'}</button><a href={UPLOAD_URLS.mmf} target="_blank" rel="noopener noreferrer" className="mp-mono text-[11px] uppercase tracking-[0.15em] px-2 py-2">Open MyMiniFactory upload</a></div></>}
         {status === 'uploading' && <WorkingStatus label={progress || 'Working…'} />}
-        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? '#3A86FF' : '#3a8d68' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : result?.readOnly ? `Existing ${result.state} MyMiniFactory object ${result.id} re-read and verified.` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{result?.readOnly && result?.detail && <p className="mp-mono text-xs mb-2 break-all opacity-70">{result.detail}</p>}{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : result?.readOnly ? 'Done' : 'Upload another'}</button></>}
-        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: '#991b1b' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
+        {status === 'done' && <><div className="flex items-center gap-2 text-xs mb-2" style={{ color: result?.demo ? 'var(--api)' : 'var(--success-text)' }}><Check size={14} />{result?.demo ? `Simulation complete: nothing uploaded (${result.state}).` : result?.readOnly ? `Existing ${result.state} MyMiniFactory object ${result.id} re-read and verified.` : `${result?.state} MyMiniFactory object saved and read back.`}</div>{result?.readOnly && result?.detail && <p className="mp-mono text-xs mb-2 break-all opacity-70">{result.detail}</p>}{!result?.demo && result?.url && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-card mp-mono text-[13px] p-2 mb-2 break-all block">{result.url}</a>}<button onClick={() => { setResult(null); setStatus('connected'); }} className="mp-mono text-[11px] uppercase tracking-[0.15em]">{result?.demo ? 'Clear simulated result' : result?.readOnly ? 'Done' : 'Upload another'}</button></>}
+        {status === 'error' && <><div className="text-xs p-2 mb-2 break-all" style={{ backgroundColor: 'rgba(185,28,28,0.06)', border: '1px solid rgba(185,28,28,0.3)', color: 'var(--danger-text)' }}>{error}</div><button onClick={() => setStatus(active || simulate ? 'connected' : 'idle')} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><ArrowRight size={12} /> Back</button></>}
       </div>
     </div>
   );
@@ -11824,11 +14762,11 @@ function MyMiniFactoryUploadFlow({ platform, project, batchRequest, onBatchResul
 // ACCOUNT CONNECTIONS: centralized multi-account sign-in (Settings modal)
 // =====================================================================
 const ACCT_STATUS = {
-  connected: { dot: '#1a7f37', label: 'Connected' },
-  checking:  { dot: '#3A86FF', label: 'Checking saved session' },
-  reconnect: { dot: '#d97706', label: 'Reconnect needed' },
-  error:     { dot: '#dc2626', label: 'Error' },
-  unknown:   { dot: 'rgba(38,42,35,0.3)', label: 'Not verified' },
+  connected: { dot: 'var(--success-text)', label: 'Connected' },
+  checking:  { dot: 'var(--api)', label: 'Checking saved session' },
+  reconnect: { dot: 'var(--warn-text)', label: 'Reconnect needed' },
+  error:     { dot: 'var(--danger-text)', label: 'Error' },
+  unknown:   { dot: 'var(--ink-a30)', label: 'Not verified' },
 };
 function accountIsUsable(account) {
   return !!account?.secret && account.status === 'connected';
@@ -11875,7 +14813,7 @@ function ConnectionsButton({ onOpen }) {
   return (
     <button onClick={() => onOpen('accounts')} className="mp-btn mp-btn-ghost text-xs py-2 px-3" title="Settings: sign-ins, AI, and more">
       <Settings size={13} /> Settings
-      {connected > 0 && <span className="ml-1 mp-mono text-xs" style={{ color: '#1a7f37' }}>{connected}</span>}
+      {connected > 0 && <span className="ml-1 mp-mono text-xs" style={{ color: 'var(--success-text)' }}>{connected}</span>}
     </button>
   );
 }
@@ -11919,6 +14857,7 @@ function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onCle
   const TABS = [
     { id: 'accounts', label: 'Accounts', icon: User, badge: connectedCount || null },
     { id: 'ai', label: 'AI', icon: Sparkles, badge: aiPrimary ? '•' : null },
+    { id: 'appearance', label: 'Appearance', icon: Palette, badge: null },
     { id: 'defaults', label: 'Defaults', icon: Globe, badge: null },
     { id: 'help', label: 'Help', icon: HelpCircle, badge: null },
     { id: 'about', label: 'About', icon: Info, badge: null },
@@ -11929,12 +14868,12 @@ function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onCle
   const focused = focusPlatform ? meta(focusPlatform) : null;
   if (focused) {
     return (
-      <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'rgba(38,42,35,0.35)' }} onClick={onClose}>
+      <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'var(--ink-a35)' }} onClick={onClose}>
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Connect ${focused.name}`}
-          className="mp-slide-in-right h-full w-full sm:w-[420px] flex flex-col border-l"
+          className="mp-slide-in-right mp-panel h-full w-full flex flex-col border-l"
           style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-3)' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -11957,14 +14896,14 @@ function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onCle
   }
 
   return (
-    <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'rgba(38,42,35,0.35)' }} onClick={onClose}>
+    <div className="fixed inset-0 z-[400] flex justify-end mp-fade-in" style={{ backgroundColor: 'var(--ink-a35)' }} onClick={onClose}>
       {/* Full viewport height, so the panel is the same size on every tab and
           only its body scrolls. That is the whole fix for the jumping. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
-        className="mp-slide-in-right h-full w-full sm:w-[560px] flex flex-col border-l"
+        className="mp-slide-in-right mp-panel h-full w-full flex flex-col border-l"
         style={{ backgroundColor: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-3)' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -11993,9 +14932,10 @@ function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onCle
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
           {tab === 'accounts' && (
             <>
-              <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform's session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
+              <p className="text-xs" style={{ color: 'var(--ink-a66)' }}>Each sign-in stays in its own encrypted, isolated session, separate from your browser. If a platform's session expires, Reconnect quietly refreshes it and only opens a sign-in window when it has to.</p>
+              {desktop && <BackgroundKeepAliveSetting desktop={desktop} />}
               {!!missingDesktopPlatforms.length && (
-                <div role="alert" className="mp-card p-3 text-xs leading-relaxed" style={{ backgroundColor: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: '#991b1b' }}>
+                <div role="alert" className="mp-card p-3 text-xs leading-relaxed" style={{ backgroundColor: 'rgba(185,28,28,0.06)', borderColor: 'rgba(185,28,28,0.35)', color: 'var(--danger-text)' }}>
                   <strong>Desktop app update required.</strong> This page is newer than the running ModelPrep desktop shell, so {missingDesktopPlatforms.map((id) => meta(id).name).join(', ')} cannot connect. Quit every ModelPrep window and launch the current app build.
                 </div>
               )}
@@ -12003,11 +14943,11 @@ function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onCle
               {/* Every platform is connectable today, so this renders nothing.
                   Kept for the next platform added ahead of its sign-in bridge. */}
               {PLATFORMS.some((p) => !CONNECTABLE.includes(p.id)) && (
-                <div className="mp-card p-3" style={{ backgroundColor: 'rgba(38,42,35,0.03)' }}>
-                  <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>Coming soon</div>
+                <div className="mp-card p-3" style={{ backgroundColor: 'var(--ink-a03)' }}>
+                  <div className="text-[11px] mp-mono uppercase tracking-[0.12em] mb-1.5" style={{ color: 'var(--ink-a66)' }}>Coming soon</div>
                   <div className="flex flex-wrap gap-1.5">
                     {PLATFORMS.filter((p) => !CONNECTABLE.includes(p.id)).map((p) => (
-                      <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ backgroundColor: 'rgba(38,42,35,0.06)', color: 'rgba(38,42,35,0.66)' }}>
+                      <span key={p.id} className="mp-pill text-[11px] flex items-center" style={{ backgroundColor: 'var(--ink-a06)', color: 'var(--ink-a66)' }}>
                         <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: p.dot }} />{p.name}
                       </span>
                     ))}
@@ -12021,6 +14961,7 @@ function SettingsPanel({ open, onClose, tab, setTab, focusPlatform = null, onCle
               <AiSettings />
             </>
           )}
+          {tab === 'appearance' && <AppearanceSetting />}
           {tab === 'defaults' && <SettingsDefaults />}
           {tab === 'help' && <SettingsHelp />}
           {tab === 'about' && <SettingsAbout onClose={onClose} />}
@@ -12048,16 +14989,16 @@ const GLOSSARY = [
 
 function SettingsHelp() {
   return (
-    <div className="space-y-4 text-[13px]" style={{ color: 'rgba(38,42,35,0.8)' }}>
+    <div className="space-y-4 text-[13px]" style={{ color: 'var(--ink-a80)' }}>
       <div>
-        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>How ModelPrep works</div>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'var(--ink-a66)' }}>How ModelPrep works</div>
         <ol className="list-decimal pl-5 space-y-1 text-[13px]">
           <li>Add your model files and photos, write the listing once (or let AI draft it from the photos).</li>
           <li>Pick the platforms to publish to. ModelPrep adapts images, text, tags and categories to each platform's rules.</li>
           <li>Publish to all of them in one go, or one at a time. Everything starts private or as a draft; nothing goes public unless you choose it.</li>
         </ol>
         <p className="text-xs mt-2" style={{ color: 'var(--ink-65)' }}>
-          To walk the whole flow with a sample project, open the project name menu and pick <strong>Try demo</strong>.
+          To walk the whole flow with a sample project, press <strong>Try demo</strong> in the top bar.
         </p>
       </div>
       {/* The long version of what the Details writer does. It used to sit in a
@@ -12079,12 +15020,12 @@ function SettingsHelp() {
         </p>
       </div>
       <div>
-        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}>Glossary</div>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.15em] mb-1.5" style={{ color: 'var(--ink-a66)' }}>Glossary</div>
         <dl className="space-y-2">
           {GLOSSARY.map(([term, def]) => (
             <div key={term} className="mp-card p-2.5">
               <dt className="mp-mono text-[11px] uppercase tracking-[0.12em]">{term}</dt>
-              <dd className="text-xs mt-0.5" style={{ color: 'rgba(38,42,35,0.7)' }}>{def}</dd>
+              <dd className="text-xs mt-0.5" style={{ color: 'var(--ink-a70)' }}>{def}</dd>
             </div>
           ))}
         </dl>
@@ -12094,6 +15035,111 @@ function SettingsHelp() {
 }
 
 // Defaults tab: which platforms a NEW project starts with enabled.
+// Stay signed in while the window is closed. The app keeps running as a menu
+// bar item, starts hidden at login, and touches every platform every few hours
+// so sessions last as long as the platforms allow. Desktop only.
+function BackgroundKeepAliveSetting({ desktop }) {
+  const [status, setStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => { desktop.backgroundModeStatus?.().then((value) => setStatus(value || null)).catch(() => setStatus(null)); }, [desktop]);
+  useEffect(() => { load(); }, [load]);
+  if (!desktop.backgroundModeStatus || !status?.supported) return null;
+  const toggle = async () => {
+    setBusy(true);
+    try { await desktop.setBackgroundMode(!status.enabled); load(); } finally { setBusy(false); }
+  };
+  const refresh = async () => {
+    setBusy(true);
+    try { await desktop.refreshSessionsNow?.(); load(); } finally { setBusy(false); }
+  };
+  const latest = (status.results || []).reduce((max, entry) => Math.max(max, entry.at || 0), 0);
+  const ok = (status.results || []).filter((entry) => entry.ok).length;
+  return (
+    <div className="mp-card p-3 mt-3 flex items-start gap-3" data-testid="background-keepalive">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={status.enabled}
+        aria-label="Keep me signed in in the background"
+        onClick={toggle}
+        disabled={busy}
+        className="mp-switch flex-shrink-0 mt-0.5"
+      />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Keep me signed in in the background</div>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--ink-65)' }}>
+          ModelPrep stays in the menu bar after you close the window and starts hidden when you log in, refreshing every platform's session every four hours and after your Mac wakes. Sign-ins then last as long as each platform allows instead of expiring while the app is closed.
+        </p>
+        <div className="text-xs mt-1.5 flex items-center gap-3 flex-wrap" style={{ color: 'var(--ink-50)' }}>
+          <span>{latest ? `Last refresh ${formatProjectDate(latest)} at ${new Date(latest).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${ok} of ${status.results.length} ok` : 'Not refreshed yet this run.'}</span>
+          <button type="button" onClick={refresh} disabled={busy} className="underline disabled:opacity-50">Refresh now</button>
+          {status.packaged === false && <span>(login item registers in the installed app only)</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppearanceSetting() {
+  const [theme, setTheme] = useState(() => readTheme());
+  const [palette, setPalette] = useState(() => readPalette());
+  const [accent, setAccent] = useState(() => readAccent());
+  const choose = (next) => { setTheme(next); saveTheme(next); };
+  const choosePalette = (next) => { setPalette(next); savePalette(next); };
+  const chooseAccent = (next) => { setAccent(next); saveAccent(next); };
+  return (
+    <div className="space-y-3 text-[13px]" style={{ color: 'var(--ink)' }}>
+      <div className="text-[13px] font-medium">Mode</div>
+      <div className="mp-segmented w-full flex" role="group" aria-label="Appearance">
+        {THEME_OPTIONS.map(([id, label]) => (
+          <button key={id} type="button" onClick={() => choose(id)} aria-pressed={theme === id} className="flex-1 text-xs py-1.5 rounded-sm transition"
+            style={theme === id ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'var(--ink-65)' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs" style={{ color: 'var(--ink-65)' }}>System follows your Mac's setting. Saved on this computer.</p>
+      {theme === 'light' && <p className="text-xs" style={{ color: 'var(--ink-50)' }}>Palette and accent choices apply in dark mode.</p>}
+      {theme !== 'light' && (
+        <div className="pt-1">
+          <div className="text-[13px] font-medium mb-1.5">Dark palette</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5" role="group" aria-label="Dark palette">
+            {DARK_PALETTES.map(([id, label, [bg, surface, accent]]) => {
+              const on = palette === id;
+              return (
+                <button key={id} type="button" onClick={() => choosePalette(id)} aria-pressed={on} className="mp-card flex items-center gap-2 p-2 text-left transition"
+                  style={{ borderColor: on ? 'var(--primary)' : 'var(--border)', backgroundColor: on ? 'var(--primary-tint)' : 'transparent' }}>
+                  <span className="flex -space-x-1 flex-shrink-0" aria-hidden>
+                    <span className="w-3.5 h-3.5 rounded-full border" style={{ backgroundColor: bg, borderColor: 'rgba(128,128,128,0.4)' }} />
+                    <span className="w-3.5 h-3.5 rounded-full border" style={{ backgroundColor: surface, borderColor: 'rgba(128,128,128,0.4)' }} />
+                    <span className="w-3.5 h-3.5 rounded-full border" style={{ backgroundColor: accent, borderColor: 'rgba(128,128,128,0.4)' }} />
+                  </span>
+                  <span className="text-xs truncate" style={{ color: 'var(--ink)' }}>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div className="text-[13px] font-medium mt-4 mb-1.5">Accent</div>
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5" role="group" aria-label="Accent">
+        {[...ACCENTS, ...(theme !== 'light' ? [['theme', 'Theme colour', THEME_ACCENTS[palette] || THEME_ACCENTS.graphite, THEME_ACCENTS[palette] || THEME_ACCENTS.graphite]] : [])].map(([id, label, light, dark]) => {
+          const on = accent === id;
+          const swatch = theme === 'light' ? light : dark;
+          return (
+            <button key={id} type="button" onClick={() => chooseAccent(id)} aria-pressed={on} className="mp-card flex items-center gap-2 p-2 text-left transition"
+              style={{ borderColor: on ? 'var(--primary)' : 'var(--border)', backgroundColor: on ? 'var(--primary-tint)' : 'transparent' }}>
+              <span className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: swatch }} aria-hidden />
+              <span className="text-xs truncate" style={{ color: 'var(--ink)' }}>{label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs" style={{ color: 'var(--ink-65)' }}>Accent colours primary buttons, the active step and selections. Theme colour follows the dark palette.</p>
+    </div>
+  );
+}
+
 function SettingsDefaults() {
   const initial = getDefaultPlatforms() || PLATFORMS.filter(p => initialProject.platforms[p.id]?.enabled).map(p => p.id);
   const [sel, setSel] = useState(initial);
@@ -12104,7 +15150,7 @@ function SettingsDefaults() {
   const setAll = (on) => { const next = on ? PLATFORMS.map(p => p.id) : []; setSel(next); setDefaultPlatforms(next); };
   return (
     <div className="space-y-2">
-      <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>Pick which platforms a new project starts with enabled, so you don't toggle them every time. Saved in this browser; applies to <strong>new</strong> and imported projects.</p>
+      <p className="text-xs" style={{ color: 'var(--ink-a66)' }}>Pick which platforms a new project starts with enabled, so you don't toggle them every time. Saved in this browser; applies to <strong>new</strong> and imported projects.</p>
       <div className="flex gap-2">
         <button onClick={() => setAll(true)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><Check size={12} /> All</button>
         <button onClick={() => setAll(false)} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3"><X size={12} /> None</button>
@@ -12113,14 +15159,38 @@ function SettingsDefaults() {
         {PLATFORMS.map(p => {
           const on = sel.includes(p.id);
           return (
-            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ backgroundColor: on ? 'rgba(90,116,48,0.06)' : 'rgba(38,42,35,0.02)', borderColor: on ? 'rgba(90,116,48,0.3)' : 'rgba(38,42,35,0.1)' }}>
-              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: on ? '#5A7430' : 'transparent', border: `1px solid ${on ? '#5A7430' : 'rgba(38,42,35,0.3)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
+            <button key={p.id} onClick={() => toggle(p.id)} className="mp-card flex items-center gap-2 p-2 text-left transition" style={{ backgroundColor: on ? 'var(--primary-a06)' : 'var(--ink-a02)', borderColor: on ? 'var(--primary-a30)' : 'var(--ink-a10)' }}>
+              <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" style={{ backgroundColor: on ? 'var(--primary)' : 'transparent', border: `1px solid ${on ? 'var(--primary)' : 'var(--ink-a30)'}`, color: '#fff' }}>{on && <Check size={11} />}</span>
               <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.dot }} />
               <span className="text-[13px]">{p.name}</span>
             </button>
           );
         })}
       </div>
+      <RememberedSettingsList />
+    </div>
+  );
+}
+
+function RememberedSettingsList() {
+  const storage = typeof window !== 'undefined' ? window.localStorage : null;
+  const [defaults, setDefaults] = useState(() => loadPlatformDefaults(storage));
+  const ids = PLATFORMS.filter((p) => rememberedCount(defaults, p.id) > 0);
+  return (
+    <div className="pt-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+      <div className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Remembered platform settings</div>
+      <p className="text-xs" style={{ color: 'var(--ink-a66)' }}>
+        Saved from a platform's panel with "Remember these settings". New projects start with these answers; files, pictures and remix sources are never included.
+      </p>
+      {ids.length === 0 ? (
+        <p className="text-xs" style={{ color: 'var(--ink-50)' }}>Nothing remembered yet.</p>
+      ) : ids.map((p) => (
+        <div key={p.id} className="flex items-center gap-2 text-xs">
+          <span className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.dot }} />
+          <span className="flex-1" style={{ color: 'var(--ink)' }}>{p.name} · {rememberedCount(defaults, p.id)} answers</span>
+          <button type="button" onClick={() => setDefaults(forgetPlatform(storage, p.id))} className="mp-btn mp-btn-ghost text-xs py-1 px-2.5">Forget</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -12150,19 +15220,19 @@ function SettingsAbout({ onClose }) {
     onClose();
   };
   return (
-    <div className="space-y-3 text-[13px]" style={{ color: 'rgba(38,42,35,0.8)' }}>
+    <div className="space-y-3 text-[13px]" style={{ color: 'var(--ink-a80)' }}>
       <div className="mp-card p-3 space-y-1">
-        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Build</div>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'var(--ink-a66)' }}>Build</div>
         <div data-testid="visible-build-stamp" className="mp-mono text-xs whitespace-nowrap" title={BUILD_TIME ? new Date(BUILD_TIME).toISOString() : BUILD_DATE_LABEL}>Build {BUILD_LABEL}</div>
       </div>
-      <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
+      <p className="text-xs" style={{ color: 'var(--ink-a66)' }}>
         {desktop
           ? `All direct-platform sessions are isolated and encrypted in the desktop app (bridge v${desktop.bridgeVersion || 'legacy'}); AI settings are saved in this renderer profile. Clearing removes them from this device.`
           : 'Your sign-ins and AI settings are saved in this browser only and persist across runs. Clearing removes them from this device.'}
       </p>
       {desktop && <UpdatePanel desktop={desktop} />}
       {desktop && <DiagnosticsPanel desktop={desktop} />}
-      <button onClick={clearAll} className="mp-btn mp-btn-ghost text-xs py-2 px-3" style={{ color: '#b91c1c' }}>
+      <button onClick={clearAll} className="mp-btn mp-btn-ghost text-xs py-2 px-3" style={{ color: 'var(--danger-text)' }}>
         <Trash2 size={13} /> Clear saved accounts &amp; AI settings
       </button>
     </div>
@@ -12189,10 +15259,10 @@ function UpdatePanel({ desktop }) {
   return (
     <div className="mp-card p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Updates</div>
-        <button onClick={() => desktop.checkForUpdate?.()} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>check now</button>
+        <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'var(--ink-a66)' }}>Updates</div>
+        <button onClick={() => desktop.checkForUpdate?.()} className="mp-mono text-[11px] underline" style={{ color: 'var(--primary)' }}>check now</button>
       </div>
-      <div className="text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>{label || 'Automatic updates are on.'}</div>
+      <div className="text-xs" style={{ color: 'var(--ink-a70)' }}>{label || 'Automatic updates are on.'}</div>
       {state.status === 'ready' && (
         <button onClick={() => desktop.installUpdate?.()} className="mp-btn text-[11px] py-1.5 px-2">Restart to update</button>
       )}
@@ -12221,29 +15291,29 @@ function DiagnosticsPanel({ desktop }) {
   };
   return (
     <div className="mp-card p-3 space-y-2">
-      <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+      <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'var(--ink-a66)' }}>
         Diagnostics · {diag.count} recorded
       </div>
-      <p className="text-xs" style={{ color: 'rgba(38,42,35,0.66)' }}>
+      <p className="text-xs" style={{ color: 'var(--ink-a66)' }}>
         Errors are stored locally and sanitized (no cookies, tokens, or signed URLs). Nothing is sent unless you export or report.
       </p>
       {recent.length > 0 && (
-        <ul className="text-[11px] space-y-0.5" style={{ color: 'rgba(38,42,35,0.66)' }}>
+        <ul className="text-[11px] space-y-0.5" style={{ color: 'var(--ink-a66)' }}>
           {recent.map((e, i) => (
             <li key={i} className="truncate mp-mono">{e.source}/{e.kind}: {String(e.message || '').split('\n')[0]}</li>
           ))}
         </ul>
       )}
       {desktop.sessionKeepAliveStatus && (
-        <div className="pt-2 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
-          <div className="mp-mono text-[10px] uppercase tracking-[0.12em] mb-1" style={{ color: 'rgba(38,42,35,0.6)' }}>Session keep-alive</div>
+        <div className="pt-2 border-t" style={{ borderColor: 'var(--ink-a10)' }}>
+          <div className="mp-mono text-[10px] uppercase tracking-[0.12em] mb-1" style={{ color: 'var(--ink-a60)' }}>Session keep-alive</div>
           {keepAliveRows.length === 0 ? (
-            <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.55)' }}>No background pass yet. It runs 10 minutes after launch, then every 6 hours, and only touches platforms with a stored session.</p>
+            <p className="text-[11px]" style={{ color: 'var(--ink-a55)' }}>No background pass yet. It runs 10 minutes after launch, then every 6 hours, and only touches platforms with a stored session.</p>
           ) : (
             <ul className="text-[11px] space-y-0.5 mp-mono">
               {keepAliveRows.map((row) => (
                 <li key={row.platform} className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: row.ok ? '#247255' : '#B86B00' }} />
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: row.ok ? 'var(--success-text)' : 'var(--warn-text)' }} />
                   {row.platform} · {row.ok ? 'refreshed' : 'silent refresh failed'} · {agoLabel(row.at)}
                 </li>
               ))}
@@ -12253,7 +15323,7 @@ function DiagnosticsPanel({ desktop }) {
       )}
       <textarea
         aria-label="Problem description"
-        className="mp-card text-xs p-2 w-full"
+        className="mp-input"
         rows={2}
         placeholder="Describe a problem to report (optional)…"
         value={note}
@@ -12269,7 +15339,7 @@ function DiagnosticsPanel({ desktop }) {
           className="mp-btn text-[11px] py-1.5 px-2"
         >Report a problem</button>
       </div>
-      {msg && <div className="text-[11px]" style={{ color: '#1a7f37' }}>{msg}</div>}
+      {msg && <div className="text-[11px]" style={{ color: 'var(--success-text)' }}>{msg}</div>}
     </div>
   );
 }
@@ -12408,15 +15478,15 @@ function PlatformConnections({ platform, hideName = false }) {
         </div>
       )}
       {accounts.map((a) => (
-        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ backgroundColor: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'rgba(38,42,35,0.03)' }}>
+        <div key={a.id} className="flex flex-wrap items-center gap-2 text-[13px] mp-card p-2" style={{ backgroundColor: a.id === active?.id ? 'rgba(26,127,55,0.06)' : 'var(--ink-a03)' }}>
           <StatusDot status={a.status} />
           <span className="flex-1 min-w-[150px] truncate">{a.label}</span>
           <span className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: (ACCT_STATUS[a.status] || ACCT_STATUS.unknown).dot }}>
             {(ACCT_STATUS[a.status] || ACCT_STATUS.unknown).label}
           </span>
           {a.id === active?.id
-            ? <span className="mp-pill text-[11px]" style={{ backgroundColor: 'rgba(26,127,55,0.15)', color: '#1a7f37' }}>Active</span>
-            : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>Use</button>}
+            ? <span className="mp-pill text-[11px]" style={{ backgroundColor: 'rgba(26,127,55,0.15)', color: 'var(--success-text)' }}>Active</span>
+            : <button onClick={() => acc.setActive(platform.id, a.id)} className="mp-mono text-[11px] underline" style={{ color: 'var(--primary)' }}>Use</button>}
           {['reconnect', 'error', 'unknown'].includes(a.status) && (
             <LoadingButton
               onClick={() => reconnectAccount(a)}
@@ -12428,14 +15498,14 @@ function PlatformConnections({ platform, hideName = false }) {
             </LoadingButton>
           )}
           {platform.id === 'makerworld' && typeof a.secret === 'string' && a.secret.includes('refreshToken=') && (
-            <LoadingButton onClick={() => refreshMakerWorld(a)} loading={refreshingId === a.id} markSize={11} className="mp-mono text-[11px] underline disabled:opacity-40" style={{ color: 'rgba(38,42,35,0.66)' }}>
+            <LoadingButton onClick={() => refreshMakerWorld(a)} loading={refreshingId === a.id} markSize={11} className="mp-mono text-[11px] underline disabled:opacity-40" style={{ color: 'var(--ink-a66)' }}>
               refresh session
             </LoadingButton>
           )}
           <button onClick={() => removePlatformAccount(a)} aria-label="Remove account" className="opacity-50 hover:opacity-100"><Trash2 size={13} /></button>
         </div>
       ))}
-      {accountNotice && <div role="status" className="text-[11px]" style={{ color: /connected|ready|refreshed/i.test(accountNotice) ? '#1a7f37' : /checking|complete the sign-in/i.test(accountNotice) ? '#8A4B08' : '#B91C1C' }}>{accountNotice}</div>}
+      {accountNotice && <div role="status" className="text-[11px]" style={{ color: /connected|ready|refreshed/i.test(accountNotice) ? 'var(--success-text)' : /checking|complete the sign-in/i.test(accountNotice) ? 'var(--warn-text)' : 'var(--danger-text)' }}>{accountNotice}</div>}
       {accounts.some((account) => ['reconnect', 'error'].includes(account.status)) && (
         <p className="text-[11px] opacity-60">Reconnect checks the saved encrypted session first. A sign-in window opens only if {platform.name} rejects it.</p>
       )}
@@ -12451,8 +15521,8 @@ function PlatformConnections({ platform, hideName = false }) {
 // sign-in button, an optional availability hint, one plain-language note, then
 // errors and Cancel. Platform-specific extras (MakerWorld's fallbacks) go in
 // `children`, which keeps the shared parts in the same order everywhere.
-const CONNECT_INPUT_CLS = 'mp-card text-[13px] p-2 w-full';
-const CONNECT_BTN_CLS = 'mp-btn text-sm py-2 px-4 w-full disabled:opacity-40';
+const CONNECT_INPUT_CLS = 'mp-input';
+const CONNECT_BTN_CLS = 'mp-btn w-full disabled:opacity-40';
 
 function ConnectShell({
   label, setLabel, placeholder = 'Account name (optional)',
@@ -12479,11 +15549,11 @@ function ConnectShell({
         </LoadingButton>
       )}
       {hint}
-      {note && <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{note}</p>}
+      {note && <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>{note}</p>}
       {children}
-      {err && <div className="text-[11px]" style={{ color: '#b91c1c' }}>{err}</div>}
+      {err && <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{err}</div>}
       {canCancel && (
-        <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>Cancel</button>
+        <button onClick={onDone} className="mp-mono text-[11px] underline" style={{ color: 'var(--ink-a66)' }}>Cancel</button>
       )}
     </div>
   );
@@ -12616,7 +15686,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectMyMiniFactory}
         buttonLabel={desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MyMiniFactory' : 'Sign in to MyMiniFactory'}
         buttonLoading={busy}
-        hint={!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
+        hint={!desktop?.connectMyMiniFactory && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? 'var(--danger-text)' : 'var(--ink-a66)' }}>{desktopNeedsUpdate ? 'This desktop build does not include the MyMiniFactory bridge. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MyMiniFactory.'}</p>}
         note="Signs in through MyMiniFactory's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -12662,7 +15732,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonDisabled={busy || !desktop?.connectMakerOnline}
         buttonLabel={desktopNeedsUpdate ? 'Update ModelPrep Desktop to connect MakerOnline' : 'Sign in to MakerOnline'}
         buttonLoading={busy}
-        hint={!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? '#991b1b' : 'rgba(38,42,35,0.66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
+        hint={!desktop?.connectMakerOnline && <p className="text-[11px]" style={{ color: desktopNeedsUpdate ? 'var(--danger-text)' : 'var(--ink-a66)' }}>{desktopNeedsUpdate ? 'The running desktop shell is older than this page. Quit every ModelPrep window and launch the current build.' : 'Open this project in ModelPrep Desktop to connect MakerOnline.'}</p>}
         note="Signs in through MakerOnline's own window. Your sign-in stays on this computer, encrypted."
         err={err} canCancel={canCancel} onDone={onDone}
       />
@@ -12708,7 +15778,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonLabel="Sign in to Creality Cloud"
         buttonLoading={busy}
         hint={!desktop?.connectCreality && (
-          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>
             Open this project in ModelPrep Desktop to connect Creality Cloud.
           </p>
         )}
@@ -12757,7 +15827,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonLabel="Sign in to Nexprint"
         buttonLoading={busy}
         hint={!desktop?.connectNexprint && (
-          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>
             Open this project in ModelPrep Desktop to connect Nexprint.
           </p>
         )}
@@ -12807,7 +15877,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonLabel="Sign in to Printables"
         buttonLoading={busy}
         hint={!desktop?.connectPrintables && (
-          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>
             Open this project in ModelPrep Desktop to sign in through Prusa Account. ModelPrep does not ask for or store your Printables password.
           </p>
         )}
@@ -12842,7 +15912,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
         buttonLabel="Sign in to Cults3D"
         buttonLoading={busy}
         hint={!desktop && (
-          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>
             Open this project in ModelPrep Desktop. Browser builds intentionally do not collect or forward a Cults3D password.
           </p>
         )}
@@ -12920,7 +15990,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
       err={err} canCancel={canCancel} onDone={onDone}
     >
       <details>
-        <summary className="text-[11px] cursor-pointer font-medium" style={{ color: 'rgba(38,42,35,0.66)' }}>Advanced fallback: email + password</summary>
+        <summary className="text-[11px] cursor-pointer font-medium" style={{ color: 'var(--ink-a66)' }}>Advanced fallback: email + password</summary>
         <div className="mt-1.5 space-y-1.5">
           <input className={inputCls} placeholder="MakerWorld email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={needCode} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />
           {!needCode && <input className={inputCls} type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && email.trim() && pass) loginMw(); }} />}
@@ -12928,7 +15998,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
             <button disabled={!email.trim() || !pass || busy} onClick={loginMw} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Signing in…' : 'Sign in with password'}</button>
           ) : (
             <>
-              <div className="text-[11px]" style={{ color: '#3a8d68' }}>MakerWorld emailed a verification code to <strong>{email}</strong>. Enter it to finish signing in:</div>
+              <div className="text-[11px]" style={{ color: 'var(--success-text)' }}>MakerWorld emailed a verification code to <strong>{email}</strong>. Enter it to finish signing in:</div>
               <input className={inputCls} placeholder="Verification code" value={code} onChange={(e) => setCode(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === 'Enter' && code.trim()) loginMwCode(); }} />
               <div className="flex gap-2">
                 <button disabled={!code.trim() || busy} onClick={loginMwCode} className="mp-btn text-sm py-2 px-4 disabled:opacity-40">{busy ? 'Verifying…' : 'Verify & connect'}</button>
@@ -12936,7 +16006,7 @@ function ConnectForm({ platform, onDone, canCancel }) {
               </div>
             </>
           )}
-          <p className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+          <p className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>
             {desktop
               ? 'Your password goes straight to MakerWorld and is never stored. The signed-in session is encrypted on this computer.'
               : 'Your password is only used to sign in to MakerWorld and is never stored. The desktop app offers a fully direct sign-in path.'}
@@ -12945,9 +16015,9 @@ function ConnectForm({ platform, onDone, canCancel }) {
         </div>
       </details>
       <details>
-        <summary className="text-[11px] cursor-pointer" style={{ color: 'rgba(38,42,35,0.66)' }}>Trouble signing in? Paste a session cookie instead</summary>
+        <summary className="text-[11px] cursor-pointer" style={{ color: 'var(--ink-a66)' }}>Trouble signing in? Paste a session cookie instead</summary>
         <div className="mt-1.5 space-y-1.5">
-          <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>From a logged-in MakerWorld tab: DevTools → Application → Cookies → copy <code>token</code> (and <code>refreshToken</code>).</div>
+          <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>From a logged-in MakerWorld tab: DevTools → Application → Cookies → copy <code>token</code> (and <code>refreshToken</code>).</div>
           <textarea className={inputCls} rows={2} placeholder="token=…; refreshToken=…" value={cookie} onChange={(e) => setCookie(e.target.value)} />
           <button disabled={!cookie.trim() || busy} onClick={() => finishMw(cookie.trim())} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{busy ? 'Checking…' : 'Connect with cookie'}</button>
         </div>
@@ -13088,7 +16158,7 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
   return (
     <div className="space-y-1.5">
       {selected ? (
-        <div className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
+        <div className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'var(--ink-a04)' }}>
           {selected.cover && <img src={selected.cover} alt="" className="w-7 h-7 object-cover" />}
           <span className="flex-1 truncate">{selected.title} <span className="mp-mono opacity-50">#{selected.id}</span></span>
           <button onClick={() => onSelect(null)} className="mp-mono text-[11px] underline opacity-60">clear</button>
@@ -13096,9 +16166,9 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <input className="mp-card text-xs p-1.5 flex-1" placeholder={label || 'Search your designs…'} value={q}
+            <input className="mp-input-sm flex-1" placeholder={label || 'Search your designs…'} value={q}
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } }} />
-            <button onClick={search} disabled={busy} className="mp-btn text-[11px] py-1.5 px-3 disabled:opacity-40">{busy ? '…' : 'Search'}</button>
+            <button onClick={search} disabled={busy} className="mp-btn mp-btn-ghost text-xs disabled:opacity-40">{busy ? '…' : 'Search'}</button>
           </div>
           {results && results.length === 0 && <div className="text-[11px] opacity-60">No matching designs.</div>}
           {results && results.length > 0 && (
@@ -13112,7 +16182,7 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
               ))}
             </div>
           )}
-          {err && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{err}</div>}
+          {err && <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{err}</div>}
         </>
       )}
     </div>
@@ -13120,17 +16190,23 @@ function MwRelatedSearch({ cookie, type, selected, onSelect, label }) {
 }
 
 // Lightweight collapsible "advanced" section.
-function MwSection({ title, hint, badge, children, defaultOpen = false }) {
+function MwSection({ title, hint, badge, children, defaultOpen = false, icon = null, onClear = null }) {
   const [open, setOpen] = useState(defaultOpen);
+  const Icon = icon || iconForSection(title);
+  const hasChoices = badge != null && badge !== 0 && badge !== '0';
   return (
-    <div className="mp-card" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
+    <div className="mp-card" style={{ backgroundColor: 'var(--ink-a02)' }}>
+      <div className="w-full flex items-center gap-2 p-2.5 text-left">
+      <button onClick={() => setOpen(!open)} className="flex-1 flex items-center gap-2 text-left min-w-0" aria-expanded={open}>
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
-        {badge != null && badge !== 0 && <span className="mp-mono text-[11px] px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(255,105,0,0.15)', color: '#B23A1A' }}>{badge}</span>}
-        {hint && <span className="text-[11px] ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{hint}</span>}
+        {Icon && <Icon size={14} strokeWidth={2} style={{ color: 'var(--ink-50)' }} aria-hidden />}
+        <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{title}</span>
+        {badge != null && badge !== 0 && <span className="mp-pill" style={{ backgroundColor: 'var(--primary-a12)', color: 'var(--primary-ink)' }}>{badge}</span>}
+        {hint && <span className="text-[12px] ml-auto" style={{ color: 'var(--ink-65)' }}>{hint}</span>}
       </button>
-      {open && <div className="px-3 pb-3 space-y-2">{children}</div>}
+      {onClear && hasChoices && <ClearButton onClear={onClear} />}
+      </div>
+      {open && <div className="px-3 pb-3 space-y-3">{children}</div>}
     </div>
   );
 }
@@ -13138,9 +16214,9 @@ function MwSection({ title, hint, badge, children, defaultOpen = false }) {
 // Map a live MakerWorld model to a status dot + label. The published list only contains
 // LIVE models, so being here = live; offline/odd status is flagged conservatively.
 function mwModelStatus(m) {
-  if (m.offlineInstCnt > 0) return { dot: '#d97706', label: `Live · ${m.offlineInstCnt} profile${m.offlineInstCnt === 1 ? '' : 's'} offline` };
-  if (m.status === 1) return { dot: '#1a7f37', label: 'Live' };
-  return { dot: '#d97706', label: `status ${m.status}: check on MakerWorld` };
+  if (m.offlineInstCnt > 0) return { dot: 'var(--warn-text)', label: `Live · ${m.offlineInstCnt} profile${m.offlineInstCnt === 1 ? '' : 's'} offline` };
+  if (m.status === 1) return { dot: 'var(--success-text)', label: 'Live' };
+  return { dot: 'var(--warn-text)', label: `status ${m.status}: check on MakerWorld` };
 }
 
 // "What's already on this platform", one control for every panel that can read it
@@ -13151,12 +16227,12 @@ function mwModelStatus(m) {
 // the publish actions.
 function MyListingsDisclosure({ title, count, open, onToggle, children }) {
   return (
-    <div className="mp-card mt-3" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card mt-3" style={{ backgroundColor: 'var(--ink-a02)' }}>
       <button onClick={onToggle} aria-expanded={open} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>{title}</span>
+        <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{title}</span>
         {count != null && (
-          <span className="mp-mono text-[11px] ml-auto" style={{ color: 'rgba(38,42,35,0.66)' }}>{count}</span>
+          <span className="mp-mono text-[11px] ml-auto" style={{ color: 'var(--ink-a66)' }}>{count}</span>
         )}
       </button>
       {open && <div className="px-3 pb-3 space-y-1.5">{children}</div>}
@@ -13195,21 +16271,21 @@ function MwMyModels({ cookie, isDemo, kind = '3d' }) {
   };
   useEffect(() => { if (open && models === null) load(); }, [open]); // eslint-disable-line
   return (
-    <div className="mp-card" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card" style={{ backgroundColor: 'var(--ink-a02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>My MakerWorld {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'}</span>
-        {models && <span className="mp-mono text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{models.length} live</span>}
+        <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>My MakerWorld {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'}</span>
+        {models && <span className="mp-mono text-[11px]" style={{ color: 'var(--ink-a66)' }}>{models.length} live</span>}
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-1.5">
           <button onClick={load} disabled={loading} className="mp-btn mp-btn-ghost text-[11px] py-1 px-2 disabled:opacity-40">{loading ? 'Loading…' : 'Refresh'}</button>
-          {err && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{err}</div>}
+          {err && <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{err}</div>}
           {models && models.length === 0 && !loading && <div className="text-[11px] opacity-60">No live {kind === 'laser-cut' ? 'Laser & Cut designs' : 'models'} found.</div>}
           {models && models.map((m) => {
             const s = mwModelStatus(m);
             return (
-              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.03)' }}>
+              <a key={m.id} href={m.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'var(--ink-a03)' }}>
                 {m.coverUrl && <img src={m.coverUrl} alt="" className="w-7 h-7 object-cover flex-shrink-0" />}
                 <span className="flex-1 truncate">{m.title}</span>
                 <span className="flex items-center gap-1 flex-shrink-0"><StatusDot status="connected" /><span style={{ color: s.dot }}>{s.label}</span></span>
@@ -13668,15 +16744,15 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
   return (
     <div className="space-y-3">
       {!cookie ? (
-        <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
-          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'rgba(38,42,35,0.66)' }}><StatusDot status="unknown" /> {platform.name}: not connected</div>
-          <p className="text-[13px]" style={{ color: 'rgba(38,42,35,0.7)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Settings → Accounts</strong>.</p>
+        <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'var(--ink-a04)' }}>
+          <div className="mp-mono text-[11px] uppercase tracking-[0.15em] flex items-center gap-1.5" style={{ color: 'var(--ink-a66)' }}><StatusDot status="unknown" /> {platform.name}: not connected</div>
+          <p className="text-[13px]" style={{ color: 'var(--ink-a70)' }}>Sign in to MakerWorld to publish. Accounts are managed in <strong>Settings → Accounts</strong>.</p>
           <button onClick={() => openConnections('accounts', 'makerworld')} className="mp-btn text-sm py-2 px-4">Connect MakerWorld</button>
         </div>
       ) : (
         <>
           <div className="flex items-center justify-between gap-2 text-[13px]">
-            <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'rgba(38,42,35,0.7)' }}>
+            <span className="flex items-center gap-1.5 min-w-0" style={{ color: 'var(--ink-a70)' }}>
               <StatusDot status={active.status} /> Publishing as
               {mwAccounts.length > 1 ? (
                 <Select
@@ -13688,45 +16764,45 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
               ) : <strong className="truncate">{active.label}{simulate ? ' (simulation only)' : ''}</strong>}
             </span>
             <span className="flex items-center gap-2 flex-shrink-0">
-              <button onClick={() => openConnections('accounts', 'makerworld')} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>manage</button>
-              {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'rgba(38,42,35,0.66)' }}>disconnect</button>}
+              <button onClick={() => openConnections('accounts', 'makerworld')} className="mp-mono text-[11px] underline" style={{ color: 'var(--ink-a66)' }}>manage</button>
+              {realActive && <button onClick={disconnect} className="mp-mono text-[11px] underline" style={{ color: 'var(--ink-a66)' }}>disconnect</button>}
             </span>
           </div>
           {!simulate ? (
-            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>
+            <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'var(--ink-a66)' }}>
               {isDesktopMakerWorldSession(realCookie) ? 'Signed in via desktop app' : 'Signed in via browser'}
             </div>
           ) : null}
 
-          <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'rgba(38,42,35,0.03)', color: 'rgba(38,42,35,0.7)' }}>
+          <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'var(--ink-a03)', color: 'var(--ink-a70)' }}>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Globe size={13} style={{ color: '#5A7430' }} />
+              <Globe size={13} style={{ color: 'var(--primary)' }} />
               <span>{isLC ? 'Laser & Cut' : '3D model'} · {isLC ? (modelSource === 'remix' ? 'Remix' : 'Original') : catLabel} · <strong>{visibility}</strong>{bomCount ? ` · BOM ${bomCount}` : ''}{!isLC && modelSource === 'remix' ? ' · Remix' : ''}{!isLC && exclusive ? ' · Exclusive' : ''}{relatedModel ? ' · linked' : ''}{communityPost ? ' · community post' : ''}</span>
             </div>
-            <div className="text-[11px] mt-1" style={{ color: 'rgba(38,42,35,0.66)' }}>Edit these in the <strong>Platforms</strong> step → MakerWorld options.</div>
+            <div className="text-[11px] mt-1" style={{ color: 'var(--ink-a66)' }}>Edit these in the <strong>Platforms</strong> step → MakerWorld options.</div>
           </div>
 
           {!isLC && has3mf && (
-            <div className="mp-card p-2 text-xs flex items-start gap-2" style={{ backgroundColor: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.75)' }}>
-              <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: '#5A7430' }} />
+            <div className="mp-card p-2 text-xs flex items-start gap-2" style={{ backgroundColor: 'rgba(255,105,0,0.06)', color: 'var(--ink-a75)' }}>
+              <Layers size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--primary)' }} />
               <span>Print profile <strong>{profileName}</strong> · {profilePicIds.length || 'no'} photo{profilePicIds.length === 1 ? '' : 's'}. Edit in the <strong>Profiles</strong> step.</span>
             </div>
           )}
 
           {visibility === 'public' && (
-            <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(90,116,48,0.08)', color: '#B23A1A' }}>
+            <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'var(--primary-a08)', color: 'var(--accent-warm-text)' }}>
               ⚠️ Publishing <strong>public</strong> submits a real, live listing to MakerWorld (it enters review/"verifying").
             </div>
           )}
 
           {publishIssues.errors.length > 0 && (
-            <div className="mp-card p-2.5 text-xs space-y-1" style={{ backgroundColor: 'rgba(185,28,28,0.07)', borderColor: 'rgba(185,28,28,0.3)', color: '#B91C1C' }}>
+            <div className="mp-card p-2.5 text-xs space-y-1" style={{ backgroundColor: 'rgba(185,28,28,0.07)', borderColor: 'rgba(185,28,28,0.3)', color: 'var(--danger-text)' }}>
               <strong>Complete these MakerWorld fields before publishing:</strong>
               <ul className="list-disc pl-5">{publishIssues.errors.map((issue) => <li key={issue}>{issue}</li>)}</ul>
             </div>
           )}
           {publishIssues.warnings.length > 0 && (
-            <div className="mp-card p-2.5 text-xs space-y-1" style={{ backgroundColor: 'rgba(255,182,39,0.09)', color: '#8A4B08' }}>
+            <div className="mp-card p-2.5 text-xs space-y-1" style={{ backgroundColor: 'rgba(255,182,39,0.09)', color: 'var(--warn-text)' }}>
               <ul className="list-disc pl-5">{publishIssues.warnings.map((issue) => <li key={issue}>{issue}</li>)}</ul>
             </div>
           )}
@@ -13743,31 +16819,31 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           )}
 
           {result && (
-            <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
-              <div className="text-[13px]" style={{ color: 'rgba(38,42,35,0.85)' }}>
+            <div className="mp-card p-3 space-y-2" style={{ backgroundColor: 'var(--ink-a04)' }}>
+              <div className="text-[13px]" style={{ color: 'var(--ink-a85)' }}>
                 <Check size={14} className="inline" /> {result.demo
                   ? (result.draftOnly ? 'Simulated draft save (demo): ' : 'Simulated publish (demo): ')
                   : (result.draftOnly ? 'Saved to MakerWorld: ' : 'Submitted to MakerWorld: ')}status <span className="mp-mono">{result.status}</span> · {result.files} file(s) · {result.visibility}
               </div>
-              {result.demo && <div className="mp-mono text-[11px]" style={{ color: '#3A86FF' }}>Nothing was uploaded. Exit Demo mode before using a connected account for a real upload.</div>}
-              {result.url && !result.demo && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-xs underline break-all block" style={{ color: '#5A7430' }}>{result.url}</a>}
+              {result.demo && <div className="mp-mono text-[11px]" style={{ color: 'var(--api)' }}>Nothing was uploaded. Exit Demo mode before using a connected account for a real upload.</div>}
+              {result.url && !result.demo && <a href={result.url} target="_blank" rel="noopener noreferrer" className="mp-mono text-xs underline break-all block" style={{ color: 'var(--primary)' }}>{result.url}</a>}
               {/* Post-submit verification: a 200 submit = "accepted for review", not "live". */}
               {!result.demo && !result.draftOnly && (
                 <div className="space-y-1">
                   <button onClick={checkLive} disabled={liveCheck?.loading} className="mp-btn mp-btn-ghost text-xs py-1.5 px-3 disabled:opacity-40">{liveCheck?.loading ? 'Checking…' : 'Check if it went live'}</button>
                   {liveCheck && !liveCheck.loading && (
                     liveCheck.failed ? (
-                      <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'rgba(185,28,28,0.08)', borderColor: 'rgba(185,28,28,0.35)', color: '#B91C1C' }}>
+                      <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'rgba(185,28,28,0.08)', borderColor: 'rgba(185,28,28,0.35)', color: 'var(--danger-text)' }}>
                         <strong>❌ Rejected by MakerWorld:</strong> {liveCheck.reason}
                         {liveCheck.profileTitle ? <span style={{ opacity: 0.8 }}> (print profile "{liveCheck.profileTitle}")</span> : null}
-                        <div className="mt-1" style={{ opacity: 0.85 }}>Fix the issue and re-publish, or <button onClick={del} className="underline" style={{ color: '#B91C1C' }}>delete this draft</button>.{result.kind === 'laser-cut' ? ' Re-save the source in the current Bambu Suite if package metadata was rejected.' : ' The 3mf must be sliced/exported by Bambu Studio.'}</div>
+                        <div className="mt-1" style={{ opacity: 0.85 }}>Fix the issue and re-publish, or <button onClick={del} className="underline" style={{ color: 'var(--danger-text)' }}>delete this draft</button>.{result.kind === 'laser-cut' ? ' Re-save the source in the current Bambu Suite if package metadata was rejected.' : ' The 3mf must be sliced/exported by Bambu Studio.'}</div>
                       </div>
                     )
-                    : liveCheck.error ? <div className="text-xs" style={{ color: '#B91C1C' }}>{liveCheck.error}</div>
-                    : liveCheck.live ? <div className="text-xs" style={{ color: '#1a7f37' }}>✓ Confirmed live on MakerWorld{liveCheck.model?.offlineInstCnt > 0 ? ` (⚠ ${liveCheck.model.offlineInstCnt} print profile(s) offline)` : ''}.</div>
-                    : <div className="text-xs" style={{ color: '#B23A1A' }}>
+                    : liveCheck.error ? <div className="text-xs" style={{ color: 'var(--danger-text)' }}>{liveCheck.error}</div>
+                    : liveCheck.live ? <div className="text-xs" style={{ color: 'var(--success-text)' }}>✓ Confirmed live on MakerWorld{liveCheck.model?.offlineInstCnt > 0 ? ` (⚠ ${liveCheck.model.offlineInstCnt} print profile(s) offline)` : ''}.</div>
+                    : <div className="text-xs" style={{ color: 'var(--accent-warm-text)' }}>
                         Not live yet: it's still in <strong>review</strong>, or it was <strong>rejected</strong>.
-                        {' '}Check {result.kind === 'laser-cut' ? 'your Laser & Cut drafts on MakerWorld' : <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: '#5A7430', textDecoration: 'underline' }}>your MakerWorld notifications</a>} for the reason.
+                        {' '}Check {result.kind === 'laser-cut' ? 'your Laser & Cut drafts on MakerWorld' : <a href="https://makerworld.com/en/my/notification/3DModel" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>your MakerWorld notifications</a>} for the reason.
                       </div>
                   )}
                 </div>
@@ -13779,13 +16855,13 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           <MwMyModels cookie={cookie} isDemo={simulate} kind={isLC ? 'laser-cut' : '3d'} />
         </>
       )}
-      {errorMsg && <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(220,38,38,0.08)', color: '#B91C1C' }}>{errorMsg}</div>}
+      {errorMsg && <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(220,38,38,0.08)', color: 'var(--danger-text)' }}>{errorMsg}</div>}
     </div>
   );
 }
 
 // MakerWorld options form: rendered on the Platforms step; edits project.platforms.makerworld.
-export function MakerWorldOptions({ opts, project, onUpdate }) {
+export function MakerWorldOptions({ opts, project, onUpdate, updateProject = null }) {
   useAccounts();
   const cookie = getActive('makerworld')?.secret || '';
   const o = { ...MW_DEFAULT_OPTS, ...(opts || {}) };
@@ -13801,7 +16877,6 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
   const [docGuides, setDocGuides] = useState(mwRuntimeDocs.docGuides);
   const [docOthers, setDocOthers] = useState(mwRuntimeDocs.docOthers);
   const [docNotice, setDocNotice] = useState('');
-  const [categoryQuery, setCategoryQuery] = useState('');
   const uploadCapabilities = useMakerWorldCapabilities(cookie, !!cookie && !project?.__demo);
   const [cyberFiles, setCyberFiles] = useState(() => ({
     controlConfigs: mwRuntimeCyberBrick.controlConfigs,
@@ -13809,20 +16884,14 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
     microPython: mwRuntimeCyberBrick.microPython,
     mainControlConfig: mwRuntimeCyberBrick.mainControlConfig,
   }));
-  const inputCls = 'mp-card text-[13px] p-2 w-full';
+  const inputCls = 'mp-input';
   const profileFiles = (project?.files || []).filter((file) => fileExt(file.name) === '3mf');
   const lacFiles = (project?.files || []).filter((file) => fileExt(file.name) === 'lac');
   const cyberBrickPath = (!isLC && profileFiles.length > 0) || (isLC && o.laserMode === 'lac');
   useEffect(() => {
     if (uploadCapabilities.data?.rcUpload === false && o.cyberBrick) onUpdate('cyberBrick', false);
   }, [uploadCapabilities.data?.rcUpload, o.cyberBrick, onUpdate]);
-  const visibleCategories = useMemo(() => {
-    const query = categoryQuery.trim().toLowerCase();
-    if (!query) return MW_CATEGORIES;
-    const matches = MW_CATEGORIES.filter((category) => category.label.toLowerCase().includes(query));
-    const selected = MW_CATEGORIES.find((category) => String(category.id) === String(o.categoryId));
-    return selected && !matches.some((category) => category.id === selected.id) ? [selected, ...matches] : matches;
-  }, [categoryQuery, o.categoryId]);
+  const visibleCategories = MW_CATEGORIES;
 
   const ensureCatalog = async () => { if (catalog) return catalog; try { const c = await loadMwCatalog(cookie); setCatalog(c); return c; } catch (e) { setCatalogErr(e instanceof Error ? e.message : String(e)); return null; } };
   const addBom = (kind, item) => onUpdate('boms', { ...boms, [kind]: [...boms[kind], item] });
@@ -13865,66 +16934,62 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
   const setLaserProfile = (field, value) => onUpdate('laserProfile', { ...laserProfile, [field]: value });
 
   return (
-    <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
-      <div className="mp-mono text-[11px] uppercase tracking-[0.15em]" style={{ color: 'rgba(38,42,35,0.66)' }}>MakerWorld options</div>
-      <div className="flex gap-1 mp-card p-1" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
+    <div className="space-y-2.5 mt-3 pt-3 border-t" style={{ borderColor: 'var(--ink-a10)' }}>
+      <SectionTitle title="MakerWorld options" icon={SlidersHorizontal} className="mb-0" />
+      <div className="mp-segmented" role="group" aria-label="MakerWorld product type">
         {[['3d', '3D Model'], ['laser-cut', 'Laser & Cut']].map(([m, lbl]) => (
-          <button key={m} onClick={() => onUpdate({ productMode: m })} className="flex-1 text-xs py-1.5 rounded-sm transition"
-            style={o.productMode === m ? { backgroundColor: 'var(--primary-tint)', color: 'var(--primary-ink)', fontWeight: 600 } : { color: 'rgba(38,42,35,0.66)' }}>{lbl}</button>
+          <button key={m} type="button" onClick={() => onUpdate({ productMode: m })} aria-pressed={o.productMode === m}>{lbl}</button>
         ))}
       </div>
       {isLC && (
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Laser &amp; Cut upload mode</span>
+        <label className="block text-xs"><FieldCaption>Laser &amp; Cut upload mode</FieldCaption>
           <Select
             value={o.laserMode || 'raw'}
             onChange={(selectValue) => onUpdate('laserMode', selectValue)}
             options={[{ value: "raw", label: 'Raw .lac, SVG, DXF, image, or AI source files' }, { value: "lac", label: 'Bambu Suite .lac file + print profile' }]}
-            className={inputCls}
           />
         </label>
       )}
       {isLC && o.laserMode === 'lac' && (
         <MwSection title="Bambu Suite profile metadata" hint="auto-read · optional overrides" defaultOpen>
           {lacFiles.length > 0 && (
-            <label className="text-xs space-y-1 block"><span>Primary Bambu Suite profile package</span>
+            <label className="block text-xs"><FieldCaption>Primary Bambu Suite profile package</FieldCaption>
               <Select
                 value={o.primaryLacFileId || lacFiles[0].id}
                 onChange={(selectValue) => onUpdate('primaryLacFileId', selectValue)}
                 options={[...lacFiles.map((file) => ({ value: file.id, label: file.name }))]}
-                className={inputCls}
               />
               <span className="text-[11px] opacity-70">Other Laser files, including additional .lac files, are uploaded as raw model files.</span>
             </label>
           )}
-          <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>ModelPrep reads <span className="mp-mono">lacInfo</span>, plate data, and <span className="mp-mono">model2DInfo</span> from the .lac package locally. Fill these only when you need to override missing or incorrect package metadata.</div>
-          <label className="text-xs space-y-1 block"><span>Machine name override</span>
+          <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>ModelPrep reads <span className="mp-mono">lacInfo</span>, plate data, and <span className="mp-mono">model2DInfo</span> from the .lac package locally. Fill these only when you need to override missing or incorrect package metadata.</div>
+          <label className="block text-xs"><FieldCaption>Machine name override</FieldCaption>
             <input className={inputCls} value={laserInfo.machineName} placeholder="e.g. H2D Laser" onChange={(e) => setLaserInfo('machineName', e.target.value)} />
           </label>
-          <label className="text-xs space-y-1 block"><span>Process type overrides <span className="opacity-50">(comma-separated)</span></span>
+          <label className="block text-xs"><FieldCaption>Process type overrides <span className="opacity-50">(comma-separated)</span></FieldCaption>
             <input className={inputCls} value={laserInfo.processTypes} placeholder="cut, engrave" onChange={(e) => setLaserInfo('processTypes', e.target.value)} />
           </label>
-          <label className="text-xs space-y-1 block"><span>Material IDs <span className="opacity-50">(comma-separated)</span></span>
+          <label className="block text-xs"><FieldCaption>Material IDs <span className="opacity-50">(comma-separated)</span></FieldCaption>
             <input className={inputCls} value={laserInfo.materialIds} onChange={(e) => setLaserInfo('materialIds', e.target.value)} />
           </label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="text-xs space-y-1"><span>Other tools</span><input className={inputCls} value={laserInfo.otherTools} onChange={(e) => setLaserInfo('otherTools', e.target.value)} /></label>
-            <label className="text-xs space-y-1"><span>Compatible devices</span><input className={inputCls} value={laserInfo.compatibleDevices} placeholder="comma-separated" onChange={(e) => setLaserInfo('compatibleDevices', e.target.value)} /></label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label className="block text-xs"><FieldCaption>Other tools</FieldCaption><input className={inputCls} value={laserInfo.otherTools} onChange={(e) => setLaserInfo('otherTools', e.target.value)} /></label>
+            <label className="block text-xs"><FieldCaption>Compatible devices</FieldCaption><input className={inputCls} value={laserInfo.compatibleDevices} placeholder="comma-separated" onChange={(e) => setLaserInfo('compatibleDevices', e.target.value)} /></label>
           </div>
-          <div className="pt-2 border-t space-y-2" style={{ borderColor: 'rgba(38,42,35,0.1)' }}>
+          <div className="pt-2 border-t space-y-2" style={{ borderColor: 'var(--ink-a10)' }}>
             <div className="mp-mono text-[11px] uppercase tracking-[0.12em] opacity-70">Laser &amp; Cut profile</div>
-            <label className="text-xs space-y-1 block"><span>Profile name</span>
+            <label className="block text-xs"><FieldCaption>Profile name</FieldCaption>
               <input className={inputCls} maxLength={60} value={laserProfile.title} placeholder="e.g. 3mm plywood · cut and engrave" onChange={(e) => setLaserProfile('title', e.target.value)} />
               <span className="text-[11px] opacity-70 block text-right">{laserProfile.title.length}/60</span>
             </label>
-            <label className="text-xs space-y-1 block"><span>Profile description <span className="opacity-50">(optional)</span></span>
+            <label className="block text-xs"><FieldCaption>Profile description <span className="opacity-50">(optional)</span></FieldCaption>
               <textarea className={`${inputCls} min-h-20`} value={laserProfile.description} onChange={(e) => setLaserProfile('description', e.target.value)} />
             </label>
-            <label className="text-xs space-y-1 block"><span>Profile visibility</span>
+            <label className="block text-xs"><FieldCaption>Profile visibility</FieldCaption>
               <Select
                 value={laserProfile.visibility}
                 onChange={(selectValue) => setLaserProfile('visibility', selectValue)}
                 options={[{ value: "private", label: 'Private' }, { value: "public", label: 'Public' }]}
-                className={inputCls}
               />
             </label>
             <label className="flex items-start gap-2 text-xs">
@@ -13935,7 +17000,7 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               <div className="grid grid-cols-5 gap-1.5">
                 {(project?.images || []).map((image) => (
                   <button key={image.id} type="button" onClick={() => setLaserProfile('coverImageId', image.id)} className="relative aspect-square overflow-hidden"
-                    style={{ outline: laserProfile.coverImageId === image.id ? '2px solid #5A7430' : '1px solid rgba(38,42,35,0.15)', outlineOffset: -1 }}>
+                    style={{ outline: laserProfile.coverImageId === image.id ? '2px solid var(--primary)' : '1px solid var(--ink-a15)', outlineOffset: -1 }}>
                     <img src={image.dataUrl} alt="" className="w-full h-full object-cover" />
                   </button>
                 ))}
@@ -13951,9 +17016,9 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                       ? (laserProfile.photoIds || []).filter((id) => id !== image.id)
                       : [...(laserProfile.photoIds || []), image.id].slice(0, 37))}
                       className="relative aspect-square overflow-hidden"
-                      style={{ outline: selected ? '2px solid #5A7430' : '1px solid rgba(38,42,35,0.15)', outlineOffset: -1 }}>
+                      style={{ outline: selected ? '2px solid var(--primary)' : '1px solid var(--ink-a15)', outlineOffset: -1 }}>
                       <img src={image.dataUrl} alt="" className="w-full h-full object-cover" style={{ opacity: selected ? 1 : 0.55 }} />
-                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, backgroundColor: '#5A7430' }}><Check size={10} color="#fff" /></span>}
+                      {selected && <span className="absolute top-1 right-1 rounded-full flex items-center justify-center" style={{ width: 16, height: 16, backgroundColor: 'var(--primary)' }}><Check size={10} color="#fff" /></span>}
                     </button>
                   );
                 })}
@@ -13962,10 +17027,9 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
           </div>
         </MwSection>
       )}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {!isLC ? (
-          <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Category</span>
-            <input className={`${inputCls} mb-1`} value={categoryQuery} onChange={(e) => setCategoryQuery(e.target.value)} placeholder="Search categories…" />
+          <label className="block text-xs"><FieldCaption>Category</FieldCaption>
             <Select
               ariaLabel="MakerWorld category"
               value={o.categoryId}
@@ -13978,41 +17042,37 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             <AutoMatchNote active={o.categoryAuto === true} kind="category" />
           </label>
         ) : (
-          <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Source</span>
+          <label className="block text-xs"><FieldCaption>Source</FieldCaption>
             <Select
               value={o.modelSource}
               onChange={(selectValue) => changeModelSource(selectValue)}
               options={[{ value: "original", label: 'Original' }, { value: "remix", label: 'Remix' }]}
-              className={inputCls}
             />
           </label>
         )}
-        <label className="text-xs space-y-1"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Visibility</span>
+        <label className="block text-xs"><FieldCaption>Visibility</FieldCaption>
           <Select
             value={o.visibility}
             onChange={(selectValue) => onUpdate('visibility', selectValue)}
             options={[{ value: "private", label: 'Private' }, { value: "public", label: 'Public' }]}
-            className={inputCls}
           />
         </label>
       </div>
 
       {!isLC && profileFiles.length > 0 && (
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Initial Bambu Studio print profile</span>
+        <label className="block text-xs"><FieldCaption>Initial Bambu Studio print profile</FieldCaption>
           <Select
             value={o.primaryProfileFileId || profileFiles[0].id}
             onChange={(selectValue) => onUpdate('primaryProfileFileId', selectValue)}
             options={[...profileFiles.map((file) => ({ value: file.id, label: file.name }))]}
-            className={inputCls}
           />
           <span className="text-[11px] opacity-70">MakerWorld's new-design flow accepts one initial 3MF profile. Other 3MF files remain raw model files.</span>
         </label>
       )}
 
-      <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>License</span>
+      <label className="block text-xs"><FieldCaption>License</FieldCaption>
         <Select
           ariaLabel="MakerWorld license"
-          className={inputCls}
           value={o.license || ''}
           onChange={(license) => onUpdate('license', license)}
           options={[
@@ -14020,42 +17080,53 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             ...MW_LICENSE_OPTIONS.map((l) => ({ value: l.value, label: l.label })),
           ]}
         />
-        <span className="text-[11px] block" style={{ color: 'rgba(38,42,35,0.66)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
+        <span className="text-[11px] block" style={{ color: 'var(--ink-a66)' }}>Defaults to your Details-step license (mapped to MakerWorld). Override for MakerWorld-only licenses (Exclusive, SDFL-PPO…).</span>
       </label>
 
-      <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0}>
+      {/* The former Profiles step. Every field on it is MakerWorld's (profile
+          visibility, its real-print photo rule, the Bambu printer list, its
+          guidelines), so it belongs here, open by default because it carries
+          the rule that blocks MakerWorld publishes most often. */}
+      {!isLC && updateProject && (project?.profiles?.length || 0) > 0 && (
+        <MwSection
+          title={`Print profile${project.profiles.length === 1 ? '' : 's'}`}
+          hint={project.profiles.length === 1 ? 'from your 3MF' : `${project.profiles.length} from your 3MFs`}
+          defaultOpen
+        >
+          <ProfilesSection project={project} updateProject={updateProject} embedded />
+        </MwSection>
+      )}
+      <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0} onClear={() => onUpdate({ modelSource: 'original', remixUrl: '', remixModel: null, remixLicense: '', remixDescription: '' })}>
         {!isLC && (
-          <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Model source</span>
+          <label className="block text-xs"><FieldCaption>Model source</FieldCaption>
             <Select
               value={o.modelSource}
               onChange={(selectValue) => changeModelSource(selectValue)}
               options={[{ value: "original", label: 'Original design' }, { value: "remix", label: 'Remix of another model' }]}
-              className={inputCls}
             />
           </label>
         )}
         {o.modelSource === 'remix' && (
             <div className="space-y-1">
-              <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>Paste any source URL, or search your own MakerWorld designs:</div>
+              <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>Paste any source URL, or search your own MakerWorld designs:</div>
               <input className={inputCls} type="url" value={o.remixUrl || ''} placeholder="https://makerworld.com/en/models/… or another source"
                 onChange={(e) => onUpdate({ remixUrl: e.target.value, remixModel: null })} />
               <MwRelatedSearch cookie={cookie} type={isLC ? 1 : 0} selected={o.remixModel}
                 onSelect={(value) => onUpdate({ remixModel: value, remixUrl: value ? `https://makerworld.com/en/models/${value.id}` : '' })}
                 label="Search your MakerWorld designs…" />
               {!o.remixModel && (
-                <label className="text-xs space-y-1 block"><span>Original model license</span>
+                <label className="block text-xs"><FieldCaption>Original model license</FieldCaption>
                   <Select
                     value={o.remixLicense || ''}
                     onChange={(selectValue) => onUpdate('remixLicense', selectValue)}
                     options={[{ value: "", label: 'Choose the source license…' }, ...MW_LICENSE_OPTIONS.map((licenseOption) => ({ value: licenseOption.value, label: licenseOption.label }))]}
-                    className={inputCls}
                   />
                 </label>
               )}
               {o.remixLicense && !makerWorldLicenseAllowsRemix(o.remixLicense) && (
-                <div className="text-[11px]" style={{ color: '#B91C1C' }}>This license does not allow derivative/remix uploads.</div>
+                <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>This license does not allow derivative/remix uploads.</div>
               )}
-              <label className="text-xs space-y-1 block"><span>What did you change?</span>
+              <label className="block text-xs"><FieldCaption>What did you change?</FieldCaption>
                 <textarea className={`${inputCls} min-h-20`} value={o.remixDescription || ''} maxLength={2000}
                   placeholder="Describe the parts, geometry, sizing, or print setup you changed."
                   onChange={(e) => onUpdate('remixDescription', e.target.value)} />
@@ -14063,33 +17134,33 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
             </div>
         )}
       </MwSection>
-      <MwSection title={isLC ? 'Linked 3D model' : 'Linked Laser & Cut model'} hint="optional" badge={o.relatedModel ? '1' : 0}>
-        <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}</div>
+      <MwSection title={isLC ? 'Linked 3D model' : 'Linked Laser & Cut model'} hint="optional" badge={o.relatedModel ? '1' : 0} onClear={() => onUpdate('relatedModel', null)}>
+        <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>{isLC ? 'Link a published 3D model that pairs with this Laser & Cut design.' : 'Link a published Laser & Cut model that pairs with this 3D model.'}</div>
         <MwRelatedSearch cookie={cookie} type={isLC ? 0 : 1} selected={o.relatedModel} onSelect={(v) => onUpdate('relatedModel', v)} label={isLC ? 'Search your 3D models…' : 'Search your Laser & Cut models…'} />
       </MwSection>
       {cyberBrickPath && uploadCapabilities.data?.rcUpload === false && (
-        <div className="text-[11px] p-2 mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.10)', color: 'rgba(38,42,35,0.7)' }}>
+        <div className="text-[11px] p-2 mp-card" style={{ backgroundColor: 'rgba(255,182,39,0.10)', color: 'var(--ink-a70)' }}>
           CyberBrick upload is not enabled for this MakerWorld account.
         </div>
       )}
       {cyberBrickPath && uploadCapabilities.data?.rcUpload !== false && (
-        <MwSection title="CyberBrick" hint="optional RC model" badge={o.cyberBrick ? cyberFiles.controlConfigs.length : 0}>
+        <MwSection title="CyberBrick" hint="optional RC model" badge={o.cyberBrick ? cyberFiles.controlConfigs.length : 0} onClear={() => onUpdate('cyberBrick', false)}>
           <label className="flex items-start gap-2 text-xs">
             <input type="checkbox" className="mt-0.5" checked={!!o.cyberBrick} onChange={(e) => onUpdate('cyberBrick', e.target.checked)} />
             <span>This model uses CyberBrick control files.</span>
           </label>
           {o.cyberBrick && (
             <div className="space-y-2">
-              <label className="text-xs space-y-1 block"><span>Control configuration JSONs (required) · {cyberFiles.controlConfigs.length}</span>
+              <label className="block text-xs"><FieldCaption>Control configuration JSONs (required) · {cyberFiles.controlConfigs.length}</FieldCaption>
                 <input type="file" multiple accept=".json,application/json" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('controlConfigs', e.target.files)} />
               </label>
-              <label className="text-xs space-y-1 block"><span>Motion configuration JSONs (optional) · {cyberFiles.motionConfigs.length}</span>
+              <label className="block text-xs"><FieldCaption>Motion configuration JSONs (optional) · {cyberFiles.motionConfigs.length}</FieldCaption>
                 <input type="file" multiple accept=".json,application/json" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('motionConfigs', e.target.files)} />
               </label>
-              <label className="text-xs space-y-1 block"><span>Main controller JSON (optional)</span>
+              <label className="block text-xs"><FieldCaption>Main controller JSON (optional)</FieldCaption>
                 <input type="file" accept=".json,application/json" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('mainControlConfig', e.target.files)} />
               </label>
-              <label className="text-xs space-y-1 block"><span>MicroPython files (optional) · {cyberFiles.microPython.length}</span>
+              <label className="block text-xs"><FieldCaption>MicroPython files (optional) · {cyberFiles.microPython.length}</FieldCaption>
                 <input type="file" multiple accept=".py,.mpy" className="text-[11px] w-full" onChange={(e) => setCyberRuntimeFiles('microPython', e.target.files)} />
               </label>
             </div>
@@ -14097,26 +17168,26 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         </MwSection>
       )}
       {cyberBrickPath && uploadCapabilities.error && (
-        <div className="text-[11px]" style={{ color: '#B91C1C' }}>CyberBrick eligibility could not be verified: {uploadCapabilities.error}</div>
+        <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>CyberBrick eligibility could not be verified: {uploadCapabilities.error}</div>
       )}
       {!isLC && (
-        <MwSection title="Bill of Materials" hint="kits · filaments · materials" badge={bomCount + otherParts.length || 0}>
-          <div className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>Pick Maker's Supply catalog items, enter a Product ID, or list free-text parts.</div>
+        <MwSection title="Bill of Materials" hint="kits · filaments · materials" badge={bomCount + otherParts.length || 0} onClear={() => onUpdate({ boms: { kits: [], filaments: [], materials: [] }, otherParts: [] })}>
+          <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>Pick Maker's Supply catalog items, enter a Product ID, or list free-text parts.</div>
           {!catalog ? (
-            <button onClick={ensureCatalog} className="mp-btn text-[11px] py-1.5 px-3">Load BOM catalog</button>
+            <button onClick={ensureCatalog} className="mp-btn mp-btn-ghost text-xs">Load BOM catalog</button>
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <input className="mp-card text-xs p-1.5 flex-1" placeholder="Product ID (e.g. B-ZH113)" value={skuInput}
+                <input className="mp-input-sm flex-1" placeholder="Product ID (e.g. B-ZH113)" value={skuInput}
                   onChange={(e) => setSkuInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addBySku(); } }} />
                 <button onClick={addBySku} disabled={!skuInput.trim()} className="mp-btn text-[11px] py-1.5 px-3 disabled:opacity-40">Add by ID</button>
               </div>
               {[['kits', 'Kits & Parts'], ['filaments', 'Filaments'], ['materials', 'Materials']].map(([kind, lbl]) => (
                 <div key={kind} className="space-y-1.5">
-                  <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>{lbl}</div>
+                  <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'var(--ink-a66)' }}>{lbl}</div>
                   <MwBomPicker roots={catalog[kind]} onAdd={(item) => addBom(kind, item)} />
                   {boms[kind].map((it, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
+                    <div key={i} className="flex items-center gap-2 text-xs mp-card p-1.5" style={{ backgroundColor: 'var(--ink-a04)' }}>
                       {it.image && <img src={it.image} alt="" className="w-6 h-6 object-cover" />}
                       <span className="flex-1 truncate">{it.title} <span className="mp-mono opacity-50">×{it.quantity}</span></span>
                       <button onClick={() => removeBom(kind, i)} className="opacity-50 hover:opacity-100"><X size={13} /></button>
@@ -14125,9 +17196,9 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
                 </div>
               ))}
               <div className="space-y-1.5">
-                <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'rgba(38,42,35,0.66)' }}>Other parts (free text)</div>
+                <div className="mp-mono text-[11px] uppercase tracking-[0.12em]" style={{ color: 'var(--ink-a66)' }}>Other parts (free text)</div>
                 {otherParts.map((p, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-xs mp-card p-1.5" style={{ backgroundColor: 'rgba(38,42,35,0.04)' }}>
+                  <div key={i} className="grid grid-cols-[1fr_64px_1fr_auto] items-center gap-1.5 text-xs mp-card p-1.5" style={{ backgroundColor: 'var(--ink-a04)' }}>
                     <input className="mp-input text-[11px]" value={p.name} placeholder="Part name" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, name: e.target.value } : item))} />
                     <input className="mp-input text-[11px]" type="number" min={1} value={p.quantity} onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, quantity: Math.max(1, Number(e.target.value) || 1) } : item))} />
                     <input className="mp-input text-[11px]" value={p.note || ''} placeholder="Note (optional)" onChange={(e) => setOtherParts((items) => items.map((item, index) => index === i ? { ...item, note: e.target.value } : item))} />
@@ -14138,24 +17209,24 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
               </div>
             </>
           )}
-          {catalogErr && <div className="text-[11px]" style={{ color: '#B91C1C' }}>{catalogErr}</div>}
+          {catalogErr && <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>{catalogErr}</div>}
         </MwSection>
       )}
-      <MwSection title="Documentation" hint="assembly guide · other files" badge={docGuides.length + docOthers.length || 0}>
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Assembly guide ({docGuides.length}/25 · pdf/png/jpg/webp/gif · img ≤30MB, pdf ≤50MB)</span>
+      <MwSection title="Documentation" hint="assembly guide · other files" badge={docGuides.length + docOthers.length || 0} onClear={() => { setGuides([]); setOthers([]); }}>
+        <label className="block text-xs"><FieldCaption>Assembly guide ({docGuides.length}/25 · pdf/png/jpg/webp/gif · img ≤30MB, pdf ≤50MB)</FieldCaption>
           <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif" className="text-[11px] w-full" onChange={(e) => setGuides(e.target.files || [])} />
         </label>
         {docGuides.length > 0 && <div className="text-[11px] opacity-60">{docGuides.map(f => f.name).join(', ')}</div>}
-        <label className="text-xs space-y-1 block"><span style={{ color: 'rgba(38,42,35,0.66)' }}>Other files ({docOthers.length}/10 · txt ≤2MB, pdf ≤50MB, zip ≤100MB)</span>
+        <label className="block text-xs"><FieldCaption>Other files ({docOthers.length}/10 · txt ≤2MB, pdf ≤50MB, zip ≤100MB)</FieldCaption>
           <input type="file" multiple accept=".txt,.pdf,.zip" className="text-[11px] w-full" onChange={(e) => setOthers(e.target.files || [])} />
         </label>
         {docOthers.length > 0 && <div className="text-[11px] opacity-60">{docOthers.map(f => f.name).join(', ')}</div>}
-        {docNotice && <div className="text-[11px]" style={{ color: '#c83f10' }}>{docNotice}</div>}
+        {docNotice && <div className="text-[11px]" style={{ color: 'var(--accent-warm-text)' }}>{docNotice}</div>}
         <div className="text-[11px] opacity-70">Docs are kept for this session (not saved with the project).</div>
       </MwSection>
       {!isLC && (
         <div className="space-y-1.5">
-          <label className="flex items-start gap-2 text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>
+          <label className="flex items-start gap-2 text-xs" style={{ color: 'var(--ink-a70)' }}>
             <input type="checkbox" disabled={o.modelSource === 'remix'} checked={!!o.exclusive}
               onChange={(e) => onUpdate({ exclusive: e.target.checked, exclusiveTermsAccepted: false })} className="mt-0.5" />
             <span>Join the <strong>Exclusive Model Program</strong> for this model.{o.modelSource === 'remix' ? ' Remixes are not eligible.' : ''}</span>
@@ -14169,16 +17240,16 @@ export function MakerWorldOptions({ opts, project, onUpdate }) {
         </div>
       )}
       {!isLC && (
-        <label className="flex items-center gap-2 text-xs" style={{ color: 'rgba(38,42,35,0.7)' }}>
+        <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--ink-a70)' }}>
           <input type="checkbox" checked={!!o.communityPost} onChange={(e) => onUpdate('communityPost', e.target.checked)} /> Also create a community post
         </label>
       )}
       {isLC && (
-        <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(255,105,0,0.06)', color: 'rgba(38,42,35,0.7)' }}>
+        <div className="text-xs p-2 mp-card" style={{ backgroundColor: 'rgba(255,105,0,0.06)', color: 'var(--ink-a70)' }}>
           Laser &amp; Cut accepts <span className="mp-mono">{MAKERWORLD_LASER_FORMATS.map((format) => `.${format}`).join(' ')}</span>. Bambu Suite .lac mode also creates a Laser &amp; Cut print profile; raw .lac files remain source files.
         </div>
       )}
-      {!cookie && <div className="text-[11px]" style={{ color: '#B23A1A' }}>Connect MakerWorld in Settings → Accounts to search for remix/linked models.</div>}
+      {!cookie && <div className="text-[11px]" style={{ color: 'var(--accent-warm-text)' }}>Connect MakerWorld in Settings → Accounts to search for remix/linked models.</div>}
     </div>
   );
 }
@@ -14250,7 +17321,7 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
   }, [image, cover, preserveOriginal]);
   return (
     <div className="relative group" role="img" aria-label={preserveOriginal ? `${image?.alt || 'Project image'} kept at original aspect` : `${image?.alt || 'Project image'} cropped for ${cover.label}, ${cover.w} by ${cover.h} pixels`}>
-      <div className="overflow-hidden" style={{ backgroundColor: '#262A23' }}>
+      <div className="overflow-hidden" style={{ backgroundColor: 'var(--canvas)' }}>
         {preserveOriginal
           ? <img src={image.dataUrl} alt="" className="w-full max-h-96 object-contain" />
           : <canvas ref={canvasRef} className="w-full block" />}
@@ -14261,8 +17332,8 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
       {!hideDownload && (
         <button
           onClick={onDownload}
-          className="absolute bottom-2 right-2 mp-mono text-xs uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition hover:bg-[#5A7430]"
-          style={{ backgroundColor: '#262A23', color: '#fff' }}
+          className="absolute bottom-2 right-2 mp-mono text-xs uppercase tracking-[0.2em] py-1.5 px-2 flex items-center gap-1.5 transition hover:bg-[var(--primary)]"
+          style={{ backgroundColor: 'var(--canvas)', color: '#fff' }}
         >
           <Download size={11} /> JPG
         </button>
@@ -14273,7 +17344,7 @@ function CoverPreview({ image, cover, onDownload, hideDownload }) {
 
 function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
   return (
-    <div className="relative group aspect-square overflow-hidden" style={{ backgroundColor: '#262A23' }}>
+    <div className="relative group aspect-square overflow-hidden" style={{ backgroundColor: 'var(--canvas)' }}>
       <img
         src={image.dataUrl}
         alt={image.alt || 'Project gallery image'}
@@ -14285,8 +17356,8 @@ function GalleryThumb({ image, mainCover, onDownload, hideDownload }) {
           onClick={onDownload}
           aria-label="Download this image as JPG"
           title="Download JPG"
-          className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[#5A7430]"
-          style={{ backgroundColor: 'rgba(38,42,35,0.85)', color: '#fff' }}
+          className="absolute bottom-1 right-1 p-1.5 flex items-center justify-center transition hover:bg-[var(--primary)]"
+          style={{ backgroundColor: 'var(--ink-a85)', color: '#fff' }}
         >
           <Download size={14} />
         </button>
@@ -14304,14 +17375,14 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
   const [open, setOpen] = useState(false);
   const galleryImgs = project.images.filter(i => i.id !== project.coverImageId).slice(0, galleryCapacity(platform));
   const descHtml = mdToHtml(project.description || '');
-  const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: '#5A7430' }}>{label}</button>;
-  const lbl = (t) => <span className="text-[11px]" style={{ color: 'rgba(38,42,35,0.66)' }}>{t}</span>;
+  const Edit = ({ to, label = 'edit' }) => <button onClick={() => setCurrentSection?.(to)} className="mp-mono text-[11px] underline" style={{ color: 'var(--primary)' }}>{label}</button>;
+  const lbl = (t) => <span className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>{t}</span>;
   return (
-    <div className="mp-card" style={{ backgroundColor: 'rgba(38,42,35,0.02)' }}>
+    <div className="mp-card" style={{ backgroundColor: 'var(--ink-a02)' }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 p-2.5 text-left">
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span className="text-[13px] font-medium" style={{ color: '#262A23' }}>Preview listing</span>
-        <span className="text-[11px] ml-auto truncate" style={{ color: 'rgba(38,42,35,0.66)', maxWidth: '55%' }}>{project.title || '(no title)'} · {project.images.length} img · {project.tags.length} tags</span>
+        <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>Preview listing</span>
+        <span className="text-[11px] ml-auto truncate" style={{ color: 'var(--ink-a66)', maxWidth: '55%' }}>{project.title || '(no title)'} · {project.images.length} img · {project.tags.length} tags</span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-3">
@@ -14325,7 +17396,7 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
                 {platform.covers.map(c => <CoverPreview key={c.id} image={cover} cover={c} hideDownload />)}
               </div>
             </div>
-          ) : <div className="text-[11px]" style={{ color: '#B23A1A' }}>No cover image: <Edit to="images" label="add one in Images" />.</div>}
+          ) : <div className="text-[11px]" style={{ color: 'var(--accent-warm-text)' }}>No cover image: <Edit to="images" label="add one in Images" />.</div>}
 
           <div><div className="flex items-center justify-between mb-1">{lbl('Title')}<Edit to="details" /></div><div className="text-sm font-medium">{project.title || <span style={{ opacity: 0.4 }}>(no title)</span>}</div></div>
 
@@ -14333,9 +17404,9 @@ function PlatformPreview({ platform, project, cover, setCurrentSection }) {
             {/* No inner scrollbar: this is the copy that will be published, so it
                 is shown in full rather than asking the user to scroll a box
                 inside an already-scrolling page. */}
-            <div className="mp-prose text-[13px] mp-card p-2.5" style={{ backgroundColor: '#fff' }} dangerouslySetInnerHTML={{ __html: descHtml || '<span style="opacity:.4">(no description)</span>' }} /></div>
+            <div className="mp-prose text-[13px] mp-card p-2.5" style={{ backgroundColor: 'var(--surface)' }} dangerouslySetInnerHTML={{ __html: descHtml || '<span style="opacity:.4">(no description)</span>' }} /></div>
 
-          <div><div className="flex items-center justify-between mb-1">{lbl(`Tags · ${project.tags.length}`)}<Edit to="details" /></div><div className="text-xs" style={{ color: 'rgba(38,42,35,0.8)' }}>{project.tags.join(', ') || <span style={{ opacity: 0.4 }}>(none)</span>}</div></div>
+          <div><div className="flex items-center justify-between mb-1">{lbl(`Tags · ${project.tags.length}`)}<Edit to="details" /></div><div className="text-xs" style={{ color: 'var(--ink-a80)' }}>{project.tags.join(', ') || <span style={{ opacity: 0.4 }}>(none)</span>}</div></div>
 
           {galleryImgs.length > 0 && (
             <div><div className="flex items-center justify-between mb-1">{lbl(`Gallery · ${galleryImgs.length} (cover shown above)`)}<Edit to="images" /></div>
@@ -14361,8 +17432,10 @@ function SectionHeader({ number, title, subtitle, actions }) {
     <div data-testid="section-header" className="pb-4 sm:pb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
       <span className="sr-only">Step {Number(number)}</span>
       <div className="flex flex-col gap-1 min-w-0">
-        <h2 className="mp-display text-[22px] sm:text-[26px]" style={{ color: '#262A23' }}>{title}</h2>
-        <p className="mp-body w-full text-sm leading-5 max-w-xl" style={{ color: 'var(--ink-65)' }}>{subtitle}</p>
+        <h2 className="mp-display text-[22px] sm:text-[26px]" style={{ color: 'var(--ink)' }}>{title}</h2>
+        {/* One line on any desktop width. 72ch at 14px was 550px, narrower than the
+            576px it replaced, and every step's subtitle is one sentence. */}
+        <p className="mp-body w-full text-sm leading-5 max-w-[960px]" style={{ color: 'var(--ink-65)' }}>{subtitle}</p>
       </div>
       {actions && <div className="flex items-center gap-2 pt-1 flex-shrink-0">{actions}</div>}
     </div>
@@ -14381,7 +17454,7 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
         // on the same line and meet the rail's divider at one point instead of
         // stepping past each other.
         className="sticky bottom-0 z-[15] mt-auto -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 h-16 border-t flex items-center justify-between gap-4"
-        style={{ borderColor: 'var(--border)', backgroundColor: 'rgba(255,255,255,0.94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-a94)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
       >
         <div>
           {backLabel && (
@@ -14392,7 +17465,7 @@ function SectionNav({ backLabel, nextLabel, nextDisabled, onBack, onNext, disabl
         </div>
         <div className="flex items-center gap-3 justify-end text-right">
           {nextLabel && nextDisabled && disabledReason && (
-            <span className="hidden sm:block mp-body text-[13px] leading-snug" style={{ color: 'rgba(38,42,35,0.66)' }}>{disabledReason}</span>
+            <span className="hidden sm:block mp-body text-[13px] leading-snug" style={{ color: 'var(--ink-a66)' }}>{disabledReason}</span>
           )}
           {nextLabel && (
             <button onClick={onNext} disabled={nextDisabled} className="mp-btn flex-shrink-0">

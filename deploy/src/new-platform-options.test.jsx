@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { chooseOption, expectFieldValue } from './select-harness.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -173,6 +173,9 @@ describe('new direct-platform option parity', () => {
       opts={{ excludedFileIds: [] }}
       onUpdate={onUpdate}
     />);
+    // Collapsed by default; the summary line stands in for the rows.
+    expect(screen.getByText(/2 files · all automatic/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
     expect(screen.getByText('Elegoo Slicer')).toBeInTheDocument();
     const role = screen.getByLabelText('dragon-E.3mf role for Creality Cloud');
     expectFieldValue(role, 'model');

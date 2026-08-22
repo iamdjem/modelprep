@@ -86,9 +86,7 @@ describe('Details step gate', () => {
   it('continues on a title alone', async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
     expect(screen.getByRole('button', { name: /continue to images/i })).toBeEnabled();
   });
@@ -162,7 +160,7 @@ describe('empty projects', () => {
   it('says one thing instead of ten platforms worth of alarms', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
     expect(screen.getByText('Add files to get started.')).toBeInTheDocument();
     expect(screen.queryByText(/blocker/i)).toBeNull();
     expect(screen.queryByText(/Destination readiness/i)).toBeNull();
@@ -191,9 +189,7 @@ describe('shared disclosures in Details', () => {
   it('asks the origin, AI and NSFW questions once', async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
 
     expect(screen.getByRole('radio', { name: /my own original model/i })).toBeChecked();
@@ -207,22 +203,21 @@ describe('shared disclosures in Details', () => {
 });
 
 describe('top bar', () => {
-  it('keeps four controls and puts project identity in one menu', async () => {
-    const user = userEvent.setup();
+  it('keeps New project, Try demo and Settings, and no progress chip', () => {
     render(<App />);
 
     const actions = screen.getByTestId('top-header-actions');
-    expect(actions.querySelectorAll('button')).toHaveLength(2); // Settings, Review and publish
+    expect(actions.querySelectorAll('button')).toHaveLength(3); // New project, Try demo, Settings
+    expect(screen.getByRole('button', { name: /try demo/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^templates$/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^new$/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /new project/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^import$/i })).toBeNull();
-    expect(screen.getByText(/0 of 5 steps done/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /review and publish/i })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    for (const item of [/rename project/i, /new project/i, /try demo/i]) {
-      expect(screen.getByRole('menuitem', { name: item })).toBeInTheDocument();
-    }
+    // The project name is back, and this time it is backed by a library.
+    expect(screen.getByRole('button', { name: /project menu/i })).toBeInTheDocument();
+    // Publishing is a sidebar step, not a top-bar action.
+    expect(screen.queryByRole('button', { name: /review and publish/i })).toBeNull();
+    // Progress lives on the sidebar steps, not in a chip up here.
+    expect(screen.queryByText(/steps done/i)).toBeNull();
   });
 
   it('offers the folder import on the Files screen, next to Add files', () => {
@@ -235,8 +230,7 @@ describe('Details layout', () => {
   it('picks a license without moving anything else on the page', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
 
     // One control, grouped by the question creators decide first. The old card
@@ -267,7 +261,7 @@ describe('Details layout', () => {
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
 
     for (const field of ['Title', 'Description (markdown)', 'Category', 'License', 'Tags', 'Origin and disclosures']) {
-      const header = screen.getByText(field, { selector: 'label' }).parentElement;
+      const header = screen.getByText(field, { selector: 'label span' }).closest('label').parentElement;
       expect(header).toHaveClass('flex', 'items-center', 'min-h-[28px]', 'mb-2');
     }
     // The category hint restated the page subtitle and knocked the rail out of
@@ -282,14 +276,15 @@ describe('the listing writer', () => {
     render(<App />);
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
 
-    // Collapsed: one button, and pressing it does not open the panel.
-    expect(screen.getAllByRole('button', { name: /write it/i })).toHaveLength(1);
+    // The writer is a header action, not a banner: one button, and the hint
+    // lives in its popover.
+    expect(screen.getByRole('button', { name: /draft listing/i })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/anything the photos do not show/i)).toBeNull();
 
-    await user.click(screen.getByText(/write the listing for me/i));
+    await user.click(screen.getByRole('button', { name: /draft listing/i }));
+    expect(screen.getByRole('dialog', { name: /draft the listing/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/anything the photos do not show/i)).toBeInTheDocument();
-    // Open: still one, next to the hint field rather than doubled up.
-    expect(screen.getAllByRole('button', { name: /write it/i })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /^draft$/i })).toBeInTheDocument();
   });
 });
 
@@ -331,9 +326,8 @@ describe('connecting one platform', () => {
   it('opens that platform alone, not the top of a list of ten', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
 
     await user.click(await screen.findByRole('button', { name: /connect printables/i }));
     const panel = screen.getByRole('dialog', { name: 'Connect Printables' });
@@ -362,15 +356,6 @@ describe('header and rail', () => {
     expect(rail).toContainElement(screen.getByTestId('modelprep-logo'));
     expect(rail).toContainElement(screen.getByRole('button', { name: /collapse project steps/i }));
 
-    // The project name is a control, not a title with a small chevron, and it
-    // is wide enough that "Untitled Project" is not cropped to "Untitled Pro".
-    const projectMenu = screen.getByRole('button', { name: /project menu/i });
-    expect(projectMenu).toHaveClass('mp-btn', 'mp-btn-ghost', 'max-w-[38ch]');
-    expect(projectMenu).toHaveTextContent('Untitled Project');
-    expect(projectMenu).toHaveAttribute('title', expect.stringMatching(/rename/i));
-
-    await user.click(projectMenu);
-    expect(screen.getAllByRole('menuitem')).toHaveLength(3);
   });
 });
 
@@ -378,8 +363,7 @@ describe('rail continuity', () => {
   it('keeps notices inside the content column so they do not cut the rail', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
 
     // The demo notice used to be a full-width strip between the top bar and
     // the sidebar, which pushed the sidebar down and broke the vertical edge.
@@ -400,7 +384,8 @@ describe('rail continuity', () => {
       expect(headerInner).toHaveClass(cls);
       expect(contentRow).toHaveClass(cls);
     }
-    // Both bottom bars are 64px, so their rules meet the divider at one point.
-    expect(screen.getByTestId('status-bar')).toHaveClass('h-16');
+    // The sidebar footer is gone: it repeated the readiness chip and the
+    // highlighted step.
+    expect(screen.queryByTestId('status-bar')).toBeNull();
   });
 });

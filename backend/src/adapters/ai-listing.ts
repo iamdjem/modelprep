@@ -132,7 +132,7 @@ export async function generateListing(apiKey: string, input: GenerateListingInpu
   content.push({
     type: 'text',
     text: input.hint?.trim()
-      ? `Maker's one-line hint: "${input.hint.trim()}". Write the listing for the model in these photos.`
+      ? (input.hint.includes('\n') ? input.hint.trim() : `Maker's one-line hint: "${input.hint.trim()}". Write the listing for the model in these photos.`)
       : 'Write the listing for the model in these photos.',
   });
 
@@ -178,7 +178,7 @@ export async function generateListingOpenAICompat(opts: {
   userContent.push({
     type: 'text',
     text: input.hint?.trim()
-      ? `Maker's one-line hint: "${input.hint.trim()}". Write the listing for the model in these photos.`
+      ? (input.hint.includes('\n') ? input.hint.trim() : `Maker's one-line hint: "${input.hint.trim()}". Write the listing for the model in these photos.`)
       : 'Write the listing for the model in these photos.',
   });
 

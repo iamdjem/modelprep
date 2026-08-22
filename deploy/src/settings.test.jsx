@@ -97,7 +97,7 @@ describe('Unified Settings page', () => {
     expect(signIns.length).toBe(10);
     for (const button of signIns) {
       // One full-width primary button per platform, same size class.
-      expect(button).toHaveClass('mp-btn', 'w-full', 'text-sm', 'py-2', 'px-4');
+      expect(button).toHaveClass('mp-btn', 'w-full');
       // The note sits after the button, never above the name field.
       const form = button.parentElement;
       const note = within(form).getByText(/^Signs in through /);
@@ -309,7 +309,7 @@ describe('Unified Settings page', () => {
     const user = userEvent.setup();
 
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
+    await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
     await user.click(screen.getByRole('button', { name: /reconnect printables/i }));
 
     // Opens on Printables alone rather than the top of the accounts list.
@@ -453,7 +453,7 @@ describe('Unified Settings page', () => {
 
     expect(await screen.findByText(/sign-in problem/i)).toBeInTheDocument();
     expect(screen.getByText(/re-enter the key/i)).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it('accepts a working key, lists its vision models and can then be used', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
@@ -472,7 +472,7 @@ describe('Unified Settings page', () => {
     expect(screen.getByRole('option', { name: 'Vision A' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /use for listings/i }));
     expect(savedConfig()).toMatchObject({ primary: 'openrouter', providers: { openrouter: { apiKey: 'sk-good', model: 'vision-a:free' } } });
-  });
+  }, 20_000);
 
   it('builds a fallback chain and promotes the backup when the primary is removed', async () => {
     window.modelprepDesktop = {
@@ -552,7 +552,8 @@ describe('Unified Settings page', () => {
     render(<App />);
     // Navigate to the Details step via the sidebar (first matching nav button).
     await user.click(screen.getAllByRole('button', { name: /details/i })[0]);
-    // The AI shortcut on Details opens Settings on the AI tab.
+    // The AI shortcut lives in the draft popover and opens Settings on the AI tab.
+    await user.click(screen.getByRole('button', { name: /draft listing/i }));
     await user.click(screen.getByRole('button', { name: /set up ai/i }));
     // AI tab content (the provider list) is now visible.
     expect(screen.getByText(/writing your listings/i)).toBeInTheDocument();

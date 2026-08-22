@@ -151,12 +151,9 @@ describe('one-click multi-platform publishing', () => {
     window.modelprepDesktop = { isDesktop: true, captureResourceTelemetry };
     render(<App />);
 
-    // Try demo lives in the project-name menu now.
 
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
 
     await waitFor(() => expect(captureResourceTelemetry).toHaveBeenCalled());
     expect(captureResourceTelemetry.mock.calls[0][0]).toEqual({
@@ -186,10 +183,8 @@ describe('one-click multi-platform publishing', () => {
     }]));
 
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
 
     expect(await screen.findByText(/latest retained resource report/i)).toHaveTextContent('1 sample');
     expect(screen.getByRole('button', { name: /download resource report/i })).toBeEnabled();
@@ -202,12 +197,9 @@ describe('one-click multi-platform publishing', () => {
     for (const platform of CONNECTABLE) addAccount(platform, { label: `${platform} test`, secret: `test-${platform}`, status: 'connected' });
     render(<App />);
 
-    // Try demo lives in the project-name menu now.
 
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    const publishNav = screen.getByRole('button', { name: /step 6: publish/i });
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    const publishNav = screen.getByRole('button', { name: /step 5: publish/i });
     await user.click(publishNav);
 
     const publishAll = await screen.findByRole('button', {
@@ -233,12 +225,9 @@ describe('one-click multi-platform publishing', () => {
     addAccount('makerworld', { label: 'MakerWorld test', secret: 'test-makerworld', status: 'connected' });
     render(<App />);
 
-    // Try demo lives in the project-name menu now.
 
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
     expect(await screen.findByRole('button', { name: /upload sample to 1 ready platform/i })).toBeEnabled();
     // The destination row is the single status surface now: Printables carries
     // its own "will skip" pill and its own Connect action.
@@ -254,12 +243,9 @@ describe('one-click multi-platform publishing', () => {
     window.modelprepDesktop = { isDesktop: true };
     render(<App />);
 
-    // Try demo lives in the project-name menu now.
 
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 6: publish/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
     await user.click(await screen.findByRole('button', { name: /reconnect printables/i }));
 
     // Straight to Printables, not the top of a list of ten sign-ins.

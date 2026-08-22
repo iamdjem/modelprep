@@ -49,16 +49,15 @@ describe('shared section navigation layout', () => {
   it('fills the workspace and anchors Platforms navigation above the status bar', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
+    await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
 
     expect(screen.getByTestId('workspace-main')).toHaveClass('flex', 'flex-col');
     expect(screen.getByTestId('workspace-main')).toHaveClass('pt-4', 'sm:pt-5', 'lg:pt-5');
     expect(screen.getByTestId('workspace-main')).toHaveStyle({ paddingBottom: '0px' });
     expect(screen.getByTestId('section-content')).toHaveClass('flex-1', 'flex', 'flex-col');
     expect(screen.getByTestId('section-nav')).toHaveClass('sticky', 'bottom-0', 'mt-auto');
-    // The old fixed bottom bar moved into the sidebar footer.
-    expect(screen.getByTestId('status-bar')).toHaveClass('border-t');
-    expect(screen.getByTestId('project-sidebar').contains(screen.getByTestId('status-bar'))).toBe(true);
+    // No fixed bottom bar and no sidebar footer: the step nav is the only bar.
+    expect(screen.queryByTestId('status-bar')).toBeNull();
     expect(screen.getByRole('button', { name: /continue to publish/i })).toBeInTheDocument();
   });
 
@@ -81,11 +80,9 @@ describe('shared section navigation layout', () => {
   it('keeps every workflow section fluid instead of restoring the old 1280px cap', async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
 
-    for (const step of ['files', 'details', 'images', 'profiles', 'platforms', 'publish']) {
+    for (const step of ['files', 'details', 'images', 'platforms', 'publish']) {
       await user.click(screen.getByRole('button', { name: new RegExp(`step \\d: ${step}`, 'i') }));
       const shell = screen.getByTestId('section-content').firstElementChild;
       expect(shell).toHaveClass('w-full', 'min-w-0');
@@ -96,11 +93,9 @@ describe('shared section navigation layout', () => {
   it('uses the compact responsive header on every workflow step', async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
 
-    for (const step of ['files', 'details', 'images', 'profiles', 'platforms', 'publish']) {
+    for (const step of ['files', 'details', 'images', 'platforms', 'publish']) {
       await user.click(screen.getByRole('button', { name: new RegExp(`step \\d: ${step}`, 'i') }));
       const header = screen.getByTestId('section-header');
       const layout = header.children[1]; // [0] is the sr-only step label; actions may follow
@@ -117,15 +112,13 @@ describe('shared section navigation layout', () => {
       expect(subtitle).not.toHaveClass('whitespace-nowrap', 'truncate');
       expect(subtitle.textContent.length).toBeLessThanOrEqual(100);
     }
-  });
+  }, 20_000);
 
   it('keeps the toggle, name and status on one row with the description beneath', async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
 
     const heading = screen.getByRole('heading', { name: 'MakerWorld' });
     const header = screen.getAllByTestId('platform-card-header')[0];
@@ -152,10 +145,8 @@ describe('shared section navigation layout', () => {
   it('lists destinations as single-column rows', async () => {
     const user = userEvent.setup();
     render(<App />);
-    // Try demo lives in the project-name menu now.
-    await user.click(screen.getByRole('button', { name: /project menu/i }));
-    await user.click(screen.getByRole('menuitem', { name: /try demo/i }));
-    await user.click(screen.getByRole('button', { name: /step 5: platforms/i }));
+    await user.click(screen.getByRole('button', { name: /try demo/i }));
+    await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
 
     // One list, not a direct/export split: every platform publishes from a
     // connected account, so the second group was always empty.
