@@ -43,8 +43,10 @@ the mapping rather than inventing a parallel one.
 
 The wizard sidebar ("phase 01 of 04") became a plain project sidebar. What shipped:
 
-- Six rows, named for what they hold: Files, Details, Images, Profiles, Platforms,
-  Publish. Each carries live status at the right edge (file count, checkmark, 6/10)
+- Five rows, named for what they hold: Files, Details, Images, Platforms, Publish.
+  Profiles was a sixth until 2026-08-21; every field on it was MakerWorld's (profile
+  visibility, its real-print photo rule, the Bambu printer list, its guidelines), so it
+  is now the first subsection of the MakerWorld panel, open by default. Each carries live status at the right edge (file count, checkmark, 6/10)
   instead of a step number, so it reads as a checklist you can enter in any order.
 - Settings is a panel on the right edge rather than a modal, and a "Connect X" button
   opens that one platform rather than the whole list.
@@ -188,3 +190,69 @@ by who started the work, and so do we. `LoadingButton`, `Spinner`, `Skeleton` an
   nothing uploads while a publish-time confirmation is outstanding.
 - Straight quotes, sentence case, no em dashes, in interface copy as much as in prose.
   Name the screen a user can see, never "step 03".
+
+
+## Dark mode
+
+Two palettes, one token set. Light is the `:root` block; dark is `:root[data-theme="dark"]`
+and the `prefers-color-scheme: dark` fallback. Never write a colour literal in a component:
+ink alphas are `--ink-aNN`, brand alphas `--primary-aNN`, white overlays `--surface-aNN`,
+meaning colours `--danger-text`, `--success-text`, `--warn-text`, `--info-text`. Text on a
+primary button is `--on-primary`. The exceptions stay: platform brand dots and colours
+inside the 3D canvas. Appearance is its own Settings tab (Mode, Dark palette, Accent); "System" follows macOS.
+
+
+## Side panels
+
+One width for every side panel, and it follows the window: `clamp(480px, 44vw, 800px)`
+(`.mp-panel`). A 1400px laptop gets 616px, a 2000px display 800px, a phone the whole
+width. Content should sit on one line at that width; if a label wraps, the content
+belongs in the page, not in a wider panel.
+
+
+## Type and controls, measured (2026-08-21 walkthrough)
+
+A screen-by-screen pass with computed styles, not screenshots, found the scale was
+off at the root: `.mp-btn` was 0.9rem/38px, `.mp-input` 0.9rem/40px, `.mp-input-sm`
+0.85rem/34px and panels 0.95rem, so the page showed 14.4px, 13.6px and 15.2px text
+and a 40px select beside a 34px one. The rules now, all in `GlobalStyles`:
+
+- **Controls.** `.mp-btn` and `.mp-input` are 34px and 14px. `.mp-btn-sm` and
+  `.mp-input-sm` are 28px and 13px. Inside `.mp-platform-panel` every button and
+  text field is the 34px size whatever the call site said, so a search box and its
+  button are one height. Native file inputs draw the ghost button through
+  `::file-selector-button`. Utility classes like `text-xs py-2` on an `.mp-btn` lose
+  on purpose: `GlobalStyles` is injected after Tailwind.
+- **Four levels of type in a panel, and no fifth.** Section title (`SectionTitle`)
+  14px/600 ink with a 14px icon. Subsection title (`MwSection`) 13px/500. Field label
+  (`Label`, `FieldCaption`) 13px/500 with a 13px icon from `FIELD_ICONS`; if a label
+  has no icon while its neighbours do, add a pattern, do not remove the others. Hint
+  12px/400 `--ink-65`. Nothing in a panel is 11px; `.text-[11px]` maps to 12px there.
+- **Option rows.** A `label` that wraps a checkbox or radio is 13px, `--ink`, 8px gap,
+  16px control, wherever it sits (`label:has(> input[type=checkbox])`). Profiles had
+  them at 16, 13 and 12px on one screen.
+- **Segmented, not tabs.** A two-way switch inside a form (MakerWorld's 3D Model /
+  Laser & Cut) is `.mp-segmented` with `aria-pressed`, the same control as Write /
+  Preview.
+- **Over a photo, a fixed scrim.** Captions on thumbnails use `rgba(0,0,0,0.72)` with
+  white text, never `--ink`, which is light in dark mode. The Images step's "Set as
+  cover" was `--ink` behind white text and unreadable in dark mode; it is a primary
+  or ghost `.mp-btn` now.
+- **Pre-ticked consent is not consent.** "I have read the guidelines" is remembered
+  per computer after the first tick; it is never ticked on a fresh install, and a
+  per-model claim ("this photo is a real print") is never remembered.
+
+
+## Platforms: decisions first (2026-08-21)
+
+A platform panel opens on what needs the user and hides what does not:
+
+- **Needs attention** first, as links to the field.
+- **Reference is not a section.** Limits and accepted formats sit inside the header's
+  "Requirements & evidence" disclosure. They were two sections at the top of every
+  panel and nobody fills them in.
+- **A platform's own form is its subsection.** MakerWorld's print profile editor is a
+  `MwSection` inside its panel, not a project step.
+- **Release plans live on Publish**, one collapsed panel with a row per enabled
+  platform (`ReleasePlanPanel`), instead of one control repeated in ten panels.
+  Scheduling is a publishing decision.

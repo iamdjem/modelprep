@@ -249,6 +249,215 @@ Six more changes, all from Alex reviewing the running app.
   hands the lead to the next usable picture, and takes a per-platform cover override.
   Every uploader inherits this through `orderedPlatformImages`.
 
+## 2026-08-21: header, panels and the project library
+
+Alex reviewed the running app again. Uncommitted at the time of writing; run
+`cd deploy && npx vitest run` (581) and `cd desktop && npm test` (245).
+
+- **Top bar** is brand, project menu, New project, Try demo, Settings. "Review
+  and publish" is gone (Publish is a sidebar step), so is the "0 of 5 steps
+  done" chip and the sidebar footer: both repeated the check the sidebar already
+  draws beside each finished step. A collapsed sidebar shows that check as a
+  badge on the icon. The folder-import receipt dialog is gone too.
+- **Platform panels**: MakerWorld used its own `inputCls` on `Select` (double
+  border), muted 12px labels and a search box above a Select that already
+  searches; all normalised to `Label` + bare `Select`. The 44rem readability cap
+  now covers `.mp-select` as well as inputs, and textareas share it, so every
+  single-column control in a panel has the same right edge. Limits stats cluster
+  left instead of spreading across the panel.
+- **Project library** (`lib/project-library.js`, `project-library.test.jsx`).
+  Every project has an `id`; its text lives in localStorage under
+  `modelprep:projects:v1`, its files in IndexedDB under the same id
+  (`storageId`). The single autosave slot is migrated once by
+  `migrateLegacyAutosave` and its restore bar is gone: launch reopens the last
+  open project. New project and folder import create entries instead of wiping.
+  The project menu offers rename, duplicate, recent projects and "All projects…"
+  (a right-edge `ProjectsPanel` with open, duplicate, delete). Names:
+  typed name, else listing title, else "Project 21 Aug 2026". Release plans
+  carry `projectId`; a due scheduled plan for a project that is not open asks
+  ("Open and publish") before switching, because every uploader works on the
+  open project. Background publishing of a non-open project is not built.
+
+- **Platform panels, second pass** (same day). Sections and subsections carry an
+  icon picked from the title (`SECTION_ICONS`, `SectionTitle`, `iconForSection`);
+  common fields carry one picked from the label text (`FIELD_ICONS` in `Label`
+  and `FieldCaption`). "Files and roles" is collapsed to a summary line ("9 files ·
+  2 manual · 1 not accepted") and lists only non-photo files; photos belong to the
+  Images step. "Remember these settings" (`lib/platform-defaults.js`,
+  `PlatformDefaultsRow`) stores a platform's answers minus anything bound to this
+  project (files, pictures, remix sources, contest, price, auto flags) and
+  `freshProject()` applies them; Settings → Defaults lists and forgets them.
+
+- **Required marks and Clear** (same day). `lib/platform-required.js` lists, per
+  platform, label patterns for the fields preflight rejects without; `Label` and
+  `FieldCaption` read the scope from `RequiredCtx` (the platform panel provides its
+  id, Details provides "details") and show a red asterisk titled "Required by X". A
+  literal "(required)" in a label is stripped so it is not said twice. Choices
+  persist in project state; clearing is explicit: `ClearButton` on `SectionTitle`
+  and `MwSection` (Source & remix, Linked model, CyberBrick, BOM, Documentation),
+  "Reset {platform} settings" beside Remember (two presses, four-second arm), and
+  "Clear details" on the Details header (same two-press pattern).
+
+- **Needs attention lines are links** (same day). `lib/issue-targets.js` maps a
+  preflight message to a step, a platform panel and a label pattern; `IssueLink`
+  renders it, `goToIssue` in App switches step (and opens the platform card through
+  `openPlatformId`), then an effect finds the label (`label`, `[data-field-caption]`,
+  `[data-section-title]`), scrolls, focuses the control and flashes it (`.mp-flash`).
+  Account messages open Settings for that platform. The Publish row's "Fix" button
+  uses the same path and its expanded body lists every blocker as a link. New
+  wording falls back to the Platforms step; add a rule when a message gains a
+  field.
+- **Known, not fixed**: MakerWorld's "Model source" select snaps back to Original
+  because shared-defaults writes Details' origin into it on every render. It
+  should either read "Same as Details step" or become a real override like licence.
+
+- **The writer is a header action** (same day). The tinted "Write the listing for
+  me" banner is gone. `DraftListingControl` sits in the Details header beside Clear
+  details: "Draft from photos" (or "Draft listing" without photos), primary while the
+  listing is empty and ghost once there is text, "Drafting…" while busy, with a
+  "Reads your N photos" caption. It opens `DraftPanel`, a right-edge panel
+  (520px) with a full-height hint textarea (Cmd+Enter drafts), the Draft button and
+  a footer that names the provider or links "Set up AI". After a run the panel
+  shows the status and a "Waiting for your say" list of Replace / Keep mine cards
+  with Replace all; the same offers also sit beside the field labels once the panel
+  is closed. `runGenerate` fills
+  only empty fields and flashes them (`mp-flash`); fields that already had text get a
+  `DraftOffer` beside their label with Replace and Keep mine. The status line is a
+  `role="status"` paragraph under the header that clears itself (6s, 12s for a
+  warning).
+
+- **Draft panel, two modes** (same day). The header button reads "Improve listing"
+  once anything is written and "Draft from photos" / "Draft listing" when nothing is.
+  The panel has a segmented switch, "Improve what I wrote" / "Start from a prompt",
+  defaulting to the listing's state. Improve sends `improveBrief()` (existing title,
+  description, tags, the maker's direction) as a multi-line hint; both
+  `aiUserInstruction` and `backend/src/adapters/ai-listing.ts` pass a multi-line hint
+  through as the instruction instead of quoting it as a "one-line hint". Improve with
+  no provider refuses with a message; the offline writer only serves create mode.
+  Tags are merged (yours always survive) and the card says "3 new, 5 kept". Every
+  proposal is editable in its card (input, textarea, comma list for tags) before
+  "Use this" / "Use all"; Replace, Keep mine and Use all all report in the status box.
+  Pinned by `draft-listing.test.jsx`.
+
+- **Dark mode** (same day). Every colour now goes through a token: the 258
+  `rgba(38,42,35,x)` ink literals became `--ink-aNN` steps (NN = alpha × 100),
+  primary and white alphas likewise (`--primary-aNN`, `--surface-aNN`), and the
+  known hex literals became the tokens they mirrored (`--ink`, `--primary`,
+  `--danger-text`, `--success-text`, `--warn-text`, `--api`, plus new `--info-tint`,
+  `--info-text`, `--accent-warm`, `--accent-warm-text`, `--danger`, `--surface-glass`,
+  `--on-primary`). The dark palette lives in `:root[data-theme="dark"]` and under
+  `prefers-color-scheme: dark` for `:root:not([data-theme="light"])`. Preference:
+  `modelprep:theme` (system | light | dark), `applyTheme()` sets `data-theme` on
+  `<html>`, chosen in Settings → Appearance (its own tab: Mode, Dark palette, Accent). Platform brand dots and the
+  3D canvas keep their own colours on purpose. New colours must be tokens.
+  Named dark palettes (`DARK_PALETTES`, `modelprep:palette`, `data-palette` on `<html>`):
+  Graphite (ours), Tokyo Night, Catppuccin Mocha, Nord, Dracula, GitHub Dark, One Dark,
+  VS Code Dark Modern, Telegram Night, Slack Dark, Solarized Dark, Monokai Pro, Gruvbox
+  Dark, Rosé Pine, Ayu Dark, Night Owl. Accents (`ACCENTS`, `modelprep:accent`,
+  `data-accent`): Brand green, Orange, Blue, Purple, Pink, Teal, Amber, Red, each with a
+  light value and a dark value, plus "Theme colour" in dark (each palette's signature,
+  `THEME_ACCENTS`). All blocks are generated from tables in the session script
+  (`scratchpad/themes2.py` at the time); to add a theme or accent, add a row and
+  regenerate, or hand-write the same token list. "System" is resolved by `applyTheme()`
+  with one `matchMedia` listener; there are no `prefers-color-scheme` blocks in the CSS,
+  because emitting every palette twice made the stylesheet 184KB and jsdom-rendered
+  tests time out. Trap: canvas code cannot read CSS variables; `makeSampleImage` and the
+  demo tint tables keep literal colours, and photo wells use `--canvas` (dark in both
+  themes) rather than `--ink`, which is light in dark mode.
+- **Files takes videos** (same day). The Files drop zone accepted photos but refused the
+  clip beside them; `addVideos` in `FilesSection` now routes mp4/mov/webm into
+  `project.media` the way Images does, with a "Video added to Images" notice.
+
+- **Side panel widths** (same day): connect 480px, Projects and draft 640px, Settings
+  720px, all `min(Npx, 90vw)`. Recorded in DESIGN.md.
+
+- **Reconnect false alarms** (2026-08-21, `desktop/`). MyMiniFactory, MakerRoad and Cults
+  showed "Reconnect" at launch while their session cookies (`PHPSESSID`, `X-Token`,
+  `_session_id`) were live for another one to three weeks. `recoverDesktopAccount` trusted
+  only the network identity read, and a launch that gets challenged or rate-limited
+  (this machine relaunched the app eight times that afternoon) returned nothing.
+  `desktop/session-liveness.js` now judges the jar: a live session cookie keeps the account
+  connected (`unverified: true`, label unchanged); only a missing or expired one asks for
+  the sign-in window. A definite rejection by the platform
+  ("Token错误", 401, "unauthorized", "login required": `isDefiniteSignOut`) is recorded by
+  the MMF and MakerRoad validators (`noteAuthFailure`) and overrides the cookie for a
+  minute, so a dead token still asks for sign-in; at the time MakerRoad's token really was
+  rejected while MyMiniFactory only got "Redirect was cancelled". The other validators
+  still swallow errors silently; give them `noteAuthFailure` when their rejection
+  wording is known. Same rule Printables already had. Keep-alive only runs while the
+  app is open; a session can still age out if the app stays closed past the platform's
+  own expiry (MMF and MakerRoad rotate a 7-day cookie, Cults 3 weeks, MakerWorld and
+  Printables hold 30-day refresh tokens).
+- **Side panels** share one adaptive width, `.mp-panel { max-width: clamp(480px, 44vw,
+  800px) }`, replacing the per-panel steps from earlier in the day.
+
+- **Background mode** (2026-08-21, `desktop/background-mode.js`, wired in `main.js`).
+  Sessions live in this app's partitions, so only the app can refresh them; background
+  mode keeps the app resident after the last window closes (menu bar item from
+  `trayTemplate.png`, Dock hidden) and writes a LaunchAgent,
+  `~/Library/LaunchAgents/com.modelprep.desktop.keepalive.plist`, that runs the app
+  with `--hidden` at login (`launchAgentPlist`, rewritten on every start so a moved .app
+  keeps a valid path; packaged builds only). Not Electron's login item: its "open as
+  hidden" flag is ignored on macOS 13+, so the window would open at every login; any
+  legacy login item is removed. Keep-alive runs every 4 h (first pass 60 s after a hidden
+  start, 10 min after a normal one) and 30 s after the Mac wakes (`powerMonitor`).
+  Preference in `background-mode.json` (default on); IPC `background-mode:get/set/refresh`;
+  tray menu: Open, status, Refresh now, the toggle, Quit; `app.isQuitting` separates Quit
+  from closing the window. Settings → Accounts shows the switch, last refresh and Refresh
+  now (`BackgroundKeepAliveSetting`). Turning it off with no window open quits.
+  Found on the way: `main.js` binds `fs` to `node:fs/promises` and `fsSync` to `node:fs`,
+  and eleven sync calls (release plans, the diagnostics log, error log) were on the wrong
+  one and silently never wrote. All moved to `fsSync`.
+
+- **Design polish pass** (2026-08-21, from Alex's screenshots). Profiles runs the
+  width (name beside visibility, cover beside photos, 1600px cap) instead of a 760px
+  column; the unselected profile tab was hard-coded white; compatible printers got
+  Select all, Clear and 13px rows; "I have read the guidelines" is remembered on this
+  computer (`modelprep:ack:makerworld-profile-guidelines`) so the next profile starts
+  ticked (a per-model claim like "real printed photo" is not remembered on purpose).
+  Shared rules: checkboxes and radios 16px in the brand colour; file inputs draw the
+  ghost button through `::file-selector-button`; every `.mp-btn` in a platform panel is
+  the 34px small size. Related-model search and BOM inputs use `mp-input-sm` and ghost
+  buttons. The Files role column is a fixed 16rem with both selects full width. The
+  project-name button truncates at `min(72ch, 44vw)` instead of 38ch.
+
+- **Screen-by-screen walkthrough** (2026-08-21, evening, after the polish pass). Every
+  step, the Settings panel and the MakerWorld, Printables, Cults3D, Thangs and
+  Thingiverse panels were measured in the browser (computed heights, font sizes and
+  weights grouped per screen) in light and dark. Root causes and fixes, all in
+  `GlobalStyles` unless named: control scale moved to 34px/14px and 28px/13px (was
+  rem fractions, see DESIGN.md "Type and controls, measured"); platform panels force
+  34px on buttons and text fields; `SectionTitle` is 14/600 ink (was 11px muted
+  uppercase, indistinguishable from a hint); `MwSection` hints 12px, badge uses
+  `--primary-a12` (was an rgba literal), body spacing 12px; option-row labels unified
+  through `label:has(> input[type=checkbox|radio])`; file inputs 34px ghost button;
+  MakerWorld 3D/Laser switch is `.mp-segmented`; Images "Set as cover" is a real
+  `.mp-btn` (its `--ink` fill under white text was the unreadable white button in dark
+  mode); profile photo-picker caption scrim fixed at `rgba(0,0,0,0.72)`; Settings
+  account inputs use `.mp-input` (were 38px cards); `FIELD_ICONS` gained name, tags,
+  photo/cover, category-anywhere and batch-action patterns so neighbouring labels all
+  carry an icon; step subtitles cap at 72ch (Images wrapped one word at 576px); the
+  Cults3D details textarea and the Help problem textarea use `.mp-input`. Still open:
+  "Printables summary (required, 120 characters)" keeps its literal "(required" because
+  `stripRequiredSuffix` only removes a bare "(required)"; Profiles has Select all in
+  the body and Clear in the subsection header, which is consistent with other
+  subsections but reads as two places.
+
+- **Five steps, decision-first panels** (2026-08-21, late). Profiles is no longer a
+  step: `SECTIONS` drops it, `ProfilesSection` takes `embedded` and renders inside
+  `MakerWorldOptions` as the "Print profile" `MwSection` (needs `updateProject`, which
+  `PlatformsSection` passes through `PlatformCard`; tests rendering `MakerWorldOptions`
+  alone get no subsection). Images goes straight to Platforms. `lib/issue-targets.js`
+  points every profile message at the platforms step with `platformPanel`. Limits and
+  Accepted formats moved out of the panel body into the header's "Requirements &
+  evidence" disclosure. `ReleasePlanControls` left `PlatformCard`; `ReleasePlanPanel` on
+  Publish (above the platform rows, `data-testid="release-plan-panel"`) renders one per
+  enabled live platform with the platform name as title. Tests renumbered (Platforms is
+  step 4, Publish step 5). Companion docs: `platform-field-matrix-2026-08-21.md` (what
+  each panel asks, derived / reference / decision / unique) and
+  `research-multi-platform-publishing-2026-08-21.md` (how video, podcast and music
+  distributors handle the same problem).
+
 ## Rules added to DESIGN.md this session
 
 Worth reading before touching layout, because each came from a bug Alex found:
@@ -274,9 +483,8 @@ Worth reading before touching layout, because each came from a bug Alex found:
 
 Nothing is half-done. In rough order of value:
 
-1. **A project library, and duplicating a project.** This is the replacement Templates
-   was traded for (decision 2) and nothing offers it yet. `lib/project-store.js` exists
-   and the UI does not use it.
+1. ~~A project library~~ Built 2026-08-21 (see above). Left: publishing a due project in
+   the background without switching to it, and an export-to-folder for a project.
 2. **Settings → Accounts is 2.2 screens of scrolling** in a 560px panel. Connected
    accounts could collapse to one line each, leaving the sign-in form only for those
    that need it. Related: Help is documentation, not a setting, and is the main reason
