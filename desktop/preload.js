@@ -66,6 +66,11 @@ contextBridge.exposeInMainWorld('modelprepDesktop', {
   // Read-only: when the background session keep-alive last touched each
   // platform and whether the silent refresh succeeded.
   sessionKeepAliveStatus: () => ipcRenderer.invoke('session-keepalive:status'),
+  // Background mode: stay resident after the window closes and start hidden at
+  // login, so the keep-alive keeps every platform signed in.
+  backgroundModeStatus: () => ipcRenderer.invoke('background-mode:get'),
+  setBackgroundMode: (enabled) => ipcRenderer.invoke('background-mode:set', enabled),
+  refreshSessionsNow: () => ipcRenderer.invoke('background-mode:refresh'),
   exportDiagnostics: () => ipcRenderer.invoke('diagnostics:export'),
   reportProblem: (payload) => ipcRenderer.invoke('diagnostics:report-problem', payload),
   // Auto-update (packaged builds): status + a manual check + install-on-restart.

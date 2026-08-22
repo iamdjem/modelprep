@@ -6,7 +6,7 @@
 // Raw cookies remain in the main process and an encrypted safeStorage fallback; the
 // renderer sees only opaque account markers.
 
-const { app, BrowserWindow, dialog, ipcMain, screen, session, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, screen, session, shell, safeStorage, Tray, Menu, nativeImage, powerMonitor } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
@@ -27,6 +27,16 @@ const { CULTS_BASE, createCultsDirectClient } = require('./cults-direct');
 const { createWindowFetch, createCultsFetchRouter, createPacedFetch } = require('./cults-window-fetch');
 const { createReleaseScheduler, hasPendingUnattended, mergeSyncedPlans } = require('./release-scheduler');
 const { createSessionKeepAlive } = require('./session-keepalive');
+const { sessionCookieLiveness, isDefiniteSignOut } = require('./session-liveness');
+const { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, trayMenuModel, launchAgentPlist, LAUNCH_AGENT_LABEL } = require('./background-mode');
+// When a platform itself rejects the session, remember it briefly so the
+// cookie fallback below does not keep an account the platform just refused.
+const definiteSignOutAt = new Map();
+function noteAuthFailure(platform, tag, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isDefiniteSignOut(error)) definiteSignOutAt.set(platform, Date.now());
+  try { console.error(`[${tag}] session check failed:`, message, isDefiniteSignOut(error) ? '(platform rejected the session)' : '(no answer)'); } catch { /* best-effort */ }
+}
 const errorLog = require('./error-log');
 let autoUpdater = null;
 try { ({ autoUpdater } = require('electron-updater')); } catch { /* dev without the dep */ }
@@ -793,7 +803,7 @@ async function validateMyMiniFactoryContext(context) {
     const identity = await myMiniFactoryDirectClient.whoami(context);
     return identity?.username ? identity : null;
   } catch (error) {
-    console.error('[myminifactory-auth] direct whoami failed:', error instanceof Error ? error.message : String(error));
+    noteAuthFailure('mmf', 'myminifactory-auth', error);
     return null;
   }
 }
@@ -838,7 +848,7 @@ async function validateMakerRoadContext(context) {
   if (!context?.cookie) return null;
   try { return await makerRoadDirectClient.whoami(context); }
   catch (error) {
-    console.error('[makeroad-auth] session check failed:', error instanceof Error ? error.message : String(error));
+    noteAuthFailure('makeroad', 'makeroad-auth', error);
     return null;
   }
 }
@@ -1123,7 +1133,9 @@ async function recoverDesktopAccount(platform, accountId = '') {
     try {
       const identity = await cultsDirectClient.connect(null, String(accountId));
       return { ok: true, user: identity, recovered: true };
-    } catch { return { ok: false, needsInteractive: true }; }
+    } catch {
+      return cookieFallback(platform, session.fromPartition(cultsPartition(accountId)));
+    }
   }
   const target = RECOVERY_TARGETS[platform];
   if (!target) return { ok: false, needsInteractive: true, error: 'Unsupported platform.' };
@@ -1132,9 +1144,29 @@ async function recoverDesktopAccount(platform, accountId = '') {
     await warmPersistentSession(target.browserSession(), target.url);
     context = await target.read({ force: true }).catch(() => null);
   }
-  return context
-    ? { ok: true, user: context.identity || null, recovered: true }
-    : { ok: false, needsInteractive: true };
+  if (context) return { ok: true, user: context.identity || null, recovered: true };
+  return cookieFallback(platform, target.browserSession());
+}
+
+// No answer from the platform is not "signed out". A live session cookie in
+// the jar keeps the account connected (unverified, label unchanged); only a
+// missing or expired one sends the user back to the sign-in window. Printables
+// got this rule first; see session-liveness.js for why.
+async function cookieFallback(platform, browserSession) {
+  const rejectedAt = definiteSignOutAt.get(platform) || 0;
+  if (Date.now() - rejectedAt < 60_000) {
+    try { console.log(`[recover] ${platform}: the platform rejected the session; asking to sign in`); } catch { /* best-effort */ }
+    return { ok: false, needsInteractive: true };
+  }
+  try {
+    const cookies = await browserSession.cookies.get({});
+    const liveness = sessionCookieLiveness(cookies, platform);
+    if (liveness.alive) {
+      try { console.log(`[recover] ${platform}: no identity answer, ${liveness.cookie} still live; keeping the session`); } catch { /* best-effort */ }
+      return { ok: true, user: null, recovered: true, unverified: true, cookie: liveness.cookie, expiresAt: liveness.expiresAt };
+    }
+  } catch { /* cannot read the jar: fall through */ }
+  return { ok: false, needsInteractive: true };
 }
 
 function createMainWindow() {
@@ -2181,13 +2213,14 @@ let mainWindow = null;
 // and keep firing reminders / unattended publishes after the window is gone.
 function releasePlansPath() { return path.join(app.getPath('userData'), 'release-plans.json'); }
 function readMainReleasePlans() {
-  try { const raw = fs.readFileSync(releasePlansPath(), 'utf8'); const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : []; }
+  try { const raw = fsSync.readFileSync(releasePlansPath(), 'utf8'); const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : []; }
   catch { return []; }
 }
 function writeMainReleasePlans(plans) {
-  try { fs.writeFileSync(releasePlansPath(), JSON.stringify(plans), { mode: 0o600 }); } catch { /* best effort */ }
+  try { fsSync.writeFileSync(releasePlansPath(), JSON.stringify(plans), { mode: 0o600 }); } catch { /* best effort */ }
 }
 function showMainWindow() {
+  if (process.platform === 'darwin') { try { app.dock.show(); } catch { /* no dock */ } }
   if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createMainWindow();
   else { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
   return mainWindow;
@@ -2247,12 +2280,115 @@ async function hasStoredSessionMaterial(platform) {
     return cookies.length > 0;
   } catch { return false; }
 }
+// --- Background mode (stay signed in while the window is closed) -----------
+function backgroundPrefsPath() { return path.join(app.getPath('userData'), 'background-mode.json'); }
+function readBackgroundPrefsFile() {
+  try { return readBackgroundPrefs(fsSync.readFileSync(backgroundPrefsPath(), 'utf8')); } catch { return readBackgroundPrefs(null); }
+}
+function writeBackgroundPrefsFile(prefs) {
+  try { fsSync.writeFileSync(backgroundPrefsPath(), JSON.stringify(prefs), { mode: 0o600 }); } catch { /* best effort */ }
+}
+let backgroundPrefs = readBackgroundPrefs(null);
+const startedHidden = { value: false };
+
 const sessionKeepAlive = createSessionKeepAlive({
   platforms: SESSION_KEEPALIVE_PLATFORMS,
   hasSession: hasStoredSessionMaterial,
   refresh: async (platform) => (await recoverDesktopAccount(platform))?.ok === true,
-  log: (line) => { try { console.log(line); } catch { /* logging is best-effort */ } },
+  // Cadence is decided at start() from the prefs; see applyKeepAliveSchedule.
+  ...keepAliveSchedule({ enabled: true, hidden: false }),
+  log: (line) => { try { console.log(line); refreshTrayMenu(); } catch { /* logging is best-effort */ } },
 });
+
+let tray = null;
+let keepAliveRunning = false;
+function trayIcon() {
+  const file = path.join(__dirname, 'trayTemplate.png');
+  const image = nativeImage.createFromPath(file);
+  image.setTemplateImage(true);
+  return image;
+}
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed?.()) return;
+  const model = trayMenuModel({ results: sessionKeepAlive.lastResults, enabled: backgroundPrefs.enabled, running: keepAliveRunning });
+  const menu = Menu.buildFromTemplate(model.map((item) => {
+    if (item.type === 'separator') return { type: 'separator' };
+    const base = { label: item.label, enabled: item.enabled !== false };
+    if (item.id === 'open') return { ...base, click: () => showMainWindow() };
+    if (item.id === 'refresh') return { ...base, click: () => runKeepAliveNow() };
+    if (item.id === 'toggle') return { ...base, type: 'checkbox', checked: item.checked, click: (menuItem) => setBackgroundMode(menuItem.checked) };
+    if (item.id === 'quit') return { ...base, click: () => { app.isQuitting = true; app.quit(); } };
+    return base;
+  }));
+  tray.setContextMenu(menu);
+  tray.setToolTip('ModelPrep: keeping your sign-ins alive');
+}
+function ensureTray() {
+  if (tray) return tray;
+  try {
+    tray = new Tray(trayIcon());
+    tray.on('click', () => showMainWindow());
+    refreshTrayMenu();
+  } catch (error) {
+    try { console.error('[background] tray failed:', error && error.message); } catch { /* ignore */ }
+    tray = null;
+  }
+  return tray;
+}
+function destroyTray() {
+  if (tray && !tray.isDestroyed?.()) tray.destroy();
+  tray = null;
+}
+async function runKeepAliveNow() {
+  keepAliveRunning = true; refreshTrayMenu();
+  try { await sessionKeepAlive.tick(); } finally { keepAliveRunning = false; refreshTrayMenu(); }
+}
+// LaunchAgent + tray follow the preference. The agent is only written for the
+// packaged app: a dev build must not add itself to someone's login. It is
+// rewritten on every start so a moved .app keeps a valid path.
+function launchAgentPath() { return path.join(app.getPath('home'), 'Library', 'LaunchAgents', `${LAUNCH_AGENT_LABEL}.plist`); }
+function applyLaunchAgent(enabled) {
+  if (process.platform !== 'darwin' || !app.isPackaged) return;
+  const target = launchAgentPath();
+  try {
+    if (enabled) {
+      fsSync.mkdirSync(path.dirname(target), { recursive: true });
+      fsSync.writeFileSync(target, launchAgentPlist({ execPath: process.execPath }), { mode: 0o644 });
+    } else {
+      try { fsSync.unlinkSync(target); } catch { /* already gone */ }
+    }
+  } catch (error) {
+    try { console.error('[background] launch agent:', error && error.message); } catch { /* ignore */ }
+  }
+  // The legacy login item cannot open hidden on macOS 13+; never leave one behind.
+  try { if (app.getLoginItemSettings().openAtLogin) app.setLoginItemSettings({ openAtLogin: false }); } catch { /* unsupported */ }
+}
+function applyBackgroundMode() {
+  const enabled = !!backgroundPrefs.enabled;
+  applyLaunchAgent(enabled);
+  if (enabled) ensureTray(); else destroyTray();
+  if (!enabled && process.platform === 'darwin' && BrowserWindow.getAllWindows().length === 0) {
+    // Nothing on screen and the user just turned the background off: quit,
+    // the way a normal app would have.
+    app.isQuitting = true; app.quit();
+  }
+}
+function setBackgroundMode(enabled) {
+  backgroundPrefs = { enabled: !!enabled };
+  writeBackgroundPrefsFile(backgroundPrefs);
+  applyBackgroundMode();
+  refreshTrayMenu();
+  return backgroundPrefs;
+}
+ipcMain.handle('background-mode:get', () => ({
+  supported: process.platform === 'darwin',
+  enabled: !!backgroundPrefs.enabled,
+  packaged: !!app.isPackaged,
+  launchAgent: process.platform === 'darwin' && app.isPackaged ? fsSync.existsSync(launchAgentPath()) : null,
+  results: [...sessionKeepAlive.lastResults.entries()].map(([platform, result]) => ({ platform, at: result.at, ok: result.ok })),
+}));
+ipcMain.handle('background-mode:set', (_event, enabled) => setBackgroundMode(!!enabled));
+ipcMain.handle('background-mode:refresh', async () => { await runKeepAliveNow(); return { ok: true }; });
 
 // Read-only keep-alive observability for the Settings Diagnostics panel:
 // which platforms the background refresh touched, when, and whether the
@@ -2274,13 +2410,13 @@ ipcMain.handle('release-plans:get', async () => readMainReleasePlans());
 // --- Diagnostics (privacy-safe local crash/error log) -----------------------
 function errorLogPath() { return path.join(app.getPath('userData'), 'diagnostics-log.json'); }
 function readErrorLog() {
-  try { return errorLog.parseLog(fs.readFileSync(errorLogPath(), 'utf8')); } catch { return []; }
+  try { return errorLog.parseLog(fsSync.readFileSync(errorLogPath(), 'utf8')); } catch { return []; }
 }
 function recordError(entry) {
   try {
     const at = new Date().toISOString();
     const next = errorLog.appendEntry(readErrorLog(), errorLog.sanitizeEntry(entry, at));
-    fs.writeFileSync(errorLogPath(), JSON.stringify(next), { mode: 0o600 });
+    fsSync.writeFileSync(errorLogPath(), JSON.stringify(next), { mode: 0o600 });
   } catch { /* diagnostics must never throw into the app */ }
 }
 // Capture main-process crashes without killing the app silently.
@@ -2306,7 +2442,7 @@ ipcMain.handle('diagnostics:export', async (event) => {
     filters: [{ name: 'JSON', extensions: ['json'] }],
   });
   if (target.canceled || !target.filePath) return { ok: false, canceled: true };
-  fs.writeFileSync(target.filePath, JSON.stringify(readErrorLog(), null, 2));
+  fsSync.writeFileSync(target.filePath, JSON.stringify(readErrorLog(), null, 2));
   return { ok: true, path: target.filePath };
 });
 ipcMain.handle('diagnostics:report-problem', async (_event, payload = {}) => {
@@ -2383,19 +2519,42 @@ app.on('second-instance', () => {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
-  mainWindow = createMainWindow();
+  backgroundPrefs = readBackgroundPrefsFile();
+  let loginItem = {};
+  try { loginItem = app.getLoginItemSettings(); } catch { loginItem = {}; }
+  startedHidden.value = shouldStartHidden({ argv: process.argv, loginItem, enabled: backgroundPrefs.enabled });
+  if (startedHidden.value) {
+    // The login item opened us to keep sessions alive, not to be looked at.
+    if (process.platform === 'darwin') { try { app.dock.hide(); } catch { /* no dock */ } }
+  } else {
+    mainWindow = createMainWindow();
+  }
+  applyBackgroundMode();
   releaseScheduler.start();
-  sessionKeepAlive.start();
+  // Cadence: sooner and more often when running for the sessions' sake.
+  const schedule = keepAliveSchedule({ enabled: backgroundPrefs.enabled, hidden: startedHidden.value });
+  sessionKeepAlive.stop();
+  setTimeout(() => runKeepAliveNow(), schedule.initialDelayMs).unref?.();
+  const interval = setInterval(() => runKeepAliveNow(), schedule.intervalMs);
+  interval.unref?.();
+  // After sleep, cookies may be close to their edge: touch every platform.
+  try { powerMonitor.on('resume', () => { setTimeout(() => runKeepAliveNow(), 30 * 1000).unref?.(); }); } catch { /* not available */ }
   initAutoUpdater();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0) showMainWindow();
   });
 });
 // Closing the window normally quits on Windows/Linux — unless the user opted a
 // plan into unattended publishing, in which case main stays alive (headless) so
 // the scheduler can still fire. macOS keeps the app alive as usual.
 app.on('window-all-closed', () => {
-  if (process.platform === 'darwin') return;
+  if (process.platform === 'darwin') {
+    // Background mode: stay resident as a menu bar item, leave the Dock.
+    if (backgroundPrefs.enabled && !app.isQuitting) { try { app.dock.hide(); } catch { /* no dock */ } }
+    return;
+  }
   if (hasPendingUnattended(readMainReleasePlans(), Date.now())) return;
+  if (backgroundPrefs.enabled && !app.isQuitting) return;
   app.quit();
 });
+app.on('before-quit', () => { app.isQuitting = true; });
