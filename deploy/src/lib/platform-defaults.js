@@ -10,19 +10,33 @@
 
 export const PLATFORM_DEFAULTS_KEY = 'modelprep:platform-option-defaults:v1';
 
-// Keys that name this project's own files, pictures or a specific other
-// model, or that shared-defaults derives on its own.
-const PROJECT_BOUND = /file|image|photo|cover|remix|related|parent|verifyObjectId|contest|Auto(Exact)?$|^enabled$|^price$/i;
+// Explicitly list the answers that are safe to carry to another project.
+// The previous substring filter missed project IDs, summaries, BOM rows,
+// schedules and recovery drafts. It also dropped legitimate preferences such
+// as includePrintProfile merely because the key contained "file". Unknown
+// fields now stay project-local by default.
+export const REMEMBERABLE_FIELDS = {
+  makerworld: ['categoryId', 'visibility', 'license', 'productMode', 'laserMode'],
+  printables: ['publication', 'categoryId', 'licenseId', 'zipMode', 'club', 'store', 'excludeCommercialUsage'],
+  cults: ['categoryId', 'licenseType', 'visibility', 'showComments'],
+  mmf: ['publication', 'categoryIds', 'licenseId', 'dimensionsUnit', 'technology'],
+  thingiverse: ['publication', 'categoryId', 'license'],
+  thangs: ['publication', 'structure', 'units', 'category', 'allowRemix', 'feedbackEnabled', 'folderId', 'workspaceId', 'accessTypeId'],
+  nexprint: ['publication', 'categoryId', 'licenseType'],
+  creality: ['publication', 'categoryId', 'license'],
+  makeronline: ['publication', 'categoryId', 'license', 'permission', 'printMethod', 'includePrintProfile', 'relatedKits', 'storeKitIds'],
+  makeroad: ['publication', 'printMethods', 'licenseIndex', 'visibility'],
+};
 
-export function isProjectBound(key) {
-  return PROJECT_BOUND.test(key);
+export function isProjectBound(key, platformId = '') {
+  return !REMEMBERABLE_FIELDS[platformId]?.includes(key);
 }
 
 /** The part of a platform's options worth carrying to the next project. */
-export function rememberableOptions(opts = {}) {
+export function rememberableOptions(opts = {}, platformId = '') {
   const out = {};
-  for (const [key, value] of Object.entries(opts || {})) {
-    if (isProjectBound(key)) continue;
+  for (const key of REMEMBERABLE_FIELDS[platformId] || []) {
+    const value = opts?.[key];
     if (value === undefined || typeof value === 'function') continue;
     out[key] = value;
   }
@@ -41,7 +55,7 @@ export function savePlatformDefaults(storage, defaults) {
 }
 
 export function rememberPlatform(storage, platformId, opts) {
-  const next = { ...loadPlatformDefaults(storage), [platformId]: rememberableOptions(opts) };
+  const next = { ...loadPlatformDefaults(storage), [platformId]: rememberableOptions(opts, platformId) };
   savePlatformDefaults(storage, next);
   return next;
 }
@@ -59,12 +73,12 @@ export function applyPlatformDefaults(platforms, defaults) {
   const out = { ...platforms };
   for (const [id, remembered] of Object.entries(defaults)) {
     if (!out[id] || !remembered || typeof remembered !== 'object') continue;
-    out[id] = { ...out[id], ...rememberableOptions(remembered) };
+    out[id] = { ...out[id], ...rememberableOptions(remembered, id) };
   }
   return out;
 }
 
 /** How many answers a stored default carries, for the UI. */
 export function rememberedCount(defaults, platformId) {
-  return Object.keys(defaults?.[platformId] || {}).length;
+  return Object.keys(rememberableOptions(defaults?.[platformId] || {}, platformId)).length;
 }

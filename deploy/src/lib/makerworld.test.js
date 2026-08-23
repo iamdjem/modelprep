@@ -78,9 +78,27 @@ describe('MakerWorld upload contracts', () => {
       modelSource: 'remix', remixUrl: 'not a url', remixLicense: 'BY-ND', remixDescription: '',
     });
     expect(issues.errors).toEqual(expect.arrayContaining([
-      'Enter a valid URL for the original remix source.',
+      'Enter a valid URL for the original source.',
       'Explain what you changed in the remix.',
       'The selected original license does not allow derivatives.',
+    ]));
+  });
+
+  it('supports Share with source attribution and keeps Exclusive original-only', () => {
+    const valid = makerWorldPublishIssues(completeProject(), {
+      productMode: '3d', categoryId: 401, primaryProfileFileId: 'profile-file',
+      modelSource: 'share', remixUrl: 'https://example.com/source', remixLicense: 'BY-ND',
+    });
+    expect(valid.errors.join(' ')).not.toMatch(/changed|derivatives|original model used/i);
+
+    const invalid = makerWorldPublishIssues(completeProject(), {
+      productMode: '3d', categoryId: 401, primaryProfileFileId: 'profile-file',
+      modelSource: 'share', exclusive: true,
+    });
+    expect(invalid.errors).toEqual(expect.arrayContaining([
+      'Paste or select the original model used for this shared design.',
+      'Select the original model license.',
+      'Remixes and shared designs are not eligible for MakerWorld Exclusive.',
     ]));
   });
 

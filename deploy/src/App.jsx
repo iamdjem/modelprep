@@ -327,6 +327,19 @@ const CULTS_LICENSES = [
   ['cults_cu_nd', 'Cults Commercial Use · No derivatives', 'paid'],
 ];
 
+const THANGS_LICENSE_OPTIONS = [
+  'CC0', 'CC BY', 'CC BY-SA', 'CC BY-NC', 'CC BY-NC-SA', 'CC BY-ND', 'CC BY-NC-ND',
+];
+
+const THANGS_AUDIENCE_OPTIONS = [
+  { value: 'private', label: 'Private sharing' },
+  { value: 'public', label: 'Public sharing' },
+  { value: 'paid-members', label: 'Paid members only', disabled: true },
+  { value: 'print-only', label: 'Print only', disabled: true },
+  { value: 'purchase', label: 'Available for purchase', disabled: true },
+  { value: 'purchase-members', label: 'Available for purchase & paid members', disabled: true },
+];
+
 const NEXPRINT_MODEL_FORMATS = [
   '3ds', '3mf', 'amf', 'blend', 'dwg', 'dxf', 'elesat', 'f3d', 'f3z',
   'factory', 'fcstd', 'iges', 'ipt', 'obj', 'ply', 'py', 'rsdoc', 'scad',
@@ -965,7 +978,7 @@ function triggerDownload(blob, filename) {
 const MW_DEFAULT_OPTS = {
   // '' = auto-matched from the Details-step category/license (lib/shared-defaults.js, MW_LICENSE_MAP)
   categoryId: '', visibility: 'private', license: '',
-  productMode: '3d', laserMode: 'raw', modelSource: 'original',
+  productMode: '3d', laserMode: 'raw', modelSource: 'original', modelSourceAuto: true,
   nsfw: false, aiGenerated: false,
   exclusive: false, exclusiveTermsAccepted: false, communityPost: false,
   remixModel: null, remixUrl: '', remixLicense: '', remixDescription: '', relatedModel: null,
@@ -1040,10 +1053,10 @@ const initialProject = {
   platforms: {
     makerworld: { enabled: true, ...MW_DEFAULT_OPTS },
     printables: { enabled: true, publication: 'draft', categoryId: '', licenseId: '', summary: '', authorship: 'author', remixParents: [], remixDescription: '', nsfw: false, aiGenerated: false, politicalContent: false, zipMode: 'unzip', club: false, store: false, price: '', excludeCommercialUsage: false, capabilities: null },
-    cults: { enabled: true, price: 0, free: true, visibility: 'secret', categoryId: '', licenseType: '', details: '', metaTags: [], madeWithAi: false, showComments: true },
+    cults: { enabled: true, pricing: 'free', price: 0, openPrice: 0, free: true, visibility: 'secret', categoryId: '', licenseType: '', details: '', metaTags: [], madeWithAi: false, showComments: true },
     mmf: { enabled: true, publication: 'private', categoryIds: [], licenseId: '', printingTips: '', timeFrom: '', timeTo: '', dimensions: '', dimensionsUnit: 0, technology: '', materialQuantity: '', supportFree: false, remix: false, remixParentIds: [], confirmOriginalNoAi: false },
     thingiverse: { enabled: true, publication: 'draft', summary: '', categoryId: '', license: '', aiGenerated: false, wip: false, customizable: false, remix: false, sourceThingId: '', nsfw: false, printSettings: {}, sections: [], education: null, termsAccepted: false },
-    thangs: { enabled: true, publication: 'private', structure: 'single', units: 'mm', primaryFileId: '', category: '', allowRemix: true, aiGenerated: false, feedbackEnabled: true, folderId: '', workspaceId: '', resumeDraftId: '', accessTypeId: '', planIds: [], dependencies: [], versionNotes: '', marketplace: false, price: 0, license: '' },
+    thangs: { enabled: true, publication: 'private', structure: 'single', units: 'mm', primaryFileId: '', category: '', allowRemix: true, aiGenerated: false, feedbackEnabled: true, folderId: '', workspaceId: '', resumeDraftId: '', accessTypeId: '', planIds: [], dependencies: [], versionNotes: '', marketplace: false, price: 0, license: '', licenseMode: 'standard' },
     nexprint: {
       enabled: false,
       publication: 'draft',
@@ -1192,7 +1205,7 @@ export function buildDemoProject(seedImages = null) {
       // Keep the cross-platform certification fixture free so the shared
       // CC BY-NC license remains valid on Cults. Paid Cults listings require
       // CULTS CU and are certified as a separate optional branch.
-      cults: { enabled: true, price: 0, free: true, visibility: 'secret', categoryId: '27', licenseType: 'cc_by_nc', details: 'FDM calibration fixture. Print the flat face on the bed; the 0.8 mm chamfer needs no supports.', metaTags: ['functional_part', 'no_support'], madeWithAi: false, showComments: true },
+      cults: { enabled: true, pricing: 'free', price: 0, openPrice: 0, free: true, visibility: 'secret', categoryId: '27', licenseType: 'cc_by_nc', details: 'FDM calibration fixture. Print the flat face on the bed; the 0.8 mm chamfer needs no supports.', metaTags: ['functional_part', 'no_support'], madeWithAi: false, showComments: true },
       mmf: { enabled: true, publication: 'private', categoryIds: [60, 462], licenseId: 5, printingTips: 'Print flat-side-down. No supports required.', timeFrom: 10, timeTo: 25, dimensions: '34 × 34 × 4.4', dimensionsUnit: 0, technology: 'FDM', materialQuantity: '4 g', supportFree: true, remix: false, remixParentIds: [], confirmOriginalNoAi: true },
       thingiverse: {
         enabled: true, publication: 'draft', summary: 'A support-free calibration puck for upload-path testing.',
@@ -2355,7 +2368,6 @@ export default function App() {
         updateProject={updateProject}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={setSidebarCollapsed}
-        project={project}
         demoActive={demoActive}
         demoLoading={demoLoading}
         onToggleDemo={toggleDemo}
@@ -5370,11 +5382,12 @@ export function platformPreflight(platform, project) {
 
   const cults = project.platforms?.cults;
   if (platform.id === 'cults' && cults) {
+    const cultsPricing = cults.pricing || (cults.free === false ? 'priced' : 'free');
     if (!CULTS_CATEGORIES.some(([id]) => id === String(cults.categoryId || ''))) {
       errors.push('Choose an explicit Cults3D category before upload. ModelPrep will not substitute a fallback.');
     }
     const chosenCultsLicense = CULTS_LICENSES.find(([id]) => id === String(cults.licenseType || ''));
-    const cultsPaid = cults.free === false || Number(cults.price) > 0;
+    const cultsPaid = cultsPricing !== 'free';
     if (!chosenCultsLicense) {
       errors.push('Choose an explicit Cults3D license before upload. ModelPrep will not substitute a fallback.');
     } else if (cultsPaid && chosenCultsLicense[2] === 'free') {
@@ -5385,9 +5398,14 @@ export function platformPreflight(platform, project) {
     // Documented caps previously unenforced (X5): failure used to surface only
     // after the bytes had already uploaded, orphaning auto-deactivated listings.
     // A price of 0 on a paid listing is the same failure, not a softer one.
-    if (!cults.free && !(cults.price >= 0.65 && cults.price <= 1200)) {
+    if (cultsPricing === 'priced' && !(cults.price >= 0.65 && cults.price <= 1200)) {
       errors.push('Cults3D paid listings need a price between 0.65 and 1200.');
     }
+    if (cultsPricing === 'open_priced' && !(Number(cults.openPrice) >= 0 && Number(cults.openPrice) <= 1200)) {
+      errors.push('Cults3D open-price minimum must be between 0 and 1200.');
+    }
+    if (!['free', 'priced', 'open_priced'].includes(cultsPricing)) errors.push('Choose Free, Paying, or Open Price for Cults3D.');
+    if (!['public', 'secret', 'offline'].includes(cults.visibility || 'secret')) errors.push('Choose Public, Secret, or Offline visibility for Cults3D.');
     const keywordChars = project.tags.join(', ').length;
     if (keywordChars > 300) errors.push(`Cults3D keywords total ${keywordChars}/300 characters.`);
     const oversized = project.images.filter((image) => (image.naturalW || 0) > 8000 || (image.naturalH || 0) > 8000);
@@ -5395,6 +5413,8 @@ export function platformPreflight(platform, project) {
   }
   const printables = project.platforms?.printables;
   if (platform.id === 'printables' && printables) {
+    if (!project.description.trim()) errors.push('Add the required Printables description in Details.');
+    if (!buildListingSummary(printables.summary, mdToPlain(project.description))) errors.push('Add the required Printables summary in Platforms, or write a description ModelPrep can summarize.');
     // Live-confirmed: an uploaded G-code with no printer persists via the API
     // but never renders in Printables' own edit UI (rows group by printer), so
     // the user cannot see, edit, or delete it there.
@@ -5506,6 +5526,7 @@ export function platformPreflight(platform, project) {
   }
   const makeronline = project.platforms?.makeronline;
   if (platform.id === 'makeronline' && makeronline) {
+    if (!project.description.trim()) errors.push('Add the required MakerOnline description in Details.');
     if (!makeronline.categoryId) errors.push('Choose a MakerOnline leaf category in Platforms.');
     const makerOnlineLicense = Number(makeronline.license ?? MAKERONLINE_LICENSE_MAP[project.license] ?? 3);
     if (!MAKERONLINE_LICENSES.some((license) => license.value === makerOnlineLicense)) {
@@ -5619,11 +5640,12 @@ export function platformPreflight(platform, project) {
     if (!(makeroad.printMethods || []).length) errors.push('Choose at least one MakerRoad print method.');
     if (Number(makeroad.uploadType || 1) === 2 && !String(makeroad.referUrl || '').trim()) errors.push('MakerRoad remixes require the original model URL; add it in Details.');
     if (makeroad.scheduled && !makeroad.planTime) errors.push('Choose a MakerRoad scheduled publication time.');
-    if (makeroad.payType !== 'free' && !(Number(makeroad.payValue) > 0)) errors.push('MakerRoad paid downloads require a positive value.');
+    if ((makeroad.payType || 'free') !== 'free') errors.push('MakerRoad paid pricing is not confirmed in the current upload form. Change Download price to Free before upload.');
     if (makeroad.publication === 'publish' && !makeroad.termsAccepted) errors.push(`Accept MakerRoad's current terms before public submission.`);
   }
   const thangs = project.platforms?.thangs;
   if (platform.id === 'thangs' && thangs) {
+    if (!['private', 'public'].includes(thangs.publication || 'private')) errors.push('Choose a verified Thangs audience. Only Private and Public are currently supported.');
     if (!['single', 'bulk', 'multipart', 'assembly'].includes(thangs.structure || 'single')) errors.push('Choose a valid Thangs model structure.');
     if (thangs.resumeDraftId && !/^\d+$/.test(String(thangs.resumeDraftId))) errors.push('Thangs recovery draft ID must be numeric.');
     if (thangs.structure === 'single' && thangs.primaryFileId && !modelFiles.some((file) => file.id === thangs.primaryFileId)) errors.push('Choose an available primary Thangs model file.');
@@ -8745,8 +8767,9 @@ function RequiredMark({ scope }) {
 }
 
 function labelText(children) {
-  if (typeof children === 'string') return children;
-  if (Array.isArray(children)) return children.filter((child) => typeof child === 'string').join(' ');
+  if (typeof children === 'string' || typeof children === 'number') return String(children);
+  if (Array.isArray(children)) return children.map(labelText).filter(Boolean).join(' ');
+  if (React.isValidElement(children)) return labelText(children.props?.children);
   return '';
 }
 // The caption inside a wrapping <label>, same look and same icon rule as Label.
@@ -8782,6 +8805,12 @@ function Label({ children, className = '', icon = null }) {
       {required && <RequiredMark scope={scope} />}
     </label>
   );
+}
+
+function RequiredChoiceText({ children }) {
+  const scope = useContext(RequiredCtx);
+  const required = scope && isRequiredField(scope, labelText(children));
+  return <span className="inline-flex items-center gap-1">{children}{required && <RequiredMark scope={scope} />}</span>;
 }
 
 // Every field opens with the same 28px header row, whether or not it carries a
@@ -9287,7 +9316,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
 
       <SectionNav
         backLabel="Back to Details"
-        nextLabel={project.profiles.length ? 'Continue to Profiles' : 'Continue to Platforms'}
+        nextLabel="Continue to Platforms"
         nextDisabled={project.images.length === 0 || !project.coverImageId}
         disabledReason={project.images.length === 0 ? 'Add at least one image to continue' : 'Pick a cover image to continue'}
         onBack={() => setCurrentSection('details')}
@@ -9726,7 +9755,7 @@ function ProfilesSection({ project, updateProject, setCurrentSection = () => {},
               <label className="flex items-start gap-2 text-xs">
                 <input type="checkbox" className="mt-0.5" checked={!!active.guidelinesAccepted}
                   onChange={(e) => { writeGuidelinesAck(e.target.checked); updateProfile(active.id, { guidelinesAccepted: e.target.checked }); }} />
-                <span>I have read and this profile meets MakerWorld's <a href="https://makerworld.com/en/rules" target="_blank" rel="noopener noreferrer" className="underline">Print Profile Guidelines</a>.</span>
+                <RequiredChoiceText>I have read and this profile meets MakerWorld's <a href="https://makerworld.com/en/rules" target="_blank" rel="noopener noreferrer" className="underline">Print Profile Guidelines</a>.</RequiredChoiceText>
               </label>
             </>
           )}
@@ -9838,7 +9867,7 @@ function PlatformsSection({ project, updateProject, setCurrentSection, openPlatf
   return (
     <div className="w-full min-w-0">
       <SectionHeader
-        number="05"
+        number="04"
         title="Choose your platforms"
         subtitle={`${enabledCount} of ${PLATFORMS.length} selected. Open one to change how it publishes.`}
       />
@@ -10485,7 +10514,7 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
           {/* Limits and accepted formats are reference, not decisions; they
               sit in the header's "Requirements & evidence" disclosure. The
               panel opens on what needs the user. */}
-          {platform.fields.includes('price') && state.enabled && (
+          {platform.fields.includes('price') && platform.id !== 'cults' && state.enabled && (
             <div className="mt-3">
               <Label>Price (USD)</Label>
               <div className="flex items-center gap-2">
@@ -10590,6 +10619,12 @@ function PlatformCard({ platform, state, project, connectionLabel, onConnect, on
 
 export function CultsOptions({ opts, onUpdate }) {
   const metaTags = Array.isArray(opts.metaTags) ? opts.metaTags : [];
+  const pricing = opts.pricing || (opts.free === false ? 'priced' : 'free');
+  const setPricing = (value) => onUpdate({
+    pricing: value,
+    free: value === 'free',
+    ...(value === 'free' ? { price: 0, openPrice: 0 } : {}),
+  });
   const toggleMetaTag = (value) => onUpdate('metaTags', metaTags.includes(value)
     ? metaTags.filter((tag) => tag !== value)
     : [...metaTags, value]);
@@ -10619,11 +10654,27 @@ export function CultsOptions({ opts, onUpdate }) {
       </div>
       <p className="text-xs" style={{ color: 'var(--ink-65)' }}>Both are settled before a single file uploads, so nothing is swapped for a generic value after the bytes are gone.</p>
       <div>
+        <Label>Price mode</Label>
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <label className="flex items-center gap-1.5"><input type="radio" checked={pricing === 'free'} onChange={() => setPricing('free')} /> Free</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={pricing === 'priced'} onChange={() => setPricing('priced')} /> Paying</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={pricing === 'open_priced'} onChange={() => setPricing('open_priced')} /> Open price</label>
+        </div>
+        {pricing === 'priced' && (
+          <div className="mt-2 max-w-48"><Label>Fixed price (USD)</Label><input aria-label="Cults3D fixed price" className="mp-input" type="number" min="0.65" max="1200" step="0.01" value={opts.price || ''} onChange={(event) => onUpdate('price', Number(event.target.value))} /></div>
+        )}
+        {pricing === 'open_priced' && (
+          <div className="mt-2 max-w-48"><Label>Suggested minimum (USD)</Label><input aria-label="Cults3D open price minimum" className="mp-input" type="number" min="0" max="1200" step="0.01" value={opts.openPrice || 0} onChange={(event) => onUpdate('openPrice', Number(event.target.value))} /></div>
+        )}
+      </div>
+      <div>
         <Label>Visibility</Label>
         <div className="flex items-center gap-3 text-xs">
           <label className="flex items-center gap-1.5"><input type="radio" checked={(opts.visibility || 'secret') === 'secret'} onChange={() => onUpdate('visibility', 'secret')} style={{ accentColor: 'var(--primary)' }} /> Secret (unlisted)</label>
           <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'public'} onChange={() => onUpdate('visibility', 'public')} style={{ accentColor: 'var(--primary)' }} /> Public</label>
+          <label className="flex items-center gap-1.5"><input type="radio" checked={opts.visibility === 'offline'} onChange={() => onUpdate('visibility', 'offline')} style={{ accentColor: 'var(--primary)' }} /> Offline</label>
         </div>
+        <p className="text-[11px] mt-1 opacity-70">Offline creates an inactive listing in your Cults3D manager. Secret remains reachable by its URL.</p>
       </div>
       <div>
         <Label>Manufacturing settings <span className="opacity-50">(optional)</span></Label>
@@ -10763,7 +10814,7 @@ export function MyMiniFactoryOptions({ opts, onUpdate }) {
       </div>
       <label className="flex items-start gap-2 p-3 text-xs" style={{ border: '1px solid rgba(79,178,134,0.55)', backgroundColor: 'rgba(79,178,134,0.08)' }}>
         <input type="checkbox" checked={!!opts.confirmOriginalNoAi} onChange={(event) => onUpdate('confirmOriginalNoAi', event.target.checked)} style={{ accentColor: 'var(--success)' }} />
-        <span><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory's Terms and Conditions.</span>
+        <RequiredChoiceText><strong>Required declaration:</strong> I confirm this object and its imagery are original, made without generative AI, and comply with MyMiniFactory's Terms and Conditions.</RequiredChoiceText>
       </label>
     </div>
   );
@@ -11082,6 +11133,9 @@ export function CrealityOptions({ opts, project, onUpdate }) {
       <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(230,57,70,0.06)', border: '1px solid rgba(230,57,70,0.32)' }}>
         ModelPrep sends the web and app cover crops, up to 9 gallery images, every compatible model file, compatible instruction files, tags, rich description, category, license, source type, maturity rating, and draft/private/public state. Creality's optional paid-model controls are account-gated and are not exposed to this new account.
       </div>
+      <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(255,182,39,0.10)', border: '1px solid rgba(255,182,39,0.45)' }}>
+        ModelPrep supports Creality's Upload 3D Models journey. Upload Print Files and Import from crealitycloud.cn are separate native journeys. They remain unavailable until their request contracts and minimum requirements are captured.
+      </div>
     </div>
   );
 }
@@ -11184,7 +11238,7 @@ export function MakerRoadOptions({ opts, onUpdate }) {
                                        /></div>
       </div>
       {Number(opts.uploadType || 1) === 2 && <div><Label>Original model URL</Label><input className="mp-input" value={opts.referUrl || ''} onChange={(e) => onUpdate('referUrl', e.target.value)} placeholder="https://…" /></div>}
-      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: 'var(--success-text)' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad's live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-[var(--danger-text)]">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div></div>
+      <div><Label>Categories ({(opts.categoryIds || []).length}/3)</Label>{opts.categoryAuto === true && !!(opts.categoryPaths || []).length && <p className="text-[11px] mb-1" style={{ color: 'var(--success-text)' }}>Auto-matched from your Details category: {(opts.categoryPaths || []).join(', ')} · resolved against MakerRoad's live taxonomy at upload · tick a category below to override</p>}{meta.loading && <p className="text-[11px] opacity-70">Loading live MakerRoad taxonomy…</p>}{meta.error && <p className="text-[11px] text-[var(--danger-text)]">{meta.error}</p>}<div className="max-h-40 overflow-auto grid md:grid-cols-2 gap-1">{meta.categories.map((item) => <label key={item.id} className="text-[11px] flex gap-1.5"><input type="checkbox" checked={(opts.categoryIds || []).map(String).includes(item.id)} onChange={() => toggle('categoryIds', item.id, 3, { categoryPaths: [], categoryAuto: false })} />{item.name}</label>)}</div><p className="text-[11px] mt-1 opacity-70">MakerRoad mixes content categories with material, difficulty, and printing-technique facets. Choose up to three values that describe this model.</p></div>
       <div className="grid md:grid-cols-2 gap-3"><div><Label>License</Label><Select
                                                                               value={Number(opts.licenseIndex || 0)}
                                                                               onChange={(selectValue) => onUpdate({ licenseIndex: Number(selectValue), licenseAuto: false })}
@@ -11222,17 +11276,11 @@ export function MakerRoadOptions({ opts, onUpdate }) {
 /><p className="text-[11px] opacity-70">{(opts.colorIds || []).length} selected</p></div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-3"><div><Label>Download price</Label><Select
-                                                                                     value={opts.payType || 'free'}
-                                                                                     onChange={(selectValue) => onUpdate('payType', selectValue)}
-                                                                                     options={[{ value: "free", label: 'Free' }, { value: "points", label: 'Points' }, { value: "cash", label: 'Cash' }]}
-                                                                                   
-                                                                                     ariaLabel="Download price"
-/></div>{opts.payType !== 'free' && <div><Label>Value</Label><input className="mp-input" type="number" min="0" value={opts.payValue || 0} onChange={(e) => onUpdate('payValue', Number(e.target.value))} /></div>}</div>
+      <div><Label>Download price</Label><div className="mp-input flex items-center justify-between gap-3"><span>Free</span>{(opts.payType || 'free') !== 'free' && <button type="button" className="mp-btn mp-btn-ghost text-xs py-1 px-2" onClick={() => onUpdate({ payType: 'free', payValue: 0 })}>Use audited Free price</button>}</div><p className="text-[11px] mt-1 opacity-70">The current signed-in upload form shows Free only. Points and Cash remain blocked until a fresh request capture proves an eligible paid branch.</p></div>
       <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.scheduled} onChange={(e) => onUpdate('scheduled', e.target.checked)} /> Schedule public availability</label>
       {opts.scheduled && <input aria-label="MakerRoad schedule" className="mp-input" type="datetime-local" value={opts.planTime || ''} onChange={(e) => onUpdate('planTime', e.target.value)} />}
-      {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><span>I agree to MakerRoad's current Terms and Privacy Policy for this public submission.</span></label>}
-      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3–10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and price. MakerRoad's current native form has no video field, so video media is not sent.</p>
+      {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><RequiredChoiceText>I agree to MakerRoad's current Terms and Privacy Policy for this public submission.</RequiredChoiceText></label>}
+      <p className="text-[11px] opacity-60">Current license mapping: {license.label}. ModelPrep uploads model files, optional 3MF print configurations, 3 to 10 ordered images, compatible documents, dynamic taxonomy, print settings, attribution, visibility, schedule, and the currently verified Free price. MakerRoad's current native form has no video field, so video media is not sent.</p>
     </div>
   );
 }
@@ -11245,6 +11293,9 @@ export function ThangsOptions({ opts, project, onUpdate }) {
   const [categories, setCategories] = useState(THANGS_CATEGORIES);
   const [categorySource, setCategorySource] = useState('snapshot');
   const [categoryError, setCategoryError] = useState('');
+  const knownLicense = THANGS_LICENSE_OPTIONS.includes(opts.license || '');
+  const customLicense = opts.licenseMode === 'custom' || (!!opts.license && !knownLicense);
+  const licenseChoice = customLicense ? '__custom__' : (opts.license || '');
   useEffect(() => {
     let alive = true;
     if (!isDesktopThangsSession(secret)) return () => { alive = false; };
@@ -11258,12 +11309,12 @@ export function ThangsOptions({ opts, project, onUpdate }) {
     return () => { alive = false; };
   }, [secret]);
   return <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--ink-a08)' }}>
-    <div className="grid md:grid-cols-2 gap-3"><div><Label>Visibility</Label><Select
+    <div className="grid md:grid-cols-2 gap-3"><div><Label>Audience</Label><Select
                                                                                value={opts.publication || 'private'}
                                                                                onChange={(selectValue) => onUpdate('publication', selectValue)}
-                                                                               options={[{ value: "private", label: 'Private (recommended)' }, { value: "public", label: 'Public (LIVE)' }]}
-                                                                               ariaLabel="Thangs visibility"
-                                                                             /></div><div><Label>Structure</Label><Select
+                                                                               options={THANGS_AUDIENCE_OPTIONS}
+                                                                               ariaLabel="Thangs audience"
+                                                                             /><p className="text-[11px] mt-1 opacity-70">Private and Public are verified. Paid-members, print-only, purchase, and purchase-plus-members are native modes but remain disabled until account eligibility and request values are captured.</p></div><div><Label>Structure</Label><Select
                                                                                                                                                                                                                                                                                                                                                                                           value={opts.structure || 'single'}
                                                                                                                                                                                                                                                                                                                                                                                           onChange={(selectValue) => onUpdate('structure', selectValue)}
                                                                                                                                                                                                                                                                                                                                                                                           options={[{ value: "single", label: 'Single model' }, { value: "bulk", label: 'Separate bulk models' }, { value: "multipart", label: 'Multipart model' }, { value: "assembly", label: 'Assembly' }]}
@@ -11295,7 +11346,8 @@ export function ThangsOptions({ opts, project, onUpdate }) {
     <div><Label>Version notes</Label><textarea className="mp-input" value={opts.versionNotes || ''} onChange={(e) => onUpdate('versionNotes', e.target.value)} /></div>
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={opts.allowRemix !== false} onChange={(e) => onUpdate('allowRemix', e.target.checked)} /> Allow remix</label><label><input type="checkbox" checked={opts.feedbackEnabled !== false} onChange={(e) => onUpdate('feedbackEnabled', e.target.checked)} /> Enable feedback</label></div>
     <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.marketplace} onChange={(e) => onUpdate('marketplace', e.target.checked)} /> Paid marketplace listing (account eligibility required)</label>{opts.marketplace && <input aria-label="Thangs price" className="mp-input" type="number" min="0" value={opts.price || 0} onChange={(e) => onUpdate('price', Number(e.target.value))} />}
-    <div><Label>License</Label><input className="mp-input" value={opts.license || ''} onChange={(e) => onUpdate({ license: e.target.value, licenseAuto: false })} /><AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div>
+    <div><Label>License</Label><Select ariaLabel="Thangs license" value={licenseChoice} onChange={(value) => onUpdate(value === '__custom__' ? { licenseMode: 'custom', license: '', licenseAuto: false } : { licenseMode: 'standard', license: value, licenseAuto: false })} options={[{ value: '', label: 'Choose license...' }, ...THANGS_LICENSE_OPTIONS.map((value) => ({ value, label: value })), { value: '__custom__', label: 'Custom license name' }]} />{customLicense && <input aria-label="Thangs custom license" className="mp-input mt-2" value={opts.license || ''} onChange={(e) => onUpdate({ licenseMode: 'custom', license: e.target.value, licenseAuto: false })} placeholder="Exact custom license name" />}<AutoMatchNote active={opts.licenseAuto === true} exact={opts.licenseAutoExact !== false} kind="license" /></div>
+    <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(255,182,39,0.10)', border: '1px solid rgba(255,182,39,0.45)' }}>Thangs also exposes video, attribution, print compatibility, uploaded license files, attachments, collections, and account-gated audience choices. ModelPrep does not send those values because the audited request contract did not prove their field names and eligibility rules.</div>
     <p className="text-xs" style={{ color: 'var(--ink-65)' }}>A model file over 250 MB has to go up as a reference file. After Thangs creates the model, ModelPrep reads back the details, attachments and license to check they stuck.</p>
   </div>;
 }
@@ -11316,14 +11368,15 @@ export function ThingiverseOptions({ opts, project = { files: [] }, onUpdate }) 
                                              onChange={(selectValue) => onUpdate({ categoryId: selectValue, categoryAuto: false })}
                                              options={[{ value: "", label: 'Choose category…' }, ...THINGIVERSE_CATEGORIES.map((category) => ({ value: category.id, label: category.label }))]}
                                              ariaLabel="Thingiverse category"
-                                           /><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot; ModelPrep stores the category ID, never its picker position.</p></div>
+                                           /><AutoMatchNote active={opts.categoryAuto === true} kind="category" /><p className="text-[11px] opacity-70">Current production taxonomy snapshot. ModelPrep sends the full category name when it creates a Thing, then keeps the category ID for edit and readback requests.</p></div>
     <div className="flex flex-wrap gap-4 text-xs"><label><input type="checkbox" checked={!!opts.wip} onChange={(e) => onUpdate('wip', e.target.checked)} /> Work in progress</label><label title={hasScad ? '' : 'Add a .SCAD model file to enable Thingiverse Customizer.'}><input aria-label="Thingiverse Customizer" type="checkbox" checked={!!opts.customizable} disabled={!hasScad} onChange={(e) => onUpdate('customizable', e.target.checked)} /> Customizable</label></div>
     {!hasScad && <p className="text-[11px] opacity-60">Thingiverse enables Customizer only when the upload includes a .SCAD model file.</p>}
     <label className="text-xs"><input type="checkbox" checked={!!opts.remix} onChange={(e) => onUpdate('remix', e.target.checked)} /> Remix</label>{opts.remix && <input aria-label="Source Thing ID" className="mp-input" value={opts.sourceThingId || ''} onChange={(e) => onUpdate('sourceThingId', e.target.value)} placeholder="Source Thing ID" />}
-    {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /> Accept Thingiverse's current publishing terms at action time</label>}
+    {opts.publication === 'publish' && <label className="text-xs flex gap-2"><input type="checkbox" checked={!!opts.termsAccepted} onChange={(e) => onUpdate('termsAccepted', e.target.checked)} /><RequiredChoiceText>Accept Thingiverse's current publishing terms at action time</RequiredChoiceText></label>}
     <div className="grid md:grid-cols-2 gap-3"><div><Label>Printer / model</Label><input className="mp-input" value={opts.printSettings?.printer || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), printer: e.target.value })} /></div><div><Label>Material</Label><input className="mp-input" value={opts.printSettings?.material || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), material: e.target.value })} /></div><div><Label>Resolution</Label><input className="mp-input" value={opts.printSettings?.resolution || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), resolution: e.target.value })} /></div><div><Label>Infill</Label><input className="mp-input" value={opts.printSettings?.infill || ''} onChange={(e) => onUpdate('printSettings', { ...(opts.printSettings || {}), infill: e.target.value })} /></div></div>
     <div><Label>Custom sections (JSON)</Label><textarea className="mp-input" value={JSON.stringify(opts.sections || [])} onChange={(e) => { try { onUpdate('sections', JSON.parse(e.target.value)); } catch { /* retain last valid value */ } }} /></div>
     <div><Label>Education project data (JSON, optional)</Label><textarea className="mp-input" value={opts.education ? JSON.stringify(opts.education) : ''} onChange={(e) => { if (!e.target.value.trim()) onUpdate('education', null); else { try { onUpdate('education', JSON.parse(e.target.value)); } catch { /* retain last valid value */ } } }} /></div>
+    <div className="p-2.5 text-[11px] leading-relaxed" style={{ backgroundColor: 'rgba(255,182,39,0.10)', border: '1px solid rgba(255,182,39,0.45)' }}>ModelPrep supports the standard Upload a Thing journey. Upload a Make is a response attached to an existing Thing, and Create an Edu Project is a separate authoring journey. Neither is folded into a model upload until its own request contract is captured.</div>
   </div>;
 }
 
@@ -11479,7 +11532,7 @@ export function MakerOnlineOptions({ opts, project, onUpdate }) {
       )}
 
       <div>
-        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: 'var(--primary)' }} /><span>This model uses MakerOnline Creative Kits</span></label>
+        <label className="flex items-start gap-2 text-xs"><input type="checkbox" checked={!!opts.relatedKits} onChange={(event) => onUpdate({ relatedKits: event.target.checked, ...(!event.target.checked ? { storeKitIds: [] } : {}) })} style={{ accentColor: 'var(--primary)' }} /><RequiredChoiceText>This model uses MakerOnline Creative Kits</RequiredChoiceText></label>
         {opts.relatedKits && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-2">
             {meta.kits.map((kit) => {
@@ -11942,7 +11995,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   return (
     <div className="w-full min-w-0">
       <SectionHeader
-        number="06"
+        number="05"
         title="Publish"
         subtitle={hasFiles
           ? [
@@ -12492,6 +12545,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
   // the user's profile: they can flip to 'public' once they've seen the
   // listing render. Persisted in component state per session, not saved.
   const visibility = project.platforms?.cults?.visibility || 'secret'; // set on the Platforms step
+  const cultsPricing = project.platforms?.cults?.pricing || (project.platforms?.cults?.free === false ? 'priced' : 'free');
   const [result, setResult] = useState(null); // { designUrl, slug, substituted, uploadedFiles } | null
   const [errorMsg, setErrorMsg] = useState('');
   const [progressMsg, setProgressMsg] = useState('');
@@ -12548,7 +12602,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
         + orderedPlatformImages(platform, project).length + cultsGalleryVideos(project.media || []).length;
       setResult({ designUrl: 'https://cults3d.com/', slug: 'demo', substituted: [], uploadedFiles: n, visibility: effectiveVisibility, demo: true });
       setStatus('done'); setProgressMsg('');
-      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted publish' : 'Public publish'} simulated: nothing uploaded`, {
+      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted publish' : effectiveVisibility === 'offline' ? 'Offline listing' : 'Public publish'} simulated: nothing uploaded`, {
         publicationState: effectiveVisibility,
         simulated: true,
       });
@@ -12587,6 +12641,8 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
       fd.append('licenseType', String(project.platforms?.cults?.licenseType || ''));
       fd.append('free', String(project.platforms?.cults?.free ?? true));
       fd.append('price', String(project.platforms?.cults?.price ?? 0));
+      fd.append('pricing', cultsPricing);
+      fd.append('downloadOpenPrice', String(project.platforms?.cults?.openPrice ?? 0));
       fd.append('visibility', effectiveVisibility);
       fd.append('details', project.platforms?.cults?.details || '');
       fd.append('metaTags', JSON.stringify(project.platforms?.cults?.metaTags || []));
@@ -12646,7 +12702,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
         return;
       }
       setStatus('done');
-      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted listing' : 'Public listing'} created and read back`, {
+      reportBatch(batchRunId, 'success', `${effectiveVisibility === 'secret' ? 'Secret, unlisted listing' : effectiveVisibility === 'offline' ? 'Offline listing' : 'Public listing'} created and read back`, {
         publicationState: effectiveVisibility,
         url: data.designUrl,
       });
@@ -12793,13 +12849,13 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
             {/* Visibility is set on the Platforms step (project.platforms.cults.visibility). */}
             <div className="flex items-center gap-2 mb-2.5 text-xs flex-wrap" style={{ color: 'var(--ink-a70)' }}>
               <span className="mp-mono uppercase tracking-[0.15em] text-[11px]">visibility</span>
-              <strong>{visibility === 'secret' ? 'Secret' : 'Public'}</strong>
+              <strong>{visibility === 'secret' ? 'Secret' : visibility === 'offline' ? 'Offline' : 'Public'}</strong>
               <span className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>· change in the Platforms step</span>
             </div>
             <p className="text-xs mb-2.5 leading-snug" style={{ color: 'var(--ink-a66)' }}>
               {simulate
                 ? <>Demo simulation only: nothing will be sent to Cults3D. Connect a real account in Settings to test the live upload.</>
-                : <>⚠️ This publishes a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{realActive?.label}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only via the URL we return; you can flip to public from Cults later.' : 'Public listings appear on your profile + search immediately.'}</>}
+                : <>This creates a <strong>real listing</strong> on cults3d.com under <span className="mp-mono">{realActive?.label}</span>. Files upload directly to Cults's S3. {visibility === 'secret' ? 'Secret listings are reachable only by URL.' : visibility === 'offline' ? 'Offline listings stay inactive in your Cults3D manager.' : 'Public listings appear on your profile and in search immediately.'}</>}
             </p>
             <div className="flex items-center gap-3 flex-wrap">
               <button onClick={() => publish()} className="mp-btn text-xs py-2 px-3">
@@ -12893,7 +12949,7 @@ function CultsUploadFlow({ platform, project, batchRequest, onBatchResult }) {
               <Check size={14} />
               {result?.deactivated
                 ? <>Deactivated. The listing is hidden from your profile + search; re-activate from <a href="https://cults3d.com/en/creations/mine" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline' }}>cults3d.com/en/creations/mine</a></>
-                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'var(--ink-a66)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
+                : <>{result?.demo ? 'Simulated publish (demo) to ' : 'Published to '}{platform.name} ({result?.visibility === 'secret' ? 'secret' : result?.visibility === 'offline' ? 'offline' : 'public'}){result?.uploadedFiles ? <span style={{ color: 'var(--ink-a66)' }}> · {result.uploadedFiles} file{result.uploadedFiles === 1 ? '' : 's'}</span> : null}</>}
             </div>
             {result?.demo && <div className="mp-mono text-[11px] mb-1.5" style={{ color: 'var(--api)' }}>Demo mode: nothing was uploaded. Exit demo and connect a real account to publish for real.</div>}
             {result?.designUrl && (
@@ -14105,10 +14161,11 @@ function ThingiverseUploadFlow({ platform, project, batchRequest, onBatchResult 
     if (simulate) { setStatus('uploading'); setProgress('Simulating Thingiverse draft…'); await new Promise((resolve) => setTimeout(resolve, 450)); setResult({ demo: true, state: publish ? 'public' : 'draft' }); setStatus('done'); setProgress(''); report(runId, 'success', 'Thingiverse simulation complete: nothing uploaded', { publicationState: publish ? 'public' : 'draft', simulated: true }); return; }
     setStatus('uploading'); setError('');
     try {
+      const category = THINGIVERSE_CATEGORIES.find((item) => String(item.id) === String(options.categoryId));
       const pending = []; const modelFiles = withoutExcluded(project.files.filter((file) => file.blob && platform.formats.includes(fileExt(file.name)) && !file.isImage), project.platforms?.thingiverse);
       for (let i = 0; i < modelFiles.length; i += 1) { setProgress(`Uploading Thingiverse file ${i + 1} of ${modelFiles.length}…`); const source = modelFiles[i]; const file = source.blob instanceof File ? source.blob : new File([source.blob], source.name, { type: source.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'model', file })); }
       const images = orderedPlatformImages(platform, project); for (let i = 0; i < images.length; i += 1) { setProgress(`Uploading Thingiverse image ${i + 1} of ${images.length}…`); const blob = await fetch(images[i].dataUrl).then((response) => response.blob()); const file = new File([blob], `${String(i + 1).padStart(2, '0')}-${slugify(images[i].alt || 'image')}.${blob.type.includes('png') ? 'png' : 'jpg'}`, { type: blob.type }); pending.push(await uploadThingiverseFile({ workerUrl: WORKER_URL, secret, role: 'image', file })); }
-      setProgress(publish ? 'Publishing Thingiverse Thing…' : 'Saving Thingiverse draft…'); const saved = await request('submit', { name: project.title, summary: buildListingSummary(options.summary, mdToPlain(project.description)), description: project.description, categoryId: options.categoryId, license: options.license, tags: project.tags, files: pending, publish, termsAccepted: !!options.termsAccepted, aiGenerated: !!options.aiGenerated, wip: !!options.wip, customizable: !!options.customizable, remix: !!options.remix, sourceThingId: options.sourceThingId, nsfw: !!options.nsfw, printSettings: options.printSettings || {}, sections: options.sections || [], education: options.education || null });
+      setProgress(publish ? 'Publishing Thingiverse Thing…' : 'Saving Thingiverse draft…'); const saved = await request('submit', { name: project.title, summary: buildListingSummary(options.summary, mdToPlain(project.description)), description: project.description, categoryId: options.categoryId, categoryName: category?.label.split(' › ').at(-1) || '', license: options.license, tags: project.tags, files: pending, publish, termsAccepted: !!options.termsAccepted, aiGenerated: !!options.aiGenerated, wip: !!options.wip, customizable: !!options.customizable, remix: !!options.remix, sourceThingId: options.sourceThingId, nsfw: !!options.nsfw, printSettings: options.printSettings || {}, sections: options.sections || [], education: options.education || null });
       setProgress('Reading completed Thingiverse data back…'); const readback = await request(`status?id=${encodeURIComponent(saved.id)}`, null); if (!readback.thing) throw new Error('Thingiverse complete read-back was empty.'); setResult({ ...saved, verified: true }); setStatus('done'); report(runId, 'success', `${publish ? 'Published' : 'Draft'} Thingiverse Thing saved and read back`, { publicationState: publish ? 'public' : 'draft', url: saved.url });
     } catch (cause) { const message = cause instanceof Error ? cause.message : String(cause); setError(message); setStatus('error'); report(runId, 'error', message); } finally { setProgress(''); }
   };
@@ -16532,8 +16589,8 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
         cyberBrick = { controlConfig, motionConfig, originMicroPython, ...(mainControlList[0] ? { mainControlConfig: mainControlList[0] } : {}) };
       }
 
-      const remixFields = modelSource === 'remix' ? {
-        modelSource: 'remix',
+      const remixFields = modelSource === 'remix' || modelSource === 'share' ? {
+        modelSource,
         remixSourceUrl: opts.remixUrl,
         remixSourceLicense: opts.remixLicense || remixModel?.license || '',
         remixDescription: opts.remixDescription,
@@ -16777,7 +16834,7 @@ function MakerWorldUploadFlow({ platform, project, batchRequest, onBatchResult }
           <div className="mp-card p-2 text-xs" style={{ backgroundColor: 'var(--ink-a03)', color: 'var(--ink-a70)' }}>
             <div className="flex items-center gap-1.5 flex-wrap">
               <Globe size={13} style={{ color: 'var(--primary)' }} />
-              <span>{isLC ? 'Laser & Cut' : '3D model'} · {isLC ? (modelSource === 'remix' ? 'Remix' : 'Original') : catLabel} · <strong>{visibility}</strong>{bomCount ? ` · BOM ${bomCount}` : ''}{!isLC && modelSource === 'remix' ? ' · Remix' : ''}{!isLC && exclusive ? ' · Exclusive' : ''}{relatedModel ? ' · linked' : ''}{communityPost ? ' · community post' : ''}</span>
+              <span>{isLC ? 'Laser & Cut' : '3D model'} · {isLC ? (modelSource === 'remix' ? 'Remix' : modelSource === 'share' ? 'Share' : 'Original') : catLabel} · <strong>{visibility}</strong>{bomCount ? ` · BOM ${bomCount}` : ''}{!isLC && modelSource !== 'original' ? ` · ${modelSource === 'share' ? 'Share' : 'Remix'}` : ''}{!isLC && exclusive ? ' · Exclusive' : ''}{relatedModel ? ' · linked' : ''}{communityPost ? ' · community post' : ''}</span>
             </div>
             <div className="text-[11px] mt-1" style={{ color: 'var(--ink-a66)' }}>Edit these in the <strong>Platforms</strong> step → MakerWorld options.</div>
           </div>
@@ -16927,9 +16984,22 @@ export function MakerWorldOptions({ opts, project, onUpdate, updateProject = nul
     mwRuntimeCyberBrick[kind] = value;
     setCyberFiles((previous) => ({ ...previous, [kind]: value }));
   };
-  const changeModelSource = (value) => onUpdate(value === 'remix'
-    ? { modelSource: 'remix', exclusive: false, exclusiveTermsAccepted: false }
-    : { modelSource: value });
+  const changeModelSource = (value) => onUpdate(value !== 'original'
+    ? { modelSource: value, modelSourceAuto: false, exclusive: false, exclusiveTermsAccepted: false }
+    : { modelSource: value, modelSourceAuto: false });
+  const resetModelSource = () => {
+    const sharedRemix = project?.provenance?.origin === 'remix';
+    onUpdate({
+      modelSource: sharedRemix ? 'remix' : 'original',
+      modelSourceAuto: true,
+      remixUrl: sharedRemix ? String(project?.provenance?.sourceUrl || '') : '',
+      remixDescription: sharedRemix ? String(project?.provenance?.changes || '') : '',
+      remixModel: null,
+      remixLicense: '',
+      exclusive: false,
+      exclusiveTermsAccepted: false,
+    });
+  };
   const setLaserInfo = (field, value) => onUpdate('laserInfo', { ...laserInfo, [field]: value });
   const setLaserProfile = (field, value) => onUpdate('laserProfile', { ...laserProfile, [field]: value });
 
@@ -17044,9 +17114,10 @@ export function MakerWorldOptions({ opts, project, onUpdate, updateProject = nul
         ) : (
           <label className="block text-xs"><FieldCaption>Source</FieldCaption>
             <Select
+              ariaLabel="MakerWorld model source"
               value={o.modelSource}
               onChange={(selectValue) => changeModelSource(selectValue)}
-              options={[{ value: "original", label: 'Original' }, { value: "remix", label: 'Remix' }]}
+              options={[{ value: "original", label: 'Original' }, { value: "remix", label: 'Remix' }, { value: "share", label: 'Share' }]}
             />
           </label>
         )}
@@ -17096,19 +17167,21 @@ export function MakerWorldOptions({ opts, project, onUpdate, updateProject = nul
           <ProfilesSection project={project} updateProject={updateProject} embedded />
         </MwSection>
       )}
-      <MwSection title="Source & remix" hint="original or remix" badge={o.modelSource === 'remix' ? '1' : 0} onClear={() => onUpdate({ modelSource: 'original', remixUrl: '', remixModel: null, remixLicense: '', remixDescription: '' })}>
+      <MwSection title="Source & attribution" hint="original, remix, or share" badge={o.modelSource !== 'original' ? '1' : 0} onClear={resetModelSource}>
         {!isLC && (
           <label className="block text-xs"><FieldCaption>Model source</FieldCaption>
             <Select
+              ariaLabel="MakerWorld model source"
               value={o.modelSource}
               onChange={(selectValue) => changeModelSource(selectValue)}
-              options={[{ value: "original", label: 'Original design' }, { value: "remix", label: 'Remix of another model' }]}
+              options={[{ value: "original", label: 'Original design' }, { value: "remix", label: 'Remix of another model' }, { value: "share", label: 'Share another design' }]}
             />
+            <span className="text-[11px] opacity-70">{o.modelSourceAuto !== false ? 'Following the source selected in Details.' : 'MakerWorld override. Clear this section to follow Details again.'}</span>
           </label>
         )}
-        {o.modelSource === 'remix' && (
+        {(o.modelSource === 'remix' || o.modelSource === 'share') && (
             <div className="space-y-1">
-              <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>Paste any source URL, or search your own MakerWorld designs:</div>
+              <div className="text-[11px]" style={{ color: 'var(--ink-a66)' }}>Paste the source URL, or search your own MakerWorld designs:</div>
               <input className={inputCls} type="url" value={o.remixUrl || ''} placeholder="https://makerworld.com/en/models/… or another source"
                 onChange={(e) => onUpdate({ remixUrl: e.target.value, remixModel: null })} />
               <MwRelatedSearch cookie={cookie} type={isLC ? 1 : 0} selected={o.remixModel}
@@ -17126,11 +17199,14 @@ export function MakerWorldOptions({ opts, project, onUpdate, updateProject = nul
               {o.remixLicense && !makerWorldLicenseAllowsRemix(o.remixLicense) && (
                 <div className="text-[11px]" style={{ color: 'var(--danger-text)' }}>This license does not allow derivative/remix uploads.</div>
               )}
-              <label className="block text-xs"><FieldCaption>What did you change?</FieldCaption>
-                <textarea className={`${inputCls} min-h-20`} value={o.remixDescription || ''} maxLength={2000}
-                  placeholder="Describe the parts, geometry, sizing, or print setup you changed."
-                  onChange={(e) => onUpdate('remixDescription', e.target.value)} />
-              </label>
+              {o.modelSource === 'remix' && (
+                <label className="block text-xs"><FieldCaption>What did you change?</FieldCaption>
+                  <textarea className={`${inputCls} min-h-20`} value={o.remixDescription || ''} maxLength={2000}
+                    placeholder="Describe the parts, geometry, sizing, or print setup you changed."
+                    onChange={(e) => onUpdate('remixDescription', e.target.value)} />
+                </label>
+              )}
+              {o.modelSource === 'share' && <p className="text-[11px] opacity-70">Share is a native MakerWorld source type. Availability can depend on the account and source model.</p>}
             </div>
         )}
       </MwSection>
@@ -17227,16 +17303,17 @@ export function MakerWorldOptions({ opts, project, onUpdate, updateProject = nul
       {!isLC && (
         <div className="space-y-1.5">
           <label className="flex items-start gap-2 text-xs" style={{ color: 'var(--ink-a70)' }}>
-            <input type="checkbox" disabled={o.modelSource === 'remix'} checked={!!o.exclusive}
+            <input type="checkbox" disabled={o.modelSource !== 'original'} checked={!!o.exclusive}
               onChange={(e) => onUpdate({ exclusive: e.target.checked, exclusiveTermsAccepted: false })} className="mt-0.5" />
-            <span>Join the <strong>Exclusive Model Program</strong> for this model.{o.modelSource === 'remix' ? ' Remixes are not eligible.' : ''}</span>
+            <span>Join the <strong>Exclusive Model Program</strong> for this model.{o.modelSource !== 'original' ? ' Remix and Share sources are not eligible.' : ''}</span>
           </label>
           {o.exclusive && (
             <label className="flex items-start gap-2 text-xs ml-5 mp-card p-2" style={{ backgroundColor: 'rgba(255,105,0,0.06)' }}>
               <input type="checkbox" className="mt-0.5" checked={!!o.exclusiveTermsAccepted} onChange={(e) => onUpdate('exclusiveTermsAccepted', e.target.checked)} />
-              <span>I have read and agree to MakerWorld's <a className="underline" href="https://makerworld.com/en/exclusive-model-program" target="_blank" rel="noopener noreferrer">Exclusive Model Program terms</a>, including the exclusivity obligation.</span>
+              <RequiredChoiceText>I have read and agree to MakerWorld's <a className="underline" href="https://makerworld.com/en/exclusive-model-program" target="_blank" rel="noopener noreferrer">Exclusive Model Program terms</a>, including the exclusivity obligation.</RequiredChoiceText>
             </label>
           )}
+          <p className="text-[11px] ml-5 opacity-70">MakerWorld's 14-Day Exclusive Launch is a separate native program. ModelPrep leaves it unavailable because the audited flow did not capture its request field or eligibility response.</p>
         </div>
       )}
       {!isLC && (

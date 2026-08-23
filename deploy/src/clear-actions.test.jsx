@@ -36,13 +36,21 @@ describe('required marks', () => {
     expect(screen.getByText('Cults3D category')).toBeInTheDocument();
   });
 
-  it('stars Title and Category on Details, where every platform needs them', async () => {
+  it('stars Title and Category on Details without overstating Description', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /step 2: details/i }));
     const marks = screen.getAllByLabelText('required').map((mark) => mark.parentElement.textContent.replace('*', '').trim());
     expect(marks).toEqual(expect.arrayContaining(['Title', 'Category']));
     expect(marks).not.toContain('Description');
+  });
+});
+
+describe('Cults audited options', () => {
+  it('shows open pricing and offline visibility', () => {
+    render(<CultsOptions opts={{ pricing: 'open_priced', free: false, openPrice: 2.5, visibility: 'offline' }} onUpdate={() => {}} />);
+    expect(screen.getByLabelText('Cults3D open price minimum')).toHaveValue(2.5);
+    expect(screen.getByRole('radio', { name: 'Offline' })).toBeChecked();
   });
 });
 

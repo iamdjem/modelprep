@@ -61,6 +61,16 @@ describe('shared section navigation layout', () => {
     expect(screen.getByRole('button', { name: /continue to publish/i })).toBeInTheDocument();
   });
 
+  it('keeps the visible workflow on five step numbers', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
+    expect(screen.getByText('Step 4', { selector: '.sr-only' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /step 5: publish/i }));
+    expect(screen.getByText('Step 5', { selector: '.sr-only' })).toBeInTheDocument();
+    expect(screen.queryByText('Step 6', { selector: '.sr-only' })).not.toBeInTheDocument();
+  });
+
   it('restores the workspace to the top whenever the user changes steps', async () => {
     const user = userEvent.setup();
     render(<App />);

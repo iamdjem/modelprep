@@ -307,6 +307,21 @@ describe('shared disclosures', () => {
     });
     expect(patches?.printables?.authorship).toBeUndefined();
   });
+
+  it('keeps a manual MakerWorld Share override instead of resetting it from Details', () => {
+    const platforms = platformsWithDisclosures();
+    platforms.makerworld = {
+      ...platforms.makerworld,
+      modelSource: 'share',
+      modelSourceAuto: false,
+      remixUrl: 'https://example.com/source',
+    };
+    const patches = deriveSharedDefaultPatches({
+      category: '', license: '', provenance: { origin: 'original' }, platforms,
+    });
+    expect(patches?.makerworld?.modelSource).toBeUndefined();
+    expect(patches?.makerworld?.remixUrl).toBeUndefined();
+  });
 });
 
 describe('package-derived defaults', () => {

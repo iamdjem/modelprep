@@ -169,6 +169,36 @@ test('desktop direct Cults publish completes a 19-file demo without a Worker sub
   assert.doesNotMatch(creation.options.body, /creation%5Bshow_comments%5D%5B%5D=1/);
 });
 
+test('desktop Cults sends open pricing and offline visibility without treating the listing as free', async () => {
+  const { fetchImpl, requests } = buildSuccessfulFetch();
+  const client = createCultsDirectClient({ fetchImpl });
+  const credentials = { email: 'test@example.com', password: 'correct horse battery staple' };
+  await client.connect(credentials, 'account-1');
+  const result = await client.handleRequest({
+    url: 'https://modelprep-backend.iamdjem.workers.dev/api/v1/cults3d/web/publish',
+    method: 'POST',
+    bodyType: 'form-data',
+    body: [
+      { name: 'name', kind: 'text', value: 'Open dragon' },
+      { name: 'categoryId', kind: 'text', value: '23' },
+      { name: 'licenseType', kind: 'text', value: 'cults_cu' },
+      { name: 'pricing', kind: 'text', value: 'open_priced' },
+      { name: 'free', kind: 'text', value: 'false' },
+      { name: 'price', kind: 'text', value: '0' },
+      { name: 'downloadOpenPrice', kind: 'text', value: '2.5' },
+      { name: 'visibility', kind: 'text', value: 'offline' },
+      fileEntry('cover.webp'),
+      fileEntry('dragon.stl', 'model'),
+    ],
+  }, credentials, 'account-1');
+  assert.equal(result.status, 200);
+  const priceRequest = requests.find(({ url }) => url.endsWith('/en/creations/demo-dragon/price'));
+  assert.match(priceRequest.options.body, /creation%5Bpricing%5D=open_priced/);
+  assert.match(priceRequest.options.body, /creation%5Bdownload_open_price%5D=2.5/);
+  assert.match(priceRequest.options.body, /creation%5Blicense_type%5D=cults_cu/);
+  assert.match(priceRequest.options.body, /creation%5Bvisibility%5D=offline/);
+});
+
 test('desktop Cults publish rejects an unknown current-form meta tag before authentication', async () => {
   const client = createCultsDirectClient({ fetchImpl: async () => { throw new Error('must not authenticate'); } });
   const result = await client.handleRequest({

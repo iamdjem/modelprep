@@ -444,7 +444,12 @@ export function deriveSharedDefaultPatches(project, extras = {}) {
     if (aiField && declares(opts, aiField) && opts[aiField] !== aiGenerated) queue(platformId, { [aiField]: aiGenerated });
     const nsfwField = NSFW_TARGETS[platformId];
     if (nsfwField && declares(opts, nsfwField) && opts[nsfwField] !== nsfw) queue(platformId, { [nsfwField]: nsfw });
-    const originPatch = provenancePatch(platformId, provenance);
+    // MakerWorld has a third, platform-only Share source. Once the creator
+    // chooses a MakerWorld override, do not immediately replace it with the
+    // shared Original/Remix answer on the next render.
+    const originPatch = platformId === 'makerworld' && opts.modelSourceAuto === false
+      ? null
+      : provenancePatch(platformId, provenance);
     if (originPatch) {
       const changed = Object.entries(originPatch)
         .filter(([key]) => declares(opts, key))
