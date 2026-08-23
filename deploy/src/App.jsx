@@ -589,6 +589,109 @@ export function platformCandidateFiles(platform, project) {
   });
 }
 
+const KNOWN_NATIVE_CATEGORY_LABELS = {
+  printables: { '12': '3D Printers › Test Models' },
+  nexprint: { '1422473859022859': '3D Printer › Testing Models' },
+  makeronline: { '36': 'Test Models' },
+};
+
+const PRINTABLES_LICENSE_LABELS = {
+  1: 'CC BY', 2: 'CC BY-SA', 3: 'CC BY-NC', 4: 'CC BY-NC-SA',
+  6: 'CC BY-NC-ND', 7: 'CC0', 8: 'CC BY-ND', 13: 'Standard Digital License',
+};
+
+function sharedLicenseShortLabel(project) {
+  const license = LICENSES.find((item) => item.id === project?.license);
+  return license?.name?.split(':')[0] || project?.license || 'Not mapped';
+}
+
+// Read-only comparison labels. The destination editors remain the only place
+// that changes these values, and the upload adapters still consume the stored
+// native IDs rather than these display strings.
+export function nativeCategoryLabel(platform, project) {
+  const opts = project?.platforms?.[platform.id] || {};
+  if (Array.isArray(opts.categoryPaths) && opts.categoryPaths.length) return opts.categoryPaths.join(', ');
+  if (platform.id === 'thangs' && opts.category) return opts.category;
+  if (platform.id === 'makerworld' && opts.categoryId) {
+    return MW_CATEGORIES.find((item) => String(item.id) === String(opts.categoryId))?.label || `Saved category ${opts.categoryId}`;
+  }
+  if (platform.id === 'cults' && opts.categoryId) {
+    return CULTS_CATEGORIES.find(([id]) => String(id) === String(opts.categoryId))?.[1] || `Saved category ${opts.categoryId}`;
+  }
+  if (platform.id === 'mmf' && Array.isArray(opts.categoryIds) && opts.categoryIds.length) {
+    const selected = String(opts.categoryIds.at(-1));
+    return flattenMyMiniFactoryCategories(MYMINIFACTORY_CATEGORY_TREE).find((item) => String(item.id) === selected)?.label
+      || `Saved category ${opts.categoryIds.join(' › ')}`;
+  }
+  if (platform.id === 'thingiverse' && opts.categoryId) {
+    return THINGIVERSE_CATEGORIES.find((item) => String(item.id) === String(opts.categoryId))?.label || `Saved category ${opts.categoryId}`;
+  }
+  if (platform.id === 'creality' && opts.categoryId) {
+    for (const parent of CREALITY_CATEGORIES) {
+      if (String(parent.id) === String(opts.categoryId)) return parent.label;
+      const child = (parent.children || []).find(([id]) => String(id) === String(opts.categoryId));
+      if (child) return `${parent.label} › ${child[1]}`;
+    }
+    return `Saved category ${opts.categoryId}`;
+  }
+  const known = KNOWN_NATIVE_CATEGORY_LABELS[platform.id]?.[String(opts.categoryId || '')];
+  if (known) return known;
+  if (opts.categoryId) return `Saved category ${opts.categoryId}`;
+  return 'Not mapped';
+}
+
+export function nativeLicenseLabel(platform, project) {
+  const opts = project?.platforms?.[platform.id] || {};
+  if (platform.id === 'makerworld') return mwResolveLicense(opts, project);
+  if (platform.id === 'printables') {
+    const id = String(opts.licenseId || PRINTABLES_LICENSE_MAP[project?.license] || '');
+    return PRINTABLES_LICENSE_LABELS[id] || `Saved licence ${id}`;
+  }
+  if (platform.id === 'cults') return CULTS_LICENSES.find(([id]) => id === String(opts.licenseType || ''))?.[1] || 'Not mapped';
+  if (platform.id === 'mmf') return MYMINIFACTORY_LICENSES.find((item) => item.id === Number(opts.licenseId))?.name || 'Not mapped';
+  if (platform.id === 'thingiverse') {
+    const names = { 'cc': 'CC BY', 'cc-sa': 'CC BY-SA', 'cc-nc': 'CC BY-NC', 'cc-nc-sa': 'CC BY-NC-SA', 'cc-nd': 'CC BY-ND', 'cc-nc-nd': 'CC BY-NC-ND', pd0: 'CC0' };
+    return names[opts.license] || opts.license || 'Not mapped';
+  }
+  if (platform.id === 'thangs') return opts.license || sharedLicenseShortLabel(project);
+  if (platform.id === 'nexprint') return NEXPRINT_LICENSES.find((item) => item.id === Number(opts.licenseType ?? NEXPRINT_LICENSE_MAP[project?.license]))?.name || 'Not mapped';
+  if (platform.id === 'creality') return CREALITY_LICENSES.find((item) => item.value === (opts.license || CREALITY_LICENSE_MAP[project?.license]))?.label || opts.license || 'Not mapped';
+  if (platform.id === 'makeronline') return MAKERONLINE_LICENSES.find((item) => item.value === Number(opts.license ?? MAKERONLINE_LICENSE_MAP[project?.license]))?.label || 'Not mapped';
+  if (platform.id === 'makeroad') return MAKEROAD_LICENSES[Number(opts.licenseIndex || 0)]?.label || 'Not mapped';
+  return sharedLicenseShortLabel(project);
+}
+
+const FILE_GATED_EVIDENCE = {
+  nexprint: 'Core draft upload is verified. Native Print Profile fields remain file-gated.',
+  creality: 'Core private upload is verified. Parsed Print Configuration fields remain file-gated.',
+};
+
+// Evidence explains the confidence boundary around a row. It does not replace
+// platformPreflight or publishBlockers, which remain the readiness authority.
+export function destinationEvidenceState(platform, project, accountConnected = false) {
+  const candidates = platformCandidateFiles(platform, project);
+  if (!(project?.files || []).length || !candidates.length) {
+    return { id: 'needs-file', label: 'Needs file', detail: `Add a compatible file to inspect ${platform.name}'s native path.` };
+  }
+  const workflow = platformWorkflow(platform.id);
+  if (FILE_GATED_EVIDENCE[platform.id] || !['api', 'ui', 'accepted'].includes(workflow.evidenceLevel)) {
+    return { id: 'unknown', label: 'Unknown', detail: FILE_GATED_EVIDENCE[platform.id] || workflow.evidence };
+  }
+  if (!project?.__demo && !accountConnected) {
+    return { id: 'needs-account', label: 'Needs account', detail: `Connect ${platform.name} to verify the current native session.` };
+  }
+  return { id: 'verified', label: 'Verified', detail: workflow.evidence };
+}
+
+export function fileDestinationUsage(file, project) {
+  return PLATFORMS.filter((platform) => project?.platforms?.[platform.id]?.enabled)
+    .flatMap((platform) => {
+      if (!platformCandidateFiles(platform, { files: [file] }).length) return [];
+      const role = platformFileRole(platform.id, file, project.platforms?.[platform.id]);
+      return role === 'not-sent' ? [] : [{ platform, role }];
+    });
+}
+
 // --- Release plans (reminders + scheduled uploads) ---------------------------
 // A tiny subscribable store over localStorage so the Platforms cards, the
 // Publish queue and the root scheduler all see one consistent list without
@@ -2352,10 +2455,8 @@ export default function App() {
 
       <TopHeader
         project={project}
-        updateProject={updateProject}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={setSidebarCollapsed}
-        project={project}
         demoActive={demoActive}
         demoLoading={demoLoading}
         onToggleDemo={toggleDemo}
@@ -4864,6 +4965,61 @@ function GlobalStyles() {
       .mp-table th:last-child, .mp-table td:last-child { width: 90px; }
       .mp-table tr.mp-subrow td { width: auto; }
 
+      /* Destination comparison. The table is the scan view, while the
+         existing PlatformCard remains the editor below the selected row. */
+      .mp-destination-matrix { width: 100%; min-width: 1080px; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+      .mp-destination-matrix th { padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--ink-50); background: var(--surface-sunken); border-bottom: 1px solid var(--border); }
+      .mp-destination-matrix td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; line-height: 1.35; }
+      .mp-destination-matrix tr:last-child td { border-bottom: 0; }
+      .mp-destination-matrix tbody tr { cursor: pointer; transition: background-color 140ms ease, box-shadow 140ms ease; }
+      .mp-destination-matrix tbody tr:hover { background: var(--surface-sunken); }
+      .mp-destination-matrix tbody tr.is-selected { background: var(--primary-a06); box-shadow: inset 3px 0 0 var(--primary); }
+      .mp-destination-matrix tbody tr:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+      .mp-destination-matrix th:nth-child(1) { width: 190px; }
+      .mp-destination-matrix th:nth-child(2) { width: 190px; }
+      .mp-destination-matrix th:nth-child(3) { width: 175px; }
+      .mp-destination-matrix th:nth-child(4) { width: 160px; }
+      .mp-destination-matrix th:nth-child(5) { width: 140px; }
+      .mp-destination-matrix th:nth-child(6) { width: 120px; }
+      .mp-destination-matrix th:nth-child(7) { width: 105px; }
+      .mp-mapping-missing { color: var(--danger-text); }
+      .mp-status-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+      .mp-readiness-ready, .mp-evidence-verified { color: var(--success-text); background: rgba(79,178,134,0.14); }
+      .mp-readiness-blocked, .mp-evidence-needs-file { color: var(--danger-text); background: var(--danger-tint); }
+      .mp-readiness-local, .mp-evidence-unknown { color: var(--warn-text); background: rgba(255,182,39,0.14); }
+      .mp-evidence-needs-account { color: var(--accent-text); background: var(--primary-a10); }
+      .mp-matrix-fix { color: var(--primary-ink); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+      .mp-matrix-fix:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 2px; }
+      .mp-destination-dossiers { display: none; }
+      .mp-platform-editor { scroll-margin-top: 72px; }
+
+      .mp-destination-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 8px 3px 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); white-space: nowrap; }
+      .mp-destination-chip-role { color: var(--ink-50); font-size: 10px; }
+      .mp-file-destination-table th:nth-child(1), .mp-file-destination-table td:nth-child(1) { width: 260px; }
+      .mp-file-destination-table th:nth-child(2), .mp-file-destination-table td:nth-child(2) { width: 150px; }
+      .mp-file-destination-table th:nth-child(3), .mp-file-destination-table td:nth-child(3) { width: auto; }
+      .mp-file-destination-table th:nth-child(4), .mp-file-destination-table td:nth-child(4) { width: 100px; }
+
+      @media (max-width: 1100px) {
+        .mp-destination-matrix-wrap { display: none; }
+        .mp-destination-dossiers { display: block; }
+        .mp-destination-strip { display: flex; gap: 7px; overflow-x: auto; padding: 10px; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+        .mp-destination-strip > button { position: relative; flex: 0 0 auto; padding: 4px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; }
+        .mp-destination-strip > button.is-active { background: var(--primary-a08); border-color: var(--primary-a30); }
+        .mp-destination-strip > button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+        .mp-strip-count { position: absolute; right: -3px; top: -3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--danger-text); color: #fff; font-size: 9px; line-height: 16px; font-weight: 700; }
+        .mp-destination-dossier { padding: 14px; }
+        .mp-dossier-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-top: 14px; }
+        .mp-dossier-facts div { min-width: 0; }
+        .mp-dossier-facts dt { color: var(--ink-50); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+        .mp-dossier-facts dd { margin-top: 3px; color: var(--ink); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+      }
+
+      @media (max-width: 560px) {
+        .mp-dossier-facts { grid-template-columns: 1fr; gap: 9px; }
+        .mp-destination-dossier .mp-btn { font-size: 12px; padding-left: 10px; padding-right: 10px; }
+      }
+
       /* Disclosure summaries: explicit rotating chevron, since inline-flex
          summaries drop the native marker. */
       summary.mp-disclosure { list-style: none; }
@@ -5761,7 +5917,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
   const [preparing, setPreparing] = useState(0);
   const thumbnailIdsRef = useRef(new Set());
   const [fileQuery, setFileQuery] = useState('');
-  const [fileView, setFileView] = useState('list');   // 'list' reads names, 'grid' reads previews
+  const [fileView, setFileView] = useState('list');   // list, previews, or destination dependency view
   const [thumbSize, setThumbSize] = useState(56);     // preview edge in px
   const [previewIndex, setPreviewIndex] = useState(-1);
   const [fileSort, setFileSort] = useState('added');
@@ -6108,7 +6264,11 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
                   contact sheet as tiles, and which one helps depends on whether
                   you are reading names or looking at plates. */}
               <div className="mp-segmented" role="group" aria-label="File view">
-                {[{ id: 'list', icon: FileText, label: 'List view' }, { id: 'grid', icon: ImageIcon, label: 'Grid view' }].map(({ id, icon: Icon, label }) => (
+                {[
+                  { id: 'list', icon: FileText, label: 'List view' },
+                  { id: 'grid', icon: ImageIcon, label: 'Grid view' },
+                  { id: 'destinations', icon: Layers, label: 'Used by destinations' },
+                ].map(({ id, icon: Icon, label }) => (
                   <button
                     key={id}
                     onClick={() => setFileView(id)}
@@ -6122,7 +6282,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
               </div>
               {/* A slider, because preview size is a continuous quantity: two
                   buttons made the user click repeatedly to cross the range. */}
-              <label className="flex items-center gap-1.5" title="Preview size">
+              {fileView === 'grid' && <label className="flex items-center gap-1.5" title="Preview size">
                 <Minus size={12} style={{ color: 'var(--ink-35)' }} />
                 <input
                   type="range"
@@ -6135,7 +6295,7 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
                   className="mp-range w-24"
                 />
                 <Plus size={12} style={{ color: 'var(--ink-35)' }} />
-              </label>
+              </label>}
               <div aria-hidden style={{ width: 1, height: 20, backgroundColor: 'var(--border)' }} />
               <button
                 onClick={() => {
@@ -6170,7 +6330,9 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
               <button onClick={() => setFileQuery('')} className="underline" style={{ color: 'var(--accent-text)' }}>Clear search</button>
             </p>
           )}
-          {groupProjectFiles(visibleFiles).map(({ key, title, hint, files }) => (
+          {fileView === 'destinations' ? (
+            <FileDestinationUsageView files={visibleFiles} project={project} />
+          ) : groupProjectFiles(visibleFiles).map(({ key, title, hint, files }) => (
             <section key={key} className="mt-4 first:mt-0">
               <div className="flex items-baseline gap-2 mb-2">
                 <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{title}</span>
@@ -6239,6 +6401,67 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
         disabledReason="Add at least one model file to continue"
         onNext={() => setCurrentSection('details')}
       />
+    </div>
+  );
+}
+
+function roleLabel(role) {
+  return FILE_ROLE_OPTIONS.find((item) => item.id === role)?.label
+    || DESTINATION_FILE_ROLES.find((item) => item.id === role)?.label
+    || (role === 'documentation' ? 'Documentation' : role);
+}
+
+function FileDestinationUsageView({ files, project }) {
+  const enabled = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+  return (
+    <div className="mp-card overflow-x-auto" data-testid="file-destination-view">
+      <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="text-[13px] font-medium">Used by destinations</div>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--ink-65)' }}>
+          This explains the current automatic routing. Change a destination-specific role inside its Platforms editor.
+        </p>
+      </div>
+      <table className="mp-table mp-file-destination-table" style={{ minWidth: 720 }}>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Project role</th>
+            <th>Used by destinations</th>
+            <th>Coverage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {files.map((file) => {
+            const usage = fileDestinationUsage(file, project);
+            return (
+              <tr key={file.id} data-file-destinations={file.id}>
+                <td>
+                  <div className="font-medium truncate max-w-[19rem]" title={file.name}>{file.name}</div>
+                  <div className="text-[11px] mt-0.5" style={{ color: 'var(--ink-50)' }}>{formatBytes(file.size || 0)}</div>
+                </td>
+                <td>{roleLabel(projectFileRole(file))}</td>
+                <td>
+                  {usage.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {usage.map(({ platform, role }) => (
+                        <span key={platform.id} className="mp-destination-chip" title={`${platform.name}: ${roleLabel(role)}`}>
+                          <PlatformMark platform={platform} size={20} />
+                          <span>{platform.name}</span>
+                          <span className="mp-destination-chip-role">{roleLabel(role)}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : <span style={{ color: 'var(--danger-text)' }}>Not sent anywhere</span>}
+                </td>
+                <td>
+                  <span className="t-num">{usage.length}/{enabled.length}</span>
+                  <span className="text-[11px] ml-1" style={{ color: 'var(--ink-50)' }}>selected</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -9287,7 +9510,7 @@ function ImagesSection({ project, updateProject, setCurrentSection }) {
 
       <SectionNav
         backLabel="Back to Details"
-        nextLabel={project.profiles.length ? 'Continue to Profiles' : 'Continue to Platforms'}
+        nextLabel="Continue to Platforms"
         nextDisabled={project.images.length === 0 || !project.coverImageId}
         disabledReason={project.images.length === 0 ? 'Add at least one image to continue' : 'Pick a cover image to continue'}
         onBack={() => setCurrentSection('details')}
@@ -9831,16 +10054,72 @@ function PlatformsSection({ project, updateProject, setCurrentSection, openPlatf
     const next = {}; for (const k of Object.keys(project.platforms)) next[k] = { ...project.platforms[k], enabled };
     updateProject({ platforms: next });
   };
+  const firstEnabledId = PLATFORMS.find((platform) => project.platforms?.[platform.id]?.enabled)?.id || PLATFORMS[0].id;
+  const [focusedPlatformId, setFocusedPlatformId] = useState(firstEnabledId);
   const [expandedPlatformId, setExpandedPlatformId] = useState(null);
   // A "Needs attention" link asked for one platform's panel.
-  useEffect(() => { if (openPlatformId) setExpandedPlatformId(openPlatformId); }, [openPlatformId]);
+  useEffect(() => {
+    if (!openPlatformId) return;
+    setFocusedPlatformId(openPlatformId);
+    setExpandedPlatformId(openPlatformId);
+  }, [openPlatformId]);
+
+  const rows = PLATFORMS.map((platform) => {
+    const state = project.platforms[platform.id];
+    const activeAccount = accounts.getActive(platform.id);
+    const connected = accountIsUsable(activeAccount);
+    const connectionLabel = connected
+      ? 'Connected'
+      : activeAccount?.status === 'checking' ? 'Checking session' : activeAccount ? 'Reconnect needed' : 'Connect account';
+    const issues = platformPreflight(platform, project);
+    const blockers = publishBlockers(issues);
+    const readiness = destinationReadinessSummary(platform.id, issues, project);
+    const evidence = destinationEvidenceState(platform, project, connected);
+    return {
+      platform, state, activeAccount, connected, connectionLabel, issues, blockers, readiness, evidence,
+      category: nativeCategoryLabel(platform, project),
+      license: nativeLicenseLabel(platform, project),
+    };
+  });
+  const enabledRows = rows.filter((row) => row.state.enabled);
+  const attentionCount = enabledRows.filter((row) => row.blockers.length).length;
+  const evidenceGapCount = enabledRows.filter((row) => row.evidence.id !== 'verified').length;
+  const verifiedReadyCount = enabledRows.filter((row) => !row.blockers.length && row.evidence.id === 'verified').length;
+  const focusedRow = rows.find((row) => row.platform.id === focusedPlatformId) || rows[0];
+  const expandedRow = rows.find((row) => row.platform.id === expandedPlatformId);
+  const selectRow = (id) => {
+    setFocusedPlatformId(id);
+    setExpandedPlatformId((current) => current === id ? null : id);
+  };
+  const displayReadiness = (row) => {
+    if (!row.state.enabled) return 'Not selected';
+    if (row.blockers.length) return row.readiness.label;
+    return row.evidence.id === 'verified' ? 'Ready' : 'Local checks pass';
+  };
+  const editExpandedPlatform = expandedRow ? (
+    <div className="mp-platform-editor mt-3" data-testid="selected-platform-editor">
+      <PlatformCard
+        key={expandedRow.platform.id}
+        platform={expandedRow.platform}
+        state={expandedRow.state}
+        project={project}
+        connectionLabel={expandedRow.connectionLabel}
+        onConnect={() => openConnections('accounts', expandedRow.platform.id)}
+        onToggle={() => togglePlatform(expandedRow.platform.id)}
+        expanded
+        onExpand={() => setExpandedPlatformId(null)}
+        onUpdate={(field, value) => updatePlatformField(expandedRow.platform.id, field, value)}
+        updateProject={updateProject}
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="w-full min-w-0">
       <SectionHeader
-        number="05"
+        number="04"
         title="Choose your platforms"
-        subtitle={`${enabledCount} of ${PLATFORMS.length} selected. Open one to change how it publishes.`}
+        subtitle={`${enabledCount} of ${PLATFORMS.length} selected. Compare native mappings, outcomes, readiness and evidence before publishing.`}
       />
 
       <div className="flex flex-wrap items-center gap-2 mt-5">
@@ -9849,31 +10128,155 @@ function PlatformsSection({ project, updateProject, setCurrentSection, openPlatf
         <span className="mp-mono text-xs ml-auto" style={{ color: 'var(--ink-a66)' }}>{enabledCount}/{PLATFORMS.length} enabled</span>
       </div>
 
-      {/* Every platform publishes from a connected account, so the old
-          "Direct publishing" / "Export & future connections" split grouped ten
-          rows against an empty second group. One list. */}
-      <div className="mt-5">
-        <div className="grid grid-cols-1 gap-2" data-testid="destination-list">
-        {PLATFORMS.map((p) => {
-          const activeAccount = accounts.getActive(p.id);
-          const connectionLabel = accountIsUsable(activeAccount)
-            ? 'Connected'
-            : activeAccount?.status === 'checking' ? 'Checking session' : activeAccount ? 'Reconnect needed' : 'Connect account';
-          return <PlatformCard
-            key={p.id}
-            platform={p}
-            state={project.platforms[p.id]}
-            project={project}
-            connectionLabel={connectionLabel}
-            onConnect={() => openConnections('accounts', p.id)}
-            onToggle={() => togglePlatform(p.id)}
-            expanded={expandedPlatformId === p.id}
-            onExpand={() => setExpandedPlatformId((current) => current === p.id ? null : p.id)}
-            onUpdate={(field, value) => updatePlatformField(p.id, field, value)}
-            updateProject={updateProject}
-          />;
-        })}
+      <div className="mt-5" data-testid="destination-list">
+        <div className="mp-card overflow-hidden">
+          <div className="px-4 py-3 border-b flex flex-wrap items-start gap-x-6 gap-y-2" style={{ borderColor: 'var(--border)' }}>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-[15px] font-semibold">Destination comparison</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--ink-65)' }}>
+                Native values come from each platform editor. Readiness still comes from the same publish preflight.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs t-num" aria-label="Destination comparison summary">
+              <span><strong style={{ color: 'var(--success-text)' }}>{verifiedReadyCount}</strong> verified ready</span>
+              <span><strong style={{ color: 'var(--danger-text)' }}>{attentionCount}</strong> need attention</span>
+              <span><strong style={{ color: 'var(--warn-text)' }}>{evidenceGapCount}</strong> evidence gaps</span>
+            </div>
+          </div>
+
+          <div className="mp-destination-matrix-wrap overflow-x-auto">
+            <table className="mp-destination-matrix" aria-label="Platform mapping comparison">
+              <thead>
+                <tr>
+                  <th>Platform</th>
+                  <th>Native category</th>
+                  <th>Native licence</th>
+                  <th>Requested outcome</th>
+                  <th>Readiness</th>
+                  <th>Evidence</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const selected = expandedPlatformId === row.platform.id;
+                  return (
+                    <tr
+                      key={row.platform.id}
+                      data-destination-row={row.platform.id}
+                      className={selected ? 'is-selected' : ''}
+                      tabIndex={0}
+                      aria-expanded={selected}
+                      onClick={() => selectRow(row.platform.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectRow(row.platform.id); }
+                      }}
+                    >
+                      <td>
+                        <div className="flex items-center gap-2.5 min-w-[11rem]">
+                          <button
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); togglePlatform(row.platform.id); }}
+                            role="switch"
+                            aria-checked={row.state.enabled}
+                            aria-label={`${row.state.enabled ? 'Disable' : 'Enable'} ${row.platform.name}`}
+                            className="mp-switch flex-shrink-0"
+                          />
+                          <PlatformMark platform={row.platform} size={26} />
+                          <div className="min-w-0">
+                            <div className="font-semibold truncate">{row.platform.name}</div>
+                            {row.connected ? (
+                              <div className="text-[11px] truncate" style={{ color: 'var(--success-text)' }}>{row.connectionLabel}</div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="text-[11px] truncate underline underline-offset-2"
+                                style={{ color: 'var(--accent-text)' }}
+                                aria-label={`${row.activeAccount ? 'Reconnect' : 'Connect'} ${row.platform.name}`}
+                                onClick={(event) => { event.stopPropagation(); openConnections('accounts', row.platform.id); }}
+                              >
+                                {row.connectionLabel}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td><span className={row.category === 'Not mapped' ? 'mp-mapping-missing' : ''}>{row.category}</span></td>
+                      <td><span className={row.license === 'Not mapped' ? 'mp-mapping-missing' : ''}>{row.license}</span></td>
+                      <td>{row.readiness.outcome.outcome}</td>
+                      <td><span className={`mp-status-chip mp-readiness-${row.blockers.length ? 'blocked' : row.evidence.id === 'verified' ? 'ready' : 'local'}`}>{displayReadiness(row)}</span></td>
+                      <td><span className={`mp-status-chip mp-evidence-${row.evidence.id}`} title={row.evidence.detail}>{row.evidence.label}</span></td>
+                      <td>
+                        {row.state.enabled && row.blockers.length ? (
+                          <button
+                            type="button"
+                            className="mp-matrix-fix"
+                            onClick={(event) => { event.stopPropagation(); setFocusedPlatformId(row.platform.id); setExpandedPlatformId(row.platform.id); }}
+                          >
+                            Fix {row.blockers.length}
+                          </button>
+                        ) : <span style={{ color: 'var(--ink-50)' }}>{row.state.enabled ? 'No blockers' : 'Not selected'}</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mp-destination-dossiers">
+            <div className="mp-destination-strip" role="tablist" aria-label="Choose a platform dossier">
+              {rows.map((row) => (
+                <button
+                  key={row.platform.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={focusedRow.platform.id === row.platform.id}
+                  onClick={() => { setFocusedPlatformId(row.platform.id); if (expandedPlatformId !== row.platform.id) setExpandedPlatformId(null); }}
+                  className={focusedRow.platform.id === row.platform.id ? 'is-active' : ''}
+                  title={row.platform.name}
+                >
+                  <PlatformMark platform={row.platform} size={28} />
+                  {row.state.enabled && row.blockers.length > 0 && <span className="mp-strip-count">{row.blockers.length}</span>}
+                </button>
+              ))}
+            </div>
+            <div className="mp-destination-dossier" data-focused-destination={focusedRow.platform.id}>
+              <div className="flex items-center gap-3">
+                <PlatformMark platform={focusedRow.platform} size={34} />
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-[16px] truncate">{focusedRow.platform.name}</div>
+                  <div className="text-xs" style={{ color: focusedRow.connected ? 'var(--success-text)' : 'var(--ink-50)' }}>{focusedRow.connectionLabel}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => togglePlatform(focusedRow.platform.id)}
+                  role="switch"
+                  aria-checked={focusedRow.state.enabled}
+                  aria-label={`${focusedRow.state.enabled ? 'Disable' : 'Enable'} ${focusedRow.platform.name}`}
+                  className="mp-switch"
+                />
+              </div>
+              <dl className="mp-dossier-facts">
+                <div><dt>Native category</dt><dd>{focusedRow.category}</dd></div>
+                <div><dt>Native licence</dt><dd>{focusedRow.license}</dd></div>
+                <div><dt>Requested outcome</dt><dd>{focusedRow.readiness.outcome.outcome}</dd></div>
+                <div><dt>Readiness</dt><dd>{displayReadiness(focusedRow)}</dd></div>
+                <div><dt>Evidence</dt><dd>{focusedRow.evidence.label}</dd></div>
+              </dl>
+              <div className="mt-3 flex items-center gap-2">
+                <button type="button" className="mp-btn flex-1" onClick={() => setExpandedPlatformId(focusedRow.platform.id)}>
+                  {focusedRow.blockers.length ? `Fix ${focusedRow.blockers.length} issue${focusedRow.blockers.length === 1 ? '' : 's'}` : 'Open platform details'}
+                </button>
+                {!focusedRow.connected && !project.__demo && (
+                  <button type="button" className="mp-btn mp-btn-ghost" onClick={() => openConnections('accounts', focusedRow.platform.id)}>Connect</button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
+
+        {editExpandedPlatform}
       </div>
 
       <SectionNav
@@ -11942,7 +12345,7 @@ function PublishSection({ project, updateProject, allReady, completion, setCurre
   return (
     <div className="w-full min-w-0">
       <SectionHeader
-        number="06"
+        number="05"
         title="Publish"
         subtitle={hasFiles
           ? [

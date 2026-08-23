@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 import App, { FILE_SORTS, duplicateFileIds, filterProjectFiles, findDuplicateGroups, groupProjectFiles, sortProjectFiles } from './App.jsx';
@@ -114,46 +114,50 @@ describe('shared section navigation layout', () => {
     }
   }, 20_000);
 
-  it('keeps the toggle, name and status on one row with the description beneath', async () => {
+  it('opens the existing platform editor from a comparison row', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
 
-    const heading = screen.getByRole('heading', { name: 'MakerWorld' });
-    const header = screen.getAllByTestId('platform-card-header')[0];
-    const toggle = screen.getByRole('switch', { name: /disable makerworld/i });
+    const row = document.querySelector('[data-destination-row="makerworld"]');
+    expect(row).toHaveTextContent(/MakerWorld/);
+    expect(row).toHaveTextContent(/Private object/);
+    expect(row).toHaveTextContent(/Tools/);
 
-    // Toggle, mark, name and status pill share one centred row.
+    await user.click(row);
+
+    const editor = screen.getByTestId('selected-platform-editor');
+    const heading = within(editor).getByRole('heading', { name: 'MakerWorld' });
+    const header = within(editor).getByTestId('platform-card-header');
+    const toggle = within(editor).getByRole('switch', { name: /disable makerworld/i });
+
+    // The matrix is only the comparison layer. The existing card remains the
+    // editor, including its toggle, connection state and native controls.
     expect(header).toHaveClass('flex', 'items-center');
     expect(header.contains(toggle)).toBe(true);
     expect(header.contains(heading)).toBe(true);
-    // Two pills now share the row: the connection state and the destination
-    // readiness summary.
     const pills = header.querySelectorAll('.mp-pill');
     expect(pills).toHaveLength(2);
     pills.forEach((pill) => expect(pill).toHaveClass('flex-shrink-0', 'whitespace-nowrap'));
 
-    // The description sits after the row, not indented inside the name column.
     const description = header.nextElementSibling;
     expect(description.tagName).toBe('P');
     expect(description).toHaveTextContent(/Bambu Lab/);
-    // The internal description format is no longer surfaced to creators.
     expect(description).not.toHaveTextContent(/\bhtml\b/i);
   });
 
-  it('lists destinations as single-column rows', async () => {
+  it('compares all destinations in one native mapping matrix', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: /try demo/i }));
     await user.click(screen.getByRole('button', { name: /step 4: platforms/i }));
 
-    // One list, not a direct/export split: every platform publishes from a
-    // connected account, so the second group was always empty.
-    const grid = screen.getByTestId('destination-list');
-    // Destinations are a single-column row list now, prototype-style.
-    expect(grid).toHaveClass('grid-cols-1');
-    expect(grid).not.toHaveClass('xl:grid-cols-2', '2xl:grid-cols-3');
+    const table = screen.getByRole('table', { name: /platform mapping comparison/i });
+    expect(within(table).getAllByRole('row')).toHaveLength(11);
+    for (const column of ['Platform', 'Native category', 'Native licence', 'Requested outcome', 'Readiness', 'Evidence', 'Issues']) {
+      expect(within(table).getByRole('columnheader', { name: column })).toBeInTheDocument();
+    }
     expect(screen.queryByRole('heading', { name: /export & future connections/i })).toBeNull();
   });
 

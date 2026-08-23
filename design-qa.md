@@ -46,3 +46,49 @@ No actionable P0, P1, or P2 mismatch remains.
 No required P3 follow-up.
 
 final result: passed
+
+# ModelPrep platform comparison design QA
+
+## Target
+
+- Source visual: `/Users/alex/.codex/visualizations/2026/08/22/01a02b0f-850d-7933-8e36-94fde7812eda/modelprep-design-comparison/07-relay-a-matrix.png`
+- Source size: 1827 x 1324 pixels
+- Implementation route: `http://127.0.0.1:4174/`
+- Intended state: Sample project, Platforms step, comparison matrix collapsed
+- Intended desktop viewport: 1440 x 900 CSS pixels at 1x density
+- Intended narrow viewport: 800 x 900 CSS pixels at 1x density
+
+## Implementation checks
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Five-step structure stays intact | Passed | Images continues to Platforms. Platforms is step 4. Publish is step 5. |
+| Comparison fields stay visible | Passed in component tests | Platform, native category, native licence, requested outcome, readiness, evidence, and issues render for all ten destinations. |
+| Existing editor remains authoritative | Passed in interaction tests | Selecting a matrix row opens the existing `PlatformCard`. |
+| Readiness keeps one authority | Passed in source review | Rows use `platformPreflight`, `publishBlockers`, and `destinationReadinessSummary`. |
+| Unknown is not labelled Ready | Passed in component tests | Unknown rows show `Local checks pass` plus `Unknown`, not `Ready`. |
+| Narrow destination dossier | Passed in source and responsive-rule review | The matrix switches to a focused dossier below 1100 CSS pixels and retains category, licence, outcome, readiness, and evidence. |
+| File dependency view | Passed in interaction tests | Files includes an optional Used by destinations view derived from current routing. |
+| Production build | Passed | Vite production build completed. |
+
+## Visual comparison
+
+The source reference was inspected at original resolution before implementation. A matched implementation screenshot could not be captured. The in-app browser blocked local page inspection under its URL security policy after the original preview server had stopped. The preview server is running again on port 4174, but the same browser inspection was not retried or moved to another browser surface.
+
+Because the implementation screenshot is missing, spacing, wrapping, density, and responsive appearance are not visually certified in this pass.
+
+## Iteration history
+
+1. Built the desktop matrix using the reference hierarchy, with ModelPrep's existing tokens and platform marks.
+2. Replaced the old stacked overview with row selection that opens the current platform editor.
+3. Added a narrow dossier that keeps the important mapping fields visible.
+4. Added focused component and interaction tests, then fixed the old Connect and Reconnect action inside the matrix.
+5. Attempted live visual comparison. Browser inspection was blocked before an implementation screenshot could be captured.
+
+## Remaining severity
+
+- P0: none found by build or interaction tests.
+- P1: live visual comparison is blocked, so visible layout regressions remain unassessed.
+- P2: the production build still reports its existing large-chunk warning.
+
+final result: blocked
