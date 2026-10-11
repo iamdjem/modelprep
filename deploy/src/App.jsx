@@ -210,7 +210,8 @@ import {
   AlertCircle, Layers, FileCheck, Loader, Save, Bookmark, Search,
   Globe, DollarSign, Info, Edit3, ArrowRight, User, Settings,
   PanelLeftClose, PanelLeftOpen, Video, RefreshCw, HelpCircle, Minus, FolderOpen, Clock, Palette,
-  Gauge, SlidersHorizontal, GitBranch, Link2, Cpu, Package, Printer, Tag, Scale, Eye, Coins, ShieldCheck, Box
+  Gauge, SlidersHorizontal, GitBranch, Link2, Cpu, Package, Printer, Tag, Scale, Eye, Coins, ShieldCheck, Box,
+  MoreHorizontal, Maximize2
 } from 'lucide-react';
 import {
   useAccounts, getAccounts, getActive, setStatus, CONNECTABLE, rehydrateDesktopAccount,
@@ -4876,6 +4877,74 @@ function GlobalStyles() {
       .mp-table th:last-child, .mp-table td:last-child { width: 90px; }
       .mp-table tr.mp-subrow td { width: auto; }
 
+      /* Files is a publishing package, not a long settings table. The rail,
+         grouped file list, and inspector share the existing surface and type
+         tokens, while the destination-use label is the one stronger visual
+         signal because it explains what will happen across ten sites. */
+      .mp-file-summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); margin-bottom: 12px; }
+      .mp-file-summary > div, .mp-file-summary > button { min-width: 0; padding: 10px 12px; border-right: 1px solid var(--border); text-align: left; background: transparent; }
+      .mp-file-summary > :last-child { border-right: 0; }
+      .mp-file-summary > button { cursor: pointer; }
+      .mp-file-summary > button:hover { background: var(--surface-hover); }
+      .mp-file-summary > button.has-issues { background: rgba(255,182,39,0.10); color: var(--warn-text); }
+      .mp-file-summary-value { display: block; color: var(--ink); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .mp-file-summary > div > span:last-child, .mp-file-summary > button > span:last-child { display: block; margin-top: 2px; color: var(--ink-50); font-size: 10px; }
+      .mp-files-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .mp-file-actions-menu > summary { list-style: none; padding: 0 9px; }
+      .mp-file-actions-menu > summary::-webkit-details-marker { display: none; }
+      .mp-file-batch-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 44px; margin-bottom: 12px; padding: 6px 8px 6px 12px; border: 1px solid var(--primary-a35); border-radius: var(--radius-md); background: var(--primary-a08); }
+      .mp-files-workspace { display: grid; grid-template-columns: 164px minmax(430px, 1fr) minmax(320px, 360px); gap: 12px; align-items: start; }
+      .mp-files-rail { position: sticky; top: 72px; overflow: hidden; }
+      .mp-files-rail-item { display: flex; align-items: center; gap: 8px; width: calc(100% - 12px); min-height: 32px; margin: 1px 6px; padding: 0 8px; border-radius: var(--radius-sm); color: var(--ink-65); font-size: 12px; }
+      .mp-files-rail-item:hover { color: var(--ink); background: var(--surface-hover); }
+      .mp-files-rail-item[aria-current="page"] { color: var(--primary-ink); background: var(--primary-tint); font-weight: 500; }
+      .mp-files-inspector { position: sticky; top: 72px; max-height: calc(100vh - 154px); overflow: hidden; min-width: 0; }
+      .mp-files-inspector-body { max-height: calc(100vh - 292px); overflow-y: auto; overscroll-behavior: contain; }
+      .mp-files-inspector .mp-segmented > button { padding: 0 6px; }
+      .mp-file-properties { border-top: 1px solid var(--border); }
+      .mp-file-properties > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+      .mp-file-properties dt { color: var(--ink-50); }
+      .mp-file-properties dd { min-width: 0; color: var(--ink); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .mp-files-table { min-width: 590px; table-layout: fixed; }
+      .mp-files-table th:nth-child(1), .mp-files-table td:nth-child(1) { width: 38px; padding-left: 12px; padding-right: 4px; }
+      .mp-files-table th:nth-child(2), .mp-files-table td:nth-child(2) { width: auto; }
+      .mp-files-table th:nth-child(3), .mp-files-table td:nth-child(3) { width: 154px; }
+      .mp-files-table th:nth-child(4), .mp-files-table td:nth-child(4) { width: 94px; }
+      .mp-files-table th:nth-child(5), .mp-files-table td:nth-child(5) { width: 44px; }
+      .mp-files-table tbody tr { cursor: default; }
+      .mp-files-table tbody tr.mp-file-row-active { background: var(--primary-a08); box-shadow: inset 3px 0 0 var(--primary); }
+      .mp-file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--mp-file-grid-min, 160px), 1fr)); gap: 10px; }
+      .mp-file-tile { position: relative; min-width: 0; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+      .mp-file-tile:hover { border-color: var(--border-strong); background: var(--surface-hover); }
+      .mp-file-tile-active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-a18); }
+      .mp-media-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; }
+      .mp-file-destination { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); }
+      .mp-file-destination > summary { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 8px 10px; cursor: pointer; list-style: none; }
+      .mp-file-destination > summary::-webkit-details-marker { display: none; }
+      .mp-file-destination > summary:hover { background: var(--surface-hover); }
+      .mp-file-destination > summary > svg:last-child { color: var(--ink-35); transition: transform 140ms ease; }
+      .mp-file-destination[open] > summary > svg:last-child { transform: rotate(180deg); }
+      .mp-file-route-state { flex-shrink: 0; max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 999px; padding: 3px 7px; font-size: 10px; font-weight: 500; background: var(--surface-sunken); color: var(--ink-65); }
+      .mp-file-route-state.state-profile { background: var(--primary-tint); color: var(--primary-ink); }
+      .mp-file-route-state.state-adapted { background: rgba(255,182,39,0.14); color: var(--warn-text); }
+      .mp-file-route-state.state-unsupported, .mp-file-route-state.state-excluded { background: var(--danger-tint); color: var(--danger-text); }
+
+      @media (max-width: 1360px) {
+        .mp-files-workspace { grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); }
+        .mp-files-rail { position: static; grid-column: 1 / -1; display: flex; align-items: center; overflow-x: auto; padding: 5px; }
+        .mp-files-rail > div:first-child, .mp-files-rail > div:last-child, .mp-files-rail > .h-px { display: none; }
+        .mp-files-rail-item { width: auto; flex: 0 0 auto; margin: 0 1px; padding: 0 10px; }
+        .mp-files-rail-item .flex-1 { flex: none; }
+      }
+      @media (max-width: 1024px) {
+        .mp-file-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .mp-file-summary > :nth-child(3) { border-right: 0; }
+        .mp-file-summary > :nth-child(-n+3) { border-bottom: 1px solid var(--border); }
+        .mp-files-workspace { grid-template-columns: minmax(0, 1fr); }
+        .mp-files-inspector { position: static; max-height: none; }
+        .mp-files-inspector-body { max-height: none; }
+      }
+
       /* Disclosure summaries: explicit rotating chevron, since inline-flex
          summaries drop the native marker. */
       summary.mp-disclosure { list-style: none; }
@@ -5783,15 +5852,45 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
   const [preparing, setPreparing] = useState(0);
   const thumbnailIdsRef = useRef(new Set());
   const [fileQuery, setFileQuery] = useState('');
-  const [fileView, setFileView] = useState('list');   // 'list' reads names, 'grid' reads previews
-  const [thumbSize, setThumbSize] = useState(56);     // preview edge in px
+  const [fileView, setFileView] = useState(() => {
+    try { return localStorage.getItem('modelprep.filesView') || 'list'; } catch { return 'list'; }
+  }); // 'list' reads names, 'grid' reads previews
+  const [thumbSize, setThumbSize] = useState(() => {
+    try { return Number(localStorage.getItem('modelprep.filesPreviewSize')) || 88; } catch { return 88; }
+  });
   const [previewIndex, setPreviewIndex] = useState(-1);
   const [fileSort, setFileSort] = useState('added');
+  const [activeFileId, setActiveFileId] = useState(null);
+  const [selectedFileIds, setSelectedFileIds] = useState([]);
+  const [inspectorTab, setInspectorTab] = useState('preview');
+  const [mediaExpanded, setMediaExpanded] = useState(false);
+  const [batchPlatformId, setBatchPlatformId] = useState('makerworld');
+  const [confirmBatchRemove, setConfirmBatchRemove] = useState(false);
   useEffect(() => {
     if (!confirmClear) return;
     const t = setTimeout(() => setConfirmClear(false), 4000);
     return () => clearTimeout(t);
   }, [confirmClear]);
+  useEffect(() => {
+    if (!confirmBatchRemove) return;
+    const t = setTimeout(() => setConfirmBatchRemove(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmBatchRemove]);
+  useEffect(() => {
+    try { localStorage.setItem('modelprep.filesView', fileView); } catch { /* private mode */ }
+  }, [fileView]);
+  useEffect(() => {
+    try { localStorage.setItem('modelprep.filesPreviewSize', String(thumbSize)); } catch { /* private mode */ }
+  }, [thumbSize]);
+  useEffect(() => {
+    const ids = new Set(project.files.map((file) => String(file.id)));
+    setSelectedFileIds((current) => current.filter((id) => ids.has(String(id))));
+    setActiveFileId((current) => (current && ids.has(String(current)) ? current : project.files[0]?.id || null));
+  }, [project.files]);
+  useEffect(() => {
+    const enabled = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+    if (enabled.length && !enabled.some((platform) => platform.id === batchPlatformId)) setBatchPlatformId(enabled[0].id);
+  }, [project.platforms, batchPlatformId]);
 
 
   // Hash imported binaries with two bounded workers. Blobs are read in the
@@ -5910,11 +6009,18 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
     updateProject({ files: [...project.files, ...additions] });
   };
 
-  const removeFile = (id) => updateProject({
-    files: project.files.filter(f => f.id !== id),
-    profiles: project.profiles.filter((profile) => profile.fileId !== id),
-    platforms: pruneDestinationFileState(project.platforms, new Set([String(id)])),
-  });
+  const removeFiles = (ids) => {
+    const removed = new Set((ids || []).map(String));
+    updateProject((current) => ({
+      ...current,
+      files: current.files.filter((file) => !removed.has(String(file.id))),
+      profiles: current.profiles.filter((profile) => !removed.has(String(profile.fileId))),
+      platforms: pruneDestinationFileState(current.platforms, removed),
+    }));
+    setSelectedFileIds((current) => current.filter((id) => !removed.has(String(id))));
+    setActiveFileId((current) => (removed.has(String(current)) ? null : current));
+  };
+  const removeFile = (id) => removeFiles([id]);
   const changeRole = (id, role) => updateProject({
     files: project.files.map((file) => file.id === id ? { ...file, ...fileRolePatch(role) } : file),
   });
@@ -5933,6 +6039,86 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
       : file),
   });
 
+  const updateDestinationFileRole = (fileId, platformId, role) => updateProject((current) => {
+    const opts = current.platforms?.[platformId] || {};
+    const fileRoles = setPlatformFileRole(opts, fileId, role);
+    const excludedFileIds = (opts.excludedFileIds || []).filter((id) => String(id) !== String(fileId));
+    return {
+      ...current,
+      platforms: {
+        ...current.platforms,
+        [platformId]: { ...opts, fileSelection: 'manual', fileRoles, excludedFileIds },
+      },
+    };
+  });
+  const resetDestinationFileRole = (fileId, platformId) => updateProject((current) => {
+    const opts = current.platforms?.[platformId] || {};
+    const fileRoles = { ...(opts.fileRoles || {}) };
+    delete fileRoles[String(fileId)];
+    const excludedFileIds = (opts.excludedFileIds || []).filter((id) => String(id) !== String(fileId));
+    const fileSelection = Object.keys(fileRoles).length || excludedFileIds.length ? 'manual' : 'auto';
+    return {
+      ...current,
+      platforms: {
+        ...current.platforms,
+        [platformId]: { ...opts, fileSelection, fileRoles, excludedFileIds },
+      },
+    };
+  });
+  const changeSelectedRole = (role) => {
+    if (!role || !selectedFileIds.length) return;
+    const selected = new Set(selectedFileIds.map(String));
+    updateProject((current) => ({
+      ...current,
+      files: current.files.map((file) => selected.has(String(file.id)) ? { ...file, ...fileRolePatch(role) } : file),
+    }));
+  };
+  const changeSelectedDestination = (role) => {
+    if (!selectedFileIds.length || !batchPlatformId) return;
+    updateProject((current) => {
+      const opts = current.platforms?.[batchPlatformId] || {};
+      let fileRoles = { ...(opts.fileRoles || {}) };
+      let excludedFileIds = (opts.excludedFileIds || []).filter((id) => !selectedFileIds.map(String).includes(String(id)));
+      for (const id of selectedFileIds) fileRoles = setPlatformFileRole({ ...opts, fileRoles }, id, role);
+      return {
+        ...current,
+        platforms: {
+          ...current.platforms,
+          [batchPlatformId]: { ...opts, fileSelection: 'manual', fileRoles, excludedFileIds },
+        },
+      };
+    });
+  };
+  const resetSelectedDestinations = () => {
+    if (!selectedFileIds.length) return;
+    const selected = new Set(selectedFileIds.map(String));
+    updateProject((current) => ({
+      ...current,
+      platforms: Object.fromEntries(Object.entries(current.platforms || {}).map(([platformId, opts]) => {
+        const fileRoles = Object.fromEntries(Object.entries(opts.fileRoles || {}).filter(([id]) => !selected.has(String(id))));
+        const excludedFileIds = (opts.excludedFileIds || []).filter((id) => !selected.has(String(id)));
+        const fileSelection = Object.keys(fileRoles).length || excludedFileIds.length ? 'manual' : 'auto';
+        return [platformId, { ...opts, fileSelection, fileRoles, excludedFileIds }];
+      })),
+    }));
+  };
+  const resetSelectedDestination = (platformId = batchPlatformId) => {
+    if (!selectedFileIds.length || !platformId) return;
+    const selected = new Set(selectedFileIds.map(String));
+    updateProject((current) => {
+      const opts = current.platforms?.[platformId] || {};
+      const fileRoles = Object.fromEntries(Object.entries(opts.fileRoles || {}).filter(([id]) => !selected.has(String(id))));
+      const excludedFileIds = (opts.excludedFileIds || []).filter((id) => !selected.has(String(id)));
+      const fileSelection = Object.keys(fileRoles).length || excludedFileIds.length ? 'manual' : 'auto';
+      return { ...current, platforms: { ...current.platforms, [platformId]: { ...opts, fileSelection, fileRoles, excludedFileIds } } };
+    });
+  };
+  const toggleSelectedFile = (id) => setSelectedFileIds((current) => (
+    current.map(String).includes(String(id))
+      ? current.filter((entry) => String(entry) !== String(id))
+      : [...current, id]
+  ));
+
   const renameFile = (id, newName) => {
     // Don't let a rename collide with another file's name.
     const taken = new Set(project.files.filter(f => f.id !== id).map(f => f.name.toLowerCase()));
@@ -5950,13 +6136,20 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
   const sizeDuplicateIds = duplicateFileIds(project.files);
   // Hash-confirmed duplicates once hashing lands; the size heuristic covers
   // the moments before a hash exists.
-  const duplicateIds = exactIds.size ? exactIds : sizeDuplicateIds;
+  const duplicateIds = new Set([...exactIds, ...sizeDuplicateIds]);
   const visibleFiles = sortProjectFiles(
     filterProjectFiles(project.files, fileQuery).filter((file) => fileMatchesRoleFilter(file, roleFilter, duplicateIds)),
     fileSort,
   );
-  const duplicateGroups = findDuplicateGroups(project.files);
   const matchCount = visibleFiles.length;
+  const workspaceGroups = buildFileWorkspaceGroups(visibleFiles);
+  const activeFile = visibleFiles.find((file) => String(file.id) === String(activeFileId)) || visibleFiles[0] || project.files[0] || null;
+  const modelCount = project.files.filter((file) => ['model', 'source', 'laser'].includes(projectFileRole(file))).length;
+  const profileCount = project.files.filter((file) => projectFileRole(file) === 'profile').length;
+  const mediaCount = project.files.filter((file) => projectFileRole(file) === 'reference').length;
+  const documentCount = project.files.length - modelCount - profileCount - mediaCount;
+  const enabledPlatforms = PLATFORMS.filter((platform) => project.platforms?.[platform.id]?.enabled);
+  const selectedVisibleCount = visibleFiles.filter((file) => selectedFileIds.map(String).includes(String(file.id))).length;
 
   return (
     <div className="w-full min-w-0">
@@ -6084,164 +6277,168 @@ function FilesSection({ project, updateProject, setCurrentSection, onImportFolde
       )}
 
       {project.files.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-            <span className="text-sm" style={{ color: 'var(--ink-65)' }}>
-              {matchCount === project.files.length
-                ? <><span style={{ color: 'var(--ink)', fontWeight: 500 }}>{project.files.length} file{project.files.length === 1 ? '' : 's'}</span> · {formatBytes(totalSize)}</>
-                : <><span style={{ color: 'var(--ink)', fontWeight: 500 }}>{matchCount} of {project.files.length}</span> files match</>}
-            </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <label className="relative flex items-center">
-                <Search size={13} className="absolute left-2.5 pointer-events-none" style={{ color: 'var(--ink-35)' }} />
-                <input
-                  value={fileQuery}
-                  onChange={(e) => setFileQuery(e.target.value)}
-                  placeholder="Search files"
-                  aria-label="Search files"
-                  className="mp-input-sm w-52"
-                  /* .mp-input-sm sets padding in a <style> tag that loads after
-                     Tailwind, so a pl-7 utility silently lost and the icon sat
-                     on top of the text. Inline wins over both. */
-                  style={{ paddingLeft: 30, paddingRight: fileQuery ? 26 : undefined }}
-                />
-                {fileQuery && (
-                  <button onClick={() => setFileQuery('')} aria-label="Clear search" className="absolute right-1.5 p-1 opacity-60 hover:opacity-100">
-                    <X size={12} />
-                  </button>
-                )}
-              </label>
-              <div className="mp-segmented" role="group" aria-label="Filter files by role">
-                {[['all', 'All'], ['models', 'Models'], ['profiles', 'Profiles'], ['documents', 'Docs & photos'], ['issues', 'Issues']].map(([id, label]) => (
-                  <button key={id} onClick={() => setRoleFilter(id)} aria-pressed={roleFilter === id}>{label}</button>
-                ))}
-              </div>
-              <label className="flex items-center gap-1.5">
-                <span className="text-xs" style={{ color: 'var(--ink-50)' }}>Sort</span>
-                <Select
-                  value={fileSort}
-                  onChange={(selectValue) => setFileSort(selectValue)}
-                  options={[...Object.entries(FILE_SORTS).map(([key, { label }]) => ({ value: key, label: label }))]}
-                  ariaLabel="Sort files"
-                  size="sm"
-                />
-              </label>
-              {/* Density, not decoration: 25 files is a wall as rows and a
-                  contact sheet as tiles, and which one helps depends on whether
-                  you are reading names or looking at plates. */}
-              <div className="mp-segmented" role="group" aria-label="File view">
-                {[{ id: 'list', icon: FileText, label: 'List view' }, { id: 'grid', icon: ImageIcon, label: 'Grid view' }].map(({ id, icon: Icon, label }) => (
-                  <button
-                    key={id}
-                    onClick={() => setFileView(id)}
-                    aria-label={label}
-                    title={label}
-                    aria-pressed={fileView === id}
-                  >
-                    <Icon size={14} />
-                  </button>
-                ))}
-              </div>
-              {/* A slider, because preview size is a continuous quantity: two
-                  buttons made the user click repeatedly to cross the range. */}
+        <div className="mt-5">
+          <div className="mp-file-summary" aria-label="Package summary">
+            <div><span className="mp-file-summary-value">{project.files.length}</span><span>files</span></div>
+            <div><span className="mp-file-summary-value">{formatBytes(totalSize)}</span><span>package size</span></div>
+            <div><span className="mp-file-summary-value">{modelCount}</span><span>models</span></div>
+            <div><span className="mp-file-summary-value">{profileCount}</span><span>profiles</span></div>
+            <div><span className="mp-file-summary-value">{mediaCount}</span><span>media</span></div>
+            <button type="button" onClick={() => setRoleFilter('issues')} className={duplicateIds.size ? 'has-issues' : ''}>
+              <span className="mp-file-summary-value">{duplicateIds.size}</span><span>{duplicateIds.size === 1 ? 'issue' : 'issues'}</span>
+            </button>
+          </div>
+
+          <div className="mp-files-toolbar">
+            <label className="relative flex items-center min-w-[13rem] flex-1 max-w-sm">
+              <Search size={13} className="absolute left-2.5 pointer-events-none" style={{ color: 'var(--ink-35)' }} />
+              <input value={fileQuery} onChange={(event) => setFileQuery(event.target.value)} placeholder="Search package" aria-label="Search files" className="mp-input-sm w-full" style={{ paddingLeft: 30, paddingRight: fileQuery ? 26 : undefined }} />
+              {fileQuery && <button type="button" onClick={() => setFileQuery('')} aria-label="Clear search" className="absolute right-1.5 p-1 opacity-60 hover:opacity-100"><X size={12} /></button>}
+            </label>
+            <Select value={fileSort} onChange={setFileSort} options={Object.entries(FILE_SORTS).map(([value, item]) => ({ value, label: item.label }))} ariaLabel="Sort files" size="sm" />
+            <div className="mp-segmented" role="group" aria-label="File view">
+              <button type="button" onClick={() => setFileView('list')} aria-label="List view" title="List view" aria-pressed={fileView === 'list'}><FileText size={14} /></button>
+              <button type="button" onClick={() => setFileView('grid')} aria-label="Grid view" title="Grid view" aria-pressed={fileView === 'grid'}><ImageIcon size={14} /></button>
+            </div>
+            {fileView === 'grid' && (
               <label className="flex items-center gap-1.5" title="Preview size">
                 <Minus size={12} style={{ color: 'var(--ink-35)' }} />
-                <input
-                  type="range"
-                  min={THUMB_MIN}
-                  max={THUMB_MAX}
-                  step={4}
-                  value={thumbSize}
-                  onChange={(e) => setThumbSize(Number(e.target.value))}
-                  aria-label="Preview size"
-                  className="mp-range w-24"
-                />
+                <input type="range" min={72} max={160} step={4} value={thumbSize} onChange={(event) => setThumbSize(Number(event.target.value))} aria-label="Preview size" className="mp-range w-20" />
                 <Plus size={12} style={{ color: 'var(--ink-35)' }} />
               </label>
-              <div aria-hidden style={{ width: 1, height: 20, backgroundColor: 'var(--border)' }} />
-              <button
-                onClick={() => {
+            )}
+            <details className="relative mp-file-actions-menu">
+              <summary className="mp-btn mp-btn-ghost mp-btn-sm" aria-label="More file actions" title="More file actions"><MoreHorizontal size={15} /></summary>
+              <div className="absolute right-0 top-[calc(100%+6px)] z-30 mp-card p-1.5 min-w-[13rem] shadow-lg">
+                <button type="button" onClick={() => {
                   if (!confirmClear) { setConfirmClear(true); return; }
                   setConfirmClear(false);
-                  updateProject({
-                    files: [],
-                    profiles: [],
-                    platforms: pruneDestinationFileState(project.platforms, new Set(project.files.map((f) => String(f.id)))),
-                  });
-                }}
-                className="mp-btn mp-btn-ghost text-xs"
-                style={{ minHeight: 34, padding: '0 10px', color: 'var(--danger-text)', boxShadow: 'none', borderColor: confirmClear ? 'var(--danger-text)' : 'var(--border)', backgroundColor: confirmClear ? 'var(--danger-tint)' : 'transparent' }}
-              >
-                <Trash2 size={13} />
-                {confirmClear ? 'Click again to remove all files' : 'Clear all'}
-              </button>
-            </div>
-          </div>
-          {/* Grouped by what each file is for. A folder import arrives in an
-              arbitrary order, and 25 rows of mixed profiles, meshes and photos
-              read as one undifferentiated wall. */}
-          {duplicateGroups.length > 0 && (
-            <p className="text-[11px] mb-2 px-2 py-1.5" style={{ backgroundColor: 'rgba(255,182,39,0.12)', color: 'var(--warn-text)' }}>
-              {duplicateGroups.length === 1 ? '2 or more files look identical' : `${duplicateGroups.length} sets of files look identical`}
-              {' '}(same type and byte size). They are all still included: check the marked rows before publishing.
-            </p>
-          )}
-          {matchCount === 0 && (
-            <p className="text-xs py-6 text-center" style={{ color: 'var(--ink-a60)' }}>
-              No file matches "{fileQuery}".{' '}
-              <button onClick={() => setFileQuery('')} className="underline" style={{ color: 'var(--accent-text)' }}>Clear search</button>
-            </p>
-          )}
-          {groupProjectFiles(visibleFiles).map(({ key, title, hint, files }) => (
-            <section key={key} className="mt-4 first:mt-0">
-              <div className="flex items-baseline gap-2 mb-2">
-                <span className="text-[13px] font-medium" style={{ color: 'var(--ink)' }}>{title}</span>
-                <span className="text-xs t-num" style={{ color: 'var(--ink-50)' }}>{files.length}</span>
-                {hint && <span className="text-xs truncate" style={{ color: 'var(--ink-50)' }}>· {hint}</span>}
+                  updateProject({ files: [], profiles: [], platforms: pruneDestinationFileState(project.platforms, new Set(project.files.map((file) => String(file.id)))) });
+                }} className="w-full flex items-center gap-2 rounded-md px-3 py-2 text-xs text-left hover:bg-[var(--danger-tint)]" style={{ color: 'var(--danger-text)' }}>
+                  <Trash2 size={13} />{confirmClear ? 'Click again to clear package' : 'Clear package'}
+                </button>
               </div>
-              {fileView === 'grid' ? (
-                <div className="flex flex-wrap gap-2">
-                  {files.map(f => (
-                    <FileTile key={f.id} file={f} size={thumbSize} onRemove={() => removeFile(f.id)}
-                      onOpen={() => setPreviewIndex(visibleFiles.indexOf(f))} />
-                  ))}
+            </details>
+          </div>
+
+          {selectedFileIds.length > 0 && (
+            <div className="mp-file-batch-bar" role="region" aria-label="Batch file actions">
+              <span className="text-xs font-medium whitespace-nowrap">{selectedFileIds.length} selected</span>
+              <Select value="" onChange={changeSelectedRole} options={[{ value: '', label: 'Set role…' }, ...FILE_ROLE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))]} ariaLabel="Set selected file roles" size="sm" />
+              <div aria-hidden className="h-5 w-px" style={{ backgroundColor: 'var(--border)' }} />
+              <Select value={batchPlatformId} onChange={setBatchPlatformId} options={enabledPlatforms.map((platform) => ({ value: platform.id, label: platform.name }))} ariaLabel="Batch destination" size="sm" disabled={!enabledPlatforms.length} />
+              <button type="button" onClick={() => resetSelectedDestination()} className="mp-btn mp-btn-ghost mp-btn-sm" disabled={!enabledPlatforms.length}>Automatic</button>
+              <button type="button" onClick={() => changeSelectedDestination('not-sent')} className="mp-btn mp-btn-ghost mp-btn-sm" disabled={!enabledPlatforms.length}>Exclude</button>
+              <button type="button" onClick={resetSelectedDestinations} className="text-[11px] underline" style={{ color: 'var(--ink-65)' }}>Automatic everywhere</button>
+              <span className="flex-1" />
+              <button type="button" onClick={() => {
+                if (!confirmBatchRemove) { setConfirmBatchRemove(true); return; }
+                setConfirmBatchRemove(false); removeFiles(selectedFileIds);
+              }} className="mp-btn mp-btn-ghost mp-btn-sm" style={{ color: 'var(--danger-text)' }}><Trash2 size={13} />{confirmBatchRemove ? 'Click again to remove' : 'Remove'}</button>
+              <button type="button" onClick={() => setSelectedFileIds([])} className="p-2" aria-label="Clear selection"><X size={14} /></button>
+            </div>
+          )}
+
+          <div className="mp-files-workspace">
+            <nav className="mp-card mp-files-rail" aria-label="Package contents">
+              <div className="px-3 pt-3 pb-2 text-[11px] font-medium" style={{ color: 'var(--ink-50)' }}>Package contents</div>
+              {[
+                ['all', 'All files', project.files.length, Package],
+                ['models', 'Models', modelCount, Box],
+                ['profiles', 'Print profiles', profileCount, Printer],
+                ['documents', 'Instructions', documentCount, FileText],
+                ['media', 'Media', mediaCount, ImageIcon],
+                ['issues', 'Issues', duplicateIds.size, AlertCircle],
+              ].map(([id, label, count, Icon]) => (
+                <button key={id} type="button" onClick={() => setRoleFilter(id)} aria-current={roleFilter === id ? 'page' : undefined} className="mp-files-rail-item">
+                  <Icon size={14} /><span className="flex-1 text-left">{label}</span><span className="t-num">{count}</span>
+                </button>
+              ))}
+              <div className="mx-3 my-3 h-px" style={{ backgroundColor: 'var(--border)' }} />
+              <div className="px-3 pb-3 text-[11px] leading-relaxed" style={{ color: 'var(--ink-50)' }}>
+                Files defines the package. Listing fields stay in Details and Platforms.
+              </div>
+            </nav>
+
+            <main className="min-w-0" aria-label="Files in package">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div>
+                  <h2 className="text-[14px] font-semibold">{roleFilter === 'all' ? 'Publishing package' : roleFilter === 'issues' ? 'Files needing attention' : `${matchCount} matching files`}</h2>
+                  <p className="text-[11px] mt-0.5" style={{ color: 'var(--ink-50)' }}>{matchCount === project.files.length ? 'Grouped by model set and purpose' : `${matchCount} of ${project.files.length} files shown`}</p>
                 </div>
-              ) : (
-                <div className="mp-card overflow-x-auto">
-                  <table className="mp-table" style={{ minWidth: 620 }}>
-                    <thead>
-                      <tr>
-                        <th>File</th>
-                        <th className="w-[16rem]">Role</th>
-                        <th>Size</th>
-                        <th aria-label="Row actions" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                  {files.map(f => (
-                    <FileRow key={f.id} file={f} thumbSize={thumbSize} duplicate={duplicateIds.has(f.id)} onOpen={() => setPreviewIndex(visibleFiles.indexOf(f))} onRemove={() => removeFile(f.id)} onRename={(name) => renameFile(f.id, name)} onChangeRole={(role) => changeRole(f.id, role)}
-                      onUpdateMakerWorld={(patch) => updateMakerWorldFile(f.id, patch)}
-                      onUpdatePrintables={(patch) => updatePrintablesFile(f.id, patch)}
-                      onUpdateFile={(patch) => updateFile(f.id, patch)} />
-                  ))}
-                    </tbody>
-                  </table>
+                {visibleFiles.length > 0 && (
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={selectedVisibleCount === visibleFiles.length} onChange={() => {
+                      const visibleIds = visibleFiles.map((file) => String(file.id));
+                      if (selectedVisibleCount === visibleFiles.length) setSelectedFileIds((current) => current.filter((id) => !visibleIds.includes(String(id))));
+                      else setSelectedFileIds((current) => [...new Set([...current.map(String), ...visibleIds])]);
+                    }} aria-label="Select all visible files" />
+                    Select shown
+                  </label>
+                )}
+              </div>
+              {matchCount === 0 && (
+                <div className="mp-card py-12 px-6 text-center text-xs" style={{ color: 'var(--ink-50)' }}>
+                  No files match this view. <button type="button" onClick={() => { setFileQuery(''); setRoleFilter('all'); }} className="underline" style={{ color: 'var(--accent-text)' }}>Show the whole package</button>
                 </div>
               )}
-            </section>
-          ))}
-          <button
-            type="button"
-            aria-label="Add more files. Drop here or click to browse"
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm transition-colors hover:bg-[var(--surface-sunken)]"
-            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-65)', backgroundColor: 'transparent' }}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload size={15} />
-            Drop more files here, or browse · max {MAX_BUILD_FILE_MB}MB each
-          </button>
+              {workspaceGroups.map((group) => {
+                const rawCount = group.files.filter((file) => ['model', 'source', 'laser'].includes(projectFileRole(file))).length;
+                const groupProfileCount = group.files.filter((file) => projectFileRole(file) === 'profile').length;
+                if (group.kind === 'media' && roleFilter !== 'media' && !mediaExpanded) return (
+                  <section key={group.key} className="mp-card mp-media-summary mt-3">
+                    <div className="flex items-center gap-3 min-w-0"><ImageIcon size={16} /><div className="min-w-0"><div className="text-[13px] font-medium">Gallery media · {group.files.length} files</div><div className="text-[11px] mt-0.5" style={{ color: 'var(--ink-50)' }}>Order, cover, focal points, and crops are managed in Images.</div></div></div>
+                    <button type="button" onClick={() => setMediaExpanded(true)} className="mp-btn mp-btn-ghost mp-btn-sm">Inspect files</button>
+                  </section>
+                );
+                return (
+                  <section key={group.key} className="mt-4 first:mt-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className="text-[13px] font-medium truncate">{group.title}</h3>
+                      <span className="text-[11px] t-num" style={{ color: 'var(--ink-50)' }}>{group.files.length}</span>
+                      {group.kind === 'set' && <span className="text-[11px] truncate" style={{ color: 'var(--ink-50)' }}>{rawCount} model{rawCount === 1 ? '' : 's'} · {groupProfileCount} profile{groupProfileCount === 1 ? '' : 's'}</span>}
+                      {group.kind === 'media' && mediaExpanded && <button type="button" onClick={() => setMediaExpanded(false)} className="ml-auto text-[11px] underline">Collapse media</button>}
+                    </div>
+                    {fileView === 'grid' ? (
+                      <div className="mp-file-grid" style={{ '--mp-file-grid-min': `${Math.max(150, thumbSize + 54)}px` }}>
+                        {group.files.map((file) => <WorkspaceFileTile key={file.id} file={file} project={project} platforms={enabledPlatforms} size={thumbSize} active={String(activeFile?.id) === String(file.id)} selected={selectedFileIds.map(String).includes(String(file.id))} issue={exactIds.has(file.id) ? 'Exact duplicate' : sizeDuplicateIds.has(file.id) ? 'Check duplicate' : null} onActivate={setActiveFileId} onToggleSelected={toggleSelectedFile} />)}
+                      </div>
+                    ) : (
+                      <div className="mp-card overflow-x-auto">
+                        <table className="mp-table mp-files-table">
+                          <thead><tr><th aria-label="Select" /><th>File</th><th>Role and slicer</th><th>Destinations</th><th aria-label="Actions" /></tr></thead>
+                          <tbody>{group.files.map((file) => <WorkspaceFileRow key={file.id} file={file} project={project} platforms={enabledPlatforms} active={String(activeFile?.id) === String(file.id)} selected={selectedFileIds.map(String).includes(String(file.id))} exactDuplicate={exactIds.has(file.id)} probableDuplicate={!exactIds.has(file.id) && sizeDuplicateIds.has(file.id)} onActivate={setActiveFileId} onToggleSelected={toggleSelectedFile} onRole={changeRole} onSlicer={(id, slicerOverride) => updateFile(id, { slicerOverride })} onRemove={removeFile} />)}</tbody>
+                        </table>
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+              <button type="button" aria-label="Add more files. Drop here or click to browse" className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm transition-colors hover:bg-[var(--surface-sunken)]" style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-65)', backgroundColor: 'transparent' }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); handleFiles(event.dataTransfer.files); }} onClick={() => fileInputRef.current?.click()}>
+                <Upload size={15} /> Drop more files here, or browse · max {MAX_BUILD_FILE_MB}MB each
+              </button>
+            </main>
+
+            <FilePackageInspector
+              file={activeFile}
+              files={project.files}
+              project={project}
+              platforms={enabledPlatforms}
+              tab={inspectorTab}
+              onTab={setInspectorTab}
+              exactDuplicate={activeFile ? exactIds.has(activeFile.id) : false}
+              probableDuplicate={activeFile ? !exactIds.has(activeFile.id) && sizeDuplicateIds.has(activeFile.id) : false}
+              onRole={changeRole}
+              onSlicer={(id, slicerOverride) => updateFile(id, { slicerOverride })}
+              onRename={renameFile}
+              onRemove={removeFile}
+              onOpenFullPreview={() => setPreviewIndex(Math.max(0, visibleFiles.findIndex((file) => String(file.id) === String(activeFile?.id))))}
+              onDestinationRole={updateDestinationFileRole}
+              onResetDestinationRole={resetDestinationFileRole}
+              onUpdateMakerWorld={(patch) => updateMakerWorldFile(activeFile.id, patch)}
+              onUpdatePrintables={(patch) => updatePrintablesFile(activeFile.id, patch)}
+            />
+          </div>
         </div>
       )}
 
@@ -6329,7 +6526,10 @@ export const FILE_ROLE_OPTIONS = [
 
 export function projectFileRole(file = {}) {
   if (file.roleOverride) return file.roleOverride;
-  if (file.isProfile) return 'profile';
+  // A .3mf filename is only a profile candidate. Once parsing proves that it
+  // has no sliced plate, show it as ordinary model geometry, which is also how
+  // every uploader routes it. The creator can still override the role.
+  if (file.isProfile) return file.threemf?.sliced === false ? 'model' : 'profile';
   if (file.isImage) return 'reference';
   if (file.isLaserCut) return 'laser';
   if (file.isModel) {
@@ -6351,7 +6551,8 @@ export function fileMatchesRoleFilter(file, filter = 'all', duplicateIds = new S
   const role = projectFileRole(file);
   if (filter === 'models') return ['model', 'source', 'laser'].includes(role);
   if (filter === 'profiles') return role === 'profile';
-  if (filter === 'documents') return ['document', 'reference'].includes(role);
+  if (filter === 'documents') return role === 'document';
+  if (filter === 'media') return role === 'reference';
   if (filter === 'issues') return duplicateIds.has(file.id);
   return true;
 }
@@ -6404,6 +6605,92 @@ export function groupProjectFiles(files = []) {
   const rest = (files || []).filter((file) => !claimed.has(file.id));
   if (rest.length) out.push({ key: 'other', title: 'Documentation & other', hint: null, files: rest });
   return out;
+}
+
+const ASSET_SET_STOP_WORDS = new Set([
+  'model', 'print', 'profile', 'final', 'test', 'app', 'single', 'color', 'colour',
+  'sliced', 'slice', 'plate', 'copy', 'version', 'v1', 'v2', 'v3',
+]);
+
+function assetNameTokens(file = {}) {
+  return String(file.name || '')
+    .replace(/\.[^.]+$/, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3 && !ASSET_SET_STOP_WORDS.has(token));
+}
+
+function assetSetTitle(file = {}) {
+  const stem = String(file.name || 'Model set').replace(/\.[^.]+$/, '');
+  const cleaned = stem
+    .replace(/\b(?:print|profile|sliced|single[ -]?colou?r|final|copy|bambu|creality|anycubic|elegoo|prusa|cura|orca)\b/gi, ' ')
+    .replace(/\s*[-_]\s*/g, ' ')
+    .replace(/\b[smle]\b$/i, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || stem || 'Model set';
+}
+
+/**
+ * Build creator-facing model sets instead of presenting every physical file as
+ * an unrelated row. Raw geometry is the anchor. Sliced profiles join the raw
+ * model whose meaningful filename tokens overlap most. A one-model package
+ * collects every profile, which matches the common "one design, many slicers"
+ * folder without asking the creator to organise it again.
+ */
+export function buildFileWorkspaceGroups(files = []) {
+  const input = files || [];
+  const modelFiles = input.filter((file) => ['model', 'source', 'laser'].includes(projectFileRole(file)));
+  const profileFiles = input.filter((file) => projectFileRole(file) === 'profile');
+  const mediaFiles = input.filter((file) => projectFileRole(file) === 'reference');
+  const otherFiles = input.filter((file) => !modelFiles.includes(file) && !profileFiles.includes(file) && !mediaFiles.includes(file));
+
+  const anchors = [];
+  for (const file of modelFiles) {
+    const key = assetNameTokens(file).join(':') || String(file.name || file.id).replace(/\.[^.]+$/, '').toLowerCase();
+    const existing = anchors.find((group) => group.key === key);
+    if (existing) existing.files.push(file);
+    else anchors.push({ key, title: assetSetTitle(file), files: [file], tokens: new Set(assetNameTokens(file)) });
+  }
+
+  const unmatchedProfiles = [];
+  for (const file of profileFiles) {
+    if (anchors.length === 1) {
+      anchors[0].files.push(file);
+      continue;
+    }
+    const tokens = assetNameTokens(file);
+    let best = null;
+    let bestScore = 0;
+    for (const group of anchors) {
+      const score = tokens.reduce((count, token) => count + (group.tokens.has(token) ? 1 : 0), 0);
+      if (score > bestScore) { best = group; bestScore = score; }
+    }
+    if (best && bestScore > 0) best.files.push(file);
+    else unmatchedProfiles.push(file);
+  }
+
+  const groups = anchors.map((group, index) => ({
+    key: `set:${group.key || index}`,
+    kind: 'set',
+    title: group.title,
+    files: group.files,
+  }));
+  if (unmatchedProfiles.length || (!anchors.length && profileFiles.length)) {
+    const profiles = anchors.length ? unmatchedProfiles : profileFiles;
+    const shared = profiles.map(assetNameTokens).reduce((common, tokens, index) => (
+      index === 0 ? tokens : common.filter((token) => tokens.includes(token))
+    ), []);
+    groups.push({
+      key: 'set:profiles',
+      kind: 'set',
+      title: shared.length ? shared.map((token) => token[0].toUpperCase() + token.slice(1)).join(' ') : 'Print profiles',
+      files: profiles,
+    });
+  }
+  if (otherFiles.length) groups.push({ key: 'supporting', kind: 'supporting', title: 'Instructions and attachments', files: otherFiles });
+  if (mediaFiles.length) groups.push({ key: 'media', kind: 'media', title: 'Gallery media', files: mediaFiles });
+  return groups;
 }
 
 // A real preview wherever one can be had, so a file is identified by what it
@@ -6558,7 +6845,7 @@ const NOMINAL_FILE_STATUS = new Set(['Ready', 'In gallery']);
 // re-rendered large rather than upscaled, so the detail is real.
 function SlicerBuildPlate({
   src, bounds, nativePlate = false, name, triangles = null, sourceFile = null,
-  format = '', previewMode = '3d', onPreviewMode = null, hasSlicerImage = false, printer = '',
+  format = '', previewMode = '3d', onPreviewMode = null, hasSlicerImage = false, printer = '', compact = false,
 }) {
   const metrics = buildPlatePreviewMetrics(bounds);
   const [displayMode, setDisplayMode] = useState('solid');
@@ -6598,7 +6885,7 @@ function SlicerBuildPlate({
         <div
           className="relative w-full select-none rounded-xl overflow-hidden border"
           style={{
-            height: 'clamp(300px, calc(100vh - 330px), 760px)',
+            height: compact ? 260 : 'clamp(300px, calc(100vh - 330px), 760px)',
             borderColor: 'var(--border)',
             boxShadow: 'var(--shadow-2)',
           }}
@@ -6675,9 +6962,9 @@ function SlicerBuildPlate({
       <div
         className="relative mx-auto aspect-square select-none"
         style={{
-          width: 'min(100%, max(260px, calc(100vh - 300px)))',
-          maxWidth: 720,
-          minHeight: 260,
+          width: compact ? 'min(100%, 300px)' : 'min(100%, max(260px, calc(100vh - 300px)))',
+          maxWidth: compact ? 300 : 720,
+          minHeight: compact ? 220 : 260,
           filter: 'drop-shadow(0 24px 34px rgba(0,0,0,0.32))',
         }}
       >
@@ -6816,13 +7103,13 @@ function FilePreviewModal({ files, index, onClose, onIndex, projectPrinter = '' 
   useEffect(() => {
     setStlPreview(null);
     setStlMesh(null);
-    setPreviewMode(isStl || (isThreeMF && file?.blob) ? '3d' : 'slicer');
+    setPreviewMode(isThreeMF && plate ? 'slicer' : isStl || (isThreeMF && file?.blob) ? '3d' : 'slicer');
     if (!isStl) return undefined;
     let live = true;
     renderStlThumb(file, 768).then((url) => { if (live) setStlPreview(url ? { url } : null); });
     loadStlMesh(file).then((mesh) => { if (live) setStlMesh(mesh); });
     return () => { live = false; };
-  }, [file, isStl, isThreeMF]);
+  }, [file, isStl, isThreeMF, plate]);
 
   useEffect(() => {
     setObjectUrl(null);
@@ -6922,6 +7209,287 @@ function FileTile({ file, size, onRemove, onOpen }) {
         <Trash2 size={12} />
       </button>
     </div>
+  );
+}
+
+export function fileDestinationState(platform, file, project) {
+  const opts = project?.platforms?.[platform.id] || {};
+  const candidate = platformCandidateFiles(platform, { files: [file] }).length > 0;
+  const choice = platformFileRoleChoice(platform.id, file, opts);
+  if (!candidate) return { ...choice, state: 'unsupported', label: 'Unsupported', included: false };
+  if (choice.role === 'not-sent') return { ...choice, state: 'excluded', label: 'Excluded', included: false };
+  if (choice.role === 'profile') return { ...choice, state: 'profile', label: 'Native profile', included: true };
+  if (choice.role === 'documentation') return { ...choice, state: 'attachment', label: 'Attachment', included: true };
+  if (projectFileRole(file) === 'profile') return { ...choice, state: 'adapted', label: 'Plain model', included: true };
+  return { ...choice, state: 'included', label: 'Model', included: true };
+}
+
+function WorkspaceFileRow({
+  file, project, platforms, active, selected, exactDuplicate, probableDuplicate,
+  onActivate, onToggleSelected, onRole, onSlicer, onRemove,
+}) {
+  const role = projectFileRole(file);
+  const destinations = platforms.map((platform) => fileDestinationState(platform, file, project));
+  const usedCount = destinations.filter((state) => state.included).length;
+  const manualCount = destinations.filter((state) => !state.automatic).length;
+  const adaptationCount = destinations.filter((state) => state.automatic && (state.state === 'adapted' || state.state === 'unsupported')).length;
+  const slicer = file.isProfile ? slicerLabel(fileSlicer(file)) : '';
+  return (
+    <tr
+      className={active ? 'mp-file-row-active' : undefined}
+      aria-selected={active}
+      onClick={() => onActivate(file.id)}
+    >
+      <td className="mp-file-select-cell" onClick={(event) => event.stopPropagation()}>
+        <input type="checkbox" checked={selected} onChange={() => onToggleSelected(file.id)} aria-label={`Select ${file.name}`} />
+      </td>
+      <td>
+        <button type="button" onClick={() => onActivate(file.id)} className="w-full min-w-0 flex items-center gap-3 text-left mp-focusable rounded-md">
+          <FileThumb file={file} size={48} />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-medium truncate" style={{ color: 'var(--ink)' }}>{file.name}</span>
+            <span className="block text-[11px] mt-0.5 truncate" style={{ color: 'var(--ink-50)' }}>
+              .{fileExt(file.name)} · {formatBytes(file.size)}{slicer && slicer !== 'Unknown slicer' ? ` · ${slicer}` : ''}
+            </span>
+            {(exactDuplicate || probableDuplicate) && <span className="block text-[10px] mt-1" style={{ color: 'var(--warn-text)' }}>{exactDuplicate ? 'Exact duplicate' : 'Check duplicate'}</span>}
+          </span>
+        </button>
+      </td>
+      <td onClick={(event) => event.stopPropagation()}>
+        <Select
+          value={role}
+          onChange={(value) => onRole(file.id, value)}
+          options={FILE_ROLE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))}
+          ariaLabel={`Role for ${file.name}`}
+          size="sm"
+          className="text-xs w-full"
+        />
+        {file.isProfile && (
+          <Select
+            value={file.slicerOverride || ''}
+            onChange={(value) => onSlicer(file.id, value || null)}
+            options={[{ value: '', label: file.threemf ? `Auto: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…' }, ...Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => ({ value: id, label }))]}
+            ariaLabel={`Slicer for ${file.name}`}
+            size="sm"
+            className="text-xs w-full mt-1.5"
+          />
+        )}
+      </td>
+      <td>
+        <div className="text-xs font-medium" style={{ color: usedCount ? 'var(--ink)' : 'var(--danger-text)' }}>
+          {platforms.length ? `${usedCount} of ${platforms.length}` : 'No destinations'}
+        </div>
+        <div className="text-[11px] mt-0.5" style={{ color: manualCount || adaptationCount ? 'var(--accent-warm-text)' : 'var(--ink-50)' }}>
+          {platforms.length ? (manualCount ? `${manualCount} manual` : adaptationCount ? `${adaptationCount} adapted` : 'Automatic') : 'Choose in Platforms'}
+        </div>
+      </td>
+      <td className="text-right" onClick={(event) => event.stopPropagation()}>
+        <button type="button" onClick={() => onRemove(file.id)} className="p-2 rounded-md hover:bg-[var(--danger-tint)]" aria-label={`Remove ${file.name}`} title="Remove">
+          <Trash2 size={14} style={{ color: 'var(--ink-50)' }} />
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function WorkspaceFileTile({ file, project, platforms, size, active, selected, issue, onActivate, onToggleSelected }) {
+  const used = platforms.map((platform) => fileDestinationState(platform, file, project)).filter((state) => state.included).length;
+  return (
+    <article className={`mp-file-tile ${active ? 'mp-file-tile-active' : ''}`}>
+      <label className="absolute top-2 left-2 z-10 rounded-md p-1" style={{ backgroundColor: 'var(--surface-a90)' }}>
+        <input type="checkbox" checked={selected} onChange={() => onToggleSelected(file.id)} aria-label={`Select ${file.name}`} />
+      </label>
+      <button type="button" onClick={() => onActivate(file.id)} className="w-full text-left mp-focusable rounded-md">
+        <FileThumb file={file} size={size} fill />
+        <span className="block text-[12px] font-medium mt-2 truncate" title={file.name}>{file.name}</span>
+        <span className="flex items-center justify-between gap-2 text-[11px] mt-1" style={{ color: 'var(--ink-50)' }}>
+          <span>{FILE_ROLE_OPTIONS.find((option) => option.id === projectFileRole(file))?.label || 'File'}</span>
+          <span>{platforms.length ? `${used}/${platforms.length}` : '0/0'}</span>
+        </span>
+        {issue && <span className="mp-pill mt-2" style={{ backgroundColor: 'rgba(255,182,39,0.18)', color: 'var(--warn-text)' }}>{issue}</span>}
+      </button>
+    </article>
+  );
+}
+
+function FileInspectorPreview({ file, files }) {
+  const [stlPreview, setStlPreview] = useState(null);
+  const [stlMesh, setStlMesh] = useState(null);
+  const [previewMode, setPreviewMode] = useState('3d');
+  const [objectUrl, setObjectUrl] = useState(null);
+  const format = file ? fileExt(file.name) : '';
+  const isImg = !!file?.isImage;
+  const isVid = !!file && isGalleryVideoFile(file);
+  const isStl = !!file && !isImg && !isVid && format === 'stl';
+  const isThreeMF = !!file && !isImg && !isVid && format === '3mf';
+  const plate = file?.threemf?.thumbnail || file?.previewDataUrl || null;
+  const printer = file?.threemf?.printer || files.find((candidate) => candidate?.threemf?.printer)?.threemf?.printer || '';
+
+  useEffect(() => {
+    setStlPreview(null);
+    setStlMesh(null);
+    setPreviewMode(isThreeMF && plate ? 'slicer' : isStl || (isThreeMF && file?.blob) ? '3d' : 'slicer');
+    if (!isStl) return undefined;
+    let live = true;
+    renderStlThumb(file, 512).then((url) => { if (live) setStlPreview(url ? { url } : null); });
+    loadStlMesh(file).then((mesh) => { if (live) setStlMesh(mesh); });
+    return () => { live = false; };
+  }, [file, isStl, isThreeMF, plate]);
+
+  useEffect(() => {
+    setObjectUrl(null);
+    if (!file || (!isImg && !isVid)) return undefined;
+    if (file.dataUrl) { setObjectUrl(file.dataUrl); return undefined; }
+    if (!file.blob) return undefined;
+    const url = URL.createObjectURL(file.blob);
+    setObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file, isImg, isVid]);
+
+  if (!file) return null;
+  if (isImg && objectUrl) return <img src={objectUrl} alt={file.alt || file.name} className="w-full max-h-[320px] object-contain rounded-md" />;
+  if (isVid && objectUrl) return <video src={objectUrl} controls className="w-full max-h-[320px] rounded-md" />;
+  const show3D = previewMode === '3d' && (isStl || (isThreeMF && file.blob));
+  const large = show3D ? (stlPreview?.url || plate || null) : (plate || stlPreview?.url);
+  const ready = show3D ? (isThreeMF || !!stlMesh?.triangles?.length) : !!large;
+  if (!ready) return (
+    <div className="min-h-[240px] rounded-md flex items-center justify-center text-xs text-center px-6" style={{ backgroundColor: 'var(--surface-sunken)', color: 'var(--ink-50)' }}>
+      {isStl ? 'Preparing interactive 3D model…' : 'No preview is available for this file type.'}
+    </div>
+  );
+  return (
+    <SlicerBuildPlate
+      src={large}
+      bounds={stlMesh?.bounds || stlPreview?.bounds || null}
+      nativePlate={!show3D && !!plate}
+      name={file.name}
+      triangles={show3D ? stlMesh?.triangles || null : null}
+      sourceFile={show3D ? file : null}
+      format={format}
+      previewMode={previewMode}
+      onPreviewMode={setPreviewMode}
+      hasSlicerImage={isThreeMF && !!plate}
+      printer={printer}
+      compact
+    />
+  );
+}
+
+function FileDestinationSettings({ file, platform, onUpdateMakerWorld, onUpdatePrintables }) {
+  const ext = fileExt(file.name);
+  if (platform.id === 'makerworld' && (isMakerWorldRegularFile(file.name) || isMakerWorldLaserFile(file.name))) {
+    const makerWorld = { note: '', openSource: true, folderPath: '', ...(file.makerWorld || {}) };
+    return (
+      <div className="mt-3 pt-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+        <label className="block text-[11px] space-y-1"><span>Folder path</span><input className="mp-input-sm w-full" value={makerWorld.folderPath} placeholder="parts/large" onChange={(event) => onUpdateMakerWorld({ folderPath: event.target.value.replace(/^\/+|\/+$/g, '') })} /></label>
+        <label className="block text-[11px] space-y-1"><span>File note</span><input className="mp-input-sm w-full" value={makerWorld.note} maxLength={500} placeholder="Print this part twice" onChange={(event) => onUpdateMakerWorld({ note: event.target.value })} /></label>
+        <label className="flex items-start gap-2 text-[11px]"><input type="checkbox" checked={makerWorld.openSource} onChange={(event) => onUpdateMakerWorld({ openSource: event.target.checked })} /><span>Allow the raw file to be downloaded</span></label>
+      </div>
+    );
+  }
+  if (platform.id === 'printables' && PRINTABLES_FORMATS.includes(ext) && !file.isImage) {
+    const printables = { note: '', folder: '', ...(file.printables || {}) };
+    const isGcode = ext === 'gcode' || ext === 'bgcode';
+    return (
+      <div className="mt-3 pt-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+        <label className="block text-[11px] space-y-1"><span>Folder path</span><input className="mp-input-sm w-full" value={printables.folder} placeholder="parts/large" onChange={(event) => onUpdatePrintables({ folder: event.target.value.replace(/^\/+|\/+$/g, '') })} /></label>
+        <label className="block text-[11px] space-y-1"><span>File note</span><input className="mp-input-sm w-full" value={printables.note} maxLength={PRINTABLES_FILE_NOTE_MAX} placeholder="Print this part twice" onChange={(event) => onUpdatePrintables({ note: event.target.value })} /></label>
+        {isGcode && (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-[11px] space-y-1"><span>Layer height</span><input className="mp-input-sm w-full" type="number" min="0.001" step="0.001" value={printables.layerHeight ?? ''} onChange={(event) => onUpdatePrintables({ layerHeight: event.target.value })} /></label>
+            <label className="block text-[11px] space-y-1"><span>Nozzle</span><input className="mp-input-sm w-full" type="number" min="0.01" step="0.01" value={printables.nozzleDiameter ?? ''} onChange={(event) => onUpdatePrintables({ nozzleDiameter: event.target.value })} /></label>
+            <label className="block text-[11px] space-y-1"><span>Duration, hours</span><input className="mp-input-sm w-full" type="number" min="0.01" max="999" step="0.01" value={printables.printDuration ?? ''} onChange={(event) => onUpdatePrintables({ printDuration: event.target.value })} /></label>
+            <label className="block text-[11px] space-y-1"><span>Weight, g</span><input className="mp-input-sm w-full" type="number" min="1" step="1" value={printables.weight ?? ''} onChange={(event) => onUpdatePrintables({ weight: event.target.value })} /></label>
+          </div>
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
+function FilePackageInspector({
+  file, files, project, platforms, tab, onTab, exactDuplicate, probableDuplicate,
+  onRole, onSlicer, onRename, onRemove, onOpenFullPreview,
+  onDestinationRole, onResetDestinationRole, onUpdateMakerWorld, onUpdatePrintables,
+}) {
+  const [nameDraft, setNameDraft] = useState(file?.name || '');
+  useEffect(() => setNameDraft(file?.name || ''), [file?.id, file?.name]);
+  if (!file) return (
+    <aside className="mp-card mp-files-inspector p-4 text-sm" style={{ color: 'var(--ink-50)' }}>
+      Select a file to inspect it.
+    </aside>
+  );
+  const role = projectFileRole(file);
+  const commitName = () => {
+    const clean = nameDraft.trim().replace(/[\\/:*?"<>|]/g, '').replace(/\.+$/, '');
+    if (clean && clean !== file.name) onRename(file.id, clean);
+    else setNameDraft(file.name);
+  };
+  return (
+    <aside className="mp-card mp-files-inspector" aria-label={`Inspector for ${file.name}`}>
+      <div className="px-4 pt-4 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-start gap-3">
+          <FileThumb file={file} size={46} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold truncate" title={file.name}>{file.name}</div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'var(--ink-50)' }}>.{fileExt(file.name)} · {formatBytes(file.size)}</div>
+          </div>
+          <button type="button" onClick={onOpenFullPreview} className="p-2 rounded-md hover:bg-[var(--surface-hover)]" aria-label="Open full preview" title="Open full preview"><Maximize2 size={15} /></button>
+        </div>
+        <div className="mp-segmented mt-3 w-full" role="tablist" aria-label="File inspector">
+          {[['preview', 'Preview'], ['properties', 'Properties'], ['destinations', 'Destinations']].map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} aria-pressed={tab === id} onClick={() => onTab(id)} className="flex-1">{label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="p-4 mp-files-inspector-body">
+        {tab === 'preview' && <FileInspectorPreview file={file} files={files} />}
+        {tab === 'properties' && (
+          <div className="space-y-4">
+            <label className="block text-xs space-y-1.5"><span className="font-medium">File name</span><input className="mp-input w-full" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === 'Enter') commitName(); if (event.key === 'Escape') setNameDraft(file.name); }} /></label>
+            <label className="block text-xs space-y-1.5"><span className="font-medium">Role</span><Select value={role} onChange={(value) => onRole(file.id, value)} options={FILE_ROLE_OPTIONS.map((option) => ({ value: option.id, label: option.label }))} ariaLabel={`Role for ${file.name}`} className="w-full" /></label>
+            {file.isProfile && <label className="block text-xs space-y-1.5"><span className="font-medium">Slicer</span><Select value={file.slicerOverride || ''} onChange={(value) => onSlicer(file.id, value || null)} options={[{ value: '', label: file.threemf ? `Automatic: ${slicerLabel(file.threemf.slicer)}` : 'Detecting slicer…' }, ...Object.entries(SLICERS).filter(([id]) => id !== 'unknown').map(([id, label]) => ({ value: id, label }))]} ariaLabel={`Slicer for ${file.name}`} className="w-full" /></label>}
+            <dl className="mp-file-properties">
+              <div><dt>Type</dt><dd>.{fileExt(file.name)}</dd></div>
+              <div><dt>Size</dt><dd>{formatBytes(file.size)}</dd></div>
+              <div><dt>Imported from</dt><dd title={file.sourcePath || file.name}>{file.sourcePath || file.name}</dd></div>
+              <div><dt>Duplicate check</dt><dd>{exactDuplicate ? 'Exact hash match' : probableDuplicate ? 'Same type and size' : file.contentHash ? 'Unique hash' : 'Checking'}</dd></div>
+            </dl>
+            <button type="button" onClick={() => onRemove(file.id)} className="mp-btn mp-btn-ghost text-xs" style={{ color: 'var(--danger-text)' }}><Trash2 size={13} /> Remove file</button>
+          </div>
+        )}
+        {tab === 'destinations' && (
+          <div>
+            <p className="text-[11px] leading-relaxed mb-3" style={{ color: 'var(--ink-65)' }}>Automatic routing follows the file type and slicer metadata. Change only the destinations that need an exception.</p>
+            {!platforms.length && <p className="text-xs" style={{ color: 'var(--ink-50)' }}>Choose destinations in Platforms to see how this file will be used.</p>}
+            <div className="space-y-2">
+              {platforms.map((platform) => {
+                const state = fileDestinationState(platform, file, project);
+                const availability = destinationRoleAvailability(platform, file);
+                const readiness = destinationReadinessSummary(platform.id, platformPreflight(platform, project), project);
+                return (
+                  <details key={`${file.id}:${platform.id}`} className="mp-file-destination">
+                    <summary>
+                      <PlatformMark platform={platform} size={24} />
+                      <span className="min-w-0 flex-1"><span className="block text-xs font-medium truncate">{platform.name}</span><span className="block text-[10px] truncate" style={{ color: 'var(--ink-50)' }}>{readiness.label}</span></span>
+                      <span className={`mp-file-route-state state-${state.state}`}>{state.label}</span>
+                      <ChevronDown size={13} />
+                    </summary>
+                    <div className="px-3 pb-3">
+                      <Select value={state.role} onChange={(value) => onDestinationRole(file.id, platform.id, value)} options={DESTINATION_FILE_ROLES.map((option) => ({ value: option.id, label: option.label, disabled: !availability[option.id] }))} ariaLabel={`${file.name} role for ${platform.name}`} className="w-full text-xs" size="sm" />
+                      <p className="text-[10px] leading-relaxed mt-1.5" style={{ color: state.state === 'unsupported' ? 'var(--danger-text)' : 'var(--ink-50)' }}>{state.state === 'unsupported' ? `.${fileExt(file.name)} is not accepted by this destination.` : state.reason}</p>
+                      {!state.automatic && <button type="button" onClick={() => onResetDestinationRole(file.id, platform.id)} className="text-[11px] underline mt-1" style={{ color: 'var(--accent-text)' }}>Use automatic routing</button>}
+                      <FileDestinationSettings file={file} platform={platform} onUpdateMakerWorld={onUpdateMakerWorld} onUpdatePrintables={onUpdatePrintables} />
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
   );
 }
 

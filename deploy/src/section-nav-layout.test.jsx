@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
-import App, { FILE_SORTS, duplicateFileIds, filterProjectFiles, findDuplicateGroups, groupProjectFiles, sortProjectFiles } from './App.jsx';
+import App, { FILE_SORTS, buildFileWorkspaceGroups, duplicateFileIds, filterProjectFiles, findDuplicateGroups, groupProjectFiles, sortProjectFiles } from './App.jsx';
 
 beforeEach(() => {
   cleanup();
@@ -219,9 +219,45 @@ describe('file list grouping', () => {
     expect(groups.map((g) => g.key)).toEqual(['other']);
   });
 
+  it('shows a parsed unsliced 3MF as model geometry instead of a print profile', () => {
+    const groups = groupProjectFiles([f('plain.3mf', { isModel: true, isProfile: true, threemf: { sliced: false } })]);
+    expect(groups.map((group) => group.key)).toEqual(['models']);
+  });
+
   it('returns nothing for an empty project', () => {
     expect(groupProjectFiles([])).toEqual([]);
     expect(groupProjectFiles(undefined)).toEqual([]);
+  });
+});
+
+describe('publishing package groups', () => {
+  const file = (id, name, props = {}) => ({ id, name, size: 100, ...props });
+
+  it('keeps one raw model and its slicer variants in the same model set', () => {
+    const groups = buildFileWorkspaceGroups([
+      file('raw', 'Ram.stl', { isModel: true }),
+      file('bambu', 'ram test app Bambu.3mf', { isModel: true, isProfile: true }),
+      file('creality', 'ram test app Creality.3mf', { isModel: true, isProfile: true }),
+      file('notes', 'instructions.md'),
+      file('photo', 'hero.jpg', { isImage: true }),
+    ]);
+
+    expect(groups.map((group) => group.kind)).toEqual(['set', 'supporting', 'media']);
+    expect(groups[0].title).toBe('Ram');
+    expect(groups[0].files.map((entry) => entry.id)).toEqual(['raw', 'bambu', 'creality']);
+  });
+
+  it('matches profiles to the closest raw model when a folder contains several designs', () => {
+    const groups = buildFileWorkspaceGroups([
+      file('gear', 'gear.stl', { isModel: true }),
+      file('clamp', 'clamp.stl', { isModel: true }),
+      file('gear-profile', 'gear bambu.3mf', { isModel: true, isProfile: true }),
+      file('clamp-profile', 'clamp creality.3mf', { isModel: true, isProfile: true }),
+    ]);
+
+    expect(groups).toHaveLength(2);
+    expect(groups.find((group) => group.title === 'gear').files.map((entry) => entry.id)).toEqual(['gear', 'gear-profile']);
+    expect(groups.find((group) => group.title === 'clamp').files.map((entry) => entry.id)).toEqual(['clamp', 'clamp-profile']);
   });
 });
 
