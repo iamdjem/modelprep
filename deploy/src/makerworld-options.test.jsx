@@ -50,4 +50,22 @@ describe('MakerWorld mode-specific options', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('offers the native Share source and records it as a MakerWorld override', async () => {
+    const user = userEvent.setup();
+    const onUpdate = vi.fn();
+    render(<MakerWorldOptions
+      opts={{ productMode: '3d', modelSource: 'original', modelSourceAuto: true }}
+      project={{ ...project('source.stl'), provenance: { origin: 'original' } }}
+      onUpdate={onUpdate}
+    />);
+    await user.click(screen.getByRole('button', { name: /Source & attribution/i }));
+    await user.click(screen.getByRole('combobox', { name: 'MakerWorld model source' }));
+    await user.click(screen.getByRole('option', { name: 'Share another design' }));
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      modelSource: 'share',
+      modelSourceAuto: false,
+      exclusive: false,
+    }));
+  });
 });

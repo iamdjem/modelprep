@@ -9,10 +9,12 @@ describe('required fields per platform', () => {
     expect(isRequiredField('mmf', 'Visibility')).toBe(true);
     expect(isRequiredField('mmf', 'Printing tips')).toBe(false);
     expect(isRequiredField('makerworld', 'Category')).toBe(true);
-    expect(isRequiredField('makerworld', 'Visibility')).toBe(false);
+    expect(isRequiredField('makerworld', 'Visibility')).toBe(true);
     expect(isRequiredField('makeronline', 'Print method')).toBe(true);
     expect(isRequiredField('details', 'Title')).toBe(true);
     expect(isRequiredField('details', 'Description')).toBe(false);
+    expect(isRequiredField('thingiverse', 'Accept Thingiverse publishing terms')).toBe(true);
+    expect(isRequiredField('mmf', 'I confirm this is original and made without generative AI')).toBe(true);
   });
 
   it('is quiet outside a known scope', () => {

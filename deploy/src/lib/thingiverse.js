@@ -1,7 +1,8 @@
 export const THINGIVERSE_LICENSES = ['cc', 'cc-sa', 'cc-nd', 'cc-nc', 'cc-nc-sa', 'cc-nc-nd', 'pd0', 'gpl', 'lgpl', 'bsd', 'cern-ohl-s', 'cern-ohl-w', 'cern-ohl-p'];
 
 // Extracted from Thingiverse's current production category bundle on 2026-08-01.
-// IDs are the persisted API values; labels are presentation only.
+// IDs are kept for edit and readback requests. The final label segment is the
+// native category name required by POST /api/things.
 export const THINGIVERSE_CATEGORIES = [
   ['3D Printing', 73], ['3D Printing › Accessories', 127], ['3D Printing › Extruders', 152], ['3D Printing › Parts', 128], ['3D Printing › Printers', 126], ['3D Printing › Tests', 129],
   ['Art', 63], ['Art › 2D Art', 144], ['Art › Art Tools', 75], ['Art › Coins & Badges', 143], ['Art › Interactive Art', 78], ['Art › Math Art', 79], ['Art › Scans & Replicas', 145], ['Art › Sculptures', 80], ['Art › Signs & Logos', 76],

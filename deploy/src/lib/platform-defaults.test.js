@@ -10,16 +10,27 @@ function memoryStorage() {
 }
 
 describe('what is worth remembering', () => {
-  it('keeps answers and drops anything bound to this project', () => {
+  it('uses a per-platform allowlist and drops project-bound data', () => {
     const opts = {
       enabled: true, license: 'ccby', visibility: 'private', printMethod: 'fdm', confirmOriginalNoAi: true,
       fileRoles: { a: 'model' }, excludedFileIds: ['b'], coverImageId: 'img1', imageIds: ['x'], primaryProfileFileId: 'p',
-      remixUrl: 'https://x', relatedModel: { id: 1 }, remixParentIds: [3], verifyObjectId: '9', contestEntry: 'fund',
+      remixUrl: 'https://x', sourceThingId: '123', summary: 'old project', bom: [{ name: 'old part' }], planTime: 'tomorrow',
+      relatedModel: { id: 1 }, remixParentIds: [3], verifyObjectId: '9', contestEntry: 'fund',
       categoryAuto: true, licenseAutoExact: false, price: 4,
     };
-    expect(rememberableOptions(opts)).toEqual({ license: 'ccby', visibility: 'private', printMethod: 'fdm', confirmOriginalNoAi: true });
-    for (const key of ['fileRoles', 'coverImageId', 'remixUrl', 'enabled', 'categoryAuto', 'price']) expect(isProjectBound(key)).toBe(true);
-    for (const key of ['license', 'categoryId', 'visibility', 'metaTags']) expect(isProjectBound(key)).toBe(false);
+    expect(rememberableOptions(opts, 'thingiverse')).toEqual({ license: 'ccby' });
+    for (const key of ['fileRoles', 'coverImageId', 'remixUrl', 'sourceThingId', 'summary', 'bom', 'planTime', 'enabled', 'categoryAuto', 'price']) {
+      expect(isProjectBound(key, 'thingiverse')).toBe(true);
+    }
+    for (const key of ['license', 'categoryId', 'publication']) expect(isProjectBound(key, 'thingiverse')).toBe(false);
+  });
+
+  it('keeps intended preferences that the old substring filter dropped', () => {
+    expect(rememberableOptions({ includePrintProfile: true, relatedKits: true, storeKitIds: ['kit-1'] }, 'makeronline')).toEqual({
+      includePrintProfile: true,
+      relatedKits: true,
+      storeKitIds: ['kit-1'],
+    });
   });
 });
 

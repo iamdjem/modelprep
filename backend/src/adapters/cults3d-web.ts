@@ -484,8 +484,8 @@ export interface CultsWebPublishPayload {
   licenseType: string;
   /** 'public' = appears on Cults search / your profile.
    *  'secret' = only reachable via the unguessable URL Cults assigns.
-   *  Web flow supports both; GraphQL only allowed public. */
-  visibility: 'public' | 'secret';
+   *  'offline' = inactive in the owner's creation manager. */
+  visibility: 'public' | 'secret' | 'offline';
   /** Whether the listing appears in the in-Cults store. Almost always true. */
   inStore?: boolean;
 }
@@ -680,7 +680,7 @@ export interface CultsWebCreationReadback {
 
 export interface CultsWebReadbackExpected {
   title: string;
-  visibility: 'public' | 'secret';
+  visibility: 'public' | 'secret' | 'offline';
   blueprintIds: number[];
   blueprintFilenames: string[];
   illustrationIds: number[];

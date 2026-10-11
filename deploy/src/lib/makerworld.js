@@ -220,15 +220,16 @@ export function makerWorldPublishIssues(project, opts = {}, runtime = {}) {
   if (runtime.uploadAllowed === false) errors.push('MakerWorld upload is disabled for this account.');
   if (opts.cyberBrick && runtime.rcUpload === false) errors.push('CyberBrick upload is not enabled for this MakerWorld account.');
 
-  if (opts.modelSource === 'remix') {
+  if (opts.modelSource === 'remix' || opts.modelSource === 'share') {
     const remixUrl = String(opts.remixUrl || '').trim();
-    if (!opts.remixModel && !remixUrl) errors.push('Paste or select the original model used for this remix.');
+    const sourceLabel = opts.modelSource === 'share' ? 'shared design' : 'remix';
+    if (!opts.remixModel && !remixUrl) errors.push(`Paste or select the original model used for this ${sourceLabel}.`);
     if (remixUrl) {
-      try { new URL(remixUrl); } catch { errors.push('Enter a valid URL for the original remix source.'); }
+      try { new URL(remixUrl); } catch { errors.push('Enter a valid URL for the original source.'); }
     }
-    if (!String(opts.remixDescription || '').trim()) errors.push('Explain what you changed in the remix.');
+    if (opts.modelSource === 'remix' && !String(opts.remixDescription || '').trim()) errors.push('Explain what you changed in the remix.');
     if (!opts.remixModel && !String(opts.remixLicense || '').trim()) errors.push('Select the original model license.');
-    if (!makerWorldLicenseAllowsRemix(opts.remixLicense || opts.remixModel?.license)) errors.push('The selected original license does not allow derivatives.');
+    if (opts.modelSource === 'remix' && !makerWorldLicenseAllowsRemix(opts.remixLicense || opts.remixModel?.license)) errors.push('The selected original license does not allow derivatives.');
   }
 
   if (productMode === 'laser-cut') {
@@ -263,8 +264,8 @@ export function makerWorldPublishIssues(project, opts = {}, runtime = {}) {
   if (!String(project?.description || '').trim()) errors.push('Add a model description.');
   if (!(Number(opts.categoryId) > 0)) errors.push('Choose a MakerWorld category.');
 
-  if (opts.modelSource === 'remix') {
-    if (opts.exclusive) errors.push('Remixes are not eligible for MakerWorld Exclusive.');
+  if (opts.modelSource !== 'original') {
+    if (opts.exclusive) errors.push('Remixes and shared designs are not eligible for MakerWorld Exclusive.');
   }
 
   if (opts.exclusive && !opts.exclusiveTermsAccepted) errors.push('Accept the MakerWorld Exclusive terms for this model.');

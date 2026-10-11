@@ -516,16 +516,15 @@ export default {
         // Pricing: Cults's actual enum values are 'free' / 'priced' / 'open_priced'
         // (NOT 'paid' / 'open' — those get "Pricing isn't included in the list").
         // The frontend sends platform-neutral `{free, price}`; we derive.
-        const explicitFree = str('free') === 'true' || str('pricing') === 'free' || str('price') === '0';
+        const rawPricing = str('pricing');
+        const normalizedPricing = rawPricing === 'paid' ? 'priced' : rawPricing === 'open' ? 'open_priced' : rawPricing;
+        const explicitFree = normalizedPricing ? normalizedPricing === 'free' : str('free') === 'true' || str('price') === '0';
         const priceNum = Number(str('downloadPrice') || str('price'));
-        const isPaid = !explicitFree && Number.isFinite(priceNum) && priceNum > 0;
+        const isPaid = normalizedPricing === 'priced' || normalizedPricing === 'open_priced' || (!explicitFree && Number.isFinite(priceNum) && priceNum > 0);
         // Allow caller to send Cults-direct `pricing` too (for power users /
         // curl), but normalize legacy 'paid'/'open' aliases just in case.
-        const rawPricing = str('pricing');
         const pricing = (
-          rawPricing === 'paid' ? 'priced'
-          : rawPricing === 'open' ? 'open_priced'
-          : rawPricing || (isPaid ? 'priced' : 'free')
+          normalizedPricing || (isPaid ? 'priced' : 'free')
         ) as 'free' | 'priced' | 'open_priced';
         const downloadPrice = isPaid ? priceNum : 0;
         const downloadOpenPrice = Number(str('downloadOpenPrice')) || 0;
@@ -542,7 +541,7 @@ export default {
         }
         const licenseType = resolvedLicense.licenseCode;
 
-        const visibility = (str('visibility') || 'secret') as 'public' | 'secret';
+        const visibility = (str('visibility') || 'secret') as 'public' | 'secret' | 'offline';
 
         // ---- Collect files: 'model' (one or more) + 'illustration' (one or more) ----
         // Workers' FormData typing claims entries are just string, but at

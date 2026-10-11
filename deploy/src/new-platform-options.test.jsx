@@ -9,10 +9,20 @@ import { MakerRoadOptions, PlatformFilePicker, ThangsOptions, ThingiverseOptions
 afterEach(cleanup);
 const noop = vi.fn();
 describe('new direct-platform option parity', () => {
+  it('blocks descriptions that audited Printables and MakerOnline forms require', () => {
+    const base = { files: [{ name: 'part.stl', size: 1, isModel: true }], images: [{ id: 'cover' }], coverImageId: 'cover', title: 'Dragon', description: '', category: 'toys', tags: [], media: [] };
+    const printables = platformPreflight({ id: 'printables', name: 'Printables', formats: ['stl'], limits: {} }, { ...base, platforms: { printables: { categoryId: '12', summary: 'A dragon', aiGenerated: false } } });
+    const makeronline = platformPreflight({ id: 'makeronline', name: 'MakerOnline', formats: ['stl'], limits: {} }, { ...base, license: 'ccbync', platforms: { makeronline: { categoryId: '1', license: 3, source: 1, permission: 2, printMethod: 3 } } });
+    expect(printables.errors).toContain('Add the required Printables description in Details.');
+    expect(makeronline.errors).toContain('Add the required MakerOnline description in Details.');
+  });
   it('renders MakerRoad action, source, license and print branches', () => {
     render(<MakerRoadOptions opts={{ publication: 'draft', uploadType: 1, categoryIds: [], printMethods: ['FDM'], licenseIndex: 0, visibility: 'private', payType: 'free' }} onUpdate={noop} />);
     expect(screen.getByLabelText('MakerRoad batch action')).toBeInTheDocument(); expect(screen.getByLabelText('MakerRoad license')).toBeInTheDocument();
     expect(screen.getByText(/current native form has no video field/i)).toBeInTheDocument();
+    expect(screen.getByText(/current signed-in upload form shows Free only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Points$/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Cash$/)).not.toBeInTheDocument();
   });
   it('warns rather than silently sending video media to MakerRoad', () => {
     const result = platformPreflight({ id: 'makeroad', name: 'MakerRoad', formats: ['stl'], limits: {} }, {
@@ -182,14 +192,17 @@ describe('new direct-platform option parity', () => {
     chooseOption('dragon-E.3mf role for Creality Cloud', /not sent|Not sent/i);
     expect(onUpdate).toHaveBeenCalledWith('fileSelection', 'manual');
   });
-  it('renders Thangs privacy and structure controls', () => {
+  it('renders verified Thangs audiences and documents account-gated native modes', () => {
     render(<ThangsOptions opts={{ publication: 'private', structure: 'single', units: 'mm' }} project={{ files: [] }} onUpdate={noop} />);
-    expectFieldValue(screen.getByLabelText('Thangs visibility'), 'private'); expectFieldValue(screen.getByLabelText('Thangs structure'), 'single');
+    expectFieldValue(screen.getByLabelText('Thangs audience'), 'private'); expectFieldValue(screen.getByLabelText('Thangs structure'), 'single');
+    expect(screen.getByText(/paid-members, print-only, purchase/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Thangs license')).toBeInTheDocument();
   });
   it('renders Thingiverse as draft-first and upload-ready with license choices', () => {
     render(<ThingiverseOptions opts={{ publication: 'draft', license: 'cc-nc' }} project={{ files: [] }} onUpdate={noop} />);
     expect(screen.getByText(/Direct upload ready:/)).toBeInTheDocument(); expectFieldValue(screen.getByLabelText('Thingiverse action'), 'draft'); expectFieldValue(screen.getByLabelText('Thingiverse license'), 'cc-nc');
     expect(screen.getByLabelText('Thingiverse Customizer')).toBeDisabled();
+    expect(screen.getByText(/Upload a Make is a response attached to an existing Thing/i)).toBeInTheDocument();
   });
   it('enables Thingiverse Customizer only for SCAD uploads and fails closed for stale state', () => {
     render(<ThingiverseOptions opts={{ publication: 'draft', license: 'cc-nc' }} project={{ files: [{ name: 'customizer.scad' }] }} onUpdate={noop} />);

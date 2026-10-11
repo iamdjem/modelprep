@@ -634,13 +634,12 @@ function createCultsDirectClient({
       }
     }
 
-    const explicitFree = form.text('free') === 'true' || form.text('pricing') === 'free' || form.text('price') === '0';
-    const price = Number(form.text('downloadPrice') || form.text('price'));
-    const paid = !explicitFree && Number.isFinite(price) && price > 0;
     const rawPricing = form.text('pricing');
-    const pricing = rawPricing === 'paid' ? 'priced'
-      : rawPricing === 'open' ? 'open_priced'
-        : rawPricing || (paid ? 'priced' : 'free');
+    const normalizedPricing = rawPricing === 'paid' ? 'priced' : rawPricing === 'open' ? 'open_priced' : rawPricing;
+    const explicitFree = normalizedPricing ? normalizedPricing === 'free' : form.text('free') === 'true' || form.text('price') === '0';
+    const price = Number(form.text('downloadPrice') || form.text('price'));
+    const paid = normalizedPricing === 'priced' || normalizedPricing === 'open_priced' || (!explicitFree && Number.isFinite(price) && price > 0);
+    const pricing = normalizedPricing || (paid ? 'priced' : 'free');
     const category = resolveCategory(form.text('categoryId') || form.text('category'));
     if (!category) {
       return jsonResponse({ error: 'invalid_category', hint: 'Choose an explicit supported Cults3D category before uploading files.' }, 400);

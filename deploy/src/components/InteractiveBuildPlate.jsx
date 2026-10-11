@@ -205,23 +205,59 @@ function makePlateNumberTexture(THREE, renderer) {
   return texture;
 }
 
+// Geometry and textures are freed; materials are not. Disposing a material
+// releases its shader program once nothing else uses it, and the pooled
+// renderer below is only fast because those programs survive to the next
+// visit. The set of programs is small and fixed, so keeping them is cheap.
 function disposeObject(root) {
   root?.traverse?.((node) => {
     node.geometry?.dispose?.();
-    const disposeMaterial = (material) => {
-      material?.map?.dispose?.();
-      material?.dispose?.();
-    };
-    if (Array.isArray(node.material)) node.material.forEach(disposeMaterial);
-    else disposeMaterial(node.material);
+    const disposeTexture = (material) => material?.map?.dispose?.();
+    if (Array.isArray(node.material)) node.material.forEach(disposeTexture);
+    else disposeTexture(node.material);
   });
+}
+
+// The desktop app runs WebGL on SwiftShader (see desktop/main.js), which
+// compiles every shader program again for each new WebGL context: about half
+// a second of frozen window every time the 3D tab opened. Released renderers
+// wait in a small pool with their compiled programs, so the next visit reuses
+// them (measured 435 ms down to 45 ms for the first frame).
+const RENDERER_POOL_SIZE = 2;
+const rendererPool = [];
+
+function acquireRenderer(THREE) {
+  while (rendererPool.length) {
+    const pooled = rendererPool.pop();
+    if (!pooled.getContext().isContextLost()) return pooled;
+    pooled.dispose();
+  }
+  const options = { antialias: true, alpha: false, failIfMajorPerformanceCaveat: false };
+  try {
+    return new THREE.WebGLRenderer({ ...options, powerPreference: 'high-performance' });
+  } catch {
+    // Electron intentionally disables hardware acceleration for stability.
+    // A few Macs reject a high-performance context before SwiftShader is
+    // selected, so retry explicitly with the least demanding context.
+    return new THREE.WebGLRenderer({ ...options, powerPreference: 'low-power' });
+  }
+}
+
+function releaseRenderer(renderer) {
+  renderer.domElement.remove();
+  if (rendererPool.length < RENDERER_POOL_SIZE && !renderer.getContext().isContextLost()) {
+    rendererPool.push(renderer);
+    return;
+  }
+  renderer.dispose();
+  renderer.forceContextLoss();
 }
 
 export default function InteractiveBuildPlate({
   triangles, sourceFile, format, plateSize, fallbackSrc, name, printer = '',
   displayMode = 'solid', sectionEnabled = false, selectedPart = null, selectedPlate = null, onPartsDiscovered = null,
 }) {
-  const canvasRef = useRef(null);
+  const canvasHostRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const rendererRef = useRef(null);
@@ -306,16 +342,16 @@ export default function InteractiveBuildPlate({
   }, [displayMode, sectionEnabled, selectedPart, selectedPlate]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || (!triangles?.length && !(format === '3mf' && sourceFile?.blob))) return undefined;
+    const host = canvasHostRef.current;
+    if (!host || (!triangles?.length && !(format === '3mf' && sourceFile?.blob))) return undefined;
     let live = true;
     let animationFrame = 0;
     let resizeObserver = null;
     let sceneRoot = null;
     let renderer = null;
+    let canvas = null;
     let controls = null;
     const preventMenu = (event) => event.preventDefault();
-    canvas.addEventListener('contextmenu', preventMenu);
     setStatus('loading');
     setErrorMessage('');
     const threeMfSource = !triangles?.length && format === '3mf'
@@ -331,14 +367,13 @@ export default function InteractiveBuildPlate({
         if (!live) return;
         threeRef.current = THREE;
 
-        try {
-          renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance', failIfMajorPerformanceCaveat: false });
-        } catch {
-          // Electron intentionally disables hardware acceleration for stability.
-          // A few Macs reject a high-performance context before SwiftShader is
-          // selected, so retry explicitly with the least demanding context.
-          renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'low-power', failIfMajorPerformanceCaveat: false });
-        }
+        renderer = acquireRenderer(THREE);
+        canvas = renderer.domElement;
+        canvas.className = 'block w-full h-full touch-none cursor-grab active:cursor-grabbing';
+        canvas.tabIndex = 0;
+        canvas.setAttribute('aria-label', `${name} interactive 3D ${profile.plate}. Drag to rotate, right-drag to pan, and scroll to zoom.`);
+        canvas.addEventListener('contextmenu', preventMenu);
+        host.appendChild(canvas);
         rendererRef.current = renderer;
         // The desktop app deliberately runs without GPU acceleration (see
         // desktop/main.js), so WebGL lands on SwiftShader: every pixel is CPU
@@ -630,9 +665,9 @@ export default function InteractiveBuildPlate({
       resizeObserver?.disconnect();
       controls?.stopListenToKeyEvents?.();
       controls?.dispose?.();
-      renderer?.dispose?.();
       disposeObject(sceneRoot);
-      canvas.removeEventListener('contextmenu', preventMenu);
+      canvas?.removeEventListener('contextmenu', preventMenu);
+      if (renderer) releaseRenderer(renderer);
       cameraRef.current = null;
       controlsRef.current = null;
       rendererRef.current = null;
@@ -653,12 +688,8 @@ export default function InteractiveBuildPlate({
       data-preview-error={errorMessage}
       style={{ background: '#55565E' }}
     >
-      <canvas
-        ref={canvasRef}
-        className="block w-full h-full touch-none cursor-grab active:cursor-grabbing"
-        tabIndex={0}
-        aria-label={`${name} interactive 3D ${profile.plate}. Drag to rotate, right-drag to pan, and scroll to zoom.`}
-      />
+      {/* The canvas comes from the renderer pool and is attached in the effect. */}
+      <div ref={canvasHostRef} className="w-full h-full" />
       <p className="sr-only" aria-live="polite">{status === 'ready' ? `${name} 3D preview ready on ${profile.printer || 'generic'} build plate. Use the view controls or keyboard to inspect it.` : status === 'error' ? `${name} 3D preview failed: ${errorMessage}` : `${name} 3D preview is loading.`}</p>
 
       {status === 'loading' && (
