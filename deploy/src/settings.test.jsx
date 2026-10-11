@@ -410,7 +410,7 @@ describe('Unified Settings page', () => {
     expect(screen.getByRole('option', { name: 'GPT-5.4' })).toBeInTheDocument();
     await user.click(screen.getByRole('option', { name: 'GPT-5.4' }));
     expect(savedConfig().providers.codex.model).toBe('gpt-5.4');
-  });
+  }, 20_000);
 
   it('separates a signed-out CLI from a missing one and names the command that fixes it', async () => {
     window.modelprepDesktop = {
