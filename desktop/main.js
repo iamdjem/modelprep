@@ -28,7 +28,7 @@ const { createWindowFetch, createCultsFetchRouter, createPacedFetch } = require(
 const { createReleaseScheduler, hasPendingUnattended, mergeSyncedPlans } = require('./release-scheduler');
 const { createSessionKeepAlive } = require('./session-keepalive');
 const { sessionCookieLiveness, isDefiniteSignOut } = require('./session-liveness');
-const { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, trayMenuModel, launchAgentPlist, LAUNCH_AGENT_LABEL } = require('./background-mode');
+const { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, trayMenuModel, launchAgentPlist, launchAgentLabelFor } = require('./background-mode');
 // When a platform itself rejects the session, remember it briefly so the
 // cookie fallback below does not keep an account the platform just refused.
 const definiteSignOutAt = new Map();
@@ -2346,14 +2346,15 @@ async function runKeepAliveNow() {
 // LaunchAgent + tray follow the preference. The agent is only written for the
 // packaged app: a dev build must not add itself to someone's login. It is
 // rewritten on every start so a moved .app keeps a valid path.
-function launchAgentPath() { return path.join(app.getPath('home'), 'Library', 'LaunchAgents', `${LAUNCH_AGENT_LABEL}.plist`); }
+function launchAgentLabel() { return launchAgentLabelFor(app.getName()); }
+function launchAgentPath() { return path.join(app.getPath('home'), 'Library', 'LaunchAgents', `${launchAgentLabel()}.plist`); }
 function applyLaunchAgent(enabled) {
   if (process.platform !== 'darwin' || !app.isPackaged) return;
   const target = launchAgentPath();
   try {
     if (enabled) {
       fsSync.mkdirSync(path.dirname(target), { recursive: true });
-      fsSync.writeFileSync(target, launchAgentPlist({ execPath: process.execPath }), { mode: 0o644 });
+      fsSync.writeFileSync(target, launchAgentPlist({ execPath: process.execPath, label: launchAgentLabel() }), { mode: 0o644 });
     } else {
       try { fsSync.unlinkSync(target); } catch { /* already gone */ }
     }

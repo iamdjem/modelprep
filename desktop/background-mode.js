@@ -74,6 +74,13 @@ function trayMenuModel({ results, now = Date.now(), enabled = true, running = fa
 // so the window would come up at every login; a LaunchAgent passes --hidden
 // and the app decides. KeepAlive is off: Quit means quit.
 const LAUNCH_AGENT_LABEL = 'com.modelprep.desktop.keepalive';
+const DEFAULT_APP_NAME = 'modelprep-desktop';
+
+/** One LaunchAgent per app identity, so a side-by-side build (another package name) never rewrites or deletes the installed app's agent. */
+function launchAgentLabelFor(appName = DEFAULT_APP_NAME) {
+  if (!appName || appName === DEFAULT_APP_NAME) return LAUNCH_AGENT_LABEL;
+  return `${LAUNCH_AGENT_LABEL}.${String(appName).replace(/[^A-Za-z0-9-]/g, '-')}`;
+}
 function xml(text) {
   return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -100,4 +107,4 @@ function launchAgentPlist({ execPath, label = LAUNCH_AGENT_LABEL } = {}) {
   ].join('\n');
 }
 
-module.exports = { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, keepAliveSummary, trayMenuModel, describeAgo, launchAgentPlist, LAUNCH_AGENT_LABEL, DEFAULT_PREFS };
+module.exports = { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, keepAliveSummary, trayMenuModel, describeAgo, launchAgentPlist, launchAgentLabelFor, LAUNCH_AGENT_LABEL, DEFAULT_PREFS };
