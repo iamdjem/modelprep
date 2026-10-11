@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, keepAliveSummary, trayMenuModel, launchAgentPlist, LAUNCH_AGENT_LABEL } = require('./background-mode');
+const { readBackgroundPrefs, shouldStartHidden, keepAliveSchedule, keepAliveSummary, trayMenuModel, launchAgentPlist, launchAgentLabelFor, LAUNCH_AGENT_LABEL } = require('./background-mode');
 
 test('background mode is on unless the user turned it off', () => {
   assert.deepEqual(readBackgroundPrefs(null), { enabled: true });
@@ -45,4 +45,11 @@ test('the launch agent opens the app hidden at login and nothing else', () => {
   assert.match(plist, /<key>RunAtLoad<\/key><true\/>/);
   assert.match(plist, /<key>KeepAlive<\/key><false\/>/);
   assert.throws(() => launchAgentPlist({}), /execPath/);
+});
+
+test('a side-by-side build gets its own LaunchAgent label, the installed app keeps the original', () => {
+  assert.equal(launchAgentLabelFor('modelprep-desktop'), LAUNCH_AGENT_LABEL);
+  assert.equal(launchAgentLabelFor(), LAUNCH_AGENT_LABEL);
+  assert.equal(launchAgentLabelFor('modelprep-desktop-prototype'), `${LAUNCH_AGENT_LABEL}.modelprep-desktop-prototype`);
+  assert.equal(launchAgentLabelFor('odd name/x'), `${LAUNCH_AGENT_LABEL}.odd-name-x`);
 });
