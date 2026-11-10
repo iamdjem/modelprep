@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "modelprep-renderer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "deploy",
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    }
+  ]
+}
